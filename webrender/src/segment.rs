@@ -177,7 +177,8 @@ pub struct SegmentBuilder {
     items: Vec<Item>,
     inner_rect: Option<LayoutRect>,
     bounding_rect: Option<LayoutRect>,
-    
+    has_interesting_clips: bool,
+
     #[cfg(debug_assertions)]
     initialized: bool,
 }
@@ -190,6 +191,7 @@ impl SegmentBuilder {
             items: Vec::with_capacity(4),
             bounding_rect: None,
             inner_rect: None,
+            has_interesting_clips: false,
             #[cfg(debug_assertions)]
             initialized: false,
         }
@@ -207,7 +209,11 @@ impl SegmentBuilder {
 
         self.push_clip_rect(local_rect, None, ClipMode::Clip);
         self.push_clip_rect(local_clip_rect, None, ClipMode::Clip);
-                    
+
+        // This must be set after the push_clip_rect calls above, since we
+        // want to skip segment building if those are the only clips.
+        self.has_interesting_clips = false;
+
         #[cfg(debug_assertions)]
         {
             self.initialized = true;
@@ -226,6 +232,8 @@ impl SegmentBuilder {
         inner_rect: LayoutRect,
         inner_clip_mode: Option<ClipMode>,
     ) {
+        self.has_interesting_clips = true;
+
         if inner_rect.is_well_formed_and_nonempty() {
             debug_assert!(outer_rect.contains_rect(&inner_rect));
 
@@ -301,6 +309,8 @@ impl SegmentBuilder {
         radius: Option<BorderRadius>,
         mode: ClipMode,
     ) {
+        self.has_interesting_clips = true;
+
         // Keep track of a minimal bounding rect for the set of
         // segments that will be generated.
         if mode == ClipMode::Clip {
@@ -413,140 +423,152 @@ impl SegmentBuilder {
             None => return,
         };
 
-        // First, filter out any items that don't intersect
-        // with the visible bounding rect.
-        self.items.retain(|item| item.rect.intersects(&bounding_rect));
+        if self.has_interesting_clips {
+            // First, filter out any items that don't intersect
+            // with the visible bounding rect.
+            self.items.retain(|item| item.rect.intersects(&bounding_rect));
 
-        // Create events for each item
-        let mut x_events : SmallVec<[Event; 4]> = SmallVec::new();
-        let mut y_events : SmallVec<[Event; 4]> = SmallVec::new();
+            // Create events for each item
+            let mut x_events : SmallVec<[Event; 4]> = SmallVec::new();
+            let mut y_events : SmallVec<[Event; 4]> = SmallVec::new();
 
-        for (item_index, item) in self.items.iter().enumerate() {
-            let p0 = item.rect.origin;
-            let p1 = item.rect.bottom_right();
+            for (item_index, item) in self.items.iter().enumerate() {
+                let p0 = item.rect.origin;
+                let p1 = item.rect.bottom_right();
 
-            x_events.push(Event::begin(p0.x, item_index));
-            x_events.push(Event::end(p1.x, item_index));
-            y_events.push(Event::begin(p0.y, item_index));
-            y_events.push(Event::end(p1.y, item_index));
-        }
+                x_events.push(Event::begin(p0.x, item_index));
+                x_events.push(Event::end(p1.x, item_index));
+                y_events.push(Event::begin(p0.y, item_index));
+                y_events.push(Event::end(p1.y, item_index));
+            }
 
-        // Add the region events, if provided.
-        if let Some(inner_rect) = self.inner_rect {
-            x_events.push(Event::region(inner_rect.origin.x));
-            x_events.push(Event::region(inner_rect.origin.x + inner_rect.size.width));
+            // Add the region events, if provided.
+            if let Some(inner_rect) = self.inner_rect {
+                x_events.push(Event::region(inner_rect.origin.x));
+                x_events.push(Event::region(inner_rect.origin.x + inner_rect.size.width));
 
-            y_events.push(Event::region(inner_rect.origin.y));
-            y_events.push(Event::region(inner_rect.origin.y + inner_rect.size.height));
-        }
+                y_events.push(Event::region(inner_rect.origin.y));
+                y_events.push(Event::region(inner_rect.origin.y + inner_rect.size.height));
+            }
 
-        // Get the minimal bounding rect in app units. We will
-        // work in fixed point in order to avoid float precision
-        // error while handling events.
-        let p0 = LayoutPointAu::new(
-            Au::from_f32_px(bounding_rect.origin.x),
-            Au::from_f32_px(bounding_rect.origin.y),
-        );
+            // Get the minimal bounding rect in app units. We will
+            // work in fixed point in order to avoid float precision
+            // error while handling events.
+            let p0 = LayoutPointAu::new(
+                Au::from_f32_px(bounding_rect.origin.x),
+                Au::from_f32_px(bounding_rect.origin.y),
+            );
 
-        let p1 = LayoutPointAu::new(
-            Au::from_f32_px(bounding_rect.origin.x + bounding_rect.size.width),
-            Au::from_f32_px(bounding_rect.origin.y + bounding_rect.size.height),
-        );
+            let p1 = LayoutPointAu::new(
+                Au::from_f32_px(bounding_rect.origin.x + bounding_rect.size.width),
+                Au::from_f32_px(bounding_rect.origin.y + bounding_rect.size.height),
+            );
 
-        // Sort the events in ascending order.
-        x_events.sort();
-        y_events.sort();
+            // Sort the events in ascending order.
+            x_events.sort();
+            y_events.sort();
 
-        // Generate segments from the event lists, by sweeping the y-axis
-        // and then the x-axis for each event. This can generate a significant
-        // number of segments, but most importantly, it ensures that there are
-        // no t-junctions in the generated segments. It's probably possible
-        // to come up with more efficient segmentation algorithms, at least
-        // for simple / common cases.
+            // Generate segments from the event lists, by sweeping the y-axis
+            // and then the x-axis for each event. This can generate a significant
+            // number of segments, but most importantly, it ensures that there are
+            // no t-junctions in the generated segments. It's probably possible
+            // to come up with more efficient segmentation algorithms, at least
+            // for simple / common cases.
 
-        // Each coordinate is clamped to the bounds of the minimal
-        // bounding rect. This ensures that we don't generate segments
-        // outside that bounding rect, but does allow correctly handling
-        // clips where the clip region starts outside the minimal
-        // rect but still intersects with it.
+            // Each coordinate is clamped to the bounds of the minimal
+            // bounding rect. This ensures that we don't generate segments
+            // outside that bounding rect, but does allow correctly handling
+            // clips where the clip region starts outside the minimal
+            // rect but still intersects with it.
 
-        let mut prev_y = clamp(p0.y, y_events[0].value, p1.y);
-        let mut region_y = 0;
-        let mut segments : SmallVec<[_; 4]> = SmallVec::new();
-        let mut x_count = 0;
-        let mut y_count = 0;
+            let mut prev_y = clamp(p0.y, y_events[0].value, p1.y);
+            let mut region_y = 0;
+            let mut segments : SmallVec<[_; 4]> = SmallVec::new();
+            let mut x_count = 0;
+            let mut y_count = 0;
 
-        for ey in &y_events {
-            let cur_y = clamp(p0.y, ey.value, p1.y);
+            for ey in &y_events {
+                let cur_y = clamp(p0.y, ey.value, p1.y);
 
-            if cur_y != prev_y {
-                let mut prev_x = clamp(p0.x, x_events[0].value, p1.x);
-                let mut region_x = 0;
+                if cur_y != prev_y {
+                    let mut prev_x = clamp(p0.x, x_events[0].value, p1.x);
+                    let mut region_x = 0;
 
-                for ex in &x_events {
-                    let cur_x = clamp(p0.x, ex.value, p1.x);
+                    for ex in &x_events {
+                        let cur_x = clamp(p0.x, ex.value, p1.x);
 
-                    if cur_x != prev_x {
-                        segments.push(emit_segment_if_needed(
-                            prev_x,
-                            prev_y,
-                            cur_x,
-                            cur_y,
-                            region_x,
-                            region_y,
-                            &self.items,
-                        ));
+                        if cur_x != prev_x {
+                            segments.push(emit_segment_if_needed(
+                                prev_x,
+                                prev_y,
+                                cur_x,
+                                cur_y,
+                                region_x,
+                                region_y,
+                                &self.items,
+                            ));
 
-                        prev_x = cur_x;
-                        if y_count == 0 {
-                            x_count += 1;
+                            prev_x = cur_x;
+                            if y_count == 0 {
+                                x_count += 1;
+                            }
                         }
+
+                        ex.update(
+                            ItemFlags::X_ACTIVE,
+                            &mut self.items,
+                            &mut region_x,
+                        );
                     }
 
-                    ex.update(
-                        ItemFlags::X_ACTIVE,
-                        &mut self.items,
-                        &mut region_x,
-                    );
+                    prev_y = cur_y;
+                    y_count += 1;
                 }
 
-                prev_y = cur_y;
-                y_count += 1;
+                ey.update(
+                    ItemFlags::Y_ACTIVE,
+                    &mut self.items,
+                    &mut region_y,
+                );
             }
 
-            ey.update(
-                ItemFlags::Y_ACTIVE,
-                &mut self.items,
-                &mut region_y,
-            );
-        }
+            // Run user supplied closure for each valid segment.
+            debug_assert_eq!(segments.len(), x_count * y_count);
+            for y in 0 .. y_count {
+                for x in 0 .. x_count {
+                    let mut edge_flags = EdgeAaSegmentMask::empty();
 
-        // Run user supplied closure for each valid segment.
-        debug_assert_eq!(segments.len(), x_count * y_count);
-        for y in 0 .. y_count {
-            for x in 0 .. x_count {
-                let mut edge_flags = EdgeAaSegmentMask::empty();
+                    if x == 0 || segments[y * x_count + x - 1].is_none() {
+                        edge_flags |= EdgeAaSegmentMask::LEFT;
+                    }
+                    if x == x_count-1 || segments[y * x_count + x + 1].is_none() {
+                        edge_flags |= EdgeAaSegmentMask::RIGHT;
+                    }
+                    if y == 0 || segments[(y-1) * x_count + x].is_none() {
+                        edge_flags |= EdgeAaSegmentMask::TOP;
+                    }
+                    if y == y_count-1 || segments[(y+1) * x_count + x].is_none() {
+                        edge_flags |= EdgeAaSegmentMask::BOTTOM;
+                    }
 
-                if x == 0 || segments[y * x_count + x - 1].is_none() {
-                    edge_flags |= EdgeAaSegmentMask::LEFT;
-                }
-                if x == x_count-1 || segments[y * x_count + x + 1].is_none() {
-                    edge_flags |= EdgeAaSegmentMask::RIGHT;
-                }
-                if y == 0 || segments[(y-1) * x_count + x].is_none() {
-                    edge_flags |= EdgeAaSegmentMask::TOP;
-                }
-                if y == y_count-1 || segments[(y+1) * x_count + x].is_none() {
-                    edge_flags |= EdgeAaSegmentMask::BOTTOM;
-                }
-
-                if let Some(ref mut segment) = segments[y * x_count + x] {
-                    segment.edge_flags = edge_flags;
-                    f(segment);
+                    if let Some(ref mut segment) = segments[y * x_count + x] {
+                        segment.edge_flags = edge_flags;
+                        f(segment);
+                    }
                 }
             }
+        } else {
+            // There were no additional clips added, so don't bother building segments.
+            // Just emit a single segment for the bounding rect of the primitive.
+            f(&Segment {
+                edge_flags: EdgeAaSegmentMask::all(),
+                region_x: 0,
+                region_y: 0,
+                has_mask: false,
+                rect: bounding_rect,
+            })
         }
-      
+
         #[cfg(debug_assertions)]
         {
             self.initialized = false;
@@ -677,6 +699,8 @@ mod test {
             inner_rect,
             local_clip_rect,
         );
+        sb.push_clip_rect(local_rect, None, ClipMode::Clip);
+        sb.push_clip_rect(local_clip_rect, None, ClipMode::Clip);
         let mut segments = Vec::new();
         for &(rect, radius, mode) in clips {
             sb.push_clip_rect(rect, radius, mode);
