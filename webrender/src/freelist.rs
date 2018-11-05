@@ -20,7 +20,7 @@
 //! TODO(gw): Add an occupied list head, for fast iteration of the occupied list
 //! to implement retain() style functionality.
 
-use std::fmt;
+use std::{fmt, u32};
 use std::marker::PhantomData;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -65,6 +65,14 @@ impl<M> FreeListHandle<M> {
         WeakFreeListHandle {
             index: self.index,
             epoch: self.epoch,
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn invalid() -> Self {
+        FreeListHandle {
+            index: u32::MAX,
+            epoch: Epoch(u32::MAX),
             _marker: PhantomData,
         }
     }
