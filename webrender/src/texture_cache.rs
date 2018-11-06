@@ -81,24 +81,20 @@ impl CacheEntry {
     // Create a new entry for a standalone texture.
     fn new_standalone(
         texture_id: CacheTextureId,
-        size: DeviceUintSize,
-        format: ImageFormat,
-        filter: TextureFilter,
-        user_data: [f32; 3],
         last_access: FrameId,
-        uv_rect_kind: UvRectKind,
+        params: &CacheAllocParams,
     ) -> Self {
         CacheEntry {
-            size,
-            user_data,
+            size: params.descriptor.size,
+            user_data: params.user_data,
             last_access,
             kind: EntryKind::Standalone,
             texture_id,
-            format,
-            filter,
+            format: params.descriptor.format,
+            filter: params.filter,
             uv_rect_handle: GpuCacheHandle::new(),
             eviction_notice: None,
-            uv_rect_kind,
+            uv_rect_kind: params.uv_rect_kind,
             eviction: Eviction::Auto,
         }
     }
@@ -282,6 +278,14 @@ impl EntryHandles {
             &mut self.shared
         }
     }
+}
+
+/// Container struct for the various parameters used in cache allocation.
+struct CacheAllocParams {
+    descriptor: ImageDescriptor,
+    filter: TextureFilter,
+    user_data: [f32; 3],
+    uv_rect_kind: UvRectKind,
 }
 
 /// General-purpose manager for images in GPU memory. This includes images,
@@ -487,13 +491,8 @@ impl TextureCache {
         };
 
         if realloc {
-            self.allocate(
-                handle,
-                descriptor,
-                filter,
-                user_data,
-                uv_rect_kind,
-            );
+            let params = CacheAllocParams { descriptor, filter, user_data, uv_rect_kind };
+            self.allocate(&params, handle);
 
             // If we reallocated, we need to upload the whole item again.
             dirty_rect = None;
@@ -766,13 +765,13 @@ impl TextureCache {
     // Attempt to allocate a block from the shared cache.
     fn allocate_from_shared_cache(
         &mut self,
-        descriptor: &ImageDescriptor,
-        filter: TextureFilter,
-        user_data: [f32; 3],
-        uv_rect_kind: UvRectKind,
+        params: &CacheAllocParams
     ) -> Option<CacheEntry> {
         // Mutably borrow the correct texture.
-        let texture_array = self.shared_textures.select(descriptor.format, filter);
+        let texture_array = self.shared_textures.select(
+            params.descriptor.format,
+            params.filter,
+        );
 
         // Lazy initialize this texture array if required.
         if texture_array.texture_id.is_none() {
@@ -783,7 +782,7 @@ impl TextureCache {
             let info = TextureCacheAllocInfo {
                 width: TEXTURE_REGION_DIMENSIONS,
                 height: TEXTURE_REGION_DIMENSIONS,
-                format: descriptor.format,
+                format: params.descriptor.format,
                 filter: texture_array.filter,
                 layer_count: 1,
             };
@@ -795,12 +794,7 @@ impl TextureCache {
 
         // Do the allocation. This can fail and return None
         // if there are no free slots or regions available.
-        texture_array.alloc(
-            descriptor.size,
-            user_data,
-            self.frame_id,
-            uv_rect_kind,
-        )
+        texture_array.alloc(params, self.frame_id)
     }
 
     // Returns true if the given image descriptor *may* be
@@ -832,37 +826,29 @@ impl TextureCache {
         allowed_in_shared_cache
     }
 
-    // Allocate storage for a given image. This attempts to allocate
-    // from the shared cache, but falls back to standalone texture
-    // if the image is too large, or the cache is full.
-    fn allocate(
+    /// Allocates a cache entry appropriate for the given parameters.
+    ///
+    /// This allocates from the shared cache unless the parameters do not meet
+    /// the shared cache requirements, in which case a standalone texture is
+    /// used.
+    fn allocate_cache_entry(
         &mut self,
-        handle: &mut TextureCacheHandle,
-        descriptor: ImageDescriptor,
-        filter: TextureFilter,
-        user_data: [f32; 3],
-        uv_rect_kind: UvRectKind,
-    ) {
-        assert!(descriptor.size.width > 0 && descriptor.size.height > 0);
+        params: &CacheAllocParams,
+    ) -> CacheEntry {
+        assert!(params.descriptor.size.width > 0 && params.descriptor.size.height > 0);
 
         // Work out if this image qualifies to go in the shared (batching) cache.
         let allowed_in_shared_cache = self.is_allowed_in_shared_cache(
-            filter,
-            &descriptor,
+            params.filter,
+            &params.descriptor,
         );
-        let mut allocated_standalone = false;
         let mut new_cache_entry = None;
         let frame_id = self.frame_id;
 
         // If it's allowed in the cache, see if there is a spot for it.
         if allowed_in_shared_cache {
 
-            new_cache_entry = self.allocate_from_shared_cache(
-                &descriptor,
-                filter,
-                user_data,
-                uv_rect_kind,
-            );
+            new_cache_entry = self.allocate_from_shared_cache(params);
 
             // If we failed to allocate in the shared cache, make some space
             // and then try to allocate again. If we still have room to grow
@@ -872,14 +858,14 @@ impl TextureCache {
             // before the cache fills up eintirely.
             if new_cache_entry.is_none() {
                 let reallocated = {
-                    let texture_array = self.shared_textures.select(descriptor.format, filter);
+                    let texture_array = self.shared_textures.select(params.descriptor.format, params.filter);
                     let num_regions = texture_array.regions.len();
                     if num_regions < texture_array.max_layer_count {
                         // We have room to grow.
                         let info = TextureCacheAllocInfo {
                             width: TEXTURE_REGION_DIMENSIONS,
                             height: TEXTURE_REGION_DIMENSIONS,
-                            format: descriptor.format,
+                            format: params.descriptor.format,
                             filter: texture_array.filter,
                             layer_count: (num_regions + 1) as i32,
                         };
@@ -892,15 +878,10 @@ impl TextureCache {
                 };
                 if !reallocated {
                     // Out of room. Evict.
-                    self.expire_old_shared_entries(&descriptor);
+                    self.expire_old_shared_entries(&params.descriptor);
                 }
 
-                new_cache_entry = self.allocate_from_shared_cache(
-                    &descriptor,
-                    filter,
-                    user_data,
-                    uv_rect_kind,
-                );
+                new_cache_entry = self.allocate_from_shared_cache(params);
             }
         }
 
@@ -913,27 +894,29 @@ impl TextureCache {
 
             // Push a command to allocate device storage of the right size / format.
             let info = TextureCacheAllocInfo {
-                width: descriptor.size.width,
-                height: descriptor.size.height,
-                format: descriptor.format,
-                filter,
+                width: params.descriptor.size.width,
+                height: params.descriptor.size.height,
+                format: params.descriptor.format,
+                filter: params.filter,
                 layer_count: 1,
             };
             self.pending_updates.push_alloc(texture_id, info);
 
             new_cache_entry = Some(CacheEntry::new_standalone(
                 texture_id,
-                descriptor.size,
-                descriptor.format,
-                filter,
-                user_data,
                 frame_id,
-                uv_rect_kind,
+                params,
             ));
-
-            allocated_standalone = true;
         }
-        let new_cache_entry = new_cache_entry.expect("BUG: must have allocated by now");
+
+        new_cache_entry.unwrap()
+    }
+
+    /// Allocates a cache entry for the given parameters, and updates the
+    /// provided handle to point to the new entry.
+    fn allocate(&mut self, params: &CacheAllocParams, handle: &mut TextureCacheHandle) {
+        let new_cache_entry = self.allocate_cache_entry(params);
+        let allocated_standalone = new_cache_entry.kind.is_standalone();
 
         // If the handle points to a valid cache entry, we want to replace the
         // cache entry with our newly updated location. We also need to ensure
@@ -1151,17 +1134,15 @@ impl TextureArray {
         }
     }
 
-    // Allocate space in this texture array.
+    /// Allocate space in this texture array.
     fn alloc(
         &mut self,
-        size: DeviceUintSize,
-        user_data: [f32; 3],
+        params: &CacheAllocParams,
         frame_id: FrameId,
-        uv_rect_kind: UvRectKind,
     ) -> Option<CacheEntry> {
         // Quantize the size of the allocation to select a region to
         // allocate from.
-        let slab_size = SlabSize::new(size);
+        let slab_size = SlabSize::new(params.descriptor.size);
 
         // TODO(gw): For simplicity, the initial implementation just
         //           has a single vec<> of regions. We could easily
@@ -1206,8 +1187,8 @@ impl TextureArray {
 
         entry_kind.map(|kind| {
             CacheEntry {
-                size,
-                user_data,
+                size: params.descriptor.size,
+                user_data: params.user_data,
                 last_access: frame_id,
                 kind,
                 uv_rect_handle: GpuCacheHandle::new(),
@@ -1215,7 +1196,7 @@ impl TextureArray {
                 filter: self.filter,
                 texture_id: self.texture_id.unwrap(),
                 eviction_notice: None,
-                uv_rect_kind,
+                uv_rect_kind: params.uv_rect_kind,
                 eviction: Eviction::Auto,
             }
         })
