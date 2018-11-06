@@ -198,7 +198,7 @@ struct SharedTextures {
 
 impl SharedTextures {
     /// Mints a new set of shared textures.
-    fn new(max_texture_layers: usize) -> Self {
+    fn new() -> Self {
         Self {
             // Used primarily for cached shadow masks. There can be lots of
             // these on some pages like francine, but most pages don't use it
@@ -206,32 +206,24 @@ impl SharedTextures {
             array_a8_linear: TextureArray::new(
                 ImageFormat::R8,
                 TextureFilter::Linear,
-                max_texture_layers.min(4),
             ),
             // Used for experimental hdr yuv texture support, but not used in
             // production Firefox.
             array_a16_linear: TextureArray::new(
                 ImageFormat::R16,
                 TextureFilter::Linear,
-                max_texture_layers.min(4),
             ),
             // The primary cache for images, glyphs, etc.
             array_rgba8_linear: TextureArray::new(
                 ImageFormat::BGRA8,
                 TextureFilter::Linear,
-                max_texture_layers.min(64),
             ),
             // Used for image-rendering: crisp. This is mostly favicons, which
             // are small. Some other images use it too, but those tend to be
             // larger than 512x512 and thus don't use the shared cache anyway.
-            //
-            // Even though most of the buckets will be sparsely-used, we still
-            // need a few to account for different favicon sizes. 4 seems enough
-            // in practice, though we might also be able to get away with 2 or 3.
             array_rgba8_nearest: TextureArray::new(
                 ImageFormat::BGRA8,
                 TextureFilter::Nearest,
-                max_texture_layers.min(4),
             ),
         }
     }
@@ -328,6 +320,9 @@ pub struct TextureCache {
     /// The current frame ID. Used for cache eviction policies.
     frame_id: FrameId,
 
+    /// The last FrameId in which we expired the shared cache.
+    last_shared_cache_expiration: FrameId,
+
     /// Maintains the list of all current items in the texture cache.
     entries: FreeList<CacheEntry, CacheEntryMarker>,
 
@@ -363,12 +358,13 @@ impl TextureCache {
             max_texture_layers = max_texture_layers.min(32);
         }
         TextureCache {
-            shared_textures: SharedTextures::new(max_texture_layers),
+            shared_textures: SharedTextures::new(),
             max_texture_size,
             max_texture_layers,
             next_id: CacheTextureId(1),
             pending_updates: TextureUpdateList::new(),
             frame_id: FrameId::invalid(),
+            last_shared_cache_expiration: FrameId::invalid(),
             entries: FreeList::new(),
             handles: EntryHandles::default(),
         }
@@ -621,20 +617,25 @@ impl TextureCache {
     }
 
     /// Expires old standalone textures. Called at the end of every frame.
-    ///
-    /// Most of the time, standalone cache entries correspond to images whose
-    /// width or height is greater than the region size in the shared cache, i.e.
-    /// 512 pixels. Cached render tasks also frequently get standalone entries,
-    /// but those use the Eviction::Eager policy (for now). So the tradeoff here
-    /// is largely around reducing texture upload jank while keeping memory usage
-    /// at an acceptable level.
+    fn expire_old_standalone_entries(&mut self) {
+        self.expire_old_entries(true);
+    }
+
+    /// Shared eviction code for standalone and shared entries.
     ///
     /// Our eviction scheme is based on the age of the entry, i.e. the difference
     /// between the current frame index and that of the last frame in
     /// which the entry was used. It does not directly consider the size of the
     /// entry, but does consider overall memory usage by WebRender, by making
     /// eviction increasingly aggressive as overall memory usage increases.
-    fn expire_old_standalone_entries(&mut self) {
+    ///
+    /// Most of the time, standalone cache entries correspond to images whose
+    /// width or height is greater than the region size in the shared cache, i.e.
+    /// 512 pixels. Cached render tasks also frequently get standalone entries,
+    /// but those use the Eviction::Eager policy (for now). So the tradeoff there
+    /// is largely around reducing texture upload jank while keeping memory usage
+    /// at an acceptable level.
+    fn expire_old_entries(&mut self, for_standalone: bool) {
         // These parameters are based on some discussion and local tuning, but
         // no hard measurement. There may be room for improvement.
         //
@@ -647,7 +648,7 @@ impl TextureCache {
             (total_gpu_bytes_allocated() as f64 / MAX_MEMORY_PRESSURE_BYTES as f64).min(1.0);
 
         // Use the pressure factor to compute the maximum number of frames that
-        // a standalone texture can go unused before being evicted.
+        // an entry can go unused before being evicted.
         let max_frame_age_raw =
             ((1.0 - pressure_factor) * MAX_FRAME_AGE_WITHOUT_PRESSURE) as usize;
 
@@ -661,9 +662,9 @@ impl TextureCache {
         // Iterate over the entries in reverse order, evicting the ones older than
         // the frame age threshold. Reverse order avoids iterator invalidation when
         // removing entries.
-        for i in (0..self.handles.standalone.len()).rev() {
+        for i in (0..self.handles.select(for_standalone).len()).rev() {
             let evict = {
-                let entry = self.entries.get(&self.handles.standalone[i]);
+                let entry = self.entries.get(&self.handles.select(for_standalone)[i]);
                 match entry.eviction {
                     Eviction::Manual => false,
                     Eviction::Auto => entry.last_access < frame_id_threshold,
@@ -671,7 +672,7 @@ impl TextureCache {
                 }
             };
             if evict {
-                let handle = self.handles.standalone.swap_remove(i);
+                let handle = self.handles.select(for_standalone).swap_remove(i);
                 let entry = self.entries.free(handle);
                 entry.evict();
                 self.free(entry);
@@ -679,72 +680,24 @@ impl TextureCache {
         }
     }
 
-    // Expire old shared items. Pass in the allocation size
-    // that is being requested, so we know when we've evicted
-    // enough items to guarantee we can fit this allocation in
-    // the cache.
-    fn expire_old_shared_entries(&mut self, required_alloc: &ImageDescriptor) {
-        let mut eviction_candidates = Vec::new();
-        let mut retained_entries = Vec::new();
-
-        // Build a list of eviction candidates (which are
-        // anything not used this frame).
-        for handle in self.handles.shared.drain(..) {
-            let entry = self.entries.get(&handle);
-            if entry.eviction == Eviction::Manual || entry.last_access == self.frame_id {
-                retained_entries.push(handle);
-            } else {
-                eviction_candidates.push(handle);
-            }
+    /// Expires old shared entries, if we haven't done so recently.
+    ///
+    /// Returns true if any entries were expired.
+    fn maybe_expire_old_shared_entries(&mut self) -> bool {
+        let old_len = self.handles.shared.len();
+        if self.last_shared_cache_expiration + 25 < self.frame_id {
+            self.expire_old_entries(false);
+            self.last_shared_cache_expiration = self.frame_id;
         }
-
-        // Sort by access time so we remove the oldest ones first.
-        eviction_candidates.sort_by_key(|handle| {
-            let entry = self.entries.get(handle);
-            entry.last_access
-        });
-
-        // Doing an eviction is quite expensive, so we don't want to
-        // do it all the time. To avoid this, try and evict a
-        // significant number of items each cycle. However, we don't
-        // want to evict everything we can, since that will result in
-        // more items being uploaded than necessary.
-        // Instead, we say we will keep evicting until both of these
-        // conditions are met:
-        // - We have evicted some arbitrary number of items (512 currently).
-        //   AND
-        // - We have freed an item that will definitely allow us to
-        //   fit the currently requested allocation.
-        let needed_slab_size = SlabSize::new(required_alloc.size);
-        let mut found_matching_slab = false;
-        let mut freed_complete_page = false;
-        let mut evicted_items = 0;
-
-        for handle in eviction_candidates {
-            if evicted_items > 512 && (found_matching_slab || freed_complete_page) {
-                retained_entries.push(handle);
-            } else {
-                let entry = self.entries.free(handle);
-                entry.evict();
-                if let Some(region) = self.free(entry) {
-                    found_matching_slab |= region.slab_size == needed_slab_size;
-                    freed_complete_page |= region.is_empty();
-                }
-                evicted_items += 1;
-            }
-        }
-
-        // Keep a record of the remaining handles for next eviction cycle.
-        self.handles.shared = retained_entries;
+        self.handles.shared.len() != old_len
     }
 
     // Free a cache entry from the standalone list or shared cache.
-    fn free(&mut self, entry: CacheEntry) -> Option<&TextureRegion> {
+    fn free(&mut self, entry: CacheEntry) {
         match entry.kind {
             EntryKind::Standalone { .. } => {
                 // This is a standalone texture allocation. Free it directly.
                 self.pending_updates.push_free(entry.texture_id);
-                None
             }
             EntryKind::Cache {
                 origin,
@@ -757,7 +710,6 @@ impl TextureCache {
                     layer_index,
                 );
                 region.free(origin);
-                Some(region)
             }
         }
     }
@@ -826,6 +778,31 @@ impl TextureCache {
         allowed_in_shared_cache
     }
 
+    /// Allocates a new standalone cache entry.
+    fn allocate_standalone_entry(
+        &mut self,
+        params: &CacheAllocParams,
+    ) -> CacheEntry {
+        let texture_id = self.next_id;
+        self.next_id.0 += 1;
+
+        // Push a command to allocate device storage of the right size / format.
+        let info = TextureCacheAllocInfo {
+            width: params.descriptor.size.width,
+            height: params.descriptor.size.height,
+            format: params.descriptor.format,
+            filter: params.filter,
+            layer_count: 1,
+        };
+        self.pending_updates.push_alloc(texture_id, info);
+
+        return CacheEntry::new_standalone(
+            texture_id,
+            self.frame_id,
+            params,
+        );
+    }
+
     /// Allocates a cache entry appropriate for the given parameters.
     ///
     /// This allocates from the shared cache unless the parameters do not meet
@@ -837,79 +814,54 @@ impl TextureCache {
     ) -> CacheEntry {
         assert!(params.descriptor.size.width > 0 && params.descriptor.size.height > 0);
 
-        // Work out if this image qualifies to go in the shared (batching) cache.
-        let allowed_in_shared_cache = self.is_allowed_in_shared_cache(
-            params.filter,
-            &params.descriptor,
-        );
-        let mut new_cache_entry = None;
-        let frame_id = self.frame_id;
+        // If this image doesn't qualify to go in the shared (batching) cache,
+        // allocate a standalone entry.
+        if !self.is_allowed_in_shared_cache(params.filter, &params.descriptor) {
+            return self.allocate_standalone_entry(params);
+        }
 
-        // If it's allowed in the cache, see if there is a spot for it.
-        if allowed_in_shared_cache {
 
-            new_cache_entry = self.allocate_from_shared_cache(params);
+        // Try allocating from the shared cache.
+        if let Some(entry) = self.allocate_from_shared_cache(params) {
+            return entry;
+        }
 
-            // If we failed to allocate in the shared cache, make some space
-            // and then try to allocate again. If we still have room to grow
-            // the cache, we do that. Otherwise, we evict.
-            //
-            // We should improve this logic to support some degree of eviction
-            // before the cache fills up eintirely.
-            if new_cache_entry.is_none() {
-                let reallocated = {
-                    let texture_array = self.shared_textures.select(params.descriptor.format, params.filter);
-                    let num_regions = texture_array.regions.len();
-                    if num_regions < texture_array.max_layer_count {
-                        // We have room to grow.
-                        let info = TextureCacheAllocInfo {
-                            width: TEXTURE_REGION_DIMENSIONS,
-                            height: TEXTURE_REGION_DIMENSIONS,
-                            format: params.descriptor.format,
-                            filter: texture_array.filter,
-                            layer_count: (num_regions + 1) as i32,
-                        };
-                        self.pending_updates.push_realloc(texture_array.texture_id.unwrap(), info);
-                        texture_array.regions.push(TextureRegion::new(num_regions));
-                        true
-                    } else {
-                        false
-                    }
-                };
-                if !reallocated {
-                    // Out of room. Evict.
-                    self.expire_old_shared_entries(&params.descriptor);
-                }
-
-                new_cache_entry = self.allocate_from_shared_cache(params);
+        // If we failed to allocate and haven't GCed in a while, do so and try
+        // again.
+        if self.maybe_expire_old_shared_entries() {
+            if let Some(entry) = self.allocate_from_shared_cache(params) {
+                return entry;
             }
         }
 
-        // If not allowed in the cache, or if the shared cache is full, then it
-        // will just have to be in a unique texture. This hurts batching but should
-        // only occur on a small number of images (or pathological test cases!).
-        if new_cache_entry.is_none() {
-            let texture_id = self.next_id;
-            self.next_id.0 += 1;
+        let added_layer = {
+            // If we've hit our layer limit, allocate standalone.
+            let texture_array =
+                self.shared_textures.select(params.descriptor.format, params.filter);
+            let num_regions = texture_array.regions.len();
+            // Add a layer, unless we've hit our limit.
+            if num_regions < self.max_texture_layers as usize {
+                let info = TextureCacheAllocInfo {
+                    width: TEXTURE_REGION_DIMENSIONS,
+                    height: TEXTURE_REGION_DIMENSIONS,
+                    format: params.descriptor.format,
+                    filter: texture_array.filter,
+                    layer_count: (num_regions + 1) as i32,
+                };
+                self.pending_updates.push_realloc(texture_array.texture_id.unwrap(), info);
+                texture_array.regions.push(TextureRegion::new(num_regions));
+                true
+            } else {
+                false
+            }
+        };
 
-            // Push a command to allocate device storage of the right size / format.
-            let info = TextureCacheAllocInfo {
-                width: params.descriptor.size.width,
-                height: params.descriptor.size.height,
-                format: params.descriptor.format,
-                filter: params.filter,
-                layer_count: 1,
-            };
-            self.pending_updates.push_alloc(texture_id, info);
-
-            new_cache_entry = Some(CacheEntry::new_standalone(
-                texture_id,
-                frame_id,
-                params,
-            ));
+        if added_layer {
+            self.allocate_from_shared_cache(params)
+                .expect("Allocation should succeed after adding a fresh layer")
+        } else {
+            self.allocate_standalone_entry(params)
         }
-
-        new_cache_entry.unwrap()
     }
 
     /// Allocates a cache entry for the given parameters, and updates the
@@ -1095,7 +1047,6 @@ impl TextureRegion {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct TextureArray {
     filter: TextureFilter,
-    max_layer_count: usize,
     format: ImageFormat,
     regions: Vec<TextureRegion>,
     texture_id: Option<CacheTextureId>,
@@ -1105,12 +1056,10 @@ impl TextureArray {
     fn new(
         format: ImageFormat,
         filter: TextureFilter,
-        max_layer_count: usize,
     ) -> Self {
         TextureArray {
             format,
             filter,
-            max_layer_count,
             regions: Vec::new(),
             texture_id: None,
         }
