@@ -149,6 +149,9 @@ tasks:
             git checkout {{event.head.sha}}
             source $HOME/servotidy-venv/bin/activate
             servo-tidy
+            sccache --stop-server || true
+            mkdir -p ../artifacts
+            RUST_LOG=sccache=debug SCCACHE_ERROR_LOG=$PWD/../artifacts/sccache.log sccache --start-server
             export RUST_BACKTRACE=full
             export RUSTFLAGS='--deny warnings'
             export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH"
@@ -156,6 +159,11 @@ tasks:
             (cd wrench && python script/headless.py reftest)
             (cd wrench && cargo build --release)
             (cd wrench && cargo run --release -- --precache reftest reftests/clip/fixed-position-clipping.yaml)
+            sccache --stop-server || true
+      artifacts:
+        - name: public/sccache.log
+          path: artifacts/sccache.log
+          type: file
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.osx-release"
   - metadata:
@@ -185,6 +193,9 @@ tasks:
             git checkout {{event.head.sha}}
             source $HOME/servotidy-venv/bin/activate
             servo-tidy
+            sccache --stop-server || true
+            mkdir -p ../artifacts
+            RUST_LOG=sccache=debug SCCACHE_ERROR_LOG=$PWD/../artifacts/sccache.log sccache --start-server
             export RUST_BACKTRACE=full
             export RUSTFLAGS='--deny warnings'
             export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH"
@@ -198,5 +209,10 @@ tasks:
             (cd wrench && cargo check --verbose --features env_logger)
             (cd examples && cargo check --verbose)
             (cargo test --all --verbose)
+            sccache --stop-server || true
+      artifacts:
+        - name: public/sccache.log
+          path: artifacts/sccache.log
+          type: file
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.osx-debug"
