@@ -260,6 +260,30 @@ impl SharedTextures {
     }
 }
 
+/// Lists of strong handles owned by the texture cache. There is only one strong
+/// handle for each entry, but unlimited weak handles. Consumers receive the weak
+/// handles, and `TextureCache` owns the strong handles internally.
+#[derive(Default)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+struct EntryHandles {
+    /// Handles for each standalone texture cache entry.
+    standalone: Vec<FreeListHandle<CacheEntryMarker>>,
+    /// Handles for each shared texture cache entry.
+    shared: Vec<FreeListHandle<CacheEntryMarker>>,
+}
+
+impl EntryHandles {
+    /// Mutably borrows the requested handle list.
+    fn select(&mut self, standalone: bool) -> &mut Vec<FreeListHandle<CacheEntryMarker>> {
+        if standalone {
+            &mut self.standalone
+        } else {
+            &mut self.shared
+        }
+    }
+}
+
 /// General-purpose manager for images in GPU memory. This includes images,
 /// rasterized glyphs, rasterized blobs, cached render tasks, etc.
 ///
@@ -283,37 +307,28 @@ pub struct TextureCache {
     /// Set of texture arrays in different formats used for the shared cache.
     shared_textures: SharedTextures,
 
-    // Maximum texture size supported by hardware.
+    /// Maximum texture size supported by hardware.
     max_texture_size: u32,
 
-    // Maximum number of texture layers supported by hardware.
+    /// Maximum number of texture layers supported by hardware.
     max_texture_layers: usize,
 
-    // The next unused virtual texture ID. Monotonically increasing.
+    /// The next unused virtual texture ID. Monotonically increasing.
     next_id: CacheTextureId,
 
-    // A list of allocations and updates that need to be
-    // applied to the texture cache in the rendering thread
-    // this frame.
+    /// A list of allocations and updates that need to be applied to the texture
+    /// cache in the rendering thread this frame.
     #[cfg_attr(all(feature = "serde", any(feature = "capture", feature = "replay")), serde(skip))]
     pending_updates: TextureUpdateList,
 
-    // The current frame ID. Used for cache eviction policies.
+    /// The current frame ID. Used for cache eviction policies.
     frame_id: FrameId,
 
-    // Maintains the list of all current items in
-    // the texture cache.
+    /// Maintains the list of all current items in the texture cache.
     entries: FreeList<CacheEntry, CacheEntryMarker>,
 
-    // A list of the strong handles of items that were
-    // allocated in the standalone texture pool. Used
-    // for evicting old standalone textures.
-    standalone_entry_handles: Vec<FreeListHandle<CacheEntryMarker>>,
-
-    // A list of the strong handles of items that were
-    // allocated in the shared texture cache. Used
-    // for evicting old cache items.
-    shared_entry_handles: Vec<FreeListHandle<CacheEntryMarker>>,
+    /// Strong handles for all entries allocated from the above `FreeList`.
+    handles: EntryHandles,
 }
 
 impl TextureCache {
@@ -351,14 +366,13 @@ impl TextureCache {
             pending_updates: TextureUpdateList::new(),
             frame_id: FrameId::invalid(),
             entries: FreeList::new(),
-            standalone_entry_handles: Vec::new(),
-            shared_entry_handles: Vec::new(),
+            handles: EntryHandles::default(),
         }
     }
 
     pub fn clear(&mut self) {
         let standalone_entry_handles = mem::replace(
-            &mut self.standalone_entry_handles,
+            &mut self.handles.standalone,
             Vec::new(),
         );
 
@@ -369,7 +383,7 @@ impl TextureCache {
         }
 
         let shared_entry_handles = mem::replace(
-            &mut self.shared_entry_handles,
+            &mut self.handles.shared,
             Vec::new(),
         );
 
@@ -648,9 +662,9 @@ impl TextureCache {
         // Iterate over the entries in reverse order, evicting the ones older than
         // the frame age threshold. Reverse order avoids iterator invalidation when
         // removing entries.
-        for i in (0..self.standalone_entry_handles.len()).rev() {
+        for i in (0..self.handles.standalone.len()).rev() {
             let evict = {
-                let entry = self.entries.get(&self.standalone_entry_handles[i]);
+                let entry = self.entries.get(&self.handles.standalone[i]);
                 match entry.eviction {
                     Eviction::Manual => false,
                     Eviction::Auto => entry.last_access < frame_id_threshold,
@@ -658,7 +672,7 @@ impl TextureCache {
                 }
             };
             if evict {
-                let handle = self.standalone_entry_handles.swap_remove(i);
+                let handle = self.handles.standalone.swap_remove(i);
                 let entry = self.entries.free(handle);
                 entry.evict();
                 self.free(entry);
@@ -676,7 +690,7 @@ impl TextureCache {
 
         // Build a list of eviction candidates (which are
         // anything not used this frame).
-        for handle in self.shared_entry_handles.drain(..) {
+        for handle in self.handles.shared.drain(..) {
             let entry = self.entries.get(&handle);
             if entry.eviction == Eviction::Manual || entry.last_access == self.frame_id {
                 retained_entries.push(handle);
@@ -722,7 +736,7 @@ impl TextureCache {
         }
 
         // Keep a record of the remaining handles for next eviction cycle.
-        self.shared_entry_handles = retained_entries;
+        self.handles.shared = retained_entries;
     }
 
     // Free a cache entry from the standalone list or shared cache.
@@ -937,9 +951,9 @@ impl TextureCache {
                     // shared to standalone or vice versa. This involves a linear
                     // search, but should be rare enough not to matter.
                     let (from, to) = if allocated_standalone {
-                        (&mut self.shared_entry_handles, &mut self.standalone_entry_handles)
+                        (&mut self.handles.shared, &mut self.handles.standalone)
                     } else {
-                        (&mut self.standalone_entry_handles, &mut self.shared_entry_handles)
+                        (&mut self.handles.standalone, &mut self.handles.shared)
                     };
                     let idx = from.iter().position(|h| h.weak() == *handle).unwrap();
                     to.push(from.remove(idx));
@@ -948,11 +962,7 @@ impl TextureCache {
             }
             UpsertResult::Inserted(new_handle) => {
                 *handle = new_handle.weak();
-                if allocated_standalone {
-                    self.standalone_entry_handles.push(new_handle);
-                } else {
-                    self.shared_entry_handles.push(new_handle);
-                }
+                self.handles.select(allocated_standalone).push(new_handle);
             }
         }
     }
