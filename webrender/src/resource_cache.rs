@@ -4,14 +4,14 @@
 
 use api::{AddFont, BlobImageResources, AsyncBlobImageRasterizer, ResourceUpdate};
 use api::{BlobImageDescriptor, BlobImageHandler, BlobImageRequest, RasterizedBlobImage};
-use api::{ClearCache, ColorF, DevicePoint, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use api::{ClearCache, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DebugFlags, FontInstanceKey, FontKey, FontTemplate, GlyphIndex};
 use api::{ExternalImageData, ExternalImageType, BlobImageResult, BlobImageParams};
 use api::{FontInstanceData, FontInstanceOptions, FontInstancePlatformOptions, FontVariation};
 use api::{GlyphDimensions, IdNamespace};
 use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering, ImageDirtyRect, DirtyRect};
-use api::{MemoryReport, VoidPtrToSizeFn};
-use api::{TileOffset, TileSize, TileRange, BlobImageData};
+use api::{BlobImageKey, BlobDirtyRect, MemoryReport, VoidPtrToSizeFn};
+use api::{TileOffset, TileSize, TileRange, BlobImageData, LayoutIntRect, LayoutIntSize};
 use app_units::Au;
 #[cfg(feature = "capture")]
 use capture::ExternalCaptureImage;
@@ -111,7 +111,7 @@ enum RasterizedBlob {
 struct BlobImageTemplate {
     descriptor: ImageDescriptor,
     tiling: Option<TileSize>,
-    dirty_rect: ImageDirtyRect,
+    dirty_rect: BlobDirtyRect,
     viewport_tiles: Option<TileRange>,
 }
 
@@ -265,7 +265,7 @@ impl ImageRequest {
 impl Into<BlobImageRequest> for ImageRequest {
     fn into(self) -> BlobImageRequest {
         BlobImageRequest {
-            key: self.key,
+            key: BlobImageKey(self.key),
             tile: self.tile,
         }
     }
@@ -380,8 +380,8 @@ pub struct ResourceCache {
     pending_image_requests: FastHashSet<ImageRequest>,
 
     blob_image_handler: Option<Box<BlobImageHandler>>,
-    rasterized_blob_images: FastHashMap<ImageKey, RasterizedBlob>,
-    blob_image_templates: FastHashMap<ImageKey, BlobImageTemplate>,
+    rasterized_blob_images: FastHashMap<BlobImageKey, RasterizedBlob>,
+    blob_image_templates: FastHashMap<BlobImageKey, BlobImageTemplate>,
 
     // If while building a frame we encounter blobs that we didn't already
     // rasterize, add them to this list and rasterize them synchronously.
@@ -422,7 +422,7 @@ impl ResourceCache {
     fn should_tile(limit: i32, descriptor: &ImageDescriptor, data: &ImageData) -> bool {
         let size_check = descriptor.size.width > limit || descriptor.size.height > limit;
         match *data {
-            ImageData::Raw(_) | ImageData::Blob(_) => size_check,
+            ImageData::Raw(_) | ImageData::Blob => size_check,
             ImageData::External(info) => {
                 // External handles already represent existing textures so it does
                 // not make sense to tile them into smaller ones.
@@ -476,6 +476,24 @@ impl ResourceCache {
                 ResourceUpdate::UpdateImage(img) => {
                     self.update_image_template(img.key, img.descriptor, img.data, &img.dirty_rect);
                 }
+                ResourceUpdate::AddBlobImage(img) => {
+                    self.add_image_template(
+                        img.key.as_image(),
+                        img.descriptor,
+                        ImageData::Blob,
+                        img.tiling,
+                    );
+                }
+                ResourceUpdate::UpdateBlobImage(img) => {
+                    self.update_image_template(
+                        img.key.as_image(),
+                        img.descriptor,
+                        ImageData::Blob,
+                        &to_image_dirty_rect(
+                            &img.dirty_rect
+                        ),
+                    );
+                }
                 ResourceUpdate::DeleteImage(img) => {
                     self.delete_image_template(img);
                 }
@@ -485,7 +503,7 @@ impl ResourceCache {
                 ResourceUpdate::DeleteFontInstance(font) => {
                     self.delete_font_instance(font);
                 }
-                ResourceUpdate::SetImageVisibleArea(key, area) => {
+                ResourceUpdate::SetBlobImageVisibleArea(key, area) => {
                     self.discard_tiles_outside_visible_area(key, &area);
                 }
                 ResourceUpdate::AddFont(_) |
@@ -503,27 +521,23 @@ impl ResourceCache {
     ) {
         for update in updates.iter() {
             match *update {
-                ResourceUpdate::AddImage(ref img) => {
-                    if let ImageData::Blob(ref blob_data) = img.data {
-                        self.add_blob_image(
-                            img.key,
-                            &img.descriptor,
-                            img.tiling,
-                            Arc::clone(blob_data),
-                        );
-                    }
+                ResourceUpdate::AddBlobImage(ref img) => {
+                    self.add_blob_image(
+                        img.key,
+                        &img.descriptor,
+                        img.tiling,
+                        Arc::clone(&img.data),
+                    );
                 }
-                ResourceUpdate::UpdateImage(ref img) => {
-                    if let ImageData::Blob(ref blob_data) = img.data {
-                        self.update_blob_image(
-                            img.key,
-                            &img.descriptor,
-                            &img.dirty_rect,
-                            Arc::clone(blob_data)
-                        );
-                    }
+                ResourceUpdate::UpdateBlobImage(ref img) => {
+                    self.update_blob_image(
+                        img.key,
+                        &img.descriptor,
+                        &img.dirty_rect,
+                        Arc::clone(&img.data),
+                    );
                 }
-                ResourceUpdate::SetImageVisibleArea(ref key, ref area) => {
+                ResourceUpdate::SetBlobImageVisibleArea(ref key, ref area) => {
                     if let Some(template) = self.blob_image_templates.get_mut(&key) {
                         if let Some(tile_size) = template.tiling {
                             template.viewport_tiles = Some(compute_tile_range(
@@ -766,7 +780,7 @@ impl ResourceCache {
     // Happens before scene building.
     pub fn add_blob_image(
         &mut self,
-        key: ImageKey,
+        key: BlobImageKey,
         descriptor: &ImageDescriptor,
         mut tiling: Option<TileSize>,
         data: Arc<BlobImageData>,
@@ -790,9 +804,9 @@ impl ResourceCache {
     // Happens before scene building.
     pub fn update_blob_image(
         &mut self,
-        key: ImageKey,
+        key: BlobImageKey,
         descriptor: &ImageDescriptor,
-        dirty_rect: &ImageDirtyRect,
+        dirty_rect: &BlobDirtyRect,
         data: Arc<BlobImageData>,
     ) {
         self.blob_image_handler.as_mut().unwrap().update(key, data, dirty_rect);
@@ -824,9 +838,10 @@ impl ResourceCache {
 
         match value {
             Some(image) => if image.data.is_blob() {
-                self.blob_image_handler.as_mut().unwrap().delete(image_key);
-                self.blob_image_templates.remove(&image_key);
-                self.rasterized_blob_images.remove(&image_key);
+                let blob_key = BlobImageKey(image_key);
+                self.blob_image_handler.as_mut().unwrap().delete(blob_key);
+                self.blob_image_templates.remove(&blob_key);
+                self.rasterized_blob_images.remove(&blob_key);
             },
             None => {
                 warn!("Delete the non-exist key");
@@ -947,32 +962,25 @@ impl ResourceCache {
             // For some reason the blob image is missing. We'll fall back to
             // rasterizing it on the render backend thread.
             if missing {
-                let descriptor = match template.tiling {
-                    Some(tile_size) => {
-                        let tile = request.tile.unwrap();
-                        BlobImageDescriptor {
-                            offset: DevicePoint::new(
-                                tile.x as f32 * tile_size as f32,
-                                tile.y as f32 * tile_size as f32,
-                            ),
-                            size: compute_tile_size(
-                                &template.descriptor,
-                                tile_size,
-                                tile,
-                            ),
-                            format: template.descriptor.format,
+                let descriptor = BlobImageDescriptor {
+                    rect: match template.tiling {
+                        Some(tile_size) => {
+                            let tile = request.tile.unwrap();
+                            LayoutIntRect {
+                                origin: point2(tile.x, tile.y) * tile_size as i32,
+                                size: blob_size(compute_tile_size(
+                                    &template.descriptor,
+                                    tile_size,
+                                    tile,
+                                )),
+                            }
                         }
-                    }
-                    None => {
-                        BlobImageDescriptor {
-                            offset: DevicePoint::origin(),
-                            size: template.descriptor.size,
-                            format: template.descriptor.format,
-                        }
-                    }
+                        None => blob_size(template.descriptor.size).into(),
+                    },
+                    format: template.descriptor.format,
                 };
 
-                assert!(descriptor.size.width != 0 && descriptor.size.height != 0);
+                assert!(!descriptor.rect.is_empty());
 
                 self.missing_blob_images.push(
                     BlobImageParams {
@@ -995,7 +1003,8 @@ impl ResourceCache {
 
         let mut blob_request_params = Vec::new();
         for key in keys {
-            let template = self.blob_image_templates.get_mut(key).unwrap();
+            let key = BlobImageKey(*key);
+            let template = self.blob_image_templates.get_mut(&key).unwrap();
 
             if let Some(tile_size) = template.tiling {
                 // If we know that only a portion of the blob image is in the viewport,
@@ -1011,8 +1020,9 @@ impl ResourceCache {
                     )
                 });
 
+                let image_dirty_rect = to_image_dirty_rect(&template.dirty_rect);
                 // Don't request tiles that weren't invalidated.
-                if let DirtyRect::SomeDirty(dirty_rect) = template.dirty_rect {
+                if let DirtyRect::SomeDirty(dirty_rect) = image_dirty_rect {
                     let dirty_rect = DeviceIntRect {
                         origin: point2(
                             dirty_rect.origin.x,
@@ -1048,15 +1058,14 @@ impl ResourceCache {
 
                 for_each_tile_in_range(&tiles, |tile| {
                     let descriptor = BlobImageDescriptor {
-                        offset: DevicePoint::new(
-                            tile.x as f32 * tile_size as f32,
-                            tile.y as f32 * tile_size as f32,
-                        ),
-                        size: compute_tile_size(
-                            &template.descriptor,
-                            tile_size,
-                            tile,
-                        ),
+                        rect: LayoutIntRect {
+                            origin: point2(tile.x, tile.y) * tile_size as i32,
+                            size: blob_size(compute_tile_size(
+                                &template.descriptor,
+                                tile_size,
+                                tile,
+                            )),
+                        },
                         format: template.descriptor.format,
                     };
 
@@ -1066,7 +1075,7 @@ impl ResourceCache {
                     blob_request_params.push(
                         BlobImageParams {
                             request: BlobImageRequest {
-                                key: *key,
+                                key,
                                 tile: Some(tile),
                             },
                             descriptor,
@@ -1075,7 +1084,7 @@ impl ResourceCache {
                     );
                 });
             } else {
-                let mut needs_upload = match self.cached_images.try_get(&key) {
+                let mut needs_upload = match self.cached_images.try_get(&key.as_image()) {
                     Some(&ImageResult::UntiledAuto(ref entry)) => {
                         self.texture_cache.needs_upload(&entry.texture_cache_handle)
                     }
@@ -1111,12 +1120,11 @@ impl ResourceCache {
                 blob_request_params.push(
                     BlobImageParams {
                         request: BlobImageRequest {
-                            key: *key,
+                            key,
                             tile: None,
                         },
                         descriptor: BlobImageDescriptor {
-                            offset: DevicePoint::zero(),
-                            size: template.descriptor.size,
+                            rect: blob_size(template.descriptor.size).into(),
                             format: template.descriptor.format,
                         },
                         dirty_rect,
@@ -1132,7 +1140,7 @@ impl ResourceCache {
 
     fn discard_tiles_outside_visible_area(
         &mut self,
-        key: ImageKey,
+        key: BlobImageKey,
         area: &DeviceIntRect
     ) {
         let template = match self.blob_image_templates.get(&key) {
@@ -1160,7 +1168,7 @@ impl ResourceCache {
         tiles.retain(|tile, _| { tile_range.contains(tile) });
 
         let texture_cache = &mut self.texture_cache;
-        match self.cached_images.try_get_mut(&key) {
+        match self.cached_images.try_get_mut(&key.as_image()) {
             Some(&mut ImageResult::Multi(ref mut entries)) => {
                 entries.retain(|key, entry| {
                     if key.tile.is_none() || tile_range.contains(&key.tile.unwrap()) {
@@ -1358,7 +1366,7 @@ impl ResourceCache {
                     ExternalImageType::Buffer => None,
                 },
                 // raw and blob image are all using resource_cache.
-                ImageData::Raw(..) | ImageData::Blob(..) => None,
+                ImageData::Raw(..) | ImageData::Blob => None,
             };
 
             ImageProperties {
@@ -1445,9 +1453,9 @@ impl ResourceCache {
                     // Arc, and the external image data is small.
                     updates.push((image_template.data.clone(), None));
                 }
-                ImageData::Blob(..) => {
+                ImageData::Blob => {
 
-                    let blob_image = self.rasterized_blob_images.get_mut(&request.key).unwrap();
+                    let blob_image = self.rasterized_blob_images.get_mut(&BlobImageKey(request.key)).unwrap();
                     match (blob_image, request.tile) {
                         (RasterizedBlob::Tiled(ref tiles), Some(tile)) => {
                             let img = &tiles[&tile];
@@ -1628,8 +1636,7 @@ impl ResourceCache {
         for (_, image) in self.resources.image_templates.images.iter() {
             report.images += match image.data {
                 ImageData::Raw(ref v) => unsafe { op(v.as_ptr() as *const c_void) },
-                ImageData::Blob(ref v) => unsafe { op(v.as_ptr() as *const c_void) },
-                ImageData::External(..) => 0,
+                ImageData::Blob | ImageData::External(..) => 0,
             }
         }
 
@@ -1660,11 +1667,11 @@ impl ResourceCache {
             self.delete_image_template(key);
         }
 
+        let blob_f = |key: &BlobImageKey| { f(&key.as_image()) };
         debug_assert!(!self.resources.image_templates.images.keys().any(&f));
         debug_assert!(!self.cached_images.resources.keys().any(&f));
-        debug_assert!(!self.blob_image_templates.keys().any(&f));
-        debug_assert!(!self.rasterized_blob_images.keys().any(&f));
-
+        debug_assert!(!self.blob_image_templates.keys().any(&blob_f));
+        debug_assert!(!self.rasterized_blob_images.keys().any(&blob_f));
     }
 }
 
@@ -1768,6 +1775,19 @@ pub struct PlainCacheOwn {
 #[cfg(feature = "replay")]
 const NATIVE_FONT: &'static [u8] = include_bytes!("../res/Proggy.ttf");
 
+// This currently only casts the unit but will soon apply an offset
+fn to_image_dirty_rect(blob_dirty_rect: &BlobDirtyRect) -> ImageDirtyRect {
+    match *blob_dirty_rect {
+        DirtyRect::SomeDirty(rect) => DirtyRect::SomeDirty(
+            DeviceIntRect {
+                origin: DeviceIntPoint::new(rect.origin.x, rect.origin.y),
+                size: DeviceIntSize::new(rect.size.width, rect.size.height),
+            }
+        ),
+        DirtyRect::AllDirty => DirtyRect::AllDirty,
+    }
+}
+
 impl ResourceCache {
     #[cfg(feature = "capture")]
     pub fn save_capture(
@@ -1848,19 +1868,18 @@ impl ResourceCache {
                         .unwrap();
                     entry.insert(short_path);
                 }
-                ImageData::Blob(_) => {
+                ImageData::Blob => {
                     assert_eq!(template.tiling, None);
                     let blob_request_params = &[
                         BlobImageParams {
                             request: BlobImageRequest {
-                                key,
+                                key: BlobImageKey(key),
                                 //TODO: support tiled blob images
                                 // https://github.com/servo/webrender/issues/2236
                                 tile: None,
                             },
                             descriptor: BlobImageDescriptor {
-                                size: desc.size,
-                                offset: DevicePoint::zero(),
+                                rect: blob_size(desc.size).into(),
                                 format: desc.format,
                             },
                             dirty_rect: DirtyRect::AllDirty,
@@ -2065,4 +2084,13 @@ impl ResourceCache {
 
         external_images
     }
+}
+
+/// For now the blob's coordinate space have the same pixel sizes as the
+/// rendered texture's device space (only a translation is applied).
+/// So going from one to the other is only a matter of casting away the unit
+/// for sizes.
+#[inline]
+fn blob_size(device_size: DeviceIntSize) -> LayoutIntSize {
+    size2(device_size.width, device_size.height)
 }

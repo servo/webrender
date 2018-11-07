@@ -11,8 +11,8 @@ use webrender::api::*;
 
 // Serialize/deserialize the blob.
 
-pub fn serialize_blob(color: ColorU) -> Vec<u8> {
-    vec![color.r, color.g, color.b, color.a]
+pub fn serialize_blob(color: ColorU) -> Arc<Vec<u8>> {
+    Arc::new(vec![color.r, color.g, color.b, color.a])
 }
 
 fn deserialize_blob(blob: &[u8]) -> Result<ColorU, ()> {
@@ -36,12 +36,11 @@ fn render_blob(
     color: ColorU,
     descriptor: &BlobImageDescriptor,
     tile: Option<(TileSize, TileOffset)>,
-    dirty_rect: &ImageDirtyRect,
+    dirty_rect: &BlobDirtyRect,
 ) -> BlobImageResult {
     // Allocate storage for the result. Right now the resource cache expects the
     // tiles to have have no stride or offset.
-    let buf_size = descriptor.size.width *
-        descriptor.size.height *
+    let buf_size = descriptor.rect.size.area() *
         descriptor.format.bytes_per_pixel();
     let mut texels = vec![0u8; (buf_size) as usize];
 
@@ -52,32 +51,19 @@ fn render_blob(
         None => true,
     };
 
-    let mut local_dirty_rect = dirty_rect.to_subrect_of(&DeviceIntRect::new(
-        descriptor.offset.to_i32(),
-        descriptor.size,
-    ));
+    let dirty_rect = dirty_rect.to_subrect_of(&descriptor.rect);
 
     // We want the dirty rect local to the tile rather than the whole image.
-    if let Some((tile_size, tile)) = tile {
-        // We can't translate by a negative size so do it manually.
-        //
-        // We check for emptiness here because empty rects may have zeroed out
-        // positions, in which case we will get a benign underflow that nonetheless
-        // causes a panic in debug builds.
-        if !local_dirty_rect.is_empty() {
-            local_dirty_rect.origin -= DeviceIntPoint::new(
-                tile.x * tile_size as i32,
-                tile.y * tile_size as i32,
-            ).to_vector();
-        }
-    }
+    let tx: BlobToDeviceTranslation = (-descriptor.rect.origin.to_vector()).into();
 
-    for y in local_dirty_rect.min_y() .. local_dirty_rect.max_y() {
-        for x in local_dirty_rect.min_x() .. local_dirty_rect.max_x() {
+    let rasterized_rect = tx.transform_rect(&dirty_rect);
+
+    for y in rasterized_rect.min_y() .. rasterized_rect.max_y() {
+        for x in rasterized_rect.min_x() .. rasterized_rect.max_x() {
             // Apply the tile's offset. This is important: all drawing commands should be
             // translated by this offset to give correct results with tiled blob images.
-            let x2 = x + descriptor.offset.x as i32;
-            let y2 = y + descriptor.offset.y as i32;
+            let x2 = x + descriptor.rect.origin.x;
+            let y2 = y + descriptor.rect.origin.y;
 
             // Render a simple checkerboard pattern
             let checker = if (x2 % 20 >= 10) != (y2 % 20 >= 10) {
@@ -91,13 +77,14 @@ fn render_blob(
             match descriptor.format {
                 ImageFormat::BGRA8 => {
                     let a = color.a * checker + tc;
-                    texels[((y * descriptor.size.width + x) * 4 + 0) as usize] = premul(color.b * checker + tc, a);
-                    texels[((y * descriptor.size.width + x) * 4 + 1) as usize] = premul(color.g * checker + tc, a);
-                    texels[((y * descriptor.size.width + x) * 4 + 2) as usize] = premul(color.r * checker + tc, a);
-                    texels[((y * descriptor.size.width + x) * 4 + 3) as usize] = a;
+                    let pixel_offset = (y * descriptor.rect.size.width + x * 4) as usize;
+                    texels[pixel_offset + 0] = premul(color.b * checker + tc, a);
+                    texels[pixel_offset + 1] = premul(color.g * checker + tc, a);
+                    texels[pixel_offset + 2] = premul(color.r * checker + tc, a);
+                    texels[pixel_offset + 3] = a;
                 }
                 ImageFormat::R8 => {
-                    texels[(y * descriptor.size.width + x) as usize] = color.a * checker + tc;
+                    texels[(y * descriptor.rect.size.width + x) as usize] = color.a * checker + tc;
                 }
                 _ => {
                     return Err(BlobImageError::Other(
@@ -110,7 +97,7 @@ fn render_blob(
 
     Ok(RasterizedBlobImage {
         data: Arc::new(texels),
-        rasterized_rect: local_dirty_rect,
+        rasterized_rect,
     })
 }
 
@@ -127,7 +114,7 @@ impl BlobCallbacks {
 }
 
 pub struct CheckerboardRenderer {
-    image_cmds: HashMap<ImageKey, (ColorU, Option<TileSize>)>,
+    image_cmds: HashMap<BlobImageKey, (ColorU, Option<TileSize>)>,
     callbacks: Arc<Mutex<BlobCallbacks>>,
 }
 
@@ -141,18 +128,18 @@ impl CheckerboardRenderer {
 }
 
 impl BlobImageHandler for CheckerboardRenderer {
-    fn add(&mut self, key: ImageKey, cmds: Arc<BlobImageData>, tile_size: Option<TileSize>) {
+    fn add(&mut self, key: BlobImageKey, cmds: Arc<BlobImageData>, tile_size: Option<TileSize>) {
         self.image_cmds
             .insert(key, (deserialize_blob(&cmds[..]).unwrap(), tile_size));
     }
 
-    fn update(&mut self, key: ImageKey, cmds: Arc<BlobImageData>, _dirty_rect: &ImageDirtyRect) {
+    fn update(&mut self, key: BlobImageKey, cmds: Arc<BlobImageData>, _dirty_rect: &BlobDirtyRect) {
         // Here, updating is just replacing the current version of the commands with
         // the new one (no incremental updates).
         self.image_cmds.get_mut(&key).unwrap().0 = deserialize_blob(&cmds[..]).unwrap();
     }
 
-    fn delete(&mut self, key: ImageKey) {
+    fn delete(&mut self, key: BlobImageKey) {
         self.image_cmds.remove(&key);
     }
 
@@ -182,11 +169,11 @@ struct Command {
     color: ColorU,
     descriptor: BlobImageDescriptor,
     tile: Option<(TileSize, TileOffset)>,
-    dirty_rect: ImageDirtyRect,
+    dirty_rect: BlobDirtyRect,
 }
 
 struct Rasterizer {
-    image_cmds: HashMap<ImageKey, (ColorU, Option<TileSize>)>,
+    image_cmds: HashMap<BlobImageKey, (ColorU, Option<TileSize>)>,
 }
 
 impl AsyncBlobImageRasterizer for Rasterizer {
