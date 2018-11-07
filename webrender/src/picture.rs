@@ -441,7 +441,7 @@ pub struct PicturePrimitive {
     pub local_clip_rect: LayoutRect,
 
     /// A descriptor for this surface that can be used as a cache key.
-    descriptor: Option<SurfaceDescriptor>,
+    surface_desc: Option<SurfaceDescriptor>,
 }
 
 impl PicturePrimitive {
@@ -495,7 +495,7 @@ impl PicturePrimitive {
             }
         };
 
-        let descriptor = if create_cache_descriptor {
+        let surface_desc = if create_cache_descriptor {
             SurfaceDescriptor::new(
                 &prim_list.prim_instances,
                 spatial_node_index,
@@ -506,7 +506,7 @@ impl PicturePrimitive {
         };
 
         PicturePrimitive {
-            descriptor,
+            surface_desc,
             prim_list,
             state: None,
             secondary_render_task_id: None,
@@ -847,8 +847,8 @@ impl PicturePrimitive {
 
                 // If we have a cache key / descriptor for this surface,
                 // update any transforms it cares about.
-                if let Some(ref mut descriptor) = self.descriptor {
-                    descriptor.update(
+                if let Some(ref mut surface_desc) = self.surface_desc {
+                    surface_desc.update(
                         surface_spatial_node_index,
                         raster_spatial_node_index,
                         frame_context.clip_scroll_tree,
@@ -1067,7 +1067,7 @@ impl PicturePrimitive {
                 // If we can't create a valid cache key for this descriptor (e.g.
                 // due to it referencing old non-interned style primitives), then
                 // don't try to cache it.
-                let has_valid_cache_key = self.descriptor.is_some();
+                let has_valid_cache_key = self.surface_desc.is_some();
 
                 if !has_valid_cache_key ||
                    too_big_to_cache ||
@@ -1131,7 +1131,7 @@ impl PicturePrimitive {
 
                     // TODO(gw): Probably worth changing the render task caching API
                     //           so that we don't need to always clone the key.
-                    let cache_key = self.descriptor
+                    let cache_key = self.surface_desc
                         .as_ref()
                         .expect("bug: no cache key for surface")
                         .cache_key

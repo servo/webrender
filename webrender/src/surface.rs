@@ -66,6 +66,8 @@ pub struct ScaleOffsetKey {
 
 impl ScaleOffsetKey {
     fn new(scale_offset: &ScaleOffset) -> Self {
+        // TODO(gw): Since these are quantized, it might make sense in the future to
+        //           convert these to ints to remove the need for custom hash impl.
         ScaleOffsetKey {
             scale_x: quantize(scale_offset.scale.x),
             scale_y: quantize(scale_offset.scale.y),
@@ -99,6 +101,8 @@ impl MatrixKey {
     fn new<Src, Dst>(transform: &TypedTransform3D<f32, Src, Dst>) -> Self {
         let mut values = transform.to_row_major_array();
 
+        // TODO(gw): Since these are quantized, it might make sense in the future to
+        //           convert these to ints to remove the need for custom hash impl.
         for value in &mut values {
             *value = quantize(*value);
         }
@@ -131,7 +135,7 @@ pub enum TransformKey {
 }
 
 impl TransformKey {
-    pub fn new() -> Self {
+    pub fn local() -> Self {
         TransformKey::Local
     }
 }
@@ -168,6 +172,11 @@ pub struct SurfaceCacheKey {
     /// A list of transforms that can affect the contents of primitives
     /// and/or clips on this picture surface.
     pub transforms: Vec<TransformKey>,
+    /// Information about the transform of the picture surface itself. If we are
+    /// drawing in screen-space, then the value of this affects the contents
+    /// of the cached surface. If we're drawing in local space, then the transform
+    /// of the surface in its parent is not relevant to the contents.
+    pub raster_transform: TransformKey,
 }
 
 /// A descriptor for the contents of a picture surface.
@@ -182,12 +191,6 @@ pub struct SurfaceDescriptor {
     /// relying on the value of a spatial node index (these may change, if other parts of the
     /// display list result in a different clip-scroll tree).
     pub spatial_nodes: Vec<SpatialNodeIndex>,
-
-    /// Information about the transform of the picture surface itself. If we are
-    /// drawing in screen-space, then the value of this affects the contents
-    /// of the cached surface. If we're drawing in local space, then the transform
-    /// of the surface in its parent is not relevant to the contents.
-    pub raster_transform: TransformKey,
 }
 
 impl SurfaceDescriptor {
@@ -199,7 +202,7 @@ impl SurfaceDescriptor {
         pic_spatial_node_index: SpatialNodeIndex,
         clip_store: &ClipStore,
     ) -> Option<Self> {
-        let mut transform_map = FastHashSet::default();
+        let mut relevant_spatial_nodes = FastHashSet::default();
         let mut primitive_ids = Vec::new();
         let mut clip_ids = Vec::new();
 
@@ -208,7 +211,7 @@ impl SurfaceDescriptor {
             // then the content can't move relative to it, so we don't
             // care if the transform changes.
             if pic_spatial_node_index != prim_instance.spatial_node_index {
-                transform_map.insert(prim_instance.spatial_node_index);
+                relevant_spatial_nodes.insert(prim_instance.spatial_node_index);
             }
 
             // Collect clip node transforms that we care about.
@@ -218,11 +221,12 @@ impl SurfaceDescriptor {
 
                 // TODO(gw): This needs to be a bit more careful once we create
                 //           descriptors for pictures that might be pass-through.
-                if clip_chain_node.spatial_node_index < prim_instance.spatial_node_index &&
-                   clip_chain_node.spatial_node_index > pic_spatial_node_index {
-                    transform_map.insert(prim_instance.spatial_node_index);
 
-                    clip_ids.push(clip_chain_node.handle.get_uid());
+                // Ignore clip chain nodes that will be handled by the clip node collector.
+                if clip_chain_node.spatial_node_index > pic_spatial_node_index {
+                    relevant_spatial_nodes.insert(prim_instance.spatial_node_index);
+
+                    clip_ids.push(clip_chain_node.handle.uid());
                 }
 
                 clip_chain_id = clip_chain_node.parent_clip_chain_id;
@@ -243,31 +247,31 @@ impl SurfaceDescriptor {
 
             // Record the unique identifier for the content represented
             // by this primitive.
-            primitive_ids.push(prim_instance.prim_data_handle.get_uid());
+            primitive_ids.push(prim_instance.prim_data_handle.uid());
         }
 
         // Get a list of spatial nodes that are relevant for the contents
         // of this picture. Sort them to ensure that for a given clip-scroll
         // tree, we end up with the same transform ordering.
-        let mut spatial_nodes: Vec<SpatialNodeIndex> = transform_map
+        let mut spatial_nodes: Vec<SpatialNodeIndex> = relevant_spatial_nodes
             .into_iter()
             .collect();
         spatial_nodes.sort();
 
         // Create the array of transform values that gets built each
         // frame during update.
-        let transforms = vec![TransformKey::new(); spatial_nodes.len()];
+        let transforms = vec![TransformKey::local(); spatial_nodes.len()];
 
         let cache_key = SurfaceCacheKey {
             primitive_ids,
             clip_ids,
             transforms,
+            raster_transform: TransformKey::local(),
         };
 
         Some(SurfaceDescriptor {
             cache_key,
             spatial_nodes,
-            raster_transform: TransformKey::new(),
         })
     }
 
@@ -281,7 +285,7 @@ impl SurfaceDescriptor {
         raster_space: RasterSpace,
     ) {
         // Update the state of the transform for compositing this picture.
-        self.raster_transform = match raster_space {
+        self.cache_key.raster_transform = match raster_space {
             RasterSpace::Screen => {
                 // In general cases, if we're rasterizing a picture in screen space, then the
                 // value of the surface spatial node will affect the contents of the picture
@@ -292,18 +296,23 @@ impl SurfaceDescriptor {
                 let raster_spatial_node = &clip_scroll_tree.spatial_nodes[raster_spatial_node_index.0];
                 let surface_spatial_node = &clip_scroll_tree.spatial_nodes[surface_spatial_node_index.0];
 
-                if raster_spatial_node.coordinate_system_id == surface_spatial_node.coordinate_system_id {
-                    TransformKey::new()
-                } else {
-                    CoordinateSpaceMapping::<LayoutPixel, PicturePixel>::new(
-                        raster_spatial_node_index,
-                        surface_spatial_node_index,
-                        clip_scroll_tree,
-                    ).into()
+                let mut key = CoordinateSpaceMapping::<LayoutPixel, PicturePixel>::new(
+                    raster_spatial_node_index,
+                    surface_spatial_node_index,
+                    clip_scroll_tree,
+                ).into();
+
+                if let TransformKey::ScaleOffset(ref mut key) = key {
+                    if raster_spatial_node.coordinate_system_id == surface_spatial_node.coordinate_system_id {
+                        key.offset_x = 0.0;
+                        key.offset_y = 0.0;
+                    }
                 }
+
+                key
             }
             RasterSpace::Local(..) => {
-                TransformKey::new()
+                TransformKey::local()
             }
         };
 
