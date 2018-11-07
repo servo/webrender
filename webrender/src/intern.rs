@@ -82,7 +82,7 @@ pub struct Handle<T> {
 }
 
 impl <T> Handle<T> where T: Copy {
-    pub fn get_uid(&self) -> ItemUid<T> {
+    pub fn uid(&self) -> ItemUid<T> {
         self.uid
     }
 }

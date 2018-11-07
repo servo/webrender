@@ -131,7 +131,7 @@ pub enum TransformKey {
 }
 
 impl TransformKey {
-    pub fn new() -> Self {
+    pub fn local() -> Self {
         TransformKey::Local
     }
 }
@@ -199,7 +199,7 @@ impl SurfaceDescriptor {
         pic_spatial_node_index: SpatialNodeIndex,
         clip_store: &ClipStore,
     ) -> Option<Self> {
-        let mut transform_map = FastHashSet::default();
+        let mut relevant_spatial_nodes = FastHashSet::default();
         let mut primitive_ids = Vec::new();
         let mut clip_ids = Vec::new();
 
@@ -208,7 +208,7 @@ impl SurfaceDescriptor {
             // then the content can't move relative to it, so we don't
             // care if the transform changes.
             if pic_spatial_node_index != prim_instance.spatial_node_index {
-                transform_map.insert(prim_instance.spatial_node_index);
+                relevant_spatial_nodes.insert(prim_instance.spatial_node_index);
             }
 
             // Collect clip node transforms that we care about.
@@ -218,11 +218,12 @@ impl SurfaceDescriptor {
 
                 // TODO(gw): This needs to be a bit more careful once we create
                 //           descriptors for pictures that might be pass-through.
-                if clip_chain_node.spatial_node_index < prim_instance.spatial_node_index &&
-                   clip_chain_node.spatial_node_index > pic_spatial_node_index {
-                    transform_map.insert(prim_instance.spatial_node_index);
 
-                    clip_ids.push(clip_chain_node.handle.get_uid());
+                // Ignore clip chain nodes that will be handled by the clip node collector.
+                if clip_chain_node.spatial_node_index > pic_spatial_node_index {
+                    relevant_spatial_nodes.insert(prim_instance.spatial_node_index);
+
+                    clip_ids.push(clip_chain_node.handle.uid());
                 }
 
                 clip_chain_id = clip_chain_node.parent_clip_chain_id;
@@ -243,20 +244,20 @@ impl SurfaceDescriptor {
 
             // Record the unique identifier for the content represented
             // by this primitive.
-            primitive_ids.push(prim_instance.prim_data_handle.get_uid());
+            primitive_ids.push(prim_instance.prim_data_handle.uid());
         }
 
         // Get a list of spatial nodes that are relevant for the contents
         // of this picture. Sort them to ensure that for a given clip-scroll
         // tree, we end up with the same transform ordering.
-        let mut spatial_nodes: Vec<SpatialNodeIndex> = transform_map
+        let mut spatial_nodes: Vec<SpatialNodeIndex> = relevant_spatial_nodes
             .into_iter()
             .collect();
         spatial_nodes.sort();
 
         // Create the array of transform values that gets built each
         // frame during update.
-        let transforms = vec![TransformKey::new(); spatial_nodes.len()];
+        let transforms = vec![TransformKey::local(); spatial_nodes.len()];
 
         let cache_key = SurfaceCacheKey {
             primitive_ids,
@@ -267,7 +268,7 @@ impl SurfaceDescriptor {
         Some(SurfaceDescriptor {
             cache_key,
             spatial_nodes,
-            raster_transform: TransformKey::new(),
+            raster_transform: TransformKey::local(),
         })
     }
 
@@ -293,7 +294,7 @@ impl SurfaceDescriptor {
                 let surface_spatial_node = &clip_scroll_tree.spatial_nodes[surface_spatial_node_index.0];
 
                 if raster_spatial_node.coordinate_system_id == surface_spatial_node.coordinate_system_id {
-                    TransformKey::new()
+                    TransformKey::local()
                 } else {
                     CoordinateSpaceMapping::<LayoutPixel, PicturePixel>::new(
                         raster_spatial_node_index,
@@ -303,7 +304,7 @@ impl SurfaceDescriptor {
                 }
             }
             RasterSpace::Local(..) => {
-                TransformKey::new()
+                TransformKey::local()
             }
         };
 

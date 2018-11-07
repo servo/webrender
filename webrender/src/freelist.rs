@@ -70,9 +70,9 @@ impl<M> FreeListHandle<M> {
     }
 
     pub fn invalid() -> Self {
-        FreeListHandle {
-            index: u32::MAX,
-            epoch: Epoch(u32::MAX),
+        Self {
+            index: 0,
+            epoch: Epoch::invalid(),
             _marker: PhantomData,
         }
     }
