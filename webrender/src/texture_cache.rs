@@ -1394,7 +1394,7 @@ impl TextureCacheUpdate {
         dirty_rect: &ImageDirtyRect,
     ) -> TextureCacheUpdate {
         let source = match data {
-            ImageData::Blob(..) => {
+            ImageData::Blob => {
                 panic!("The vector image should have been rasterized.");
             }
             ImageData::External(ext_image) => match ext_image.image_type {

@@ -8,8 +8,8 @@ extern crate serde_bytes;
 
 use font::{FontInstanceKey, FontInstanceData, FontKey, FontTemplate};
 use std::sync::Arc;
-use {DevicePoint, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use {ImageDirtyRect, IdNamespace, TileOffset, TileSize};
+use {DeviceIntPoint, DeviceIntRect, DeviceIntSize, LayoutIntRect};
+use {BlobDirtyRect, IdNamespace, TileOffset, TileSize};
 use euclid::{size2, TypedRect, num::Zero};
 use std::ops::{Add, Sub};
 
@@ -27,6 +27,20 @@ impl ImageKey {
     /// Mints a new ImageKey. The given ID must be unique.
     pub fn new(namespace: IdNamespace, key: u32) -> Self {
         ImageKey(namespace, key)
+    }
+}
+
+/// An opaque identifier describing a blob image registered with WebRender.
+/// This is used as a handle to reference blob images, and can be used as an
+/// image in display items.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct BlobImageKey(pub ImageKey);
+
+impl BlobImageKey {
+    /// Interpret this blob image as an image for a display item.
+    pub fn as_image(&self) -> ImageKey {
+        self.0
     }
 }
 
@@ -231,7 +245,7 @@ pub enum ImageData {
     Raw(#[serde(with = "serde_image_data_raw")] Arc<Vec<u8>>),
     /// An series of commands that can be rasterized into an image via an
     /// embedding-provided callback.
-    Blob(#[serde(with = "serde_image_data_raw")] Arc<BlobImageData>),
+    Blob,
     /// An image owned by the embedding, and referenced by WebRender. This may
     /// take the form of a texture or a heap-allocated buffer.
     External(ExternalImageData),
@@ -263,16 +277,11 @@ impl ImageData {
         ImageData::Raw(bytes)
     }
 
-    /// Mints a new Blob ImageData.
-    pub fn new_blob_image(commands: BlobImageData) -> Self {
-        ImageData::Blob(Arc::new(commands))
-    }
-
     /// Returns true if this ImageData represents a blob.
     #[inline]
     pub fn is_blob(&self) -> bool {
         match *self {
-            ImageData::Blob(_) => true,
+            ImageData::Blob => true,
             _ => false,
         }
     }
@@ -286,7 +295,7 @@ impl ImageData {
                 ExternalImageType::TextureHandle(_) => false,
                 ExternalImageType::Buffer => true,
             },
-            ImageData::Blob(_) => true,
+            ImageData::Blob => true,
             ImageData::Raw(_) => true,
         }
     }
@@ -320,13 +329,13 @@ pub trait BlobImageHandler: Send {
     );
 
     /// Register a blob image.
-    fn add(&mut self, key: ImageKey, data: Arc<BlobImageData>, tiling: Option<TileSize>);
+    fn add(&mut self, key: BlobImageKey, data: Arc<BlobImageData>, tiling: Option<TileSize>);
 
     /// Update an already registered blob image.
-    fn update(&mut self, key: ImageKey, data: Arc<BlobImageData>, dirty_rect: &ImageDirtyRect);
+    fn update(&mut self, key: BlobImageKey, data: Arc<BlobImageData>, dirty_rect: &BlobDirtyRect);
 
     /// Delete an already registered blob image.
-    fn delete(&mut self, key: ImageKey);
+    fn delete(&mut self, key: BlobImageKey);
 
     /// A hook to let the handler clean up any state related to a font which the resource
     /// cache is about to delete.
@@ -366,7 +375,7 @@ pub struct BlobImageParams {
     /// the entire image when only a portion is updated.
     ///
     /// If set to None the entire image is rasterized.
-    pub dirty_rect: ImageDirtyRect,
+    pub dirty_rect: BlobDirtyRect,
 }
 
 /// The possible states of a Dirty rect.
@@ -472,11 +481,9 @@ pub type BlobImageResult = Result<RasterizedBlobImage, BlobImageError>;
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct BlobImageDescriptor {
-    /// Size in device pixels of the blob's output image.
-    pub size: DeviceIntSize,
-    /// When tiling, offset point in device pixels of this tile in the full
-    /// image. Generally (0, 0) outside of tiling.
-    pub offset: DevicePoint,
+    /// Surface of the image or tile to render in the same coordinate space as
+    /// the drawing commands.
+    pub rect: LayoutIntRect,
     /// Format for the data in the backing store.
     pub format: ImageFormat,
 }
@@ -484,7 +491,8 @@ pub struct BlobImageDescriptor {
 /// Representation of a rasterized blob image. This is obtained by passing
 /// `BlobImageData` to the embedding via the rasterization callback.
 pub struct RasterizedBlobImage {
-    /// The bounding rectangle for this blob image.
+    /// The rectangle that was rasterized in device pixels, relative to the
+    /// image or tile.
     pub rasterized_rect: DeviceIntRect,
     /// Backing store. The format is stored out of band in `BlobImageDescriptor`.
     pub data: Arc<Vec<u8>>,
@@ -506,7 +514,7 @@ pub enum BlobImageError {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BlobImageRequest {
     /// Unique handle to the image.
-    pub key: ImageKey,
+    pub key: BlobImageKey,
     /// Tiling offset in number of tiles, if applicable.
     ///
     /// `None` if the image will not be tiled.
