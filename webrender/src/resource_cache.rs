@@ -9,7 +9,7 @@ use api::{DebugFlags, FontInstanceKey, FontKey, FontTemplate, GlyphIndex};
 use api::{ExternalImageData, ExternalImageType, BlobImageResult, BlobImageParams};
 use api::{FontInstanceData, FontInstanceOptions, FontInstancePlatformOptions, FontVariation};
 use api::{GlyphDimensions, IdNamespace};
-use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering, DirtyRect};
+use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering, ImageDirtyRect, DirtyRect};
 use api::{MemoryReport, VoidPtrToSizeFn};
 use api::{TileOffset, TileSize, TileRange, BlobImageData};
 use app_units::Au;
@@ -111,7 +111,7 @@ enum RasterizedBlob {
 struct BlobImageTemplate {
     descriptor: ImageDescriptor,
     tiling: Option<TileSize>,
-    dirty_rect: DirtyRect,
+    dirty_rect: ImageDirtyRect,
     viewport_tiles: Option<TileRange>,
 }
 
@@ -155,7 +155,7 @@ impl ImageTemplates {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct CachedImageInfo {
     texture_cache_handle: TextureCacheHandle,
-    dirty_rect: DirtyRect,
+    dirty_rect: ImageDirtyRect,
     manual_eviction: bool,
 }
 
@@ -712,7 +712,7 @@ impl ResourceCache {
         image_key: ImageKey,
         descriptor: ImageDescriptor,
         data: ImageData,
-        dirty_rect: &DirtyRect,
+        dirty_rect: &ImageDirtyRect,
     ) {
         let max_texture_size = self.max_texture_size();
         let image = match self.resources.image_templates.get_mut(image_key) {
@@ -792,7 +792,7 @@ impl ResourceCache {
         &mut self,
         key: ImageKey,
         descriptor: &ImageDescriptor,
-        dirty_rect: &DirtyRect,
+        dirty_rect: &ImageDirtyRect,
         data: Arc<BlobImageData>,
     ) {
         self.blob_image_handler.as_mut().unwrap().update(key, data, dirty_rect);

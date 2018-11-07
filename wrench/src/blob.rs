@@ -36,7 +36,7 @@ fn render_blob(
     color: ColorU,
     descriptor: &BlobImageDescriptor,
     tile: Option<(TileSize, TileOffset)>,
-    dirty_rect: &DirtyRect,
+    dirty_rect: &ImageDirtyRect,
 ) -> BlobImageResult {
     // Allocate storage for the result. Right now the resource cache expects the
     // tiles to have have no stride or offset.
@@ -146,7 +146,7 @@ impl BlobImageHandler for CheckerboardRenderer {
             .insert(key, (deserialize_blob(&cmds[..]).unwrap(), tile_size));
     }
 
-    fn update(&mut self, key: ImageKey, cmds: Arc<BlobImageData>, _dirty_rect: &DirtyRect) {
+    fn update(&mut self, key: ImageKey, cmds: Arc<BlobImageData>, _dirty_rect: &ImageDirtyRect) {
         // Here, updating is just replacing the current version of the commands with
         // the new one (no incremental updates).
         self.image_cmds.get_mut(&key).unwrap().0 = deserialize_blob(&cmds[..]).unwrap();
@@ -182,7 +182,7 @@ struct Command {
     color: ColorU,
     descriptor: BlobImageDescriptor,
     tile: Option<(TileSize, TileOffset)>,
-    dirty_rect: DirtyRect,
+    dirty_rect: ImageDirtyRect,
 }
 
 struct Rasterizer {

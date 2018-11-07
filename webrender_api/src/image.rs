@@ -9,8 +9,9 @@ extern crate serde_bytes;
 use font::{FontInstanceKey, FontInstanceData, FontKey, FontTemplate};
 use std::sync::Arc;
 use {DevicePoint, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use {IdNamespace, TileOffset, TileSize};
-use euclid::size2;
+use {ImageDirtyRect, IdNamespace, TileOffset, TileSize};
+use euclid::{size2, TypedRect, num::Zero};
+use std::ops::{Add, Sub};
 
 /// An opaque identifier describing an image registered with WebRender.
 /// This is used as a handle to reference images, and is used as the
@@ -322,7 +323,7 @@ pub trait BlobImageHandler: Send {
     fn add(&mut self, key: ImageKey, data: Arc<BlobImageData>, tiling: Option<TileSize>);
 
     /// Update an already registered blob image.
-    fn update(&mut self, key: ImageKey, data: Arc<BlobImageData>, dirty_rect: &DirtyRect);
+    fn update(&mut self, key: ImageKey, data: Arc<BlobImageData>, dirty_rect: &ImageDirtyRect);
 
     /// Delete an already registered blob image.
     fn delete(&mut self, key: ImageKey);
@@ -365,34 +366,38 @@ pub struct BlobImageParams {
     /// the entire image when only a portion is updated.
     ///
     /// If set to None the entire image is rasterized.
-    pub dirty_rect: DirtyRect,
+    pub dirty_rect: ImageDirtyRect,
 }
 
 /// The possible states of a Dirty rect.
 ///
 /// This exists because people kept getting confused with `Option<Rect>`.
-#[repr(u8)]
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-pub enum DirtyRect {
+#[derive(Debug, Serialize, Deserialize)]
+pub enum DirtyRect<T: Copy, U> {
     /// Everything is Dirty, equivalent to SomeDirty(image_bounds)
     AllDirty,
     /// Some specific amount is dirty
-    SomeDirty(DeviceIntRect)
+    SomeDirty(TypedRect<T, U>)
 }
 
-impl DirtyRect {
+impl<T, U> DirtyRect<T, U>
+where
+    T: Copy + Clone
+        + PartialOrd + PartialEq
+        + Add<T, Output = T>
+        + Sub<T, Output = T>
+        + Zero
+{
     /// Creates an empty DirtyRect (indicating nothing is invalid)
     pub fn empty() -> Self {
-        DirtyRect::SomeDirty(DeviceIntRect::zero())
+        DirtyRect::SomeDirty(TypedRect::zero())
     }
 
     /// Returns whether the dirty rect is empty
     pub fn is_empty(&self) -> bool {
-        use DirtyRect::*;
-
         match self {
-            AllDirty => false,
-            SomeDirty(rect) => rect.is_empty(),
+            DirtyRect::AllDirty => false,
+            DirtyRect::SomeDirty(rect) => rect.is_empty(),
         }
     }
 
@@ -403,7 +408,7 @@ impl DirtyRect {
 
     /// Maps over the contents of SomeDirty.
     pub fn map<F>(self, func: F) -> Self
-        where F: FnOnce(DeviceIntRect) -> DeviceIntRect,
+        where F: FnOnce(TypedRect<T, U>) -> TypedRect<T, U>,
     {
         use DirtyRect::*;
 
@@ -414,7 +419,7 @@ impl DirtyRect {
     }
 
     /// Unions the dirty rects.
-    pub fn union(&self, other: &DirtyRect) -> DirtyRect {
+    pub fn union(&self, other: &Self) -> Self {
         use DirtyRect::*;
 
         match (*self, *other) {
@@ -424,30 +429,35 @@ impl DirtyRect {
     }
 
     /// Intersects the dirty rects.
-    pub fn intersection(&self, other: &DirtyRect) -> DirtyRect {
+    pub fn intersection(&self, other: &Self) -> Self {
         use DirtyRect::*;
 
         match (*self, *other) {
             (AllDirty, rect) | (rect, AllDirty)  => rect,
             (SomeDirty(rect1), SomeDirty(rect2)) => SomeDirty(rect1.intersection(&rect2)
-                                                                   .unwrap_or(DeviceIntRect::zero()))
+                                                                   .unwrap_or(TypedRect::zero()))
         }
     }
 
     /// Converts the dirty rect into a subrect of the given one via intersection.
-    pub fn to_subrect_of(&self, rect: &DeviceIntRect) -> DeviceIntRect {
+    pub fn to_subrect_of(&self, rect: &TypedRect<T, U>) -> TypedRect<T, U> {
         use DirtyRect::*;
 
         match *self {
             AllDirty              => *rect,
             SomeDirty(dirty_rect) => dirty_rect.intersection(rect)
-                                               .unwrap_or(DeviceIntRect::zero()),
+                                               .unwrap_or(TypedRect::zero()),
         }
     }
 }
 
-impl From<DeviceIntRect> for DirtyRect {
-    fn from(rect: DeviceIntRect) -> Self {
+impl<T: Copy, U> Copy for DirtyRect<T, U> {}
+impl<T: Copy, U> Clone for DirtyRect<T, U> {
+    fn clone(&self) -> Self { *self }
+}
+
+impl<T: Copy, U> From<TypedRect<T, U>> for DirtyRect<T, U> {
+    fn from(rect: TypedRect<T, U>) -> Self {
         DirtyRect::SomeDirty(rect)
     }
 }

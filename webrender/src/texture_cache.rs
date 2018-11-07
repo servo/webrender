@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DebugFlags, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DirtyRect};
+use api::{DebugFlags, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DirtyRect, ImageDirtyRect};
 use api::{ExternalImageType, ImageData, ImageFormat};
 use api::ImageDescriptor;
 use device::{TextureFilter, total_gpu_bytes_allocated};
@@ -675,7 +675,7 @@ impl TextureCache {
         filter: TextureFilter,
         data: Option<ImageData>,
         user_data: [f32; 3],
-        mut dirty_rect: DirtyRect,
+        mut dirty_rect: ImageDirtyRect,
         gpu_cache: &mut GpuCache,
         eviction_notice: Option<&EvictionNotice>,
         uv_rect_kind: UvRectKind,
@@ -1390,7 +1390,7 @@ impl TextureCacheUpdate {
         size: DeviceIntSize,
         texture_id: CacheTextureId,
         layer_index: i32,
-        dirty_rect: &DirtyRect,
+        dirty_rect: &ImageDirtyRect,
     ) -> TextureCacheUpdate {
         let source = match data {
             ImageData::Blob(..) => {
