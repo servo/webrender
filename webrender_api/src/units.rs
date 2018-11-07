@@ -15,10 +15,11 @@
 use app_units::Au;
 use euclid::{Length, TypedRect, TypedScale, TypedSize2D, TypedTransform3D};
 use euclid::{TypedPoint2D, TypedPoint3D, TypedVector2D, TypedVector3D, TypedSideOffsets2D};
+use DirtyRect;
 
 /// Geometry in the coordinate system of the render target (screen or intermediate
 /// surface) in physical pixels.
-#[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct DevicePixel;
 
 pub type DeviceIntRect = TypedRect<i32, DevicePixel>;
@@ -118,6 +119,8 @@ pub type LayoutPointAu = TypedPoint2D<Au, LayoutPixel>;
 pub type LayoutRectAu = TypedRect<Au, LayoutPixel>;
 pub type LayoutSizeAu = TypedSize2D<Au, LayoutPixel>;
 pub type LayoutVector2DAu = TypedVector2D<Au, LayoutPixel>;
+
+pub type ImageDirtyRect = DirtyRect<i32, DevicePixel>;
 
 /// Stores two coordinates in texel space. The coordinates
 /// are stored in texel coordinates because the texture atlas
