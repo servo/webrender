@@ -456,6 +456,10 @@ pub struct TextureCache {
     /// The last `FrameStamp` in which we expired the shared cache.
     last_shared_cache_expiration: FrameStamp,
 
+    /// The time at which we first reached the byte threshold for reclaiming
+    /// cache memory. `None if we haven't reached the threshold.
+    reached_reclaim_threshold: Option<SystemTime>,
+
     /// Maintains the list of all current items in the texture cache.
     entries: FreeList<CacheEntry, CacheEntryMarker>,
 
@@ -500,6 +504,7 @@ impl TextureCache {
             pending_updates: TextureUpdateList::new(),
             now: FrameStamp::INVALID,
             last_shared_cache_expiration: FrameStamp::INVALID,
+            reached_reclaim_threshold: None,
             entries: FreeList::new(),
             handles: EntryHandles::default(),
         }
@@ -537,8 +542,54 @@ impl TextureCache {
         self.shared_textures.clear(&mut self.pending_updates);
     }
 
+    /// Called at the beginning of each frame.
     pub fn begin_frame(&mut self, stamp: FrameStamp) {
         self.now = stamp;
+        self.maybe_reclaim_shared_cache_memory();
+    }
+
+    /// Called at the beginning of each frame to periodically GC and reclaim
+    /// storage if the cache has grown too large.
+    fn maybe_reclaim_shared_cache_memory(&mut self) {
+        // The minimum number of bytes that we must be able to reclaim in order
+        // to justify clearing the entire shared cache in order to shrink it.
+        const RECLAIM_THRESHOLD_BYTES: usize = 5 * 1024 * 1024;
+
+        // Normally the shared cache only gets GCed when we fail to allocate.
+        // However, we also perform a periodic, conservative GC to ensure that
+        // we recover unused memory in bounded time, rather than having it
+        // depend on allocation patterns of subsequent content.
+        let time_since_last_gc = self.now.time()
+            .duration_since(self.last_shared_cache_expiration.time())
+            .unwrap_or(Duration::default());
+        let do_periodic_gc = time_since_last_gc >= Duration::from_secs(5) &&
+            self.shared_textures.size_in_bytes() >= RECLAIM_THRESHOLD_BYTES * 2;
+        if do_periodic_gc {
+            let threshold = EvictionThresholdBuilder::new(self.now)
+                .max_frames(1)
+                .max_time_s(10)
+                .build();
+            self.maybe_expire_old_shared_entries(threshold);
+        }
+
+        // If we've had a sufficient number of unused layers for a sufficiently
+        // long time, just blow the whole cache away to shrink it.
+        //
+        // We could do this more intelligently with a resize+blit, but that would
+        // add complexity for a rare case.
+        if self.shared_textures.empty_region_bytes() >= RECLAIM_THRESHOLD_BYTES {
+            self.reached_reclaim_threshold.get_or_insert(self.now.time());
+        } else {
+            self.reached_reclaim_threshold = None;
+        }
+        if let Some(t) = self.reached_reclaim_threshold {
+            let dur = self.now.time().duration_since(t).unwrap_or(Duration::default());
+            if dur >= Duration::from_secs(5) {
+                self.clear();
+                self.reached_reclaim_threshold = None;
+            }
+        }
+
     }
 
     pub fn end_frame(&mut self, texture_cache_profile: &mut TextureCacheProfileCounters) {
