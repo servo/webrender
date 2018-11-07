@@ -23,6 +23,10 @@ use std::rc::Rc;
 /// The size of each region/layer in shared cache texture arrays.
 const TEXTURE_REGION_DIMENSIONS: i32 = 512;
 
+/// The number of pixels in a region. Derived from the above.
+const TEXTURE_REGION_PIXELS: usize =
+    (TEXTURE_REGION_DIMENSIONS as usize) * (TEXTURE_REGION_DIMENSIONS as usize);
+
 /// Items in the texture cache can either be standalone textures,
 /// or a sub-rect inside the shared cache.
 #[derive(Debug)]
@@ -237,6 +241,22 @@ impl SharedTextures {
                 TextureFilter::Nearest,
             ),
         }
+    }
+
+    /// Returns the cumulative number of GPU bytes consumed by all the shared textures.
+    fn size_in_bytes(&self) -> usize {
+        self.array_a8_linear.size_in_bytes() +
+        self.array_a16_linear.size_in_bytes() +
+        self.array_rgba8_linear.size_in_bytes() +
+        self.array_rgba8_nearest.size_in_bytes()
+    }
+
+    /// Returns the cumulative number of GPU bytes consumed by empty regions.
+    fn empty_region_bytes(&self) -> usize {
+        self.array_a8_linear.empty_region_bytes() +
+        self.array_a16_linear.empty_region_bytes() +
+        self.array_rgba8_linear.empty_region_bytes() +
+        self.array_rgba8_nearest.empty_region_bytes()
     }
 
     /// Clears each texture in the set, with the given set of pending updates.
@@ -819,7 +839,7 @@ impl TextureCache {
                         layer_index
                     );
                 }
-                region.free(origin);
+                region.free(origin, &mut texture_array.empty_regions);
             }
         }
     }
@@ -852,7 +872,7 @@ impl TextureCache {
             self.pending_updates.push_alloc(texture_id, info);
 
             texture_array.texture_id = Some(texture_id);
-            texture_array.regions.push(TextureRegion::new(0));
+            texture_array.push_region();
         }
 
         // Do the allocation. This can fail and return None
@@ -975,7 +995,7 @@ impl TextureCache {
                     is_shared_cache: true,
                 };
                 self.pending_updates.push_realloc(texture_array.texture_id.unwrap(), info);
-                texture_array.regions.push(TextureRegion::new(num_regions));
+                texture_array.push_region();
                 true
             } else {
                 false
@@ -1110,7 +1130,7 @@ impl TextureRegion {
     }
 
     // Initialize a region to be an allocator for a specific slab size.
-    fn init(&mut self, slab_size: SlabSize) {
+    fn init(&mut self, slab_size: SlabSize, empty_regions: &mut usize) {
         debug_assert!(self.slab_size == SlabSize::invalid());
         debug_assert!(self.free_slots.is_empty());
 
@@ -1126,14 +1146,16 @@ impl TextureRegion {
         }
 
         self.total_slot_count = self.free_slots.len();
+        *empty_regions -= 1;
     }
 
     // Deinit a region, allowing it to become a region with
     // a different allocator size.
-    fn deinit(&mut self) {
+    fn deinit(&mut self, empty_regions: &mut usize) {
         self.slab_size = SlabSize::invalid();
         self.free_slots.clear();
         self.total_slot_count = 0;
+        *empty_regions += 1;
     }
 
     fn is_empty(&self) -> bool {
@@ -1153,7 +1175,7 @@ impl TextureRegion {
     }
 
     // Free a block in this region.
-    fn free(&mut self, point: DeviceIntPoint) {
+    fn free(&mut self, point: DeviceIntPoint, empty_regions: &mut usize) {
         let x = point.x / self.slab_size.width;
         let y = point.y / self.slab_size.height;
         self.free_slots.push(TextureLocation::new(x, y));
@@ -1162,7 +1184,7 @@ impl TextureRegion {
         // so that it can become a different slab size
         // as required.
         if self.free_slots.len() == self.total_slot_count {
-            self.deinit();
+            self.deinit(empty_regions);
         }
     }
 }
@@ -1175,6 +1197,7 @@ struct TextureArray {
     filter: TextureFilter,
     format: ImageFormat,
     regions: Vec<TextureRegion>,
+    empty_regions: usize,
     texture_id: Option<CacheTextureId>,
 }
 
@@ -1187,26 +1210,41 @@ impl TextureArray {
             format,
             filter,
             regions: Vec::new(),
+            empty_regions: 0,
             texture_id: None,
         }
     }
 
+    /// Returns the number of GPU bytes consumed by this texture array.
+    fn size_in_bytes(&self) -> usize {
+        let bpp = self.format.bytes_per_pixel() as usize;
+        self.regions.len() * TEXTURE_REGION_PIXELS * bpp
+    }
+
+    /// Returns the number of GPU bytes consumed by empty regions.
+    fn empty_region_bytes(&self) -> usize {
+        let bpp = self.format.bytes_per_pixel() as usize;
+        self.empty_regions * TEXTURE_REGION_PIXELS * bpp
+    }
+
     fn clear(&mut self, updates: &mut TextureUpdateList) {
         self.regions.clear();
+        self.empty_regions = 0;
         if let Some(id) = self.texture_id.take() {
             updates.push_free(id);
         }
     }
 
     fn update_profile(&self, counter: &mut ResourceProfileCounter) {
-        let layer_count = self.regions.len();
-        if layer_count != 0 {
-            let size = layer_count as i32 * TEXTURE_REGION_DIMENSIONS *
-                TEXTURE_REGION_DIMENSIONS * self.format.bytes_per_pixel();
-            counter.set(layer_count as usize, size as usize);
-        } else {
-            counter.set(0, 0);
-        }
+        counter.set(self.regions.len(), self.size_in_bytes());
+    }
+
+    /// Adds a new empty region to the array.
+    fn push_region(&mut self) {
+        let index = self.regions.len();
+        self.regions.push(TextureRegion::new(index));
+        self.empty_regions += 1;
+        assert!(self.empty_regions <= self.regions.len());
     }
 
     /// Allocate space in this texture array.
@@ -1250,7 +1288,7 @@ impl TextureArray {
         if entry_details.is_none() {
             if let Some(empty_region_index) = empty_region_index {
                 let region = &mut self.regions[empty_region_index];
-                region.init(slab_size);
+                region.init(slab_size, &mut self.empty_regions);
                 entry_details = region.alloc().map(|location| {
                     EntryDetails::Cache {
                         layer_index: region.layer_index,
