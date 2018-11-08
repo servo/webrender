@@ -202,7 +202,7 @@ struct SharedTextures {
 
 impl SharedTextures {
     /// Mints a new set of shared textures.
-    fn new() -> Self {
+    fn new(max_texture_layers: usize) -> Self {
         Self {
             // Used primarily for cached shadow masks. There can be lots of
             // these on some pages like francine, but most pages don't use it
@@ -210,20 +210,20 @@ impl SharedTextures {
             array_a8_linear: TextureArray::new(
                 ImageFormat::R8,
                 TextureFilter::Linear,
-                4,
+                max_texture_layers.min(4),
             ),
             // Used for experimental hdr yuv texture support, but not used in
             // production Firefox.
             array_a16_linear: TextureArray::new(
                 ImageFormat::R16,
                 TextureFilter::Linear,
-                4,
+                max_texture_layers.min(4),
             ),
             // The primary cache for images, glyphs, etc.
             array_rgba8_linear: TextureArray::new(
                 ImageFormat::BGRA8,
                 TextureFilter::Linear,
-                32, /* More than 32 layers breaks on mac intel drivers for some reason */
+                max_texture_layers.min(64),
             ),
             // Used for image-rendering: crisp. This is mostly favicons, which
             // are small. Some other images use it too, but those tend to be
@@ -235,7 +235,7 @@ impl SharedTextures {
             array_rgba8_nearest: TextureArray::new(
                 ImageFormat::BGRA8,
                 TextureFilter::Nearest,
-                4,
+                max_texture_layers.min(4),
             ),
         }
     }
@@ -286,6 +286,9 @@ pub struct TextureCache {
     // Maximum texture size supported by hardware.
     max_texture_size: u32,
 
+    // Maximum number of texture layers supported by hardware.
+    max_texture_layers: usize,
+
     // The next unused virtual texture ID. Monotonically increasing.
     next_id: CacheTextureId,
 
@@ -314,10 +317,36 @@ pub struct TextureCache {
 }
 
 impl TextureCache {
-    pub fn new(max_texture_size: u32) -> Self {
+    pub fn new(max_texture_size: u32, mut max_texture_layers: usize) -> Self {
+        if cfg!(target_os = "macos") {
+            // On MBP integrated Intel GPUs, texture arrays appear to be
+            // implemented as a single texture of stacked layers, and that
+            // texture appears to be subject to the texture size limit. As such,
+            // allocating more than 32 512x512 regions results in a dimension
+            // longer than 16k (the max texture size), causing incorrect behavior.
+            //
+            // So we clamp the number of layers on mac. This results in maximum
+            // texture array size of 32MB, which isn't ideal but isn't terrible
+            // either. OpenGL on mac is not long for this earth, so this may be
+            // good enough until we have WebRender on gfx-rs (on Metal).
+            //
+            // Note that we could also define this more generally in terms of
+            // |max_texture_size / TEXTURE_REGION_DIMENSION|, except:
+            //   * max_texture_size is actually clamped beyond the device limit
+            //     by Gecko to 8192, so we'd need to thread the raw device value
+            //     here, and:
+            //   * The bug we're working around is likely specific to a single
+            //     driver family, and those drivers are also likely to share
+            //     the same max texture size of 16k. If we do encounter a driver
+            //     with the same bug but a lower max texture size, we might need
+            //     to rethink our strategy anyway, since a limit below 32MB might
+            //     start to introduce performance issues.
+            max_texture_layers = max_texture_layers.min(32);
+        }
         TextureCache {
-            shared_textures: SharedTextures::new(),
+            shared_textures: SharedTextures::new(max_texture_layers),
             max_texture_size,
+            max_texture_layers,
             next_id: CacheTextureId(1),
             pending_updates: TextureUpdateList::new(),
             frame_id: FrameId::invalid(),
@@ -402,6 +431,11 @@ impl TextureCache {
 
     pub fn max_texture_size(&self) -> u32 {
         self.max_texture_size
+    }
+
+    #[allow(dead_code)]
+    pub fn max_texture_layers(&self) -> usize {
+        self.max_texture_layers
     }
 
     pub fn pending_updates(&mut self) -> TextureUpdateList {
