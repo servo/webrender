@@ -25,12 +25,12 @@ impl Example for App {
         api: &RenderApi,
         builder: &mut DisplayListBuilder,
         _txn: &mut Transaction,
-        _framebuffer_size: DeviceUintSize,
+        _framebuffer_size: DeviceIntSize,
         pipeline_id: PipelineId,
         document_id: DocumentId,
     ) {
         // All the sub_* things are for the nested pipeline
-        let sub_size = DeviceUintSize::new(100, 100);
+        let sub_size = DeviceIntSize::new(100, 100);
         let sub_bounds = (0, 0).to(sub_size.width as i32, sub_size.height as i32);
 
         let sub_pipeline_id = PipelineId(pipeline_id.0, 42);
