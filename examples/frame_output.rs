@@ -68,7 +68,7 @@ impl App {
     fn init_output_document(
         &mut self,
         api: &RenderApi,
-        framebuffer_size: DeviceUintSize,
+        framebuffer_size: DeviceIntSize,
         device_pixel_ratio: f32,
     ) {
         // Generate the external image key that will be used to render the output document to the root document.
@@ -77,7 +77,7 @@ impl App {
         let pipeline_id = PipelineId(1, 0);
         let layer = 1;
         let color = ColorF::new(1., 1., 0., 1.);
-        let bounds = DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size);
+        let bounds = DeviceIntRect::new(DeviceIntPoint::zero(), framebuffer_size);
         let document_id = api.add_document(framebuffer_size, layer);
 
         let document = Document {
@@ -144,14 +144,14 @@ impl Example for App {
         api: &RenderApi,
         builder: &mut DisplayListBuilder,
         _txn: &mut Transaction,
-        framebuffer_size: DeviceUintSize,
+        framebuffer_size: DeviceIntSize,
         _pipeline_id: PipelineId,
         _document_id: DocumentId,
     ) {
         if self.output_document.is_none() {
             let device_pixel_ratio = framebuffer_size.width as f32 /
                 builder.content_size().width;
-            self.init_output_document(api, DeviceUintSize::new(200, 200), device_pixel_ratio);
+            self.init_output_document(api, DeviceIntSize::new(200, 200), device_pixel_ratio);
         }
 
         let info = LayoutPrimitiveInfo::new((100, 100).to(200, 200));

@@ -17,7 +17,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use webrender::api::{self, DisplayListBuilder, DocumentId, PipelineId, RenderApi, Transaction};
-use webrender::api::{ColorF, DeviceUintRect, DeviceUintPoint};
+use webrender::api::{ColorF, DeviceIntRect, DeviceIntPoint};
 
 // This example shows how to implement a very basic BlobImageHandler that can only render
 // a checkerboard pattern.
@@ -65,8 +65,8 @@ fn render_blob(
         for x in 0 .. descriptor.size.width {
             // Apply the tile's offset. This is important: all drawing commands should be
             // translated by this offset to give correct results with tiled blob images.
-            let x2 = x + descriptor.offset.x as u32;
-            let y2 = y + descriptor.offset.y as u32;
+            let x2 = x + descriptor.offset.x as i32;
+            let y2 = y + descriptor.offset.y as i32;
 
             // Render a simple checkerboard pattern
             let checker = if (x2 % 20 >= 10) != (y2 % 20 >= 10) {
@@ -98,8 +98,8 @@ fn render_blob(
 
     Ok(api::RasterizedBlobImage {
         data: Arc::new(texels),
-        rasterized_rect: DeviceUintRect {
-            origin: DeviceUintPoint::origin(),
+        rasterized_rect: DeviceIntRect {
+            origin: DeviceIntPoint::origin(),
             size: descriptor.size,
         },
     })
@@ -135,7 +135,7 @@ impl api::BlobImageHandler for CheckerboardRenderer {
             .insert(key, Arc::new(deserialize_blob(&cmds[..]).unwrap()));
     }
 
-    fn update(&mut self, key: api::ImageKey, cmds: Arc<api::BlobImageData>, _dirty_rect: Option<api::DeviceUintRect>) {
+    fn update(&mut self, key: api::ImageKey, cmds: Arc<api::BlobImageData>, _dirty_rect: Option<api::DeviceIntRect>) {
         // Here, updating is just replacing the current version of the commands with
         // the new one (no incremental updates).
         self.image_cmds
@@ -194,7 +194,7 @@ impl Example for App {
         api: &RenderApi,
         builder: &mut DisplayListBuilder,
         txn: &mut Transaction,
-        _framebuffer_size: api::DeviceUintSize,
+        _framebuffer_size: api::DeviceIntSize,
         _pipeline_id: PipelineId,
         _document_id: DocumentId,
     ) {

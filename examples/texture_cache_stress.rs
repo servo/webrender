@@ -37,7 +37,7 @@ impl ImageGenerator {
         }
     }
 
-    fn generate_image(&mut self, size: u32) {
+    fn generate_image(&mut self, size: i32) {
         let pattern = &self.patterns[self.next_pattern];
         self.current_image.clear();
         for y in 0 .. size {
@@ -67,7 +67,7 @@ impl webrender::ExternalImageHandler for ImageGenerator {
         channel_index: u8,
         _rendering: ImageRendering
     ) -> webrender::ExternalImage {
-        self.generate_image(channel_index as u32);
+        self.generate_image(channel_index as i32);
         webrender::ExternalImage {
             uv: TexelRect::new(0.0, 0.0, 1.0, 1.0),
             source: webrender::ExternalImageSource::RawData(&self.current_image),
@@ -90,7 +90,7 @@ impl Example for App {
         api: &RenderApi,
         builder: &mut DisplayListBuilder,
         txn: &mut Transaction,
-        _framebuffer_size: DeviceUintSize,
+        _framebuffer_size: DeviceIntSize,
         _pipeline_id: PipelineId,
         _document_id: DocumentId,
     ) {

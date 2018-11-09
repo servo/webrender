@@ -4,7 +4,7 @@
 
 use super::super::shader_source;
 use api::{ColorF, ImageFormat, MemoryReport};
-use api::{DeviceIntPoint, DeviceIntRect, DeviceUintRect, DeviceUintSize};
+use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::TextureTarget;
 #[cfg(any(feature = "debug_renderer", feature="capture"))]
 use api::ImageDescriptor;
@@ -144,7 +144,7 @@ unsafe impl Texel for u8 {}
 unsafe impl Texel for f32 {}
 
 /// Returns the size in bytes of a depth target with the given dimensions.
-fn depth_target_size_in_bytes(dimensions: &DeviceUintSize) -> usize {
+fn depth_target_size_in_bytes(dimensions: &DeviceIntSize) -> usize {
     // DEPTH24 textures generally reserve 3 bytes for depth and 1 byte
     // for stencil, so we measure them as 32 bits.
     let pixels = dimensions.width * dimensions.height;
@@ -474,8 +474,7 @@ pub struct Texture {
     target: gl::GLuint,
     layer_count: i32,
     format: ImageFormat,
-    width: u32,
-    height: u32,
+    size: DeviceIntSize,
     filter: TextureFilter,
     /// Framebuffer Objects, one for each layer of the texture, allowing this
     /// texture to be rendered to. Empty if this texture is not used as a render
@@ -503,8 +502,8 @@ pub struct Texture {
 }
 
 impl Texture {
-    pub fn get_dimensions(&self) -> DeviceUintSize {
-        DeviceUintSize::new(self.width, self.height)
+    pub fn get_dimensions(&self) -> DeviceIntSize {
+        self.size
     }
 
     pub fn get_layer_count(&self) -> i32 {
@@ -537,10 +536,10 @@ impl Texture {
     /// Returns the number of bytes (generally in GPU memory) that this texture
     /// consumes.
     pub fn size_in_bytes(&self) -> usize {
-        assert!(self.layer_count > 0 || self.width + self.height == 0);
+        assert!(self.layer_count > 0 || self.size.width + self.size.height == 0);
         let bpp = self.format.bytes_per_pixel() as usize;
-        let w = self.width as usize;
-        let h = self.height as usize;
+        let w = self.size.width as usize;
+        let h = self.size.height as usize;
         let count = self.layer_count as usize;
         bpp * w * h * count
     }
@@ -809,7 +808,7 @@ pub struct Device {
     ///
     /// Render targets often have the same width/height, so we can save memory
     /// by sharing these across targets.
-    depth_targets: FastHashMap<DeviceUintSize, SharedDepthTarget>,
+    depth_targets: FastHashMap<DeviceIntSize, SharedDepthTarget>,
 
     // debug
     inside_frame: bool,
@@ -817,7 +816,7 @@ pub struct Device {
     // resources
     resource_override_path: Option<PathBuf>,
 
-    max_texture_size: u32,
+    max_texture_size: i32,
     renderer_name: String,
     cached_programs: Option<Rc<ProgramCache>>,
 
@@ -841,7 +840,7 @@ pub struct Device {
 pub enum DrawTarget<'a> {
     /// Use the device's default draw target, with the provided dimensions,
     /// which are used to set the viewport.
-    Default(DeviceUintSize),
+    Default(DeviceIntSize),
     /// Use the provided texture.
     Texture {
         /// The target texture.
@@ -863,7 +862,7 @@ impl<'a> DrawTarget<'a> {
     }
 
     /// Returns the dimensions of this draw-target.
-    pub fn dimensions(&self) -> DeviceUintSize {
+    pub fn dimensions(&self) -> DeviceIntSize {
         match *self {
             DrawTarget::Default(d) => d,
             DrawTarget::Texture { texture, .. } => texture.get_dimensions(),
@@ -906,7 +905,7 @@ impl Device {
         unsafe {
             gl.get_integer_v(gl::MAX_TEXTURE_SIZE, &mut max_texture_size);
         }
-        let max_texture_size = max_texture_size[0] as u32;
+        let max_texture_size = max_texture_size[0];
         let renderer_name = gl.get_string(gl::RENDERER);
 
         let mut extension_count = [0];
@@ -1046,7 +1045,7 @@ impl Device {
         self.cached_programs = Some(cached_programs);
     }
 
-    pub fn max_texture_size(&self) -> u32 {
+    pub fn max_texture_size(&self) -> i32 {
         self.max_texture_size
     }
 
@@ -1410,8 +1409,8 @@ impl Device {
         &mut self,
         target: TextureTarget,
         format: ImageFormat,
-        mut width: u32,
-        mut height: u32,
+        mut width: i32,
+        mut height: i32,
         filter: TextureFilter,
         render_target: Option<RenderTargetInfo>,
         layer_count: i32,
@@ -1428,8 +1427,7 @@ impl Device {
         let mut texture = Texture {
             id: self.gl.gen_textures(1)[0],
             target: get_gl_target(target),
-            width,
-            height,
+            size: DeviceIntSize::new(width, height),
             layer_count,
             format,
             filter,
@@ -1473,8 +1471,8 @@ impl Device {
                     gl::TEXTURE_2D_ARRAY,
                     mipmap_levels,
                     desc.internal,
-                    texture.width as gl::GLint,
-                    texture.height as gl::GLint,
+                    texture.size.width as gl::GLint,
+                    texture.size.height as gl::GLint,
                     texture.layer_count,
                 ),
             (true, false) =>
@@ -1482,16 +1480,16 @@ impl Device {
                     texture.target,
                     mipmap_levels,
                     desc.internal,
-                    texture.width as gl::GLint,
-                    texture.height as gl::GLint,
+                    texture.size.width as gl::GLint,
+                    texture.size.height as gl::GLint,
                 ),
             (false, true) =>
                 self.gl.tex_image_3d(
                     gl::TEXTURE_2D_ARRAY,
                     0,
                     desc.internal as gl::GLint,
-                    texture.width as gl::GLint,
-                    texture.height as gl::GLint,
+                    texture.size.width as gl::GLint,
+                    texture.size.height as gl::GLint,
                     texture.layer_count,
                     0,
                     desc.external,
@@ -1503,8 +1501,8 @@ impl Device {
                     texture.target,
                     0,
                     desc.internal as gl::GLint,
-                    texture.width as gl::GLint,
-                    texture.height as gl::GLint,
+                    texture.size.width as gl::GLint,
+                    texture.size.height as gl::GLint,
                     0,
                     desc.external,
                     desc.pixel_type,
@@ -1555,8 +1553,8 @@ impl Device {
         src: &Texture,
     ) {
         debug_assert!(self.inside_frame);
-        debug_assert!(dst.width >= src.width);
-        debug_assert!(dst.height >= src.height);
+        debug_assert!(dst.size.width >= src.size.width);
+        debug_assert!(dst.size.height >= src.size.height);
         debug_assert!(dst.layer_count >= src.layer_count);
 
         // Note that zip() truncates to the shorter of the two iterators.
@@ -1670,7 +1668,7 @@ impl Device {
         }
     }
 
-    fn acquire_depth_target(&mut self, dimensions: DeviceUintSize) -> RBOId {
+    fn acquire_depth_target(&mut self, dimensions: DeviceIntSize) -> RBOId {
         let gl = &self.gl;
         let target = self.depth_targets.entry(dimensions).or_insert_with(|| {
             let renderbuffer_ids = gl.gen_renderbuffers(1);
@@ -1694,7 +1692,7 @@ impl Device {
         target.rbo_id
     }
 
-    fn release_depth_target(&mut self, dimensions: DeviceUintSize) {
+    fn release_depth_target(&mut self, dimensions: DeviceIntSize) {
         let mut entry = match self.depth_targets.entry(dimensions) {
             Entry::Occupied(x) => x,
             Entry::Vacant(..) => panic!("Releasing unknown depth target"),
@@ -1919,8 +1917,8 @@ impl Device {
                     0,
                     0,
                     0,
-                    texture.width as gl::GLint,
-                    texture.height as gl::GLint,
+                    texture.size.width as gl::GLint,
+                    texture.size.height as gl::GLint,
                     desc.external,
                     desc.pixel_type,
                     texels_to_u8_slice(pixels),
@@ -1932,8 +1930,8 @@ impl Device {
                     0,
                     0,
                     0,
-                    texture.width as gl::GLint,
-                    texture.height as gl::GLint,
+                    texture.size.width as gl::GLint,
+                    texture.size.height as gl::GLint,
                     texture.layer_count as gl::GLint,
                     desc.external,
                     desc.pixel_type,
@@ -1958,7 +1956,7 @@ impl Device {
     /// Read rectangle of pixels into the specified output slice.
     pub fn read_pixels_into(
         &mut self,
-        rect: DeviceUintRect,
+        rect: DeviceIntRect,
         format: ReadPixelsFormat,
         output: &mut [u8],
     ) {
@@ -2579,9 +2577,9 @@ struct FormatDesc {
 }
 
 struct UploadChunk {
-    rect: DeviceUintRect,
+    rect: DeviceIntRect,
     layer_index: i32,
-    stride: Option<u32>,
+    stride: Option<i32>,
     offset: usize,
 }
 
@@ -2633,9 +2631,9 @@ impl<'a, T> Drop for TextureUploader<'a, T> {
 impl<'a, T> TextureUploader<'a, T> {
     pub fn upload(
         &mut self,
-        rect: DeviceUintRect,
+        rect: DeviceIntRect,
         layer_index: i32,
-        stride: Option<u32>,
+        stride: Option<i32>,
         data: &[T],
     ) -> usize {
         let bytes_pp = self.target.texture.format.bytes_per_pixel();
@@ -2707,7 +2705,7 @@ impl<'a> UploadTarget<'a> {
 
         let row_length = match chunk.stride {
             Some(value) => value / bpp,
-            None => self.texture.width,
+            None => self.texture.size.width,
         };
 
         if chunk.stride.is_some() {

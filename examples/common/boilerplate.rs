@@ -78,7 +78,7 @@ pub trait Example {
         api: &RenderApi,
         builder: &mut DisplayListBuilder,
         txn: &mut Transaction,
-        framebuffer_size: DeviceUintSize,
+        framebuffer_size: DeviceIntSize,
         pipeline_id: PipelineId,
         document_id: DocumentId,
     );
@@ -162,7 +162,7 @@ pub fn main_wrapper<E: Example>(
             .get_inner_size()
             .unwrap()
             .to_physical(device_pixel_ratio as f64);
-        DeviceUintSize::new(size.width as u32, size.height as u32)
+        DeviceIntSize::new(size.width as i32, size.height as i32)
     };
     let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
     let (mut renderer, sender) = webrender::Renderer::new(gl.clone(), notifier, opts, None).unwrap();
@@ -244,12 +244,12 @@ pub fn main_wrapper<E: Example>(
                 ),
                 winit::VirtualKeyCode::Key1 => txn.set_window_parameters(
                     framebuffer_size,
-                    DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
+                    DeviceIntRect::new(DeviceIntPoint::zero(), framebuffer_size),
                     1.0
                 ),
                 winit::VirtualKeyCode::Key2 => txn.set_window_parameters(
                     framebuffer_size,
-                    DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
+                    DeviceIntRect::new(DeviceIntPoint::zero(), framebuffer_size),
                     2.0
                 ),
                 winit::VirtualKeyCode::M => api.notify_memory_pressure(),
