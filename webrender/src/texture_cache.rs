@@ -22,12 +22,12 @@ use std::rc::Rc;
 /// The size of each region/layer in shared cache texture arrays.
 const TEXTURE_REGION_DIMENSIONS: u32 = 512;
 
-// Items in the texture cache can either be standalone textures,
-// or a sub-rect inside the shared cache.
+/// Items in the texture cache can either be standalone textures,
+/// or a sub-rect inside the shared cache.
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-enum EntryKind {
+enum EntryDetails {
     Standalone,
     Cache {
         // Origin within the texture layer where this item exists.
@@ -37,10 +37,10 @@ enum EntryKind {
     },
 }
 
-impl EntryKind {
+impl EntryDetails {
     /// Returns true if this corresponds to a standalone cache entry.
     fn is_standalone(&self) -> bool {
-        matches!(*self, EntryKind::Standalone)
+        matches!(*self, EntryDetails::Standalone)
     }
 }
 
@@ -57,7 +57,7 @@ struct CacheEntry {
     /// Size the requested item, in device pixels.
     size: DeviceUintSize,
     /// Details specific to standalone or shared items.
-    kind: EntryKind,
+    details: EntryDetails,
     /// Arbitrary user data associated with this item.
     user_data: [f32; 3],
     /// The last frame this item was requested for rendering.
@@ -88,7 +88,7 @@ impl CacheEntry {
             size: params.descriptor.size,
             user_data: params.user_data,
             last_access,
-            kind: EntryKind::Standalone,
+            details: EntryDetails::Standalone,
             texture_id,
             format: params.descriptor.format,
             filter: params.filter,
@@ -105,9 +105,9 @@ impl CacheEntry {
     // to fetch from.
     fn update_gpu_cache(&mut self, gpu_cache: &mut GpuCache) {
         if let Some(mut request) = gpu_cache.request(&mut self.uv_rect_handle) {
-            let (origin, layer_index) = match self.kind {
-                EntryKind::Standalone { .. } => (DeviceUintPoint::zero(), 0.0),
-                EntryKind::Cache {
+            let (origin, layer_index) = match self.details {
+                EntryDetails::Standalone { .. } => (DeviceUintPoint::zero(), 0.0),
+                EntryDetails::Cache {
                     origin,
                     layer_index,
                     ..
@@ -514,9 +514,9 @@ impl TextureCache {
         // to upload the new image data into the correct location
         // in GPU memory.
         if let Some(data) = data {
-            let (layer_index, origin) = match entry.kind {
-                EntryKind::Standalone { .. } => (0, DeviceUintPoint::zero()),
-                EntryKind::Cache {
+            let (layer_index, origin) = match entry.details {
+                EntryDetails::Standalone { .. } => (0, DeviceUintPoint::zero()),
+                EntryDetails::Cache {
                     layer_index,
                     origin,
                     ..
@@ -562,11 +562,11 @@ impl TextureCache {
             .get_opt(handle)
             .expect("BUG: was dropped from cache or not updated!");
         debug_assert_eq!(entry.last_access, self.frame_id);
-        let (layer_index, origin) = match entry.kind {
-            EntryKind::Standalone { .. } => {
+        let (layer_index, origin) = match entry.details {
+            EntryDetails::Standalone { .. } => {
                 (0, DeviceUintPoint::zero())
             }
-            EntryKind::Cache {
+            EntryDetails::Cache {
                 layer_index,
                 origin,
                 ..
@@ -592,11 +592,11 @@ impl TextureCache {
             .get_opt(handle)
             .expect("BUG: was dropped from cache or not updated!");
         debug_assert_eq!(entry.last_access, self.frame_id);
-        let (layer_index, origin) = match entry.kind {
-            EntryKind::Standalone { .. } => {
+        let (layer_index, origin) = match entry.details {
+            EntryDetails::Standalone { .. } => {
                 (0, DeviceUintPoint::zero())
             }
-            EntryKind::Cache {
+            EntryDetails::Cache {
                 layer_index,
                 origin,
                 ..
@@ -694,12 +694,12 @@ impl TextureCache {
 
     // Free a cache entry from the standalone list or shared cache.
     fn free(&mut self, entry: CacheEntry) {
-        match entry.kind {
-            EntryKind::Standalone { .. } => {
+        match entry.details {
+            EntryDetails::Standalone { .. } => {
                 // This is a standalone texture allocation. Free it directly.
                 self.pending_updates.push_free(entry.texture_id);
             }
-            EntryKind::Cache {
+            EntryDetails::Cache {
                 origin,
                 layer_index,
             } => {
@@ -868,7 +868,7 @@ impl TextureCache {
     /// provided handle to point to the new entry.
     fn allocate(&mut self, params: &CacheAllocParams, handle: &mut TextureCacheHandle) {
         let new_cache_entry = self.allocate_cache_entry(params);
-        let allocated_standalone = new_cache_entry.kind.is_standalone();
+        let allocated_standalone = new_cache_entry.details.is_standalone();
 
         // If the handle points to a valid cache entry, we want to replace the
         // cache entry with our newly updated location. We also need to ensure
@@ -881,7 +881,7 @@ impl TextureCache {
         // This is managed with a database style upsert operation.
         match self.entries.upsert(handle, new_cache_entry) {
             UpsertResult::Updated(old_entry) => {
-                if allocated_standalone != old_entry.kind.is_standalone() {
+                if allocated_standalone != old_entry.details.is_standalone() {
                     // Handle the rare case than an update moves an entry from
                     // shared to standalone or vice versa. This involves a linear
                     // search, but should be rare enough not to matter.
@@ -1102,7 +1102,7 @@ impl TextureArray {
         // in case we need to select a new empty region
         // after the loop.
         let mut empty_region_index = None;
-        let mut entry_kind = None;
+        let mut entry_details = None;
 
         // Run through the existing regions of this size, and see if
         // we can find a free block in any of them.
@@ -1111,7 +1111,7 @@ impl TextureArray {
                 empty_region_index = Some(i);
             } else if region.slab_size == slab_size {
                 if let Some(location) = region.alloc() {
-                    entry_kind = Some(EntryKind::Cache {
+                    entry_details = Some(EntryDetails::Cache {
                         layer_index: region.layer_index,
                         origin: location,
                     });
@@ -1121,12 +1121,12 @@ impl TextureArray {
         }
 
         // Find a region of the right size and try to allocate from it.
-        if entry_kind.is_none() {
+        if entry_details.is_none() {
             if let Some(empty_region_index) = empty_region_index {
                 let region = &mut self.regions[empty_region_index];
                 region.init(slab_size);
-                entry_kind = region.alloc().map(|location| {
-                    EntryKind::Cache {
+                entry_details = region.alloc().map(|location| {
+                    EntryDetails::Cache {
                         layer_index: region.layer_index,
                         origin: location,
                     }
@@ -1134,12 +1134,12 @@ impl TextureArray {
             }
         }
 
-        entry_kind.map(|kind| {
+        entry_details.map(|details| {
             CacheEntry {
                 size: params.descriptor.size,
                 user_data: params.user_data,
                 last_access: frame_id,
-                kind,
+                details,
                 uv_rect_handle: GpuCacheHandle::new(),
                 format: self.format,
                 filter: self.filter,
