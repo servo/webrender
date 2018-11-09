@@ -38,10 +38,20 @@ enum EntryDetails {
 }
 
 impl EntryDetails {
-    /// Returns true if this corresponds to a standalone cache entry.
-    fn is_standalone(&self) -> bool {
-        matches!(*self, EntryDetails::Standalone)
+    /// Returns the kind associated with the details.
+    fn kind(&self) -> EntryKind {
+        match *self {
+            EntryDetails::Standalone => EntryKind::Standalone,
+            EntryDetails::Cache { .. } => EntryKind::Shared,
+        }
     }
+}
+
+/// Tag identifying standalone-versus-shared, without the details.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EntryKind {
+    Standalone,
+    Shared,
 }
 
 #[derive(Debug)]
@@ -263,8 +273,8 @@ struct EntryHandles {
 
 impl EntryHandles {
     /// Mutably borrows the requested handle list.
-    fn select(&mut self, standalone: bool) -> &mut Vec<FreeListHandle<CacheEntryMarker>> {
-        if standalone {
+    fn select(&mut self, kind: EntryKind) -> &mut Vec<FreeListHandle<CacheEntryMarker>> {
+        if kind == EntryKind::Standalone {
             &mut self.standalone
         } else {
             &mut self.shared
@@ -618,7 +628,7 @@ impl TextureCache {
 
     /// Expires old standalone textures. Called at the end of every frame.
     fn expire_old_standalone_entries(&mut self) {
-        self.expire_old_entries(true);
+        self.expire_old_entries(EntryKind::Standalone);
     }
 
     /// Shared eviction code for standalone and shared entries.
@@ -635,7 +645,7 @@ impl TextureCache {
     /// but those use the Eviction::Eager policy (for now). So the tradeoff there
     /// is largely around reducing texture upload jank while keeping memory usage
     /// at an acceptable level.
-    fn expire_old_entries(&mut self, for_standalone: bool) {
+    fn expire_old_entries(&mut self, kind: EntryKind) {
         // These parameters are based on some discussion and local tuning, but
         // no hard measurement. There may be room for improvement.
         //
@@ -662,9 +672,9 @@ impl TextureCache {
         // Iterate over the entries in reverse order, evicting the ones older than
         // the frame age threshold. Reverse order avoids iterator invalidation when
         // removing entries.
-        for i in (0..self.handles.select(for_standalone).len()).rev() {
+        for i in (0..self.handles.select(kind).len()).rev() {
             let evict = {
-                let entry = self.entries.get(&self.handles.select(for_standalone)[i]);
+                let entry = self.entries.get(&self.handles.select(kind)[i]);
                 match entry.eviction {
                     Eviction::Manual => false,
                     Eviction::Auto => entry.last_access < frame_id_threshold,
@@ -672,7 +682,7 @@ impl TextureCache {
                 }
             };
             if evict {
-                let handle = self.handles.select(for_standalone).swap_remove(i);
+                let handle = self.handles.select(kind).swap_remove(i);
                 let entry = self.entries.free(handle);
                 entry.evict();
                 self.free(entry);
@@ -686,7 +696,7 @@ impl TextureCache {
     fn maybe_expire_old_shared_entries(&mut self) -> bool {
         let old_len = self.handles.shared.len();
         if self.last_shared_cache_expiration + 25 < self.frame_id {
-            self.expire_old_entries(false);
+            self.expire_old_entries(EntryKind::Shared);
             self.last_shared_cache_expiration = self.frame_id;
         }
         self.handles.shared.len() != old_len
@@ -868,7 +878,7 @@ impl TextureCache {
     /// provided handle to point to the new entry.
     fn allocate(&mut self, params: &CacheAllocParams, handle: &mut TextureCacheHandle) {
         let new_cache_entry = self.allocate_cache_entry(params);
-        let allocated_standalone = new_cache_entry.details.is_standalone();
+        let new_kind = new_cache_entry.details.kind();
 
         // If the handle points to a valid cache entry, we want to replace the
         // cache entry with our newly updated location. We also need to ensure
@@ -881,11 +891,11 @@ impl TextureCache {
         // This is managed with a database style upsert operation.
         match self.entries.upsert(handle, new_cache_entry) {
             UpsertResult::Updated(old_entry) => {
-                if allocated_standalone != old_entry.details.is_standalone() {
+                if new_kind != old_entry.details.kind() {
                     // Handle the rare case than an update moves an entry from
                     // shared to standalone or vice versa. This involves a linear
                     // search, but should be rare enough not to matter.
-                    let (from, to) = if allocated_standalone {
+                    let (from, to) = if new_kind == EntryKind::Standalone {
                         (&mut self.handles.shared, &mut self.handles.standalone)
                     } else {
                         (&mut self.handles.standalone, &mut self.handles.shared)
@@ -897,7 +907,7 @@ impl TextureCache {
             }
             UpsertResult::Inserted(new_handle) => {
                 *handle = new_handle.weak();
-                self.handles.select(allocated_standalone).push(new_handle);
+                self.handles.select(new_kind).push(new_handle);
             }
         }
     }
