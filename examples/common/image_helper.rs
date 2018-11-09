@@ -12,5 +12,8 @@ pub fn make_checkerboard(width: u32, height: u32) -> (ImageDescriptor, ImageData
             image_data.extend_from_slice(&[lum, lum, lum, 0xff]);
         }
     }
-    (ImageDescriptor::new(width, height, ImageFormat::BGRA8, true, false), ImageData::new(image_data))
+    (
+        ImageDescriptor::new(width as i32, height as i32, ImageFormat::BGRA8, true, false),
+        ImageData::new(image_data)
+    )
 }
