@@ -41,7 +41,7 @@ def is_windows():
     return sys.platform == 'win32' or sys.platform == 'msys' or sys.platform == 'cygwin'
 
 
-def is_macosx():
+def is_macos():
     return sys.platform == 'darwin'
 
 
@@ -56,7 +56,7 @@ def set_osmesa_env(bin_path):
         print(osmesa_path)
         os.environ["LD_LIBRARY_PATH"] = osmesa_path
         os.environ["GALLIUM_DRIVER"] = "softpipe"
-    elif is_macosx():
+    elif is_macos():
         osmesa_path = path.join(find_dep_path_newest('osmesa-src', bin_path),
                                 "out", "src", "gallium", "targets", "osmesa", ".libs")
         glapi_path = path.join(find_dep_path_newest('osmesa-src', bin_path),
