@@ -194,7 +194,7 @@ impl FrameBuilder {
             return None
         }
 
-        self.prim_store.begin_frame();
+        self.prim_store.reset_clip_instances();
 
         let root_spatial_node_index = clip_scroll_tree.root_reference_frame_index();
 

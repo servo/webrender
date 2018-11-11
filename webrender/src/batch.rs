@@ -16,7 +16,7 @@ use gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex, TransformPaletteId, Trans
 use internal_types::{FastHashMap, SavedTargetIndex, TextureSource};
 use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PictureSurface};
 use prim_store::{BrushKind, BrushPrimitive, DeferredResolve};
-use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveInstanceKind, PrimitiveStore};
+use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveInstanceKind};
 use prim_store::{VisibleGradientTile, PrimitiveInstance, PrimitiveOpacity};
 use prim_store::{BrushSegment, BorderSource, ClipMaskKind, ClipTaskIndex, PrimitiveDetails};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskTree};
@@ -538,10 +538,12 @@ impl AlphaBatchBuilder {
         let z_id = z_generator.next();
 
         // Get the clip task address for the global primitive, if one was set.
-        let clip_task_address = ctx
-            .prim_store
-            .get_clip_task_address(prim_instance.clip_task_index, 0, render_tasks)
-            .unwrap_or(OPAQUE_TASK_ADDRESS);
+        let clip_task_address = get_clip_task_address(
+            &ctx.prim_store.clip_mask_instances,
+            prim_instance.clip_task_index,
+            0,
+            render_tasks,
+        ).unwrap_or(OPAQUE_TASK_ADDRESS);
 
         match prim_instance.kind {
             PrimitiveInstanceKind::Clear => {
@@ -823,10 +825,12 @@ impl AlphaBatchBuilder {
                             let pic = &ctx.prim_store.pictures[pic_index.0];
 
                             // Get clip task, if set, for the picture primitive.
-                            let clip_task_address = ctx
-                                .prim_store
-                                .get_clip_task_address(prim_instance.clip_task_index, 0, render_tasks)
-                                .unwrap_or(OPAQUE_TASK_ADDRESS);
+                            let clip_task_address = get_clip_task_address(
+                                &ctx.prim_store.clip_mask_instances,
+                                prim_instance.clip_task_index,
+                                0,
+                                render_tasks,
+                            ).unwrap_or(OPAQUE_TASK_ADDRESS);
 
                             let prim_header = PrimitiveHeader {
                                 local_rect: pic.local_rect,
@@ -1409,41 +1413,43 @@ impl AlphaBatchBuilder {
 
         // Get GPU address of clip task for this segment, or None if
         // the entire segment is clipped out.
-        let clip_task_address = ctx.prim_store.get_clip_task_address(
+        let clip_task_address = match get_clip_task_address(
+            &ctx.prim_store.clip_mask_instances,
             clip_task_index,
             segment_index,
             render_tasks,
-        );
+        ) {
+            Some(clip_task_address) => clip_task_address,
+            None => return,
+        };
 
         // If a got a valid (or OPAQUE) clip task address, add the segment.
-        if let Some(clip_task_address) = clip_task_address {
-            let is_inner = segment.edge_flags.is_empty();
-            let needs_blending = !prim_opacity.is_opaque ||
-                                 clip_task_address != OPAQUE_TASK_ADDRESS ||
-                                 (!is_inner && transform_kind == TransformedRectKind::Complex);
+        let is_inner = segment.edge_flags.is_empty();
+        let needs_blending = !prim_opacity.is_opaque ||
+                             clip_task_address != OPAQUE_TASK_ADDRESS ||
+                             (!is_inner && transform_kind == TransformedRectKind::Complex);
 
-            let instance = PrimitiveInstanceData::from(BrushInstance {
-                segment_index,
-                edge_flags: segment.edge_flags,
-                clip_task_address,
-                brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION | segment.brush_flags,
-                prim_header_index,
-                user_data: segment_data.user_data,
-            });
+        let instance = PrimitiveInstanceData::from(BrushInstance {
+            segment_index,
+            edge_flags: segment.edge_flags,
+            clip_task_address,
+            brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION | segment.brush_flags,
+            prim_header_index,
+            user_data: segment_data.user_data,
+        });
 
-            let batch_key = BatchKey {
-                blend_mode: if needs_blending { alpha_blend_mode } else { BlendMode::None },
-                kind: BatchKind::Brush(batch_kind),
-                textures: segment_data.textures,
-            };
+        let batch_key = BatchKey {
+            blend_mode: if needs_blending { alpha_blend_mode } else { BlendMode::None },
+            kind: BatchKind::Brush(batch_kind),
+            textures: segment_data.textures,
+        };
 
-            self.batch_list.push_single_instance(
-                batch_key,
-                bounding_rect,
-                z_id,
-                instance,
-            );
-        }
+        self.batch_list.push_single_instance(
+            batch_key,
+            bounding_rect,
+            z_id,
+            instance,
+        );
     }
 
     /// Add any segment(s) from a brush to batches.
@@ -2206,29 +2212,27 @@ fn get_shader_opacity(opacity: f32) -> i32 {
     (opacity * 65535.0).round() as i32
 }
 
-impl PrimitiveStore {
-    /// Retrieve the GPU task address for a given clip task instance.
-    /// Returns None if the segment was completely clipped out.
-    /// Returns Some(OPAQUE_TASK_ADDRESS) if no clip mask is needed.
-    /// Returns Some(task_address) if there was a valid clip mask.
-    fn get_clip_task_address(
-        &self,
-        clip_task_index: ClipTaskIndex,
-        offset: i32,
-        render_tasks: &RenderTaskTree,
-    ) -> Option<RenderTaskAddress> {
-        let address = match self.clip_mask_instances[clip_task_index.0 as usize + offset as usize] {
-            ClipMaskKind::Mask(task_id) => {
-                render_tasks.get_task_address(task_id)
-            }
-            ClipMaskKind::None => {
-                OPAQUE_TASK_ADDRESS
-            }
-            ClipMaskKind::Clipped => {
-                return None;
-            }
-        };
+/// Retrieve the GPU task address for a given clip task instance.
+/// Returns None if the segment was completely clipped out.
+/// Returns Some(OPAQUE_TASK_ADDRESS) if no clip mask is needed.
+/// Returns Some(task_address) if there was a valid clip mask.
+fn get_clip_task_address(
+    clip_mask_instances: &[ClipMaskKind],
+    clip_task_index: ClipTaskIndex,
+    offset: i32,
+    render_tasks: &RenderTaskTree,
+) -> Option<RenderTaskAddress> {
+    let address = match clip_mask_instances[clip_task_index.0 as usize + offset as usize] {
+        ClipMaskKind::Mask(task_id) => {
+            render_tasks.get_task_address(task_id)
+        }
+        ClipMaskKind::None => {
+            OPAQUE_TASK_ADDRESS
+        }
+        ClipMaskKind::Clipped => {
+            return None;
+        }
+    };
 
-        Some(address)
-    }
+    Some(address)
 }

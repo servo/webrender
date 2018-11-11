@@ -54,7 +54,7 @@ pub struct RenderTaskId {
     pub index: u32,
 
     #[cfg(debug_assertions)]
-    pub frame_id: FrameId,
+    frame_id: FrameId,
 }
 
 impl RenderTaskId {

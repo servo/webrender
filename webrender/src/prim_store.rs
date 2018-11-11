@@ -878,14 +878,12 @@ impl BrushSegment {
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
-        clip_mask_instances: &mut Vec<ClipMaskKind>,
-    ) {
+    ) -> ClipMaskKind {
         match clip_chain {
             Some(clip_chain) => {
                 if !clip_chain.needs_mask ||
                    (!self.may_need_clip_mask && !clip_chain.has_non_local_clips) {
-                    clip_mask_instances.push(ClipMaskKind::None);
-                    return;
+                    return ClipMaskKind::None;
                 }
 
                 let (device_rect, _, _) = match get_raster_rects(
@@ -897,8 +895,7 @@ impl BrushSegment {
                 ) {
                     Some(info) => info,
                     None => {
-                        clip_mask_instances.push(ClipMaskKind::Clipped);
-                        return;
+                        return ClipMaskKind::Clipped;
                     }
                 };
 
@@ -915,10 +912,10 @@ impl BrushSegment {
 
                 let clip_task_id = frame_state.render_tasks.add(clip_task);
                 frame_state.surfaces[surface_index.0].tasks.push(clip_task_id);
-                clip_mask_instances.push(ClipMaskKind::Mask(clip_task_id));
+                ClipMaskKind::Mask(clip_task_id)
             }
             None => {
-                clip_mask_instances.push(ClipMaskKind::Clipped);
+                ClipMaskKind::Clipped
             }
         }
     }
@@ -1932,7 +1929,7 @@ impl PrimitiveStore {
         }
     }
 
-    pub fn begin_frame(&mut self) {
+    pub fn reset_clip_instances(&mut self) {
         // Clear the clip mask tasks for the beginning of the frame. Append
         // a single kind representing no clip mask, at the ClipTaskIndex::INVALID
         // location.
@@ -2859,7 +2856,7 @@ impl PrimitiveInstance {
         // instance that was built for the main primitive. This is a
         // significant optimization for the common case.
         if segment_desc.segments.len() == 1 {
-            segment_desc.segments[0].update_clip_task(
+            let clip_mask_kind = segment_desc.segments[0].update_clip_task(
                 Some(prim_clip_chain),
                 prim_bounding_rect,
                 root_spatial_node_index,
@@ -2867,8 +2864,8 @@ impl PrimitiveInstance {
                 pic_state,
                 frame_context,
                 frame_state,
-                clip_mask_instances,
             );
+            clip_mask_instances.push(clip_mask_kind);
         } else {
             for segment in &mut segment_desc.segments {
                 // Build a clip chain for the smaller segment rect. This will
@@ -2892,7 +2889,7 @@ impl PrimitiveInstance {
                         &mut frame_state.resources.clip_data_store,
                     );
 
-                segment.update_clip_task(
+                let clip_mask_kind = segment.update_clip_task(
                     segment_clip_chain.as_ref(),
                     prim_bounding_rect,
                     root_spatial_node_index,
@@ -2900,8 +2897,8 @@ impl PrimitiveInstance {
                     pic_state,
                     frame_context,
                     frame_state,
-                    clip_mask_instances,
                 );
+                clip_mask_instances.push(clip_mask_kind);
             }
         }
 
