@@ -534,15 +534,20 @@ impl Texture {
         self.last_frame_used + threshold >= current_frame_id
     }
 
-    /// Returns the number of bytes (generally in GPU memory) that this texture
-    /// consumes.
-    pub fn size_in_bytes(&self) -> usize {
+    /// Returns the number of bytes (generally in GPU memory) that each layer of
+    /// this texture consumes.
+    pub fn layer_size_in_bytes(&self) -> usize {
         assert!(self.layer_count > 0 || self.width + self.height == 0);
         let bpp = self.format.bytes_per_pixel() as usize;
         let w = self.width as usize;
         let h = self.height as usize;
-        let count = self.layer_count as usize;
-        bpp * w * h * count
+        bpp * w * h
+    }
+
+    /// Returns the number of bytes (generally in GPU memory) that this texture
+    /// consumes.
+    pub fn size_in_bytes(&self) -> usize {
+        self.layer_size_in_bytes() * (self.layer_count as usize)
     }
 
     #[cfg(feature = "replay")]
