@@ -887,12 +887,6 @@ impl YamlFrameWriter {
                                 item.widths.bottom,
                                 item.widths.left,
                             ];
-                            let outset: Vec<f32> = vec![
-                                details.outset.top,
-                                details.outset.right,
-                                details.outset.bottom,
-                                details.outset.left,
-                            ];
                             yaml_node(&mut v, "width", f32_vec_yaml(&widths, true));
 
                             match details.source {
@@ -934,7 +928,6 @@ impl YamlFrameWriter {
                                 details.slice.left,
                             ];
                             yaml_node(&mut v, "slice", u32_vec_yaml(&slice, true));
-                            yaml_node(&mut v, "outset", f32_vec_yaml(&outset, true));
                             match details.repeat_horizontal {
                                 RepeatMode::Stretch => {
                                     str_node(&mut v, "repeat-horizontal", "stretch")

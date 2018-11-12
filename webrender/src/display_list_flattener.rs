@@ -1731,17 +1731,6 @@ impl<'a> DisplayListFlattener<'a> {
         let rect = info.rect;
         match border_item.details {
             BorderDetails::NinePatch(ref border) => {
-                // Calculate the modified rect as specific by border-image-outset
-                let origin = LayoutPoint::new(
-                    rect.origin.x - border.outset.left,
-                    rect.origin.y - border.outset.top,
-                );
-                let size = LayoutSize::new(
-                    rect.size.width + border.outset.left + border.outset.right,
-                    rect.size.height + border.outset.top + border.outset.bottom,
-                );
-                let rect = LayoutRect::new(origin, size);
-
                 // Calculate the local texel coords of the slices.
                 let px0 = 0.0;
                 let px1 = border.slice.left as f32;
