@@ -37,7 +37,7 @@ use capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
 use debug_colors;
 use device::{DepthFunction, Device, GpuFrameId, Program, UploadMethod, Texture, PBO};
 use device::{DrawTarget, ExternalTexture, FBOId, ReadTarget, TextureSlot};
-use device::{ShaderError, TextureFilter,
+use device::{ShaderError, TextureFilter, TextureFlags,
              VertexUsageHint, VAO, VBO, CustomVAO};
 use device::{ProgramCache, ReadPixelsFormat};
 #[cfg(feature = "debug_renderer")]
@@ -2824,7 +2824,7 @@ impl Renderer {
                             //
                             // Ensure no PBO is bound when creating the texture storage,
                             // or GL will attempt to read data from there.
-                            let texture = self.device.create_texture(
+                            let mut texture = self.device.create_texture(
                                 TextureTarget::Array,
                                 info.format,
                                 info.width,
@@ -2835,6 +2835,11 @@ impl Renderer {
                                 Some(RenderTargetInfo { has_depth: false }),
                                 info.layer_count,
                             );
+
+                            if info.is_shared_cache {
+                                texture.flags_mut()
+                                    .insert(TextureFlags::IS_SHARED_TEXTURE_CACHE);
+                            }
 
                             let old = self.texture_resolver.texture_cache_map.insert(allocation.id, texture);
                             assert_eq!(old.is_some(), is_realloc, "Renderer and RenderBackend disagree");
@@ -4199,6 +4204,7 @@ impl Renderer {
             textures,
             framebuffer_size,
             0,
+            &|_| [0.0, 1.0, 0.0, 1.0], // Use green for all RTs.
         );
     }
 
@@ -4216,12 +4222,21 @@ impl Renderer {
         let textures =
             self.texture_resolver.texture_cache_map.values().collect::<Vec<&Texture>>();
 
+        fn select_color(texture: &Texture) -> [f32; 4] {
+            if texture.flags().contains(TextureFlags::IS_SHARED_TEXTURE_CACHE) {
+                [1.0, 0.5, 0.0, 1.0] // Orange for shared.
+            } else {
+                [1.0, 0.0, 1.0, 1.0] // Fuchsia for standalone.
+            }
+        }
+
         Self::do_debug_blit(
             &mut self.device,
             debug_renderer,
             textures,
             framebuffer_size,
             if self.debug_flags.contains(DebugFlags::RENDER_TARGET_DBG) { 544 } else { 0 },
+            &select_color,
         );
     }
 
@@ -4232,6 +4247,7 @@ impl Renderer {
         mut textures: Vec<&Texture>,
         framebuffer_size: DeviceUintSize,
         bottom: i32,
+        select_color: &Fn(&Texture) -> [f32; 4],
     ) {
         let mut spacing = 16;
         let mut size = 512;
@@ -4276,12 +4292,12 @@ impl Renderer {
                 }
 
                 // Draw the info tag.
-                let orange = [1.0, 0.5, 0.0, 1.0];
                 let text_margin = 1;
                 let text_height = 14; // Visually aproximated.
                 let tag_height = text_height + text_margin * 2;
                 let tag_rect = rect(x, y, size, tag_height);
-                device.clear_target(Some(orange), None, Some(tag_rect));
+                let tag_color = select_color(texture);
+                device.clear_target(Some(tag_color), None, Some(tag_rect));
 
                 // Draw the dimensions onto the tag.
                 let dim = texture.get_dimensions();

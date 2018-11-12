@@ -92,6 +92,7 @@ pub enum DepthFunction {
     LessEqual = gl::LEQUAL,
 }
 
+#[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -464,6 +465,14 @@ impl ExternalTexture {
     }
 }
 
+bitflags! {
+    #[derive(Default)]
+    pub struct TextureFlags: u32 {
+        /// This texture corresponds to one of the shared texture caches.
+        const IS_SHARED_TEXTURE_CACHE = 1 << 0;
+    }
+}
+
 /// WebRender interface to an OpenGL texture.
 ///
 /// Because freeing a texture requires various device handles that are not
@@ -477,6 +486,7 @@ pub struct Texture {
     width: u32,
     height: u32,
     filter: TextureFilter,
+    flags: TextureFlags,
     /// Framebuffer Objects, one for each layer of the texture, allowing this
     /// texture to be rendered to. Empty if this texture is not used as a render
     /// target.
@@ -532,6 +542,16 @@ impl Texture {
     /// the current frame.
     pub fn used_recently(&self, current_frame_id: GpuFrameId, threshold: usize) -> bool {
         self.last_frame_used + threshold >= current_frame_id
+    }
+
+    /// Returns the flags for this texture.
+    pub fn flags(&self) -> &TextureFlags {
+        &self.flags
+    }
+
+    /// Returns a mutable borrow of the flags for this texture.
+    pub fn flags_mut(&mut self) -> &mut TextureFlags {
+        &mut self.flags
     }
 
     /// Returns the number of bytes (generally in GPU memory) that each layer of
@@ -1459,6 +1479,7 @@ impl Device {
             fbos: vec![],
             fbos_with_depth: vec![],
             last_frame_used: self.frame_id,
+            flags: TextureFlags::default(),
         };
         self.bind_texture(DEFAULT_TEXTURE, &texture);
         self.set_texture_parameters(texture.target, filter);
