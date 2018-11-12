@@ -88,7 +88,7 @@ impl<U> Ellipse<U> {
     }
 
     /// Find the signed distance from this ellipse given a point.
-    /// Taken from http://www.iquilezles.org/www/articles/ellipsedist/ellipsedist.htm
+    /// Taken from https://www.iquilezles.org/www/articles/ellipsedist/ellipsedist.htm
     fn signed_distance(&self, point: LayoutVector2D) -> f32 {
         // This algorithm fails for circles, so we handle them here.
         if self.radius.width == self.radius.height {
