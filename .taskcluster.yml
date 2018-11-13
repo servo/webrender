@@ -151,7 +151,7 @@ tasks:
             servo-tidy
             sccache --stop-server || true
             mkdir -p ../artifacts
-            RUST_LOG=sccache=debug SCCACHE_ERROR_LOG=$PWD/../artifacts/sccache.log sccache --start-server
+            RUST_LOG=sccache=trace SCCACHE_ERROR_LOG=$PWD/../artifacts/sccache.log sccache --start-server
             export RUST_BACKTRACE=full
             export RUSTFLAGS='--deny warnings'
             export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH"
@@ -195,7 +195,7 @@ tasks:
             servo-tidy
             sccache --stop-server || true
             mkdir -p ../artifacts
-            RUST_LOG=sccache=debug SCCACHE_ERROR_LOG=$PWD/../artifacts/sccache.log sccache --start-server
+            RUST_LOG=sccache=trace SCCACHE_ERROR_LOG=$PWD/../artifacts/sccache.log sccache --start-server
             export RUST_BACKTRACE=full
             export RUSTFLAGS='--deny warnings'
             export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH"
