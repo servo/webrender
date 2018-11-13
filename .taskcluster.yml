@@ -156,7 +156,7 @@ tasks:
             export RUSTFLAGS='--deny warnings'
             export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH"
             export RUSTC_WRAPPER=sccache
-            echo 'exec make -j1 "\$@"' > $HOME/make # See #2638
+            echo 'exec make -j1 "$@"' > $HOME/make # See #2638
             chmod +x $HOME/make
             export MAKE="$HOME/make"
             (cd wrench && python script/headless.py reftest)
@@ -203,7 +203,7 @@ tasks:
             export RUSTFLAGS='--deny warnings'
             export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH"
             export RUSTC_WRAPPER=sccache
-            echo 'exec make -j1 "\$@"' > $HOME/make # See #2638
+            echo 'exec make -j1 "$@"' > $HOME/make # See #2638
             chmod +x $HOME/make
             export MAKE="$HOME/make"
             (cd webrender_api && cargo test --verbose --features "ipc")
