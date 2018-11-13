@@ -17,6 +17,7 @@ use resource_cache::CacheItem;
 use std::cell::Cell;
 use std::cmp;
 use std::mem;
+use std::time::{Duration, SystemTime};
 use std::rc::Rc;
 
 /// The size of each region/layer in shared cache texture arrays.
@@ -290,6 +291,105 @@ struct CacheAllocParams {
     uv_rect_kind: UvRectKind,
 }
 
+/// Criterion to determine whether a cache entry should be evicted. Generated
+/// with `EvictionThresholdBuilder`.
+///
+/// Our eviction scheme is based on the age of the entry, both in terms of
+/// number of frames and ellapsed time. It does not directly consider the size
+/// of the entry, but may consider overall memory usage by WebRender, by making
+/// eviction increasingly aggressive as overall memory usage increases.
+///
+/// Note that we don't just wrap a `FrameStamp` here, because `FrameStamp`
+/// requires that if the id fields are the same, the time fields will be as
+/// well. The pair of values in our eviction threshold generally do not match
+/// the stamp of any actual frame, and the comparison semantics are also
+/// different - so it's best to use a distinct type.
+struct EvictionThreshold {
+    id: FrameId,
+    time: SystemTime,
+}
+
+impl EvictionThreshold {
+    /// Returns true if the entry with the given access record should be evicted
+    /// under this threshold.
+    fn should_evict(&self, last_access: FrameStamp) -> bool {
+        last_access.frame_id() < self.id &&
+        last_access.time() < self.time
+    }
+}
+
+/// Helper to generate an `EvictionThreshold` with the desired policy.
+///
+/// Without any constraints, the builder will generate a threshold that evicts
+/// all frames other than the current one. Constraints are additive, i.e. setting
+/// a frame limit and a time limit only evicts frames with an id and time each
+/// less than the respective limits.
+struct EvictionThresholdBuilder {
+    now: FrameStamp,
+    max_frames: Option<usize>,
+    max_time_ms: Option<usize>,
+    scale_by_pressure: bool,
+}
+
+impl EvictionThresholdBuilder {
+    fn new(now: FrameStamp) -> Self {
+        Self {
+            now,
+            max_frames: None,
+            max_time_ms: None,
+            scale_by_pressure: false,
+        }
+    }
+
+    fn max_frames(mut self, frames: usize) -> Self {
+        self.max_frames = Some(frames);
+        self
+    }
+
+    fn max_time_s(mut self, seconds: usize) -> Self {
+        self.max_time_ms = Some(seconds * 1000);
+        self
+    }
+
+    fn scale_by_pressure(mut self) -> Self {
+        self.scale_by_pressure = true;
+        self
+    }
+
+    fn build(self) -> EvictionThreshold {
+        const MAX_MEMORY_PRESSURE_BYTES: f64 = (500 * 1024 * 1024) as f64;
+        // Compute the memory pressure factor in the range of [0, 1.0].
+        let pressure_factor = if self.scale_by_pressure {
+            let bytes_allocated = total_gpu_bytes_allocated() as f64;
+            1.0 - (bytes_allocated / MAX_MEMORY_PRESSURE_BYTES).min(1.0)
+        } else {
+            1.0
+        };
+
+        // Compute the maximum period an entry can go unused before eviction.
+        // If a category (frame or time) wasn't specified, we set the
+        // threshold for that category to |now|, which lets the other category
+        // be the deciding factor. If neither category is specified, we'll evict
+        // everything but the current frame.
+        //
+        // Note that we need to clamp the frame id to avoid it going negative or
+        // matching FrameId::INVALID early in execution. We don't need to clamp
+        // the time because it's unix-epoch-relative.
+        let max_frames = self.max_frames
+            .map(|f| (f as f64 * pressure_factor) as usize)
+            .unwrap_or(0)
+            .min(self.now.frame_id().as_usize() - 1);
+        let max_time_ms = self.max_time_ms
+            .map(|f| (f as f64 * pressure_factor) as usize)
+            .unwrap_or(0) as u64;
+
+        EvictionThreshold {
+            id: self.now.frame_id() - max_frames,
+            time: self.now.time() - Duration::from_millis(max_time_ms),
+        }
+    }
+}
+
 /// General-purpose manager for images in GPU memory. This includes images,
 /// rasterized glyphs, rasterized blobs, cached render tasks, etc.
 ///
@@ -422,7 +522,16 @@ impl TextureCache {
     }
 
     pub fn end_frame(&mut self, texture_cache_profile: &mut TextureCacheProfileCounters) {
-        self.expire_old_standalone_entries();
+        // Expire standalone entries.
+        //
+        // Most of the time, standalone cache entries correspond to images whose
+        // width or height is greater than the region size in the shared cache, i.e.
+        // 512 pixels. Cached render tasks also frequently get standalone entries,
+        // but those use the Eviction::Eager policy (for now). So the tradeoff there
+        // is largely around reducing texture upload jank while keeping memory usage
+        // at an acceptable level.
+        let threshold = self.default_eviction();
+        self.expire_old_entries(EntryKind::Standalone, threshold);
 
         self.shared_textures.array_a8_linear
             .update_profile(&mut texture_cache_profile.pages_a8_linear);
@@ -625,49 +734,20 @@ impl TextureCache {
         }
     }
 
-    /// Expires old standalone textures. Called at the end of every frame.
-    fn expire_old_standalone_entries(&mut self) {
-        self.expire_old_entries(EntryKind::Standalone);
+    /// Returns the default eviction policy.
+    ///
+    /// See discussion at https://mozilla.logbot.info/gfx/20181030#c15541654
+    fn default_eviction(&self) -> EvictionThreshold {
+        EvictionThresholdBuilder::new(self.now)
+            .max_frames(75)
+            .scale_by_pressure()
+            .build()
     }
 
     /// Shared eviction code for standalone and shared entries.
     ///
-    /// Our eviction scheme is based on the age of the entry, i.e. the difference
-    /// between the current frame index and that of the last frame in
-    /// which the entry was used. It does not directly consider the size of the
-    /// entry, but does consider overall memory usage by WebRender, by making
-    /// eviction increasingly aggressive as overall memory usage increases.
-    ///
-    /// Most of the time, standalone cache entries correspond to images whose
-    /// width or height is greater than the region size in the shared cache, i.e.
-    /// 512 pixels. Cached render tasks also frequently get standalone entries,
-    /// but those use the Eviction::Eager policy (for now). So the tradeoff there
-    /// is largely around reducing texture upload jank while keeping memory usage
-    /// at an acceptable level.
-    fn expire_old_entries(&mut self, kind: EntryKind) {
-        // These parameters are based on some discussion and local tuning, but
-        // no hard measurement. There may be room for improvement.
-        //
-        // See discussion at https://mozilla.logbot.info/gfx/20181030#c15541654
-        const MAX_FRAME_AGE_WITHOUT_PRESSURE: f64 = 75.0;
-        const MAX_MEMORY_PRESSURE_BYTES: f64 = (500 * 1024 * 1024) as f64;
-
-        // Compute the memory pressure factor in the range of [0, 1.0].
-        let pressure_factor =
-            (total_gpu_bytes_allocated() as f64 / MAX_MEMORY_PRESSURE_BYTES as f64).min(1.0);
-
-        // Use the pressure factor to compute the maximum number of frames that
-        // an entry can go unused before being evicted.
-        let max_frame_age_raw =
-            ((1.0 - pressure_factor) * MAX_FRAME_AGE_WITHOUT_PRESSURE) as usize;
-
-        // We clamp max_frame_age to frame_id - 1 so that entries with FrameId(0)
-        // always get evicted, even early in the lifetime of the Renderer.
-        let max_frame_age = max_frame_age_raw.min(self.now.frame_id().as_usize() - 1);
-
-        // Compute the oldest FrameId for which we will not evict.
-        let frame_id_threshold = self.now.frame_id() - max_frame_age;
-
+    /// See `EvictionThreshold` for more details on policy.
+    fn expire_old_entries(&mut self, kind: EntryKind, threshold: EvictionThreshold) {
         // Iterate over the entries in reverse order, evicting the ones older than
         // the frame age threshold. Reverse order avoids iterator invalidation when
         // removing entries.
@@ -676,7 +756,7 @@ impl TextureCache {
                 let entry = self.entries.get(&self.handles.select(kind)[i]);
                 match entry.eviction {
                     Eviction::Manual => false,
-                    Eviction::Auto => entry.last_access.frame_id() < frame_id_threshold,
+                    Eviction::Auto => threshold.should_evict(entry.last_access),
                     Eviction::Eager => entry.last_access < self.now,
                 }
             };
@@ -695,7 +775,8 @@ impl TextureCache {
     fn maybe_expire_old_shared_entries(&mut self) -> bool {
         let old_len = self.handles.shared.len();
         if self.last_shared_cache_expiration.frame_id() + 25 < self.now.frame_id() {
-            self.expire_old_entries(EntryKind::Shared);
+            let threshold = self.default_eviction();
+            self.expire_old_entries(EntryKind::Shared, threshold);
             self.last_shared_cache_expiration = self.now;
         }
         self.handles.shared.len() != old_len
