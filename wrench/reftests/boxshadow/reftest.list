@@ -32,3 +32,5 @@ platform(linux,mac) fuzzy(1,14) == inset-mask-region.yaml inset-mask-region.png
 
 # Checking test doesn't panic, so don't care too much about the fuzziness of matching.
 fuzzy(1,100) == box-shadow-huge-radius.yaml box-shadow-huge-radius.png
+platform(linux,mac) == box-shadow-large-blur-radius-2.yaml box-shadow-large-blur-radius-2.png
+platform(linux,mac) == box-shadow-large-blur-radius-3.yaml box-shadow-large-blur-radius-3.png
