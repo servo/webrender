@@ -139,6 +139,8 @@ tasks:
           - master
     payload:
       maxRunTime: 3600
+      env:
+        CARGO_MAKEFLAGS: '-j1' # See #2638
       command:
         - - /bin/bash
           - '--login'
@@ -183,6 +185,8 @@ tasks:
           - master
     payload:
       maxRunTime: 3600
+      env:
+        CARGO_MAKEFLAGS: '-j1' # See #2638
       command:
         - - /bin/bash
           - '--login'
