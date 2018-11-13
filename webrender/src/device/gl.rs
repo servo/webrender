@@ -1769,6 +1769,29 @@ impl Device {
         );
     }
 
+    /// Performs a blit while flipping vertically. Useful for blitting textures
+    /// (which use origin-bottom-left) to the main framebuffer (which uses
+    /// origin-top-left).
+    pub fn blit_render_target_invert_y(
+        &mut self,
+        src_rect: DeviceIntRect,
+        dest_rect: DeviceIntRect,
+    ) {
+        debug_assert!(self.inside_frame);
+        self.gl.blit_framebuffer(
+            src_rect.origin.x,
+            src_rect.origin.y,
+            src_rect.origin.x + src_rect.size.width,
+            src_rect.origin.y + src_rect.size.height,
+            dest_rect.origin.x,
+            dest_rect.origin.y + dest_rect.size.height,
+            dest_rect.origin.x + dest_rect.size.width,
+            dest_rect.origin.y,
+            gl::COLOR_BUFFER_BIT,
+            gl::LINEAR,
+        );
+    }
+
     pub fn delete_texture(&mut self, mut texture: Texture) {
         debug_assert!(self.inside_frame);
         record_gpu_free(texture.size_in_bytes());

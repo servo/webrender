@@ -4312,9 +4312,11 @@ impl Renderer {
                     Some(text_rect.to_f32())
                 );
 
-                // Blit the contents of the layer.
+                // Blit the contents of the layer. We need to invert Y because
+                // we're blitting from a texture to the main framebuffer, which
+                // use different conventions.
                 let dest_rect = rect(x, y + tag_height, size, size);
-                device.blit_render_target(src_rect, dest_rect);
+                device.blit_render_target_invert_y(src_rect, dest_rect);
                 i += 1;
             }
         }
