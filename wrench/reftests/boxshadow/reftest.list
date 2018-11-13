@@ -30,5 +30,7 @@ platform(linux,mac) fuzzy(1,41) == box-shadow-stretch-mode-y.yaml box-shadow-str
 platform(linux,mac) fuzzy(1,14) == inset-mask-region.yaml inset-mask-region.png
 == box-shadow-blurred-overlapping-radii.yaml box-shadow-blurred-overlapping-radii-ref.yaml
 
-# Checking test doesn't panic, so don't care too much about the fuzziness of matching.
-fuzzy(1,100) == box-shadow-huge-radius.yaml box-shadow-huge-radius.png
+platform(linux,mac) == box-shadow-huge-radius.yaml box-shadow-huge-radius.png
+
+platform(linux,mac) == box-shadow-large-blur-radius-2.yaml box-shadow-large-blur-radius-2.png
+platform(linux,mac) == box-shadow-large-blur-radius-3.yaml box-shadow-large-blur-radius-3.png
