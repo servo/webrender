@@ -935,6 +935,7 @@ bitflags! {
         const SHOW_OVERDRAW         = 1 << 11;
         const GPU_CACHE_DBG         = 1 << 12;
         const SLOW_FRAME_INDICATOR  = 1 << 13;
+        const TEXTURE_CACHE_DBG_CLEAR_EVICTED = 1 << 14;
     }
 }
 
