@@ -857,6 +857,11 @@ pub struct Device {
     /// format, we fall back to glTexImage*.
     texture_storage_usage: TexStorageUsage,
 
+    // Whether we are able to use glBlitFramebuffers with the draw fbo
+    // bound to a non-0th layer of a texture array. This is buggy on
+    // adreno devices.
+    can_blit_to_texture_array: bool,
+
     // GL extensions
     extensions: Vec<String>,
 }
@@ -1024,6 +1029,10 @@ impl Device {
             )
         };
 
+        // Due to a bug on adreno devices, blitting to an fbo bound to
+        // a non-0th layer of a texture array is not supported.
+        let can_blit_to_texture_array = !renderer_name.starts_with("Adreno");
+
         // Explicitly set some global states to the values we expect.
         gl.disable(gl::FRAMEBUFFER_SRGB);
         gl.disable(gl::MULTISAMPLE);
@@ -1066,6 +1075,7 @@ impl Device {
             frame_id: GpuFrameId(0),
             extensions,
             texture_storage_usage,
+            can_blit_to_texture_array,
         }
     }
 
@@ -1621,12 +1631,47 @@ impl Device {
         debug_assert!(dst.size.height >= src.size.height);
         debug_assert!(dst.layer_count >= src.layer_count);
 
-        // Note that zip() truncates to the shorter of the two iterators.
+        // If we are unable to blit directly between the texture arrays
+        // then we must create an intermediate renderbuffer.
+        let temp_buffer = if src.layer_count > 1 && !self.can_blit_to_texture_array {
+            let rbo = RBOId(self.gl.gen_renderbuffers(1)[0]);
+            let fbo = FBOId(self.gl.gen_framebuffers(1)[0]);
+            self.gl.bind_renderbuffer(gl::RENDERBUFFER, rbo.0);
+            self.gl.renderbuffer_storage(gl::RENDERBUFFER, gl::RGBA8,
+                                         src.size.width as _, src.size.height as _);
+            self.bind_draw_target_impl(fbo);
+            self.gl.framebuffer_renderbuffer(gl::DRAW_FRAMEBUFFER,
+                                             gl::COLOR_ATTACHMENT0,
+                                             gl::RENDERBUFFER,
+                                             rbo.0);
+
+            Some((rbo, fbo))
+        } else {
+            None
+        };
+
         let rect = DeviceIntRect::new(DeviceIntPoint::zero(), src.get_dimensions().to_i32());
-        for (read_fbo, draw_fbo) in src.fbos.iter().zip(&dst.fbos) {
+        for (i, read_fbo) in src.fbos.iter().enumerate() {
+            // Blit from the src to the dst (or the intermediate buffer if necessary)
             self.bind_read_target_impl(*read_fbo);
-            self.bind_draw_target_impl(*draw_fbo);
+            self.bind_draw_target_impl(match &temp_buffer {
+                Some((_, fbo)) => *fbo,
+                None => dst.fbos[i],
+            });
             self.blit_render_target(rect, rect);
+
+            // Copy from the intermediate buffer to the dst texture if necessary
+            if let Some((_, fbo)) = &temp_buffer {
+                self.bind_read_target_impl(*fbo);
+                self.bind_texture(DEFAULT_TEXTURE, dst);
+                self.gl.copy_tex_sub_image_3d(dst.target, 0, 0, 0, i as _,
+                                              0, 0, src.size.width as _, src.size.height as _);
+                self.gl.invalidate_framebuffer(gl::READ_FRAMEBUFFER, &[gl::COLOR_ATTACHMENT0]);
+            }
+        }
+        if let Some((rbo, fbo)) = &temp_buffer {
+            self.gl.delete_renderbuffers(&[rbo.0]);
+            self.gl.delete_framebuffers(&[fbo.0]);
         }
         self.reset_draw_target();
         self.reset_read_target();
