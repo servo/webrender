@@ -43,6 +43,7 @@ thread_profiler = "0.1.1"
 time = "0.1"
 webrender_api = { version = "0.57.2", path = "../webrender_api" }
 ws = { optional = true, version = "0.7.3" }
+bit-vec = "0.5.0"
 
 [dependencies.pathfinder_font_renderer]
 git = "https://github.com/pcwalton/pathfinder"

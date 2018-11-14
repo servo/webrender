@@ -50,6 +50,7 @@ macro_rules! matches {
     }
 }
 
+extern crate bit_vec;
 #[macro_use]
 extern crate bitflags;
 #[macro_use]
