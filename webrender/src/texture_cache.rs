@@ -12,7 +12,7 @@ use gpu_types::{ImageSource, UvRectKind};
 use internal_types::{CacheTextureId, LayerIndex, TextureUpdateList, TextureUpdateSource};
 use internal_types::{TextureSource, TextureCacheAllocInfo, TextureCacheUpdate};
 use profiler::{ResourceProfileCounter, TextureCacheProfileCounters};
-use render_backend::FrameId;
+use render_backend::{FrameId, FrameStamp};
 use resource_cache::CacheItem;
 use std::cell::Cell;
 use std::cmp;
@@ -71,7 +71,7 @@ struct CacheEntry {
     /// Arbitrary user data associated with this item.
     user_data: [f32; 3],
     /// The last frame this item was requested for rendering.
-    last_access: FrameId,
+    last_access: FrameStamp,
     /// Handle to the resource rect in the GPU cache.
     uv_rect_handle: GpuCacheHandle,
     /// Image format of the item.
@@ -91,7 +91,7 @@ impl CacheEntry {
     // Create a new entry for a standalone texture.
     fn new_standalone(
         texture_id: CacheTextureId,
-        last_access: FrameId,
+        last_access: FrameStamp,
         params: &CacheAllocParams,
     ) -> Self {
         CacheEntry {
@@ -330,11 +330,11 @@ pub struct TextureCache {
     #[cfg_attr(all(feature = "serde", any(feature = "capture", feature = "replay")), serde(skip))]
     pending_updates: TextureUpdateList,
 
-    /// The current frame ID. Used for cache eviction policies.
-    frame_id: FrameId,
+    /// The current `FrameStamp`. Used for cache eviction policies.
+    now: FrameStamp,
 
-    /// The last FrameId in which we expired the shared cache.
-    last_shared_cache_expiration: FrameId,
+    /// The last `FrameStamp` in which we expired the shared cache.
+    last_shared_cache_expiration: FrameStamp,
 
     /// Maintains the list of all current items in the texture cache.
     entries: FreeList<CacheEntry, CacheEntryMarker>,
@@ -378,8 +378,8 @@ impl TextureCache {
             debug_flags: DebugFlags::empty(),
             next_id: CacheTextureId(1),
             pending_updates: TextureUpdateList::new(),
-            frame_id: FrameId::INVALID,
-            last_shared_cache_expiration: FrameId::INVALID,
+            now: FrameStamp::INVALID,
+            last_shared_cache_expiration: FrameStamp::INVALID,
             entries: FreeList::new(),
             handles: EntryHandles::default(),
         }
@@ -417,8 +417,8 @@ impl TextureCache {
         self.shared_textures.clear(&mut self.pending_updates);
     }
 
-    pub fn begin_frame(&mut self, frame_id: FrameId) {
-        self.frame_id = frame_id;
+    pub fn begin_frame(&mut self, stamp: FrameStamp) {
+        self.now = stamp;
     }
 
     pub fn end_frame(&mut self, texture_cache_profile: &mut TextureCacheProfileCounters) {
@@ -447,7 +447,7 @@ impl TextureCache {
             // If an image is requested that is already in the cache,
             // refresh the GPU cache data associated with this item.
             Some(entry) => {
-                entry.last_access = self.frame_id;
+                entry.last_access = self.now;
                 entry.update_gpu_cache(gpu_cache);
                 false
             }
@@ -570,7 +570,7 @@ impl TextureCache {
         let entry = self.entries
             .get_opt(handle)
             .expect("BUG: was dropped from cache or not updated!");
-        debug_assert_eq!(entry.last_access, self.frame_id);
+        debug_assert_eq!(entry.last_access, self.now);
         let (layer_index, origin) = match entry.details {
             EntryDetails::Standalone { .. } => {
                 (0, DeviceIntPoint::zero())
@@ -600,7 +600,7 @@ impl TextureCache {
         let entry = self.entries
             .get_opt(handle)
             .expect("BUG: was dropped from cache or not updated!");
-        debug_assert_eq!(entry.last_access, self.frame_id);
+        debug_assert_eq!(entry.last_access, self.now);
         let (layer_index, origin) = match entry.details {
             EntryDetails::Standalone { .. } => {
                 (0, DeviceIntPoint::zero())
@@ -618,9 +618,9 @@ impl TextureCache {
 
     pub fn mark_unused(&mut self, handle: &TextureCacheHandle) {
         if let Some(entry) = self.entries.get_opt_mut(handle) {
-            // Set last accessed frame to invalid to ensure it gets cleaned up
+            // Set last accessed stamp invalid to ensure it gets cleaned up
             // next time we expire entries.
-            entry.last_access = FrameId::INVALID;
+            entry.last_access = FrameStamp::INVALID;
             entry.eviction = Eviction::Auto;
         }
     }
@@ -663,10 +663,10 @@ impl TextureCache {
 
         // We clamp max_frame_age to frame_id - 1 so that entries with FrameId(0)
         // always get evicted, even early in the lifetime of the Renderer.
-        let max_frame_age = max_frame_age_raw.min(self.frame_id.as_usize() - 1);
+        let max_frame_age = max_frame_age_raw.min(self.now.frame_id().as_usize() - 1);
 
         // Compute the oldest FrameId for which we will not evict.
-        let frame_id_threshold = self.frame_id - max_frame_age;
+        let frame_id_threshold = self.now.frame_id() - max_frame_age;
 
         // Iterate over the entries in reverse order, evicting the ones older than
         // the frame age threshold. Reverse order avoids iterator invalidation when
@@ -676,8 +676,8 @@ impl TextureCache {
                 let entry = self.entries.get(&self.handles.select(kind)[i]);
                 match entry.eviction {
                     Eviction::Manual => false,
-                    Eviction::Auto => entry.last_access < frame_id_threshold,
-                    Eviction::Eager => entry.last_access < self.frame_id,
+                    Eviction::Auto => entry.last_access.frame_id() < frame_id_threshold,
+                    Eviction::Eager => entry.last_access < self.now,
                 }
             };
             if evict {
@@ -694,9 +694,9 @@ impl TextureCache {
     /// Returns true if any entries were expired.
     fn maybe_expire_old_shared_entries(&mut self) -> bool {
         let old_len = self.handles.shared.len();
-        if self.last_shared_cache_expiration + 25 < self.frame_id {
+        if self.last_shared_cache_expiration.frame_id() + 25 < self.now.frame_id() {
             self.expire_old_entries(EntryKind::Shared);
-            self.last_shared_cache_expiration = self.frame_id;
+            self.last_shared_cache_expiration = self.now;
         }
         self.handles.shared.len() != old_len
     }
@@ -765,7 +765,7 @@ impl TextureCache {
 
         // Do the allocation. This can fail and return None
         // if there are no free slots or regions available.
-        texture_array.alloc(params, self.frame_id)
+        texture_array.alloc(params, self.now)
     }
 
     // Returns true if the given image descriptor *may* be
@@ -818,7 +818,7 @@ impl TextureCache {
 
         return CacheEntry::new_standalone(
             texture_id,
-            self.frame_id,
+            self.now,
             params,
         );
     }
@@ -1108,7 +1108,7 @@ impl TextureArray {
     fn alloc(
         &mut self,
         params: &CacheAllocParams,
-        frame_id: FrameId,
+        now: FrameStamp,
     ) -> Option<CacheEntry> {
         // Quantize the size of the allocation to select a region to
         // allocate from.
@@ -1159,7 +1159,7 @@ impl TextureArray {
             CacheEntry {
                 size: params.descriptor.size,
                 user_data: params.user_data,
-                last_access: frame_id,
+                last_access: now,
                 details,
                 uv_rect_handle: GpuCacheHandle::new(),
                 format: self.format,
