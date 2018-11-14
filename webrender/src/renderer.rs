@@ -30,6 +30,7 @@ use api::{MemoryReport, VoidPtrToSizeFn};
 use api::{RenderApiSender, RenderNotifier, TexelRect, TextureTarget};
 use api::{channel};
 use api::DebugCommand;
+pub use api::DebugFlags;
 use api::channel::PayloadReceiverHelperMethods;
 use batch::{BatchKind, BatchTextures, BrushBatchKind};
 #[cfg(any(feature = "capture", feature = "replay"))]
@@ -234,26 +235,6 @@ impl BatchKind {
             }
             BatchKind::TextRun(_) => GPU_TAG_PRIM_TEXT_RUN,
         }
-    }
-}
-
-bitflags! {
-    #[derive(Default)]
-    pub struct DebugFlags: u32 {
-        const PROFILER_DBG          = 1 << 0;
-        const RENDER_TARGET_DBG     = 1 << 1;
-        const TEXTURE_CACHE_DBG     = 1 << 2;
-        const GPU_TIME_QUERIES      = 1 << 3;
-        const GPU_SAMPLE_QUERIES    = 1 << 4;
-        const DISABLE_BATCHING      = 1 << 5;
-        const EPOCHS                = 1 << 6;
-        const COMPACT_PROFILER      = 1 << 7;
-        const ECHO_DRIVER_MESSAGES  = 1 << 8;
-        const NEW_FRAME_INDICATOR   = 1 << 9;
-        const NEW_SCENE_INDICATOR   = 1 << 10;
-        const SHOW_OVERDRAW         = 1 << 11;
-        const GPU_CACHE_DBG         = 1 << 12;
-        const SLOW_FRAME_INDICATOR  = 1 << 13;
     }
 }
 
@@ -2435,6 +2416,9 @@ impl Renderer {
                         warn!("Unable to invalidate scattered GPU cache");
                     }
                 }
+            }
+            DebugCommand::SetFlags(flags) => {
+                self.set_debug_flags(flags);
             }
         }
     }
