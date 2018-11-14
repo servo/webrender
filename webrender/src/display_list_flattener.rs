@@ -262,8 +262,7 @@ impl<'a> DisplayListFlattener<'a> {
             TransformStyle::Flat,
             true,
             true,
-            root_scroll_node,
-            None,
+            &ClipAndScrollInfo::simple(root_scroll_node),
             RasterSpace::Screen,
         );
 
@@ -396,12 +395,16 @@ impl<'a> DisplayListFlattener<'a> {
         pipeline_id: PipelineId,
         item: &DisplayItemRef,
         reference_frame: &ReferenceFrame,
-        scroll_node_id: ClipId,
+        clip_and_scroll_ids: &ClipAndScrollInfo,
         reference_frame_relative_offset: LayoutVector2D,
     ) {
+        if clip_and_scroll_ids.clip_node_id.is_some() {
+            // warning: this clip node is ignored
+        }
+
         self.push_reference_frame(
             reference_frame.id,
-            Some(scroll_node_id),
+            Some(clip_and_scroll_ids.scroll_node_id),
             pipeline_id,
             reference_frame.transform,
             reference_frame.perspective,
@@ -417,7 +420,7 @@ impl<'a> DisplayListFlattener<'a> {
         pipeline_id: PipelineId,
         item: &DisplayItemRef,
         stacking_context: &StackingContext,
-        scroll_node_id: ClipId,
+        clip_and_scroll_ids: &ClipAndScrollInfo,
         reference_frame_relative_offset: LayoutVector2D,
         is_backface_visible: bool,
     ) {
@@ -442,8 +445,7 @@ impl<'a> DisplayListFlattener<'a> {
             stacking_context.transform_style,
             is_backface_visible,
             false,
-            scroll_node_id,
-            stacking_context.clip_node_id,
+            clip_and_scroll_ids,
             stacking_context.raster_space,
         );
 
@@ -641,7 +643,7 @@ impl<'a> DisplayListFlattener<'a> {
                     pipeline_id,
                     &item,
                     &info.stacking_context,
-                    clip_and_scroll_ids.scroll_node_id,
+                    &clip_and_scroll_ids,
                     reference_frame_relative_offset,
                     prim_info.is_backface_visible,
                 );
@@ -654,7 +656,7 @@ impl<'a> DisplayListFlattener<'a> {
                     pipeline_id,
                     &item,
                     &info.reference_frame,
-                    clip_and_scroll_ids.scroll_node_id,
+                    &clip_and_scroll_ids,
                     reference_frame_relative_offset,
                 );
                 return Some(subtraversal);
@@ -959,12 +961,11 @@ impl<'a> DisplayListFlattener<'a> {
         transform_style: TransformStyle,
         is_backface_visible: bool,
         is_pipeline_root: bool,
-        spatial_node: ClipId,
-        clipping_node: Option<ClipId>,
+        clip_and_scroll_ids: &ClipAndScrollInfo,
         requested_raster_space: RasterSpace,
     ) {
-        let spatial_node_index = self.id_to_index_mapper.get_spatial_node_index(spatial_node);
-        let clip_chain_id = match clipping_node {
+        let spatial_node_index = self.id_to_index_mapper.get_spatial_node_index(clip_and_scroll_ids.scroll_node_id);
+        let clip_chain_id = match clip_and_scroll_ids.clip_node_id {
             Some(ref clipping_node) => self.id_to_index_mapper.get_clip_chain_id(clipping_node),
             None => ClipChainId::NONE,
         };
@@ -1032,7 +1033,7 @@ impl<'a> DisplayListFlattener<'a> {
         // has a clip node. In the future, we may decide during
         // prepare step to skip the intermediate surface if the
         // clip node doesn't affect the stacking context rect.
-        let should_isolate = clipping_node.is_some();
+        let should_isolate = clip_chain_id != ClipChainId::NONE;
 
         let prim_key = PrimitiveKey::new(
             is_backface_visible,
@@ -1281,13 +1282,13 @@ impl<'a> DisplayListFlattener<'a> {
     pub fn push_reference_frame(
         &mut self,
         reference_frame_id: ClipId,
-        parent_id: Option<ClipId>,
+        parent_node_id: Option<ClipId>,
         pipeline_id: PipelineId,
         source_transform: Option<PropertyBinding<LayoutTransform>>,
         source_perspective: Option<LayoutTransform>,
         origin_in_parent_reference_frame: LayoutVector2D,
     ) -> SpatialNodeIndex {
-        let parent_index = parent_id.map(|id| self.id_to_index_mapper.get_spatial_node_index(id));
+        let parent_index = parent_node_id.map(|id| self.id_to_index_mapper.get_spatial_node_index(id));
         let index = self.clip_scroll_tree.add_reference_frame(
             parent_index,
             source_transform,
@@ -1297,7 +1298,7 @@ impl<'a> DisplayListFlattener<'a> {
         );
         self.id_to_index_mapper.map_spatial_node(reference_frame_id, index);
 
-        match parent_id {
+        match parent_node_id {
             Some(ref parent_id) =>
                 self.id_to_index_mapper.map_to_parent_clip_chain(reference_frame_id, parent_id),
             _ => self.id_to_index_mapper.add_clip_chain(reference_frame_id, ClipChainId::NONE, 0),

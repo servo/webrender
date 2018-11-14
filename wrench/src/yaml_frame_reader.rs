@@ -1616,16 +1616,23 @@ impl YamlFrameReader {
         info.clip_rect = bounds;
 
         let reference_frame_id = if !yaml["transform"].is_badvalue() ||
-            !yaml["perspective"].is_badvalue() {
+            !yaml["perspective"].is_badvalue()
+        {
             let reference_frame_id = self.push_reference_frame(dl, wrench, yaml, info);
             info.rect.origin = LayoutPoint::zero();
             info.clip_rect.origin = LayoutPoint::zero();
+            dl.push_scroll_id_override(reference_frame_id);
             Some(reference_frame_id)
         } else {
             None
         };
 
+        // note: this API is deprecated, use the standard clip-and-scroll field instead
         let clip_node_id = self.to_clip_id(&yaml["clip-node"], dl.pipeline_id);
+        if let Some(clip_id) = clip_node_id {
+            dl.push_clip_id_override(clip_id);
+        }
+
         let transform_style = yaml["transform-style"]
             .as_transform_style()
             .unwrap_or(TransformStyle::Flat);
@@ -1645,13 +1652,8 @@ impl YamlFrameReader {
 
         let filters = yaml["filters"].as_vec_filter_op().unwrap_or(vec![]);
 
-        if let Some(reference_frame_id) = reference_frame_id {
-            dl.push_clip_id(reference_frame_id);
-        }
-
         dl.push_stacking_context(
             &info,
-            clip_node_id,
             transform_style,
             mix_blend_mode,
             &filters,
@@ -1666,10 +1668,11 @@ impl YamlFrameReader {
 
         if reference_frame_id.is_some() {
             dl.pop_clip_id();
+            dl.pop_reference_frame();
         }
 
-        if reference_frame_id.is_some() {
-            dl.pop_reference_frame();
+        if clip_node_id.is_some() {
+            dl.pop_clip_id();
         }
     }
 }

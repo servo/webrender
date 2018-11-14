@@ -39,7 +39,6 @@ impl Example for App {
         let info = LayoutPrimitiveInfo::new(sub_bounds);
         sub_builder.push_stacking_context(
             &info,
-            None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
             &[],
@@ -68,11 +67,9 @@ impl Example for App {
         );
         builder.push_clip_id(reference_frame_id);
 
-
         // And this is for the root pipeline
         builder.push_stacking_context(
             &info,
-            None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
             &[],

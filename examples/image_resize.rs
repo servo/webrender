@@ -41,7 +41,6 @@ impl Example for App {
         let info = LayoutPrimitiveInfo::new(bounds);
         builder.push_stacking_context(
             &info,
-            None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
             &[],

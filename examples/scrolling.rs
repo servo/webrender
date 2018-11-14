@@ -35,7 +35,6 @@ impl Example for App {
         );
         builder.push_stacking_context(
             &info,
-            None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
             &[],
@@ -48,7 +47,6 @@ impl Example for App {
             let scrollbox = (0, 0).to(300, 400);
             builder.push_stacking_context(
                 &LayoutPrimitiveInfo::new((10, 10).by(0, 0)),
-                None,
                 TransformStyle::Flat,
                 MixBlendMode::Normal,
                 &[],

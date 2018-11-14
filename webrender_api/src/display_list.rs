@@ -1273,7 +1273,6 @@ impl DisplayListBuilder {
     pub fn push_stacking_context(
         &mut self,
         info: &LayoutPrimitiveInfo,
-        clip_node_id: Option<ClipId>,
         transform_style: TransformStyle,
         mix_blend_mode: MixBlendMode,
         filters: &[FilterOp],
@@ -1283,16 +1282,24 @@ impl DisplayListBuilder {
             stacking_context: StackingContext {
                 transform_style,
                 mix_blend_mode,
-                clip_node_id,
                 raster_space,
             },
         });
 
         self.push_item(item, info);
         self.push_iter(filters);
+
+        // now that we took the clip_id from the stack and are applying it
+        // to the whole stacking context, reset the stack
+        let scroll_id = self.clip_stack
+            .last()
+            .map(|sc_info| sc_info.scroll_node_id)
+            .unwrap();
+        self.clip_stack.push(ClipAndScrollInfo::simple(scroll_id));
     }
 
     pub fn pop_stacking_context(&mut self) {
+        self.pop_clip_id();
         self.push_new_empty_item(SpecificDisplayItem::PopStackingContext);
     }
 
@@ -1461,6 +1468,24 @@ impl DisplayListBuilder {
 
     pub fn push_clip_id(&mut self, id: ClipId) {
         self.clip_stack.push(ClipAndScrollInfo::simple(id));
+    }
+
+    pub fn push_clip_id_override(&mut self, id: ClipId) {
+        let scroll_node_id = self.clip_stack
+            .last()
+            .map(|sc_info| sc_info.scroll_node_id)
+            .unwrap_or(ClipId::root_scroll_node(id.pipeline_id()));
+        self.clip_stack.push(ClipAndScrollInfo::new(scroll_node_id, id));
+    }
+
+    pub fn push_scroll_id_override(&mut self, id: ClipId) {
+        let clip_node_id = self.clip_stack
+            .last()
+            .and_then(|sc_info| sc_info.clip_node_id);
+        self.clip_stack.push(ClipAndScrollInfo {
+            scroll_node_id: id,
+            clip_node_id,
+        });
     }
 
     pub fn push_clip_and_scroll_info(&mut self, info: ClipAndScrollInfo) {

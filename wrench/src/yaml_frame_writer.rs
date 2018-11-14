@@ -202,7 +202,6 @@ fn write_stacking_context(
     sc: &StackingContext,
     properties: &SceneProperties,
     filter_iter: AuxIter<FilterOp>,
-    clip_id_mapper: &ClipIdMapper,
 ) {
     enum_node(parent, "transform-style", sc.transform_style);
 
@@ -215,10 +214,6 @@ fn write_stacking_context(
         }
     };
     str_node(parent, "raster-space", &raster_space);
-
-    if let Some(clip_node_id) = sc.clip_node_id {
-        yaml_node(parent, "clip-node", clip_id_mapper.map_id(&clip_node_id));
-    }
 
     // mix_blend_mode
     if sc.mix_blend_mode != MixBlendMode::Normal {
@@ -1014,7 +1009,6 @@ impl YamlFrameWriter {
                         &item.stacking_context,
                         &scene.properties,
                         filters,
-                        clip_id_mapper,
                     );
 
                     let mut sub_iter = base.sub_iter();
