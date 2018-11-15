@@ -33,7 +33,7 @@ impl App {
     fn init(
         &mut self,
         api: &RenderApi,
-        framebuffer_size: DeviceUintSize,
+        framebuffer_size: DeviceIntSize,
         device_pixel_ratio: f32,
     ) {
         let init_data = vec![
@@ -41,31 +41,31 @@ impl App {
                 PipelineId(1, 0),
                 -1,
                 ColorF::new(0.0, 1.0, 0.0, 1.0),
-                DeviceUintPoint::new(0, 0),
+                DeviceIntPoint::new(0, 0),
             ),
             (
                 PipelineId(2, 0),
                 -2,
                 ColorF::new(1.0, 1.0, 0.0, 1.0),
-                DeviceUintPoint::new(200, 0),
+                DeviceIntPoint::new(200, 0),
             ),
             (
                 PipelineId(3, 0),
                 -3,
                 ColorF::new(1.0, 0.0, 0.0, 1.0),
-                DeviceUintPoint::new(200, 200),
+                DeviceIntPoint::new(200, 200),
             ),
             (
                 PipelineId(4, 0),
                 -4,
                 ColorF::new(1.0, 0.0, 1.0, 1.0),
-                DeviceUintPoint::new(0, 200),
+                DeviceIntPoint::new(0, 200),
             ),
         ];
 
         for (pipeline_id, layer, color, offset) in init_data {
-            let size = DeviceUintSize::new(250, 250);
-            let bounds = DeviceUintRect::new(offset, size);
+            let size = DeviceIntSize::new(250, 250);
+            let bounds = DeviceIntRect::new(offset, size);
 
             let document_id = api.add_document(size, layer);
             let mut txn = Transaction::new();
@@ -89,7 +89,7 @@ impl Example for App {
         api: &RenderApi,
         base_builder: &mut DisplayListBuilder,
         _txn: &mut Transaction,
-        framebuffer_size: DeviceUintSize,
+        framebuffer_size: DeviceIntSize,
         _: PipelineId,
         _: DocumentId,
     ) {

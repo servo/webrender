@@ -34,7 +34,7 @@ fn main() {
 
     let mut clicks: usize = 0;
     let mut offset_y = 100.;
-    let size = api::DeviceUintSize::new;
+    let size = api::DeviceIntSize::new;
     let mut rects = [
         Rectangle::new(&composition, &notifier, factor, size(300, 200), 0., 0.2, 0.4, 1.),
         Rectangle::new(&composition, &notifier, factor, size(400, 300), 0., 0.5, 0., 0.5),
@@ -95,15 +95,15 @@ struct Rectangle {
     renderer: Option<webrender::Renderer>,
     api: api::RenderApi,
     document_id: api::DocumentId,
-    size: api::DeviceUintSize,
+    size: api::DeviceIntSize,
     color: api::ColorF,
 }
 
 impl Rectangle {
     fn new(composition: &DirectComposition, notifier: &Box<Notifier>,
-           device_pixel_ratio: f32, size: api::DeviceUintSize, r: f32, g: f32, b: f32, a: f32)
+           device_pixel_ratio: f32, size: api::DeviceIntSize, r: f32, g: f32, b: f32, a: f32)
            -> Self {
-        let visual = composition.create_angle_visual(size.width, size.height);
+        let visual = composition.create_angle_visual(size.width as u32, size.height as u32);
         visual.make_current();
 
         let (renderer, sender) = webrender::Renderer::new(
