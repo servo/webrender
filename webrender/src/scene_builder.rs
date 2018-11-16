@@ -159,18 +159,10 @@ pub enum SceneSwapResult {
 //   display lists is (a) fast (b) done during scene building.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Default)]
 pub struct DocumentResources {
     pub clip_interner: ClipDataInterner,
     pub prim_interner: PrimitiveDataInterner,
-}
-
-impl DocumentResources {
-    fn new() -> Self {
-        DocumentResources {
-            clip_interner: ClipDataInterner::new(),
-            prim_interner: PrimitiveDataInterner::new(),
-        }
-    }
 }
 
 // A document in the scene builder contains the current scene,
@@ -187,7 +179,7 @@ impl Document {
     fn new(scene: Scene) -> Self {
         Document {
             scene,
-            resources: DocumentResources::new(),
+            resources: DocumentResources::default(),
             prim_store_stats: PrimitiveStoreStats::empty(),
         }
     }
