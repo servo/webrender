@@ -736,10 +736,22 @@ impl TextureCache {
 
     /// Returns the default eviction policy.
     ///
-    /// See discussion at https://mozilla.logbot.info/gfx/20181030#c15541654
+    /// These parameters come from very rough instrumentation of hits in the
+    /// shared cache, with simple browsing on a few pages. In rough terms, more
+    /// than 95% of cache hits occur for entries that were used in the previous
+    /// frame, and 99% occur within two frames. If we exclude immediately-reused
+    /// (first frame) entries, 90% of the remaining hits happen within the first
+    /// 30 frames. So we can be relatively agressive about eviction without
+    /// sacrificing much in terms of cache performance.
+    ///
+    /// The one wrinkle is that animation-heavy pages do tend to extend the
+    /// distribution, presumably because they churn through FrameIds faster than
+    /// their more-static counterparts. As such, we _also_ provide a time floor
+    /// (which was not measured with the same degree of rigour).
     fn default_eviction(&self) -> EvictionThreshold {
         EvictionThresholdBuilder::new(self.now)
-            .max_frames(75)
+            .max_frames(30)
+            .max_time_s(3)
             .scale_by_pressure()
             .build()
     }
