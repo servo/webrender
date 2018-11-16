@@ -781,13 +781,12 @@ impl TextureCache {
         }
     }
 
-    /// Expires old shared entries, if we haven't done so recently.
+    /// Expires old shared entries, if we haven't done so this frame.
     ///
     /// Returns true if any entries were expired.
-    fn maybe_expire_old_shared_entries(&mut self) -> bool {
+    fn maybe_expire_old_shared_entries(&mut self, threshold: EvictionThreshold) -> bool {
         let old_len = self.handles.shared.len();
-        if self.last_shared_cache_expiration.frame_id() + 25 < self.now.frame_id() {
-            let threshold = self.default_eviction();
+        if self.last_shared_cache_expiration.frame_id() < self.now.frame_id() {
             self.expire_old_entries(EntryKind::Shared, threshold);
             self.last_shared_cache_expiration = self.now;
         }
@@ -939,9 +938,23 @@ impl TextureCache {
             return entry;
         }
 
-        // If we failed to allocate and haven't GCed in a while, do so and try
-        // again.
-        if self.maybe_expire_old_shared_entries() {
+        // If we failed to allocate and haven't GCed this frame, do so.
+        //
+        // If we hit our limit on layers in the shared cache, failing to
+        // allocate will trigger standalone textures for every entry, including
+        // tiny entries like glyphs. We really want to avoid this, so use a
+        // maximally aggressive eviction threshold in that case (which
+        // realistically should only happen on mac, where we have a tighter
+        // layer limit).
+        let num_regions = self.shared_textures
+            .select(params.descriptor.format, params.filter).regions.len();
+        let threshold = if num_regions == self.max_texture_layers {
+            EvictionThresholdBuilder::new(self.now).max_frames(1).build()
+        } else {
+            self.default_eviction()
+        };
+
+        if self.maybe_expire_old_shared_entries(threshold) {
             if let Some(entry) = self.allocate_from_shared_cache(params) {
                 return entry;
             }
@@ -951,7 +964,6 @@ impl TextureCache {
             // If we've hit our layer limit, allocate standalone.
             let texture_array =
                 self.shared_textures.select(params.descriptor.format, params.filter);
-            let num_regions = texture_array.regions.len();
             // Add a layer, unless we've hit our limit.
             if num_regions < self.max_texture_layers as usize {
                 let info = TextureCacheAllocInfo {
