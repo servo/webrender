@@ -204,9 +204,12 @@ pub struct Interner<S : Eq + Hash + Clone + Debug, D, M> {
     local_data: Vec<Item<D>>,
 }
 
-impl<S, D, M> Interner<S, D, M> where S: Eq + Hash + Clone + Debug, M: Copy + Debug {
-    /// Construct a new interner
-    pub fn new() -> Self {
+impl<S, D, M> ::std::default::Default for Interner<S, D, M>
+where
+    S: Eq + Hash + Clone + Debug,
+    M: Copy + Debug
+{
+    fn default() -> Self {
         Interner {
             map: FastHashMap::default(),
             free_list: Vec::new(),
@@ -217,7 +220,9 @@ impl<S, D, M> Interner<S, D, M> where S: Eq + Hash + Clone + Debug, M: Copy + De
             local_data: Vec::new(),
         }
     }
+}
 
+impl<S, D, M> Interner<S, D, M> where S: Eq + Hash + Clone + Debug, M: Copy + Debug {
     /// Intern a data structure, and return a handle to
     /// that data. The handle can then be stored in the
     /// frame builder, and safely accessed via the data
