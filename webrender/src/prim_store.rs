@@ -2401,12 +2401,12 @@ impl PrimitiveStore {
             PrimitiveInstanceKind::TextRun { .. } |
             PrimitiveInstanceKind::Clear |
             PrimitiveInstanceKind::LineDecoration { .. } => {
-                prim_instance.prepare_interned_prim_for_render(
+                self.prepare_interned_prim_for_render(
+                    prim_instance,
                     prim_context,
                     pic_context,
                     frame_context,
                     frame_state,
-                    &mut self.text_runs,
                 );
             }
             PrimitiveInstanceKind::LegacyPrimitive { prim_index } => {
@@ -2516,6 +2516,115 @@ impl PrimitiveStore {
                 plane_split_anchor,
             ) {
                 frame_state.profile_counters.visible_primitives.inc();
+            }
+        }
+    }
+
+    /// Prepare an interned primitive for rendering, by requesting
+    /// resources, render tasks etc. This is equivalent to the
+    /// prepare_prim_for_render_inner call for old style primitives.
+    fn prepare_interned_prim_for_render(
+        &mut self,
+        prim_instance: &mut PrimitiveInstance,
+        prim_context: &PrimitiveContext,
+        pic_context: &PictureContext,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
+    ) {
+        let prim_data = &mut frame_state
+            .resources
+            .prim_data_store[prim_instance.prim_data_handle];
+
+        // Update the template this instane references, which may refresh the GPU
+        // cache with any shared template data.
+        prim_data.update(
+            frame_state.gpu_cache,
+        );
+
+        let is_chased = prim_instance.is_chased();
+
+        match (&mut prim_instance.kind, &mut prim_data.kind) {
+            (
+                PrimitiveInstanceKind::LineDecoration { ref mut cache_handle, .. },
+                PrimitiveTemplateKind::LineDecoration { ref cache_key, .. }
+            ) => {
+                // Work out the device pixel size to be used to cache this line decoration.
+                if is_chased {
+                    println!("\tline decoration key={:?}", cache_key);
+                }
+
+                // If we have a cache key, it's a wavy / dashed / dotted line. Otherwise, it's
+                // a simple solid line.
+                if let Some(cache_key) = cache_key {
+                    // TODO(gw): Do we ever need / want to support scales for text decorations
+                    //           based on the current transform?
+                    let scale_factor = TypedScale::new(1.0) * frame_context.device_pixel_scale;
+                    let task_size = (LayoutSize::from_au(cache_key.size) * scale_factor).ceil().to_i32();
+                    let surfaces = &mut frame_state.surfaces;
+
+                    // Request a pre-rendered image task.
+                    // TODO(gw): This match is a bit untidy, but it should disappear completely
+                    //           once the prepare_prims and batching are unified. When that
+                    //           happens, we can use the cache handle immediately, and not need
+                    //           to temporarily store it in the primitive instance.
+                    *cache_handle = Some(frame_state.resource_cache.request_render_task(
+                        RenderTaskCacheKey {
+                            size: task_size,
+                            kind: RenderTaskCacheKeyKind::LineDecoration(cache_key.clone()),
+                        },
+                        frame_state.gpu_cache,
+                        frame_state.render_tasks,
+                        None,
+                        false,
+                        |render_tasks| {
+                            let task = RenderTask::new_line_decoration(
+                                task_size,
+                                cache_key.style,
+                                cache_key.orientation,
+                                cache_key.wavy_line_thickness.to_f32_px(),
+                                LayoutSize::from_au(cache_key.size),
+                            );
+                            let task_id = render_tasks.add(task);
+                            surfaces[pic_context.surface_index.0].tasks.push(task_id);
+                            task_id
+                        }
+                    ));
+                }
+            }
+            (
+                PrimitiveInstanceKind::TextRun { run_index, .. },
+                PrimitiveTemplateKind::TextRun { ref font, ref glyphs, .. }
+            ) => {
+                // The transform only makes sense for screen space rasterization
+                let transform = prim_context.spatial_node.world_content_transform.to_transform();
+
+                // TODO(gw): This match is a bit untidy, but it should disappear completely
+                //           once the prepare_prims and batching are unified. When that
+                //           happens, we can use the cache handle immediately, and not need
+                //           to temporarily store it in the primitive instance.
+                let run = &mut self.text_runs[run_index.0];
+                run.prepare_for_render(
+                    font,
+                    glyphs,
+                    frame_context.device_pixel_scale,
+                    &transform,
+                    pic_context.allow_subpixel_aa,
+                    pic_context.raster_space,
+                    frame_state.resource_cache,
+                    frame_state.gpu_cache,
+                    frame_state.render_tasks,
+                    frame_state.special_render_passes,
+                );
+            }
+            (
+                PrimitiveInstanceKind::Clear,
+                PrimitiveTemplateKind::Clear
+            ) => {
+                // Nothing specific to prepare for clear rects, since the
+                // GPU cache is updated by the template earlier.
+            }
+            _ => {
+                unreachable!();
             }
         }
     }
@@ -2912,115 +3021,6 @@ impl PrimitiveInstance {
         }
 
         true
-    }
-
-    /// Prepare an interned primitive for rendering, by requesting
-    /// resources, render tasks etc. This is equivalent to the
-    /// prepare_prim_for_render_inner call for old style primitives.
-    fn prepare_interned_prim_for_render(
-        &mut self,
-        prim_context: &PrimitiveContext,
-        pic_context: &PictureContext,
-        frame_context: &FrameBuildingContext,
-        frame_state: &mut FrameBuildingState,
-        text_runs: &mut [TextRunPrimitive],
-    ) {
-        let prim_data = &mut frame_state
-            .resources
-            .prim_data_store[self.prim_data_handle];
-
-        // Update the template this instane references, which may refresh the GPU
-        // cache with any shared template data.
-        prim_data.update(
-            frame_state.gpu_cache,
-        );
-
-        let is_chased = self.is_chased();
-
-        match (&mut self.kind, &mut prim_data.kind) {
-            (
-                PrimitiveInstanceKind::LineDecoration { ref mut cache_handle, .. },
-                PrimitiveTemplateKind::LineDecoration { ref cache_key, .. }
-            ) => {
-                // Work out the device pixel size to be used to cache this line decoration.
-                if is_chased {
-                    println!("\tline decoration key={:?}", cache_key);
-                }
-
-                // If we have a cache key, it's a wavy / dashed / dotted line. Otherwise, it's
-                // a simple solid line.
-                if let Some(cache_key) = cache_key {
-                    // TODO(gw): Do we ever need / want to support scales for text decorations
-                    //           based on the current transform?
-                    let scale_factor = TypedScale::new(1.0) * frame_context.device_pixel_scale;
-                    let task_size = (LayoutSize::from_au(cache_key.size) * scale_factor).ceil().to_i32();
-                    let surfaces = &mut frame_state.surfaces;
-
-                    // Request a pre-rendered image task.
-                    // TODO(gw): This match is a bit untidy, but it should disappear completely
-                    //           once the prepare_prims and batching are unified. When that
-                    //           happens, we can use the cache handle immediately, and not need
-                    //           to temporarily store it in the primitive instance.
-                    *cache_handle = Some(frame_state.resource_cache.request_render_task(
-                        RenderTaskCacheKey {
-                            size: task_size,
-                            kind: RenderTaskCacheKeyKind::LineDecoration(cache_key.clone()),
-                        },
-                        frame_state.gpu_cache,
-                        frame_state.render_tasks,
-                        None,
-                        false,
-                        |render_tasks| {
-                            let task = RenderTask::new_line_decoration(
-                                task_size,
-                                cache_key.style,
-                                cache_key.orientation,
-                                cache_key.wavy_line_thickness.to_f32_px(),
-                                LayoutSize::from_au(cache_key.size),
-                            );
-                            let task_id = render_tasks.add(task);
-                            surfaces[pic_context.surface_index.0].tasks.push(task_id);
-                            task_id
-                        }
-                    ));
-                }
-            }
-            (
-                PrimitiveInstanceKind::TextRun { run_index, .. },
-                PrimitiveTemplateKind::TextRun { ref font, ref glyphs, .. }
-            ) => {
-                // The transform only makes sense for screen space rasterization
-                let transform = prim_context.spatial_node.world_content_transform.to_transform();
-
-                // TODO(gw): This match is a bit untidy, but it should disappear completely
-                //           once the prepare_prims and batching are unified. When that
-                //           happens, we can use the cache handle immediately, and not need
-                //           to temporarily store it in the primitive instance.
-                let run = &mut text_runs[run_index.0];
-                run.prepare_for_render(
-                    font,
-                    glyphs,
-                    frame_context.device_pixel_scale,
-                    &transform,
-                    pic_context.allow_subpixel_aa,
-                    pic_context.raster_space,
-                    frame_state.resource_cache,
-                    frame_state.gpu_cache,
-                    frame_state.render_tasks,
-                    frame_state.special_render_passes,
-                );
-            }
-            (
-                PrimitiveInstanceKind::Clear,
-                PrimitiveTemplateKind::Clear
-            ) => {
-                // Nothing specific to prepare for clear rects, since the
-                // GPU cache is updated by the template earlier.
-            }
-            _ => {
-                unreachable!();
-            }
-        }
     }
 
     fn prepare_prim_for_render_inner(
