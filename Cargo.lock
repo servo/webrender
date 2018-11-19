@@ -1096,11 +1096,9 @@ dependencies = [
 
 [[package]]
 name = "ron"
-version = "0.4.0"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "base64 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "bitflags 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1483,7 +1481,7 @@ dependencies = [
  "plane-split 0.13.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "png 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rayon 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "ron 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ron 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "smallvec 0.6.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1608,7 +1606,7 @@ dependencies = [
  "mozangle 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "osmesa-src 0.1.1 (git+https://github.com/servo/osmesa-src)",
  "osmesa-sys 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "ron 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ron 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.40 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1801,7 +1799,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum regex 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "75ecf88252dce580404a22444fc7d626c01815debba56a7f4f536772a5ff19d3"
 "checksum regex-syntax 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8f1ac0f60d675cc6cf13a20ec076568254472551051ad5dd050364d70671bf6b"
 "checksum remove_dir_all 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "3488ba1b9a2084d38645c4c08276a1752dcbf2c7130d74f1569681ad5d2799c5"
-"checksum ron 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "c48677d8a9247a4e0d1f3f9cb4b0a8e29167fdc3c04f383a5e669cd7a960ae0f"
+"checksum ron 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "da06feaa07f69125ab9ddc769b11de29090122170b402547f64b86fe16ebc399"
 "checksum safemem 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e27a8b19b835f7aea908818e871f5cc3a5a186550c30773be987e155e8163d8f"
 "checksum scoped_threadpool 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "1d51f5df5af43ab3f1360b429fa5e0152ac5ce8c0bd6485cae490332e96846a8"
 "checksum scopeguard 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "94258f53601af11e6a49f722422f6e3425c52b06245a5cf9bc09908b174f5e27"
