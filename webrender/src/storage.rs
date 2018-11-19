@@ -93,7 +93,7 @@ impl<T> ops::Index<Range<T>> for Storage<T> {
     type Output = [T];
     fn index(&self, index: Range<T>) -> &Self::Output {
         let start = index.start.0 as _;
-        let end = index.start.0 as _;
+        let end = index.end.0 as _;
         &self.data[start..end]
     }
 }
@@ -101,7 +101,7 @@ impl<T> ops::Index<Range<T>> for Storage<T> {
 impl<T> ops::IndexMut<Range<T>> for Storage<T> {
     fn index_mut(&mut self, index: Range<T>) -> &mut Self::Output {
         let start = index.start.0 as _;
-        let end = index.start.0 as _;
+        let end = index.end.0 as _;
         &mut self.data[start..end]
     }
 }
