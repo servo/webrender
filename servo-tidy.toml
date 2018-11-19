@@ -8,6 +8,7 @@ check-alphabetical-order = false
 packages = [
     "crossbeam-epoch",
     "crossbeam-utils",
+    "lazy_static",
     "log",
     "rand",
     "winapi",

@@ -724,8 +724,8 @@ mod test_glyph_rasterizer {
 
         let worker = ThreadPoolBuilder::new()
             .thread_name(|idx|{ format!("WRWorker#{}", idx) })
-            .start_handler(|_| {
-                register_thread_with_profiler();
+            .start_handler(move |idx| {
+                register_thread_with_profiler(format!("WRWorker#{}", idx));
             })
             .build();
         let workers = Arc::new(worker.unwrap());
