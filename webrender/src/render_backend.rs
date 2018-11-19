@@ -169,7 +169,7 @@ impl FrameStamp {
     }
 
     /// Returns a FrameStamp corresponding to the first frame.
-    fn first() -> Self {
+    pub fn first() -> Self {
         FrameStamp {
             id: FrameId::first(),
             time: SystemTime::now(),
@@ -177,7 +177,7 @@ impl FrameStamp {
     }
 
     /// Advances to a new frame.
-    fn advance(&mut self) {
+    pub fn advance(&mut self) {
         self.id.advance();
         self.time = SystemTime::now();
     }

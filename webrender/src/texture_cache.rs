@@ -510,6 +510,18 @@ impl TextureCache {
         }
     }
 
+    /// Creates a TextureCache and sets it up with a valid `FrameStamp`, which
+    /// is useful for avoiding panics when instantiating the `TextureCache`
+    /// directly from unit test code.
+    #[allow(dead_code)]
+    pub fn new_for_testing(max_texture_size: i32, max_texture_layers: usize) -> Self {
+        let mut cache = Self::new(max_texture_size, max_texture_layers);
+        let mut now = FrameStamp::first();
+        now.advance();
+        cache.begin_frame(now);
+        cache
+    }
+
     pub fn set_debug_flags(&mut self, flags: DebugFlags) {
         self.debug_flags = flags;
     }
