@@ -1674,7 +1674,7 @@ impl Renderer {
         let max_texture_size = device.max_texture_size();
         let max_texture_layers = device.max_texture_layers();
 
-        register_thread_with_profiler();
+        register_thread_with_profiler("Compositor".to_owned());
 
         device.begin_frame();
 
@@ -1843,7 +1843,7 @@ impl Renderer {
                 let worker = ThreadPoolBuilder::new()
                     .thread_name(|idx|{ format!("WRWorker#{}", idx) })
                     .start_handler(move |idx| {
-                        register_thread_with_profiler();
+                        register_thread_with_profiler(format!("WRWorker#{}", idx));
                         if let Some(ref thread_listener) = *thread_listener_for_rayon_start {
                             thread_listener.thread_started(&format!("WRWorker#{}", idx));
                         }
@@ -1875,7 +1875,7 @@ impl Renderer {
             api_tx.clone(),
             scene_builder_hooks);
         thread::Builder::new().name(scene_thread_name.clone()).spawn(move || {
-            register_thread_with_profiler();
+            register_thread_with_profiler(scene_thread_name.clone());
             if let Some(ref thread_listener) = *thread_listener_for_scene_builder {
                 thread_listener.thread_started(&scene_thread_name);
             }
@@ -1897,7 +1897,7 @@ impl Renderer {
             };
 
             thread::Builder::new().name(lp_scene_thread_name.clone()).spawn(move || {
-                register_thread_with_profiler();
+                register_thread_with_profiler(lp_scene_thread_name.clone());
                 if let Some(ref thread_listener) = *thread_listener_for_lp_scene_builder {
                     thread_listener.thread_started(&lp_scene_thread_name);
                 }
@@ -1916,7 +1916,7 @@ impl Renderer {
         };
 
         thread::Builder::new().name(rb_thread_name.clone()).spawn(move || {
-            register_thread_with_profiler();
+            register_thread_with_profiler(rb_thread_name.clone());
             if let Some(ref thread_listener) = *thread_listener_for_render_backend {
                 thread_listener.thread_started(&rb_thread_name);
             }
