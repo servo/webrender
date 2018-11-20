@@ -1252,8 +1252,8 @@ impl ChangeIndicator {
         self.counter = (self.counter + 1) % 15;
     }
 
-    const WIDTH : f32 = 10.0;
-    const HEIGHT: f32 = 5.0;
+    const WIDTH : f32 = 20.0;
+    const HEIGHT: f32 = 10.0;
 
     pub fn width() -> f32 {
       ChangeIndicator::WIDTH * 16.0
