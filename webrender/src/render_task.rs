@@ -1236,7 +1236,7 @@ impl RenderTaskCache {
                     TextureFilter::Linear,
                     None,
                     entry.user_data.unwrap_or([0.0; 3]),
-                    DirtyRect::AllDirty,
+                    DirtyRect::All,
                     gpu_cache,
                     None,
                     render_task.uv_rect_kind(),

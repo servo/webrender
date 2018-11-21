@@ -702,7 +702,7 @@ impl TextureCache {
             self.allocate(&params, handle);
 
             // If we reallocated, we need to upload the whole item again.
-            dirty_rect = DirtyRect::AllDirty;
+            dirty_rect = DirtyRect::All;
         }
 
         let entry = self.entries.get_opt_mut(handle)
@@ -1416,7 +1416,7 @@ impl TextureCacheUpdate {
         };
 
         let update_op = match *dirty_rect {
-            DirtyRect::SomeDirty(dirty) => {
+            DirtyRect::Partial(dirty) => {
                 // the dirty rectangle doesn't have to be within the area but has to intersect it, at least
                 let stride = descriptor.compute_stride();
                 let offset = descriptor.offset + dirty.origin.y * stride + dirty.origin.x * descriptor.format.bytes_per_pixel();
@@ -1436,7 +1436,7 @@ impl TextureCacheUpdate {
                     layer_index,
                 }
             }
-            DirtyRect::AllDirty => {
+            DirtyRect::All => {
                 TextureCacheUpdate {
                     id: texture_id,
                     rect: DeviceIntRect::new(origin, size),

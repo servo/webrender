@@ -383,10 +383,10 @@ pub struct BlobImageParams {
 /// This exists because people kept getting confused with `Option<Rect>`.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DirtyRect<T: Copy, U> {
-    /// Everything is Dirty, equivalent to SomeDirty(image_bounds)
-    AllDirty,
+    /// Everything is Dirty, equivalent to Partial(image_bounds)
+    All,
     /// Some specific amount is dirty
-    SomeDirty(TypedRect<T, U>)
+    Partial(TypedRect<T, U>)
 }
 
 impl<T, U> DirtyRect<T, U>
@@ -399,14 +399,14 @@ where
 {
     /// Creates an empty DirtyRect (indicating nothing is invalid)
     pub fn empty() -> Self {
-        DirtyRect::SomeDirty(TypedRect::zero())
+        DirtyRect::Partial(TypedRect::zero())
     }
 
     /// Returns whether the dirty rect is empty
     pub fn is_empty(&self) -> bool {
         match self {
-            DirtyRect::AllDirty => false,
-            DirtyRect::SomeDirty(rect) => rect.is_empty(),
+            DirtyRect::All => false,
+            DirtyRect::Partial(rect) => rect.is_empty(),
         }
     }
 
@@ -415,15 +415,15 @@ where
         ::std::mem::replace(self, DirtyRect::empty())
     }
 
-    /// Maps over the contents of SomeDirty.
+    /// Maps over the contents of Partial.
     pub fn map<F>(self, func: F) -> Self
         where F: FnOnce(TypedRect<T, U>) -> TypedRect<T, U>,
     {
         use DirtyRect::*;
 
         match self {
-            AllDirty        => AllDirty,
-            SomeDirty(rect) => SomeDirty(func(rect)),
+            All        => All,
+            Partial(rect) => Partial(func(rect)),
         }
     }
 
@@ -432,8 +432,8 @@ where
         use DirtyRect::*;
 
         match (*self, *other) {
-            (AllDirty, _) | (_, AllDirty)        => AllDirty,
-            (SomeDirty(rect1), SomeDirty(rect2)) => SomeDirty(rect1.union(&rect2)),
+            (All, _) | (_, All)        => All,
+            (Partial(rect1), Partial(rect2)) => Partial(rect1.union(&rect2)),
         }
     }
 
@@ -442,8 +442,8 @@ where
         use DirtyRect::*;
 
         match (*self, *other) {
-            (AllDirty, rect) | (rect, AllDirty)  => rect,
-            (SomeDirty(rect1), SomeDirty(rect2)) => SomeDirty(rect1.intersection(&rect2)
+            (All, rect) | (rect, All)  => rect,
+            (Partial(rect1), Partial(rect2)) => Partial(rect1.intersection(&rect2)
                                                                    .unwrap_or(TypedRect::zero()))
         }
     }
@@ -453,8 +453,8 @@ where
         use DirtyRect::*;
 
         match *self {
-            AllDirty              => *rect,
-            SomeDirty(dirty_rect) => dirty_rect.intersection(rect)
+            All              => *rect,
+            Partial(dirty_rect) => dirty_rect.intersection(rect)
                                                .unwrap_or(TypedRect::zero()),
         }
     }
@@ -467,7 +467,7 @@ impl<T: Copy, U> Clone for DirtyRect<T, U> {
 
 impl<T: Copy, U> From<TypedRect<T, U>> for DirtyRect<T, U> {
     fn from(rect: TypedRect<T, U>) -> Self {
-        DirtyRect::SomeDirty(rect)
+        DirtyRect::Partial(rect)
     }
 }
 
