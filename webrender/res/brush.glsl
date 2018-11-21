@@ -24,6 +24,8 @@ void brush_vs(
 #define BRUSH_FLAG_SEGMENT_REPEAT_Y             8
 #define BRUSH_FLAG_TEXEL_RECT                  16
 
+#define INVALID_SEGMENT_INDEX                   0xffff
+
 void main(void) {
     // Load the brush instance from vertex attributes.
     int prim_header_address = aData.x;
@@ -37,7 +39,7 @@ void main(void) {
     // Fetch the segment of this brush primitive we are drawing.
     vec4 segment_data;
     RectWithSize segment_rect;
-    if (segment_index == 0xffff) {
+    if (segment_index == INVALID_SEGMENT_INDEX) {
         segment_rect = ph.local_rect;
         segment_data = vec4(0.0);
     } else {
@@ -45,7 +47,7 @@ void main(void) {
                               VECS_PER_SPECIFIC_BRUSH +
                               segment_index * VECS_PER_SEGMENT;
 
-        vec4 segment_info[2] = fetch_from_gpu_cache_2(segment_address);
+        vec4[2] segment_info = fetch_from_gpu_cache_2(segment_address);
         segment_rect = RectWithSize(segment_info[0].xy, segment_info[0].zw);
         segment_data = segment_info[1];
     }
