@@ -9,12 +9,14 @@ use api::{RasterSpace, LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize, L
 use api::{PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat};
 use api::{DeviceIntSideOffsets, WorldPixel, BoxShadowClipMode, NormalBorder, WorldRect, LayoutToWorldScale};
 use api::{PicturePixel, RasterPixel, ColorDepth, LineStyle, LineOrientation, LayoutSizeAu, AuHelpers, LayoutVector2DAu};
+use api::LayoutPrimitiveInfo;
 use app_units::Au;
 use border::{get_max_scale_for_border, build_border_instances, create_border_segments};
 use border::{BorderSegmentCacheKey, NormalBorderAu};
 use clip::{ClipStore};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use clip::{ClipDataStore, ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem, ClipNodeCollector};
+use display_list_flattener::{AsInstanceKind, BuildKey, IsVisible};
 use euclid::{SideOffsets2D, TypedTransform3D, TypedRect, TypedScale, TypedSize2D};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use frame_builder::PrimitiveContext;
@@ -647,10 +649,12 @@ impl PrimitiveKey {
             kind,
         }
     }
+}
 
+impl AsInstanceKind<PrimitiveDataHandle> for PrimitiveKey {
     /// Construct a primitive instance that matches the type
     /// of primitive key.
-    pub fn to_instance_kind(
+    fn as_instance_kind(
         &self,
         prim_store: &mut PrimitiveStore,
     ) -> PrimitiveInstanceKind {
@@ -723,6 +727,20 @@ impl PrimitiveKey {
                 unreachable!();
             }
         }
+    }
+}
+
+impl BuildKey<PrimitiveKeyKind> for PrimitiveKey {
+    fn build_key(
+        info: &LayoutPrimitiveInfo,
+        prim_key_kind: PrimitiveKeyKind,
+    ) -> PrimitiveKey {
+        PrimitiveKey::new(
+            info.is_backface_visible,
+            info.rect,
+            info.clip_rect,
+            prim_key_kind,
+        )
     }
 }
 
@@ -1476,6 +1494,13 @@ impl PrimitiveTemplate {
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 pub struct PrimitiveDataMarker;
 
+impl intern::Internable for PrimitiveKeyKind {
+    type Marker = PrimitiveDataMarker;
+    type Source = PrimitiveKey;
+    type StoreData = PrimitiveTemplate;
+    type InternData = PrimitiveSceneData;
+}
+
 pub type PrimitiveDataStore = intern::DataStore<PrimitiveKey, PrimitiveTemplate, PrimitiveDataMarker>;
 pub type PrimitiveDataHandle = intern::Handle<PrimitiveDataMarker>;
 pub type PrimitiveDataUpdateList = intern::UpdateList<PrimitiveKey>;
@@ -2219,7 +2244,7 @@ pub struct NinePatchDescriptor {
     pub widths: SideOffsetsKey,
 }
 
-impl PrimitiveKeyKind {
+impl IsVisible for PrimitiveKeyKind {
     // Return true if the primary primitive is visible.
     // Used to trivially reject non-visible primitives.
     // TODO(gw): Currently, primitives other than those
@@ -2227,7 +2252,7 @@ impl PrimitiveKeyKind {
     //           add_primitive() call. In the future
     //           we should move the logic for all other
     //           primitive types to use this.
-    pub fn is_visible(&self) -> bool {
+    fn is_visible(&self) -> bool {
         match *self {
             PrimitiveKeyKind::TextRun { ref font, .. } => {
                 font.color.a > 0
@@ -2248,7 +2273,9 @@ impl PrimitiveKeyKind {
             }
         }
     }
+}
 
+impl PrimitiveKeyKind {
     // Create a clone of this PrimitiveContainer, applying whatever
     // changes are necessary to the primitive to support rendering
     // it as part of the supplied shadow.

@@ -12,8 +12,10 @@ use frame_builder::{FrameBuilderConfig, FrameBuilder};
 use clip::{ClipDataInterner, ClipDataUpdateList};
 use clip_scroll_tree::ClipScrollTree;
 use display_list_flattener::DisplayListFlattener;
+use intern::{Internable, Interner};
 use internal_types::{FastHashMap, FastHashSet};
-use prim_store::{PrimitiveDataInterner, PrimitiveDataUpdateList, PrimitiveStoreStats};
+use prim_store::{PrimitiveDataInterner, PrimitiveDataUpdateList, PrimitiveKeyKind};
+use prim_store::PrimitiveStoreStats;
 use resource_cache::FontInstanceMap;
 use render_backend::DocumentView;
 use renderer::{PipelineInfo, SceneBuilderHooks};
@@ -163,6 +165,18 @@ pub enum SceneSwapResult {
 pub struct DocumentResources {
     pub clip_interner: ClipDataInterner,
     pub prim_interner: PrimitiveDataInterner,
+}
+
+// Access to `DocumentResources` interners by `Internable`
+pub trait InternerMut<I: Internable>
+{
+    fn interner_mut(&mut self) -> &mut Interner<I::Source, I::InternData, I::Marker>;
+}
+
+impl InternerMut<PrimitiveKeyKind> for DocumentResources {
+    fn interner_mut(&mut self) -> &mut PrimitiveDataInterner {
+        &mut self.prim_interner
+    }
 }
 
 // A document in the scene builder contains the current scene,
