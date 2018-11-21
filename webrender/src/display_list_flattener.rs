@@ -21,16 +21,18 @@ use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCacheHandle;
 use hit_test::{HitTestingItem, HitTestingRun};
 use image::simplify_repeated_primitive;
+use intern::{Handle, Internable, ItemUidBuilder, UidMarker};
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PrimitiveList};
 use prim_store::{BrushKind, BrushPrimitive, PrimitiveInstance, PrimitiveDataInterner, PrimitiveKeyKind};
 use prim_store::{ImageSource, PrimitiveOpacity, PrimitiveKey, PrimitiveSceneData, PrimitiveInstanceKind};
 use prim_store::{PrimitiveContainer, PrimitiveDataHandle, PrimitiveStore, PrimitiveStoreStats, BrushSegmentDescriptor};
 use prim_store::{PrimitiveUidBuilder, ScrollNodeAndClipChain, PictureIndex, register_prim_chase_id, OpacityBindingIndex};
+use prim_store::{PrimitiveDataMarker, PrimitiveUidMarker};
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
-use scene_builder::DocumentResources;
+use scene_builder::{DocumentResources, InternerMut};
 use smallvec::SmallVec;
 use spatial_node::{StickyFrameInfo};
 use std::{f32, mem};
@@ -112,6 +114,13 @@ impl ClipIdToIndexMapper {
 struct UidBuilders {
     pub clip_uid: ClipUidBuilder,
     pub prim_uid: PrimitiveUidBuilder
+}
+
+impl ItemUidBuilderMut<PrimitiveUidMarker> for UidBuilders
+{
+    fn uid_builder_mut(&mut self) -> &mut ItemUidBuilder<PrimitiveUidMarker> {
+        return &mut self.prim_uid
+    }
 }
 
 /// A structure that converts a serialized display list into a form that WebRender
@@ -894,7 +903,7 @@ impl<'a> DisplayListFlattener<'a> {
                 PrimitiveInstanceKind::LegacyPrimitive { prim_index }
             }
             None => {
-                prim_key.to_instance_kind(&mut self.prim_store)
+                prim_key.as_instance_kind(&mut self.prim_store)
             }
         };
 
@@ -2025,7 +2034,7 @@ impl<'a> DisplayListFlattener<'a> {
             }
         };
 
-        self.add_primitive(
+        self.add_interned_primitive(
             clip_and_scroll,
             prim_info,
             Vec::new(),
@@ -2153,6 +2162,152 @@ impl<'a> DisplayListFlattener<'a> {
     }
 }
 
+pub trait AsInstanceKind<H> {
+    fn as_instance_kind(
+        &self,
+        prim_store: &mut PrimitiveStore,
+    ) -> PrimitiveInstanceKind;
+}
+
+pub trait BuildKey<S> {
+    fn build_key(source: S, info: &mut LayoutPrimitiveInfo) -> Self;
+}
+
+pub trait IsVisible {
+    fn is_visible(&self) -> bool;
+}
+
+
+pub trait ItemUidBuilderMut<M>
+{
+    fn uid_builder_mut(&mut self) -> &mut ItemUidBuilder<M>;
+}
+
+impl<'a> DisplayListFlattener<'a> {
+    fn add_interned_primitive<P>(
+        &mut self,
+        clip_and_scroll: ScrollNodeAndClipChain,
+        info: &LayoutPrimitiveInfo,
+        clip_items: Vec<ClipItemKey>,
+        prim: P,
+    )
+    where
+        P: Internable<Marker = PrimitiveDataMarker, InternData = PrimitiveSceneData> + IsVisible,
+        P::Source: AsInstanceKind<Handle<P::Marker>> + BuildKey<P>,
+        DocumentResources: InternerMut<P>,
+        UidBuilders: ItemUidBuilderMut<<P::Marker as UidMarker>::UidMarker>,
+        PrimitiveContainer: From<P>,
+    {
+        // If a shadow context is not active, then add the primitive
+        // directly to the parent picture.
+        if self.pending_shadow_items.is_empty() {
+            if prim.is_visible() {
+                let clip_chain_id = self.build_clip_chain(
+                    clip_items,
+                    clip_and_scroll.spatial_node_index,
+                    clip_and_scroll.clip_chain_id,
+                );
+                self.add_interned_prim_to_draw_list(
+                    info,
+                    clip_chain_id,
+                    clip_and_scroll,
+                    prim
+                );
+            }
+        } else {
+            debug_assert!(clip_items.is_empty(), "No per-prim clips expected for shadowed primitives");
+
+            // There is an active shadow context. Store as a pending primitive
+            // for processing during pop_all_shadows.
+            self.pending_shadow_items.push_back(PendingPrimitive {
+                clip_and_scroll,
+                info: *info,
+                container: prim.into(),
+            }.into());
+        }
+    }
+
+    fn add_interned_prim_to_draw_list<P>(
+        &mut self,
+        info: &LayoutPrimitiveInfo,
+        clip_chain_id: ClipChainId,
+        clip_and_scroll: ScrollNodeAndClipChain,
+        prim: P,
+    )
+    where
+        P: Internable<Marker = PrimitiveDataMarker, InternData = PrimitiveSceneData>,
+        P::Source: AsInstanceKind<Handle<P::Marker>> + BuildKey<P>,
+        DocumentResources: InternerMut<P>,
+        UidBuilders: ItemUidBuilderMut<<P::Marker as UidMarker>::UidMarker>,
+    {
+        let prim_instance = self.create_interned_primitive(
+            info,
+            clip_chain_id,
+            clip_and_scroll.spatial_node_index,
+            prim,
+        );
+        self.register_chase_primitive_by_rect(
+            &info.rect,
+            &prim_instance,
+        );
+        self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
+        self.add_primitive_to_draw_list(prim_instance);
+    }
+
+    /// Create a primitive and add it to the prim store. This method doesn't
+    /// add the primitive to the draw list, so can be used for creating
+    /// sub-primitives.
+    ///
+    /// TODO(djg): Can this inline into `add_interned_prim_to_draw_list`
+    fn create_interned_primitive<P>(
+        &mut self,
+        info: &LayoutPrimitiveInfo,
+        clip_chain_id: ClipChainId,
+        spatial_node_index: SpatialNodeIndex,
+        prim: P,
+    ) -> PrimitiveInstance
+    where
+        P: Internable<Marker=PrimitiveDataMarker, InternData=PrimitiveSceneData>,
+        P::Source: AsInstanceKind<Handle<P::Marker>> + BuildKey<P>,
+        DocumentResources: InternerMut<P>,
+        UidBuilders: ItemUidBuilderMut<<P::Marker as UidMarker>::UidMarker>,
+    {
+        // TODO(djg): Do we need a mutable reference to info?
+        let mut info = info.clone();
+
+        // Build a primitive key.
+        let prim_key = P::Source::build_key(prim, &mut info);
+
+        let next_uid = &mut self.uids.uid_builder_mut();
+        let interner = self.resources.interner_mut();
+
+        let prim_data_handle = interner.intern(&prim_key, next_uid, || {
+            // Get a tight bounding / culling rect for this primitive
+            // from its local rect intersection with minimal local
+            // clip rect.
+            let culling_rect = info.clip_rect
+            .intersection(&info.rect)
+            .unwrap_or(LayoutRect::zero());
+
+            PrimitiveSceneData {
+                culling_rect,
+                is_backface_visible: info.is_backface_visible,
+            }
+        });
+
+        // For an interned primitive, use the primitive key to create a matching
+        // primitive instance kind.
+        let instance_kind = prim_key.as_instance_kind(&mut self.prim_store);
+
+        PrimitiveInstance::new(
+            instance_kind,
+            prim_data_handle,
+            clip_chain_id,
+            spatial_node_index,
+        )
+    }
+}
+
 /// Properties of a stacking context that are maintained
 /// during creation of the scene. These structures are
 /// not persisted after the initial scene build.
@@ -2269,4 +2424,10 @@ struct PendingShadow {
 enum ShadowItem {
     Shadow(PendingShadow),
     Primitive(PendingPrimitive),
+}
+
+impl From<PendingPrimitive> for ShadowItem {
+    fn from(container: PendingPrimitive) -> Self {
+        ShadowItem::Primitive(container)
+    }
 }

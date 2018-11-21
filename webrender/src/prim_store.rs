@@ -15,6 +15,7 @@ use border::{create_nine_patch_segments, BorderSegmentCacheKey, NormalBorderAu};
 use clip::{ClipStore};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use clip::{ClipDataStore, ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem, ClipNodeCollector};
+use display_list_flattener::{AsInstanceKind, BuildKey, IsVisible};
 use euclid::{SideOffsets2D, TypedTransform3D, TypedRect, TypedScale};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use frame_builder::PrimitiveContext;
@@ -413,10 +414,12 @@ impl PrimitiveKey {
             kind,
         }
     }
+}
 
+impl AsInstanceKind<PrimitiveDataHandle> for PrimitiveKey {
     /// Construct a primitive instance that matches the type
     /// of primitive key.
-    pub fn to_instance_kind(
+    fn as_instance_kind(
         &self,
         prim_store: &mut PrimitiveStore,
     ) -> PrimitiveInstanceKind {
@@ -1756,7 +1759,14 @@ pub enum PrimitiveContainer {
     },
 }
 
-impl PrimitiveContainer {
+impl intern::Internable for PrimitiveContainer {
+    type Marker = PrimitiveDataMarker;
+    type Source = PrimitiveKey;
+    type StoreData = PrimitiveTemplate;
+    type InternData = PrimitiveSceneData;
+}
+
+impl IsVisible for PrimitiveContainer {
     // Return true if the primary primitive is visible.
     // Used to trivially reject non-visible primitives.
     // TODO(gw): Currently, primitives other than those
@@ -1764,7 +1774,7 @@ impl PrimitiveContainer {
     //           add_primitive() call. In the future
     //           we should move the logic for all other
     //           primitive types to use this.
-    pub fn is_visible(&self) -> bool {
+    fn is_visible(&self) -> bool {
         match *self {
             PrimitiveContainer::TextRun { ref font, .. } => {
                 font.color.a > 0
@@ -1790,12 +1800,14 @@ impl PrimitiveContainer {
             }
         }
     }
+}
 
+impl PrimitiveContainer {
     /// Convert a source primitive container into a key, and optionally
     /// an old style PrimitiveDetails structure.
     pub fn build(
         self,
-        info: &mut LayoutPrimitiveInfo,
+        info: &mut LayoutPrimitiveInfo
     ) -> (PrimitiveKeyKind, Option<PrimitiveDetails>) {
         match self {
             PrimitiveContainer::TextRun { font, offset, glyphs, shadow, .. } => {
@@ -1921,7 +1933,25 @@ impl PrimitiveContainer {
             }
         }
     }
+}
 
+impl BuildKey<PrimitiveContainer> for PrimitiveKey {
+    fn build_key(
+        source: PrimitiveContainer,
+        info: &mut LayoutPrimitiveInfo
+    ) -> PrimitiveKey {
+        let (prim_key_kind, prim_details) = source.build(info);
+        assert!(prim_details.is_none());
+        PrimitiveKey::new(
+            info.is_backface_visible,
+            info.rect,
+            info.clip_rect,
+            prim_key_kind,
+        )
+    }
+}
+
+impl PrimitiveContainer {
     // Create a clone of this PrimitiveContainer, applying whatever
     // changes are necessary to the primitive to support rendering
     // it as part of the supplied shadow.
