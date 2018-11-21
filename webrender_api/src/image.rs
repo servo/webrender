@@ -243,9 +243,6 @@ pub enum ImageData {
     /// A simple series of bytes, provided by the embedding and owned by WebRender.
     /// The format is stored out-of-band, currently in ImageDescriptor.
     Raw(#[serde(with = "serde_image_data_raw")] Arc<Vec<u8>>),
-    /// An series of commands that can be rasterized into an image via an
-    /// embedding-provided callback.
-    Blob,
     /// An image owned by the embedding, and referenced by WebRender. This may
     /// take the form of a texture or a heap-allocated buffer.
     External(ExternalImageData),
@@ -276,29 +273,6 @@ impl ImageData {
     pub fn new_shared(bytes: Arc<Vec<u8>>) -> Self {
         ImageData::Raw(bytes)
     }
-
-    /// Returns true if this ImageData represents a blob.
-    #[inline]
-    pub fn is_blob(&self) -> bool {
-        match *self {
-            ImageData::Blob => true,
-            _ => false,
-        }
-    }
-
-    /// Returns true if this variant of ImageData should go through the texture
-    /// cache.
-    #[inline]
-    pub fn uses_texture_cache(&self) -> bool {
-        match *self {
-            ImageData::External(ref ext_data) => match ext_data.image_type {
-                ExternalImageType::TextureHandle(_) => false,
-                ExternalImageType::Buffer => true,
-            },
-            ImageData::Blob => true,
-            ImageData::Raw(_) => true,
-        }
-    }
 }
 
 /// The resources exposed by the resource cache available for use by the blob rasterizer.
@@ -307,8 +281,6 @@ pub trait BlobImageResources {
     fn get_font_data(&self, key: FontKey) -> &FontTemplate;
     /// Returns the `FontInstanceData` for the given key, if found.
     fn get_font_instance_data(&self, key: FontInstanceKey) -> Option<FontInstanceData>;
-    /// Returns the image metadata and backing store for the given key, if found.
-    fn get_image(&self, key: ImageKey) -> Option<(&ImageData, &ImageDescriptor)>;
 }
 
 /// A handler on the render backend that can create rasterizer objects which will
