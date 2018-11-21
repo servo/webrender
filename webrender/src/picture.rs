@@ -7,18 +7,19 @@ use api::{DeviceIntRect, DevicePoint, LayoutRect, PictureToRasterTransform, Layo
 use api::{DevicePixelScale, RasterRect, RasterSpace, PictureSize, DeviceIntPoint, ColorF, ImageKey, DirtyRect};
 use api::{PicturePixel, RasterPixel, WorldPixel, WorldRect, ImageFormat, ImageDescriptor};
 use box_shadow::{BLUR_SAMPLE_SCALE};
-use clip::{ClipNodeCollector, ClipStore, ClipChainId, ClipChainNode, ClipUid};
+use clip::{ClipNodeCollector, ClipStore, ClipChainId, ClipChainNode};
 use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, ClipScrollTree, SpatialNodeIndex};
 use device::TextureFilter;
 use euclid::{TypedScale, vec3, TypedRect, TypedPoint2D, TypedSize2D};
 use euclid::approxeq::ApproxEq;
+use intern::ItemUid;
 use internal_types::{FastHashMap, PlaneSplitter};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PictureContext};
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use gpu_types::{TransformPalette, TransformPaletteId, UvRectKind};
 use internal_types::FastHashSet;
 use plane_split::{Clipper, Polygon, Splitter};
-use prim_store::{PictureIndex, PrimitiveInstance, SpaceMapper, VisibleFace, PrimitiveInstanceKind, PrimitiveUid};
+use prim_store::{PictureIndex, PrimitiveInstance, SpaceMapper, VisibleFace, PrimitiveInstanceKind};
 use prim_store::{get_raster_rects, PrimitiveDataInterner, PrimitiveDataStore, CoordinateSpaceMapping};
 use prim_store::{OpacityBindingStorage, PrimitiveTemplateKind, ImageInstanceStorage, OpacityBindingIndex, SizeKey};
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle, TileBlit};
@@ -236,11 +237,11 @@ pub struct TileTransformIndex(u32);
 pub struct TileDescriptor {
     /// List of primitive unique identifiers. The uid is guaranteed
     /// to uniquely describe the content of the primitive.
-    pub prim_uids: Vec<PrimitiveUid>,
+    pub prim_uids: Vec<ItemUid>,
 
     /// List of clip node unique identifiers. The uid is guaranteed
     /// to uniquely describe the content of the clip node.
-    pub clip_uids: Vec<ClipUid>,
+    pub clip_uids: Vec<ItemUid>,
 
     /// List of local tile transform ids that are used to position
     /// the primitive and clip items above.
@@ -648,7 +649,7 @@ impl TileCache {
         // Build the list of resources that this primitive has dependencies on.
         let mut opacity_bindings: SmallVec<[PropertyBindingId; 4]> = SmallVec::new();
         let mut clip_chain_spatial_nodes: SmallVec<[SpatialNodeIndex; 8]> = SmallVec::new();
-        let mut clip_chain_uids: SmallVec<[ClipUid; 8]> = SmallVec::new();
+        let mut clip_chain_uids: SmallVec<[ItemUid; 8]> = SmallVec::new();
         let mut image_keys: SmallVec<[ImageKey; 8]> = SmallVec::new();
         let mut current_clip_chain_id = prim_instance.clip_chain_id;
 
