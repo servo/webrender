@@ -62,7 +62,6 @@ mod cgfont_to_data;
 
 use binary_frame_reader::BinaryFrameReader;
 use gleam::gl;
-use glutin::GlContext;
 use perf::PerfHarness;
 use png::save_flipped;
 use rawtest::RawtestHarness;
@@ -174,7 +173,7 @@ impl WindowWrapper {
     fn swap_buffers(&self) {
         match *self {
             WindowWrapper::Window(ref window, _) => window.swap_buffers().unwrap(),
-            WindowWrapper::Angle(_, ref context, _) => context.swap_buffers().unwrap(),
+            WindowWrapper::Angle(_, _, _) => {},
             WindowWrapper::Headless(_, _) => {}
         }
     }
@@ -259,7 +258,7 @@ fn make_window(
                 .with_multitouch()
                 .with_dimensions(LogicalSize::new(size.width as f64, size.height as f64));
 
-            let init = |context: &glutin::GlContext| {
+            fn init<T: glutin::GlContext>(context: &T) -> Rc<gl::Gl> {
                 unsafe {
                     context
                         .make_current()
@@ -286,7 +285,7 @@ fn make_window(
             } else {
                 let window = glutin::GlWindow::new(window_builder, context_builder, events_loop)
                     .unwrap();
-                let gl = init(&window);
+                let gl = init(window.context());
                 WindowWrapper::Window(window, gl)
             }
         }

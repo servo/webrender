@@ -4,7 +4,6 @@
 
 use glutin::{self, ContextBuilder, CreationError};
 #[cfg(not(windows))]
-use winit::dpi::PhysicalSize;
 use winit::{EventsLoop, Window, WindowBuilder};
 
 #[cfg(not(windows))]
@@ -55,20 +54,7 @@ impl glutin::GlContext for Context {
         match *self {}
     }
 
-    fn swap_buffers(&self) -> Result<(), glutin::ContextError> {
-        match *self {}
-    }
-
     fn get_api(&self) -> glutin::Api {
         match *self {}
     }
-
-    fn get_pixel_format(&self) -> glutin::PixelFormat {
-        match *self {}
-    }
-
-    fn resize(&self, _: PhysicalSize) {
-        match *self {}
-    }
 }
-
