@@ -11,6 +11,7 @@ use api::{DeviceIntSideOffsets, WorldPixel, BoxShadowClipMode, NormalBorder, Wor
 use api::{PicturePixel, RasterPixel, ColorDepth, LineStyle, LineOrientation, LayoutSizeAu, AuHelpers, LayoutVector2DAu};
 use app_units::Au;
 use border::{get_max_scale_for_border, build_border_instances, create_normal_border_prim};
+use clip::ClipStore;
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use clip::{ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem, ClipNodeCollector};
 use euclid::{TypedTransform3D, TypedRect, TypedScale};
@@ -126,30 +127,32 @@ impl<F, T> CoordinateSpaceMapping<F, T> {
         ref_spatial_node_index: SpatialNodeIndex,
         target_node_index: SpatialNodeIndex,
         clip_scroll_tree: &ClipScrollTree,
-    ) -> Self {
+    ) -> Option<Self> {
         let spatial_nodes = &clip_scroll_tree.spatial_nodes;
         let ref_spatial_node = &spatial_nodes[ref_spatial_node_index.0];
         let target_spatial_node = &spatial_nodes[target_node_index.0];
 
         if ref_spatial_node_index == target_node_index {
-            CoordinateSpaceMapping::Local
+            Some(CoordinateSpaceMapping::Local)
         } else if ref_spatial_node.coordinate_system_id == target_spatial_node.coordinate_system_id {
-            CoordinateSpaceMapping::ScaleOffset(
+            Some(CoordinateSpaceMapping::ScaleOffset(
                 ref_spatial_node.coordinate_system_relative_scale_offset
                     .inverse()
                     .accumulate(
                         &target_spatial_node.coordinate_system_relative_scale_offset
                     )
-            )
+            ))
         } else {
             let transform = clip_scroll_tree.get_relative_transform(
                 target_node_index,
                 ref_spatial_node_index,
-            ).expect("bug: should have already been culled");
+            );
 
-            CoordinateSpaceMapping::Transform(
-                transform.with_source::<F>().with_destination::<T>()
-            )
+            transform.map(|transform| {
+                CoordinateSpaceMapping::Transform(
+                    transform.with_source::<F>().with_destination::<T>()
+                )
+            })
         }
     }
 }
@@ -198,7 +201,7 @@ impl<F, T> SpaceMapper<F, T> where F: fmt::Debug {
                 self.ref_spatial_node_index,
                 target_node_index,
                 clip_scroll_tree,
-            );
+            ).expect("bug: should have been culled by invalid node");
         }
     }
 
@@ -617,7 +620,7 @@ pub type PrimitiveUid = intern::ItemUid<PrimitiveDataMarker>;
 // uses of opacity filters.
 #[derive(Debug)]
 pub struct OpacityBinding {
-    bindings: Vec<PropertyBinding<f32>>,
+    pub bindings: Vec<PropertyBinding<f32>>,
     pub current: f32,
 }
 
@@ -1968,6 +1971,9 @@ impl PrimitiveStore {
         pic_index: PictureIndex,
         state: &mut PictureUpdateState,
         frame_context: &FrameBuildingContext,
+        resource_cache: &mut ResourceCache,
+        prim_data_store: &PrimitiveDataStore,
+        clip_store: &ClipStore,
     ) {
         if let Some(children) = self.pictures[pic_index.0].pre_update(
             state,
@@ -1978,13 +1984,27 @@ impl PrimitiveStore {
                     *child_pic_index,
                     state,
                     frame_context,
+                    resource_cache,
+                    prim_data_store,
+                    clip_store,
                 );
             }
+
+            self.pictures[pic_index.0].update_prim_dependencies(
+                state,
+                frame_context,
+                resource_cache,
+                prim_data_store,
+                &self.primitives,
+                &self.pictures,
+                clip_store,
+            );
 
             self.pictures[pic_index.0].post_update(
                 children,
                 state,
                 frame_context,
+                resource_cache,
             );
         }
     }
@@ -2230,6 +2250,12 @@ impl PrimitiveStore {
             }
         };
 
+        // TODO(gw): Eventually we can move all the code handling below for
+        //           visibility and clip chain building to be done during the
+        //           update_prim_dependencies pass. That will mean that:
+        //           (a) We only do the work if the relative transforms change.
+        //           (b) Local clip rects can reduce the # of tile dependencies.
+
         // TODO(gw): Having this declared outside is a hack / workaround. We
         //           need it in pic.prepare_for_render below, but that code
         //           path will only read it in the !is_passthrough case
@@ -2254,8 +2280,11 @@ impl PrimitiveStore {
             // the picture context. This ensures that even if the primitive itself
             // is not visible, any effects from the blur radius will be correctly
             // taken into account.
+            let inflation_factor = frame_state
+                .surfaces[pic_context.surface_index.0]
+                .inflation_factor;
             let local_rect = prim_local_rect
-                .inflate(pic_context.inflation_factor, pic_context.inflation_factor)
+                .inflate(inflation_factor, inflation_factor)
                 .intersection(&prim_local_clip_rect);
             let local_rect = match local_rect {
                 Some(local_rect) => local_rect,
@@ -2281,7 +2310,7 @@ impl PrimitiveStore {
                     frame_state.gpu_cache,
                     frame_state.resource_cache,
                     frame_context.device_pixel_scale,
-                    &frame_context.world_rect,
+                    &pic_context.dirty_world_rect,
                     &clip_node_collector,
                     &mut frame_state.resources.clip_data_store,
                 );
@@ -2322,7 +2351,7 @@ impl PrimitiveStore {
                 }
             };
 
-            clipped_world_rect = match world_rect.intersection(&frame_context.world_rect) {
+            clipped_world_rect = match world_rect.intersection(&pic_context.dirty_world_rect) {
                 Some(rect) => rect,
                 None => {
                     return false;
@@ -2338,7 +2367,7 @@ impl PrimitiveStore {
                 clipped_world_rect,
                 pic_context.raster_spatial_node_index,
                 &clip_chain,
-                pic_context.surface_index,
+                pic_context,
                 pic_state,
                 frame_context,
                 frame_state,
@@ -2375,7 +2404,7 @@ impl PrimitiveStore {
                             frame_state.transforms,
                             prim_instance,
                             prim_local_rect,
-                            frame_context.world_rect,
+                            pic_context.dirty_world_rect,
                             plane_split_anchor,
                         );
                     }
@@ -2387,8 +2416,8 @@ impl PrimitiveStore {
                     request.push(PremultipliedColorF::WHITE);
                     request.push(PremultipliedColorF::WHITE);
                     request.push([
-                        pic.local_rect.size.width,
-                        pic.local_rect.size.height,
+                        -1.0,       // -ve means use prim rect for stretch size
+                        0.0,
                         0.0,
                         0.0,
                     ]);
@@ -2416,7 +2445,7 @@ impl PrimitiveStore {
                     prim_local_rect,
                     prim_details,
                     prim_context,
-                    pic_context.surface_index,
+                    pic_context,
                     pic_state,
                     frame_context,
                     frame_state,
@@ -2814,7 +2843,7 @@ impl PrimitiveInstance {
         prim_bounding_rect: WorldRect,
         prim_context: &PrimitiveContext,
         prim_clip_chain: &ClipChainInstance,
-        surface_index: SurfaceIndex,
+        pic_context: &PictureContext,
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
@@ -2869,7 +2898,7 @@ impl PrimitiveInstance {
                 Some(prim_clip_chain),
                 prim_bounding_rect,
                 root_spatial_node_index,
-                surface_index,
+                pic_context.surface_index,
                 pic_state,
                 frame_context,
                 frame_state,
@@ -2893,7 +2922,7 @@ impl PrimitiveInstance {
                         frame_state.gpu_cache,
                         frame_state.resource_cache,
                         frame_context.device_pixel_scale,
-                        &frame_context.world_rect,
+                        &pic_context.dirty_world_rect,
                         clip_node_collector,
                         &mut frame_state.resources.clip_data_store,
                     );
@@ -2902,7 +2931,7 @@ impl PrimitiveInstance {
                     segment_clip_chain.as_ref(),
                     prim_bounding_rect,
                     root_spatial_node_index,
-                    surface_index,
+                    pic_context.surface_index,
                     pic_state,
                     frame_context,
                     frame_state,
@@ -3028,7 +3057,7 @@ impl PrimitiveInstance {
         prim_local_rect: LayoutRect,
         prim_details: &mut PrimitiveDetails,
         prim_context: &PrimitiveContext,
-        surface_index: SurfaceIndex,
+        pic_context: &PictureContext,
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
@@ -3150,7 +3179,7 @@ impl PrimitiveInstance {
                                             let target_to_cache_task_id = render_tasks.add(target_to_cache_task);
 
                                             // Hook this into the render task tree at the right spot.
-                                            surfaces[surface_index.0].tasks.push(target_to_cache_task_id);
+                                            surfaces[pic_context.surface_index.0].tasks.push(target_to_cache_task_id);
 
                                             // Pass the image opacity, so that the cached render task
                                             // item inherits the same opacity properties.
@@ -3176,7 +3205,7 @@ impl PrimitiveInstance {
 
                                 let visible_rect = compute_conservative_visible_rect(
                                     prim_context,
-                                    &frame_context.world_rect,
+                                    &pic_context.dirty_world_rect,
                                     &tight_clip_rect
                                 );
 
@@ -3326,7 +3355,7 @@ impl PrimitiveInstance {
 
                                             let task_id = render_tasks.add(task);
 
-                                            surfaces[surface_index.0].tasks.push(task_id);
+                                            surfaces[pic_context.surface_index.0].tasks.push(task_id);
 
                                             task_id
                                         }
@@ -3370,7 +3399,7 @@ impl PrimitiveInstance {
                                 &tile_spacing,
                                 prim_context,
                                 frame_state,
-                                &frame_context.world_rect,
+                                &pic_context.dirty_world_rect,
                                 &mut |rect, mut request| {
                                     request.push([
                                         center.x,
@@ -3424,7 +3453,7 @@ impl PrimitiveInstance {
                                 &tile_spacing,
                                 prim_context,
                                 frame_state,
-                                &frame_context.world_rect,
+                                &pic_context.dirty_world_rect,
                                 &mut |rect, mut request| {
                                     request.push([
                                         start_point.x,
@@ -3488,7 +3517,7 @@ impl PrimitiveInstance {
         prim_bounding_rect: WorldRect,
         root_spatial_node_index: SpatialNodeIndex,
         clip_chain: &ClipChainInstance,
-        surface_index: SurfaceIndex,
+        pic_context: &PictureContext,
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
@@ -3511,7 +3540,7 @@ impl PrimitiveInstance {
             prim_bounding_rect,
             prim_context,
             &clip_chain,
-            surface_index,
+            pic_context,
             pic_state,
             frame_context,
             frame_state,
@@ -3553,7 +3582,7 @@ impl PrimitiveInstance {
                 let clip_task_index = ClipTaskIndex(clip_mask_instances.len() as _);
                 clip_mask_instances.push(ClipMaskKind::Mask(clip_task_id));
                 self.clip_task_index = clip_task_index;
-                frame_state.surfaces[surface_index.0].tasks.push(clip_task_id);
+                frame_state.surfaces[pic_context.surface_index.0].tasks.push(clip_task_id);
             }
         }
     }
