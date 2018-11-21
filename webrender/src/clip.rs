@@ -97,13 +97,22 @@ use util::{extract_inner_rect_safe, project_rect, ScaleOffset};
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ClipUidMarker;
+pub type ClipUid = intern::ItemUid<ClipUidMarker>;
+pub type ClipUidBuilder = intern::ItemUidBuilder<ClipUidMarker>;
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ClipDataMarker;
+impl intern::UidMarker for ClipDataMarker {
+    type UidMarker = ClipUidMarker;
+}
 
 pub type ClipDataStore = intern::DataStore<ClipItemKey, ClipNode, ClipDataMarker>;
 pub type ClipDataHandle = intern::Handle<ClipDataMarker>;
 pub type ClipDataUpdateList = intern::UpdateList<ClipItemKey>;
 pub type ClipDataInterner = intern::Interner<ClipItemKey, ClipItemSceneData, ClipDataMarker>;
-pub type ClipUid = intern::ItemUid<ClipDataMarker>;
 
 // Result of comparing a clip node instance against a local rect.
 #[derive(Debug)]
