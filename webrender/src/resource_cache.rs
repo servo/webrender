@@ -86,6 +86,57 @@ impl CacheItem {
     }
 }
 
+/// Represents the backing store of an image in the cache.
+/// This storage can take several forms.
+#[derive(Clone, Debug)]
+pub enum CachedImageData {
+    /// A simple series of bytes, provided by the embedding and owned by WebRender.
+    /// The format is stored out-of-band, currently in ImageDescriptor.
+    Raw(Arc<Vec<u8>>),
+    /// An series of commands that can be rasterized into an image via an
+    /// embedding-provided callback.
+    ///
+    /// The commands are stored elsewhere and this variant is used as a placeholder.
+    Blob,
+    /// An image owned by the embedding, and referenced by WebRender. This may
+    /// take the form of a texture or a heap-allocated buffer.
+    External(ExternalImageData),
+}
+
+impl From<ImageData> for CachedImageData {
+    fn from(img_data: ImageData) -> Self {
+        match img_data {
+            ImageData::Raw(data) => CachedImageData::Raw(data),
+            ImageData::External(data) => CachedImageData::External(data),
+        }
+    }
+}
+
+impl CachedImageData {
+    /// Returns true if this represents a blob.
+    #[inline]
+    pub fn is_blob(&self) -> bool {
+        match *self {
+            CachedImageData::Blob => true,
+            _ => false,
+        }
+    }
+
+    /// Returns true if this variant of CachedImageData should go through the texture
+    /// cache.
+    #[inline]
+    pub fn uses_texture_cache(&self) -> bool {
+        match *self {
+            CachedImageData::External(ref ext_data) => match ext_data.image_type {
+                ExternalImageType::TextureHandle(_) => false,
+                ExternalImageType::Buffer => true,
+            },
+            CachedImageData::Blob => true,
+            CachedImageData::Raw(_) => true,
+        }
+    }
+}
+
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -118,7 +169,7 @@ struct BlobImageTemplate {
 }
 
 struct ImageResource {
-    data: ImageData,
+    data: CachedImageData,
     descriptor: ImageDescriptor,
     tiling: Option<TileSize>,
     viewport_tiles: Option<TileRange>,
@@ -347,11 +398,6 @@ impl BlobImageResources for Resources {
             None => None,
         }
     }
-    fn get_image(&self, key: ImageKey) -> Option<(&ImageData, &ImageDescriptor)> {
-        self.image_templates
-            .get(key)
-            .map(|resource| (&resource.data, &resource.descriptor))
-    }
 }
 
 pub type GlyphDimensionsCache = FastHashMap<(FontInstance, GlyphIndex), Option<GlyphDimensions>>;
@@ -421,11 +467,11 @@ impl ResourceCache {
         self.texture_cache.max_texture_size()
     }
 
-    fn should_tile(limit: i32, descriptor: &ImageDescriptor, data: &ImageData) -> bool {
+    fn should_tile(limit: i32, descriptor: &ImageDescriptor, data: &CachedImageData) -> bool {
         let size_check = descriptor.size.width > limit || descriptor.size.height > limit;
         match *data {
-            ImageData::Raw(_) | ImageData::Blob => size_check,
-            ImageData::External(info) => {
+            CachedImageData::Raw(_) | CachedImageData::Blob => size_check,
+            CachedImageData::External(info) => {
                 // External handles already represent existing textures so it does
                 // not make sense to tile them into smaller ones.
                 info.image_type == ExternalImageType::Buffer && size_check
@@ -473,16 +519,16 @@ impl ResourceCache {
                     if let ImageData::Raw(ref bytes) = img.data {
                         profile_counters.image_templates.inc(bytes.len());
                     }
-                    self.add_image_template(img.key, img.descriptor, img.data, img.tiling);
+                    self.add_image_template(img.key, img.descriptor, img.data.into(), img.tiling);
                 }
                 ResourceUpdate::UpdateImage(img) => {
-                    self.update_image_template(img.key, img.descriptor, img.data, &img.dirty_rect);
+                    self.update_image_template(img.key, img.descriptor, img.data.into(), &img.dirty_rect);
                 }
                 ResourceUpdate::AddBlobImage(img) => {
                     self.add_image_template(
                         img.key.as_image(),
                         img.descriptor,
-                        ImageData::Blob,
+                        CachedImageData::Blob,
                         img.tiling,
                     );
                 }
@@ -490,7 +536,7 @@ impl ResourceCache {
                     self.update_image_template(
                         img.key.as_image(),
                         img.descriptor,
-                        ImageData::Blob,
+                        CachedImageData::Blob,
                         &to_image_dirty_rect(
                             &img.dirty_rect
                         ),
@@ -704,7 +750,7 @@ impl ResourceCache {
         &mut self,
         image_key: ImageKey,
         descriptor: ImageDescriptor,
-        data: ImageData,
+        data: CachedImageData,
         mut tiling: Option<TileSize>,
     ) {
         if tiling.is_none() && Self::should_tile(self.max_texture_size(), &descriptor, &data) {
@@ -727,7 +773,7 @@ impl ResourceCache {
         &mut self,
         image_key: ImageKey,
         descriptor: ImageDescriptor,
-        data: ImageData,
+        data: CachedImageData,
         dirty_rect: &ImageDirtyRect,
     ) {
         let max_texture_size = self.max_texture_size();
@@ -1387,13 +1433,13 @@ impl ResourceCache {
 
         image_template.map(|image_template| {
             let external_image = match image_template.data {
-                ImageData::External(ext_image) => match ext_image.image_type {
+                CachedImageData::External(ext_image) => match ext_image.image_type {
                     ExternalImageType::TextureHandle(_) => Some(ext_image),
                     // external buffer uses resource_cache.
                     ExternalImageType::Buffer => None,
                 },
                 // raw and blob image are all using resource_cache.
-                ImageData::Raw(..) | ImageData::Blob => None,
+                CachedImageData::Raw(..) | CachedImageData::Blob => None,
             };
 
             ImageProperties {
@@ -1472,29 +1518,29 @@ impl ResourceCache {
             let image_template = self.resources.image_templates.get_mut(request.key).unwrap();
             debug_assert!(image_template.data.uses_texture_cache());
 
-            let mut updates: SmallVec<[(ImageData, Option<DeviceIntRect>); 1]> = SmallVec::new();
+            let mut updates: SmallVec<[(CachedImageData, Option<DeviceIntRect>); 1]> = SmallVec::new();
 
             match image_template.data {
-                ImageData::Raw(..) | ImageData::External(..) => {
+                CachedImageData::Raw(..) | CachedImageData::External(..) => {
                     // Safe to clone here since the Raw image data is an
                     // Arc, and the external image data is small.
                     updates.push((image_template.data.clone(), None));
                 }
-                ImageData::Blob => {
+                CachedImageData::Blob => {
 
                     let blob_image = self.rasterized_blob_images.get_mut(&BlobImageKey(request.key)).unwrap();
                     match (blob_image, request.tile) {
                         (RasterizedBlob::Tiled(ref tiles), Some(tile)) => {
                             let img = &tiles[&tile];
                             updates.push((
-                                ImageData::Raw(Arc::clone(&img.data)),
+                                CachedImageData::Raw(Arc::clone(&img.data)),
                                 Some(img.rasterized_rect)
                             ));
                         }
                         (RasterizedBlob::NonTiled(ref mut queue), None) => {
                             for img in queue.drain(..) {
                                 updates.push((
-                                    ImageData::Raw(img.data),
+                                    CachedImageData::Raw(img.data),
                                     Some(img.rasterized_rect)
                                 ));
                             }
@@ -1662,8 +1708,8 @@ impl ResourceCache {
         // Measure images.
         for (_, image) in self.resources.image_templates.images.iter() {
             report.images += match image.data {
-                ImageData::Raw(ref v) => unsafe { op(v.as_ptr() as *const c_void) },
-                ImageData::Blob | ImageData::External(..) => 0,
+                CachedImageData::Raw(ref v) => unsafe { op(v.as_ptr() as *const c_void) },
+                CachedImageData::Blob | CachedImageData::External(..) => 0,
             }
         }
 
@@ -1873,7 +1919,7 @@ impl ResourceCache {
         for (&key, template) in res.image_templates.images.iter() {
             let desc = &template.descriptor;
             match template.data {
-                ImageData::Raw(ref arc) => {
+                CachedImageData::Raw(ref arc) => {
                     let image_id = image_paths.len() + 1;
                     let entry = match image_paths.entry(arc.as_ptr()) {
                         Entry::Occupied(_) => continue,
@@ -1895,7 +1941,7 @@ impl ResourceCache {
                         .unwrap();
                     entry.insert(short_path);
                 }
-                ImageData::Blob => {
+                CachedImageData::Blob => {
                     assert_eq!(template.tiling, None);
                     let blob_request_params = &[
                         BlobImageParams {
@@ -1939,7 +1985,7 @@ impl ResourceCache {
                         .unwrap();
                     other_paths.insert(key, short_path);
                 }
-                ImageData::External(ref ext) => {
+                CachedImageData::External(ref ext) => {
                     let short_path = format!("externals/{}", external_images.len() + 1);
                     other_paths.insert(key, short_path.clone());
                     external_images.push(ExternalCaptureImage {
@@ -1974,7 +2020,7 @@ impl ResourceCache {
                 .map(|(key, template)| {
                     (*key, PlainImageTemplate {
                         data: match template.data {
-                            ImageData::Raw(ref arc) => image_paths[&arc.as_ptr()].clone(),
+                            CachedImageData::Raw(ref arc) => image_paths[&arc.as_ptr()].clone(),
                             _ => other_paths[key].clone(),
                         },
                         descriptor: template.descriptor.clone(),
@@ -2080,7 +2126,7 @@ impl ResourceCache {
                 Some(plain) => {
                     let ext_data = plain.external;
                     external_images.push(plain);
-                    ImageData::External(ext_data)
+                    CachedImageData::External(ext_data)
                 }
                 None => {
                     let arc = match raw_map.entry(template.data) {
@@ -2097,7 +2143,7 @@ impl ResourceCache {
                                 .clone()
                         }
                     };
-                    ImageData::Raw(arc)
+                    CachedImageData::Raw(arc)
                 }
             };
 

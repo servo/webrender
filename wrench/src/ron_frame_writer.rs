@@ -93,7 +93,7 @@ impl RonFrameWriter {
                 ResourceUpdate::AddImage(ref img) => {
                     let bytes = match img.data {
                         ImageData::Raw(ref v) => (**v).clone(),
-                        ImageData::External(_) | ImageData::Blob => {
+                        ImageData::External(_) => {
                             return;
                         }
                     };

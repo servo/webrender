@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{DebugFlags, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DirtyRect, ImageDirtyRect};
-use api::{ExternalImageType, ImageData, ImageFormat};
+use api::{ExternalImageType, ImageFormat};
 use api::ImageDescriptor;
 use device::{TextureFilter, total_gpu_bytes_allocated};
 use freelist::{FreeList, FreeListHandle, UpsertResult, WeakFreeListHandle};
@@ -13,7 +13,7 @@ use internal_types::{CacheTextureId, LayerIndex, TextureUpdateList, TextureUpdat
 use internal_types::{TextureSource, TextureCacheAllocInfo, TextureCacheUpdate};
 use profiler::{ResourceProfileCounter, TextureCacheProfileCounters};
 use render_backend::{FrameId, FrameStamp};
-use resource_cache::CacheItem;
+use resource_cache::{CacheItem, CachedImageData};
 use std::cell::Cell;
 use std::cmp;
 use std::mem;
@@ -673,7 +673,7 @@ impl TextureCache {
         handle: &mut TextureCacheHandle,
         descriptor: ImageDescriptor,
         filter: TextureFilter,
-        data: Option<ImageData>,
+        data: Option<CachedImageData>,
         user_data: [f32; 3],
         mut dirty_rect: ImageDirtyRect,
         gpu_cache: &mut GpuCache,
@@ -1385,7 +1385,7 @@ impl TextureCacheUpdate {
     // rendering thread in order to do an upload to the right
     // location in the texture cache.
     fn new_update(
-        data: ImageData,
+        data: CachedImageData,
         descriptor: &ImageDescriptor,
         origin: DeviceIntPoint,
         size: DeviceIntSize,
@@ -1394,10 +1394,10 @@ impl TextureCacheUpdate {
         dirty_rect: &ImageDirtyRect,
     ) -> TextureCacheUpdate {
         let source = match data {
-            ImageData::Blob => {
+            CachedImageData::Blob => {
                 panic!("The vector image should have been rasterized.");
             }
-            ImageData::External(ext_image) => match ext_image.image_type {
+            CachedImageData::External(ext_image) => match ext_image.image_type {
                 ExternalImageType::TextureHandle(_) => {
                     panic!("External texture handle should not go through texture_cache.");
                 }
@@ -1406,7 +1406,7 @@ impl TextureCacheUpdate {
                     channel_index: ext_image.channel_index,
                 },
             },
-            ImageData::Raw(bytes) => {
+            CachedImageData::Raw(bytes) => {
                 let finish = descriptor.offset +
                     descriptor.size.width * descriptor.format.bytes_per_pixel() +
                     (descriptor.size.height - 1) * descriptor.compute_stride();
