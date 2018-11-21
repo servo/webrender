@@ -1480,7 +1480,6 @@ pub type PrimitiveDataStore = intern::DataStore<PrimitiveKey, PrimitiveTemplate,
 pub type PrimitiveDataHandle = intern::Handle<PrimitiveDataMarker>;
 pub type PrimitiveDataUpdateList = intern::UpdateList<PrimitiveKey>;
 pub type PrimitiveDataInterner = intern::Interner<PrimitiveKey, PrimitiveSceneData, PrimitiveDataMarker>;
-pub type PrimitiveUid = intern::ItemUid<PrimitiveDataMarker>;
 
 // Maintains a list of opacity bindings that have been collapsed into
 // the color of a single primitive. This is an important optimization

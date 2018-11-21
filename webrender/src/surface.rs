@@ -3,11 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{LayoutPixel, PicturePixel, RasterSpace};
-use clip::{ClipChainId, ClipStore, ClipUid};
+use clip::{ClipChainId, ClipStore};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use euclid::TypedTransform3D;
+use intern::ItemUid;
 use internal_types::FastHashSet;
-use prim_store::{CoordinateSpaceMapping, PrimitiveUid, PrimitiveInstance, PrimitiveInstanceKind};
+use prim_store::{CoordinateSpaceMapping, PrimitiveInstance, PrimitiveInstanceKind};
 use std::hash;
 use util::ScaleOffset;
 
@@ -165,10 +166,10 @@ impl<F, T> From<CoordinateSpaceMapping<F, T>> for TransformKey {
 pub struct SurfaceCacheKey {
     /// The list of primitives that are part of this surface.
     /// The uid uniquely identifies the content of the primitive.
-    pub primitive_ids: Vec<PrimitiveUid>,
+    pub primitive_ids: Vec<ItemUid>,
     /// The list of clips that affect the primitives on this surface.
     /// The uid uniquely identifies the content of the clip.
-    pub clip_ids: Vec<ClipUid>,
+    pub clip_ids: Vec<ItemUid>,
     /// A list of transforms that can affect the contents of primitives
     /// and/or clips on this picture surface.
     pub transforms: Vec<TransformKey>,
