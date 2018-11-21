@@ -14,7 +14,7 @@ use api::{PropertyBinding, ReferenceFrame, ScrollFrameDisplayItem, ScrollSensiti
 use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
 use api::{ClipMode, TransformStyle, YuvColorSpace, YuvData};
 use border::create_nine_patch_segments;
-use clip::{ClipChainId, ClipRegion, ClipItemKey, ClipStore, ClipItemSceneData};
+use clip::{ClipChainId, ClipRegion, ClipItemKey, ClipStore, ClipItemSceneData, ClipUidBuilder};
 use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, ClipScrollTree, SpatialNodeIndex};
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
 use glyph_rasterizer::FontInstance;
@@ -26,7 +26,7 @@ use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, Primitiv
 use prim_store::{BrushKind, BrushPrimitive, PrimitiveInstance, PrimitiveDataInterner, PrimitiveKeyKind};
 use prim_store::{ImageSource, PrimitiveOpacity, PrimitiveKey, PrimitiveSceneData, PrimitiveInstanceKind};
 use prim_store::{PrimitiveContainer, PrimitiveDataHandle, PrimitiveStore, PrimitiveStoreStats, BrushSegmentDescriptor};
-use prim_store::{ScrollNodeAndClipChain, PictureIndex, register_prim_chase_id, OpacityBindingIndex};
+use prim_store::{PrimitiveUidBuilder, ScrollNodeAndClipChain, PictureIndex, register_prim_chase_id, OpacityBindingIndex};
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
@@ -106,6 +106,14 @@ impl ClipIdToIndexMapper {
     }
 }
 
+/// A collection of Uid builders for use when interning state into
+/// DocumentResources interners.
+#[derive(Default)]
+struct UidBuilders {
+    pub clip_uid: ClipUidBuilder,
+    pub prim_uid: PrimitiveUidBuilder
+}
+
 /// A structure that converts a serialized display list into a form that WebRender
 /// can use to later build a frame. This structure produces a FrameBuilder. Public
 /// members are typically those that are destructured into the FrameBuilder.
@@ -156,6 +164,9 @@ pub struct DisplayListFlattener<'a> {
     /// The root picture index for this flattener. This is the picture
     /// to start the culling phase from.
     pub root_pic_index: PictureIndex,
+
+    /// Collection of Uids used when interning shared document resources.
+    uids: UidBuilders,
 }
 
 impl<'a> DisplayListFlattener<'a> {
@@ -193,6 +204,7 @@ impl<'a> DisplayListFlattener<'a> {
             clip_store: ClipStore::new(),
             resources,
             root_pic_index: PictureIndex(0),
+            uids: UidBuilders::default(),
         };
 
         flattener.push_root(
@@ -803,7 +815,7 @@ impl<'a> DisplayListFlattener<'a> {
                 // in the clip chain node.
                 let handle = self.resources
                     .clip_interner
-                    .intern(&item, || {
+                    .intern(&item, &mut self.uids.clip_uid, || {
                         ClipItemSceneData {
                             // The only type of clip items that exist in the per-primitive
                             // clip items are box shadows, and they don't contribute a
@@ -860,7 +872,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         let prim_data_handle = self.resources
             .prim_interner
-            .intern(&prim_key, || {
+            .intern(&prim_key, &mut self.uids.prim_uid, || {
                 PrimitiveSceneData {
                     culling_rect,
                     is_backface_visible: info.is_backface_visible,
@@ -1065,7 +1077,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         let primitive_data_handle = self.resources
             .prim_interner
-            .intern(&prim_key, || {
+            .intern(&prim_key, &mut self.uids.prim_uid, || {
                 PrimitiveSceneData {
                     culling_rect: LayoutRect::zero(),
                     is_backface_visible,
@@ -1395,11 +1407,12 @@ impl<'a> DisplayListFlattener<'a> {
         let handle = self
             .resources
             .clip_interner
-            .intern(&ClipItemKey::rectangle(clip_region.main, ClipMode::Clip), || {
-                ClipItemSceneData {
-                    clip_rect: clip_region.main,
-                }
-            });
+            .intern(&ClipItemKey::rectangle(clip_region.main, ClipMode::Clip),
+                &mut self.uids.clip_uid, || {
+                    ClipItemSceneData {
+                        clip_rect: clip_region.main,
+                    }
+                });
 
         parent_clip_chain_index = self
             .clip_store
@@ -1414,11 +1427,12 @@ impl<'a> DisplayListFlattener<'a> {
             let handle = self
                 .resources
                 .clip_interner
-                .intern(&ClipItemKey::image_mask(image_mask), || {
-                    ClipItemSceneData {
-                        clip_rect: image_mask.get_local_clip_rect().unwrap_or(LayoutRect::max_rect()),
-                    }
-                });
+                .intern(&ClipItemKey::image_mask(image_mask),
+                    &mut self.uids.clip_uid, || {
+                        ClipItemSceneData {
+                            clip_rect: image_mask.get_local_clip_rect().unwrap_or(LayoutRect::max_rect()),
+                        }
+                    });
 
             parent_clip_chain_index = self
                 .clip_store
@@ -1434,11 +1448,12 @@ impl<'a> DisplayListFlattener<'a> {
             let handle = self
                 .resources
                 .clip_interner
-                .intern(&ClipItemKey::rounded_rect(region.rect, region.radii, region.mode), || {
-                    ClipItemSceneData {
-                        clip_rect: region.get_local_clip_rect().unwrap_or(LayoutRect::max_rect()),
-                    }
-                });
+                .intern(&ClipItemKey::rounded_rect(region.rect, region.radii, region.mode),
+                    &mut self.uids.clip_uid, || {
+                        ClipItemSceneData {
+                            clip_rect: region.get_local_clip_rect().unwrap_or(LayoutRect::max_rect()),
+                        }
+                    });
 
             parent_clip_chain_index = self
                 .clip_store
@@ -1603,7 +1618,7 @@ impl<'a> DisplayListFlattener<'a> {
 
                         let shadow_prim_data_handle = self.resources
                             .prim_interner
-                            .intern(&shadow_prim_key, || {
+                            .intern(&shadow_prim_key, &mut self.uids.prim_uid, || {
                                 PrimitiveSceneData {
                                     culling_rect: LayoutRect::zero(),
                                     is_backface_visible: true,

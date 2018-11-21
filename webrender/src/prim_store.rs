@@ -807,13 +807,22 @@ impl PrimitiveTemplate {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+pub struct PrimitiveUidMarker;
+pub type PrimitiveUid = intern::ItemUid<PrimitiveUidMarker>;
+pub type PrimitiveUidBuilder = intern::ItemUidBuilder<PrimitiveUidMarker>;
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 pub struct PrimitiveDataMarker;
+impl intern::UidMarker for PrimitiveDataMarker {
+    type UidMarker = PrimitiveUidMarker;
+}
 
 pub type PrimitiveDataStore = intern::DataStore<PrimitiveKey, PrimitiveTemplate, PrimitiveDataMarker>;
 pub type PrimitiveDataHandle = intern::Handle<PrimitiveDataMarker>;
 pub type PrimitiveDataUpdateList = intern::UpdateList<PrimitiveKey>;
 pub type PrimitiveDataInterner = intern::Interner<PrimitiveKey, PrimitiveSceneData, PrimitiveDataMarker>;
-pub type PrimitiveUid = intern::ItemUid<PrimitiveDataMarker>;
 
 // Maintains a list of opacity bindings that have been collapsed into
 // the color of a single primitive. This is an important optimization
