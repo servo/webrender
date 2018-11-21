@@ -539,7 +539,7 @@ impl AlphaBatchBuilder {
 
         // Get the clip task address for the global primitive, if one was set.
         let clip_task_address = get_clip_task_address(
-            &ctx.prim_store.clip_mask_instances,
+            &ctx.scratch.clip_mask_instances,
             prim_instance.clip_task_index,
             0,
             render_tasks,
@@ -828,7 +828,7 @@ impl AlphaBatchBuilder {
 
                             // Get clip task, if set, for the picture primitive.
                             let clip_task_address = get_clip_task_address(
-                                &ctx.prim_store.clip_mask_instances,
+                                &ctx.scratch.clip_mask_instances,
                                 prim_instance.clip_task_index,
                                 0,
                                 render_tasks,
@@ -1416,7 +1416,7 @@ impl AlphaBatchBuilder {
         // Get GPU address of clip task for this segment, or None if
         // the entire segment is clipped out.
         let clip_task_address = match get_clip_task_address(
-            &ctx.prim_store.clip_mask_instances,
+            &ctx.scratch.clip_mask_instances,
             clip_task_index,
             segment_index,
             render_tasks,

@@ -13,7 +13,7 @@ use gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind, ZBufferIdGenerat
 use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap, PlaneSplitter};
 use picture::{PictureSurface, PictureUpdateState, SurfaceInfo, ROOT_SURFACE_INDEX, SurfaceIndex};
-use prim_store::{PrimitiveStore, SpaceMapper, PictureIndex, PrimitiveDebugId};
+use prim_store::{PrimitiveStore, SpaceMapper, PictureIndex, PrimitiveDebugId, PrimitiveScratchBuffer};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_backend::{FrameResources, FrameStamp};
 use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
@@ -84,6 +84,7 @@ pub struct FrameBuildingState<'a> {
     pub resources: &'a mut FrameResources,
     pub segment_builder: SegmentBuilder,
     pub surfaces: &'a mut Vec<SurfaceInfo>,
+    pub scratch: &'a mut PrimitiveScratchBuffer,
 }
 
 /// Immutable context of a picture when processing children.
@@ -186,6 +187,7 @@ impl FrameBuilder {
         transform_palette: &mut TransformPalette,
         resources: &mut FrameResources,
         surfaces: &mut Vec<SurfaceInfo>,
+        scratch: &mut PrimitiveScratchBuffer,
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
 
@@ -193,7 +195,7 @@ impl FrameBuilder {
             return None
         }
 
-        self.prim_store.reset_clip_instances();
+        scratch.begin_frame();
 
         let root_spatial_node_index = clip_scroll_tree.root_reference_frame_index();
 
@@ -249,6 +251,7 @@ impl FrameBuilder {
             resources,
             segment_builder: SegmentBuilder::new(),
             surfaces: pic_update_state.surfaces,
+            scratch,
         };
 
         let (pic_context, mut pic_state, mut prim_list) = self
@@ -318,6 +321,7 @@ impl FrameBuilder {
         gpu_cache_profile: &mut GpuCacheProfileCounters,
         scene_properties: &SceneProperties,
         resources: &mut FrameResources,
+        scratch: &mut PrimitiveScratchBuffer,
     ) -> Frame {
         profile_scope!("build");
         debug_assert!(
@@ -359,6 +363,7 @@ impl FrameBuilder {
             &mut transform_palette,
             resources,
             &mut surfaces,
+            scratch,
         );
 
         resource_cache.block_until_all_resources_added(gpu_cache,
@@ -406,6 +411,7 @@ impl FrameBuilder {
                 clip_scroll_tree,
                 resources,
                 surfaces: &surfaces,
+                scratch,
             };
 
             pass.build(
