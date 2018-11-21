@@ -797,7 +797,7 @@ impl ResourceCache {
             BlobImageTemplate {
                 descriptor: *descriptor,
                 tiling,
-                dirty_rect: DirtyRect::AllDirty,
+                dirty_rect: DirtyRect::All,
                 viewport_tiles: None,
             },
         );
@@ -922,7 +922,7 @@ impl ResourceCache {
                         &mut ImageResult::UntiledAuto(ref mut entry) => {
                             Some(mem::replace(entry, CachedImageInfo {
                                 texture_cache_handle: TextureCacheHandle::invalid(),
-                                dirty_rect: DirtyRect::AllDirty,
+                                dirty_rect: DirtyRect::All,
                                 manual_eviction: false,
                             }))
                         }
@@ -945,7 +945,7 @@ impl ResourceCache {
                 entry.insert(if request.is_untiled_auto() {
                     ImageResult::UntiledAuto(CachedImageInfo {
                         texture_cache_handle: TextureCacheHandle::invalid(),
-                        dirty_rect: DirtyRect::AllDirty,
+                        dirty_rect: DirtyRect::All,
                         manual_eviction: false,
                     })
                 } else {
@@ -962,7 +962,7 @@ impl ResourceCache {
                 entries.entry(request.into())
                     .or_insert(CachedImageInfo {
                         texture_cache_handle: TextureCacheHandle::invalid(),
-                        dirty_rect: DirtyRect::AllDirty,
+                        dirty_rect: DirtyRect::All,
                         manual_eviction: false,
                     })
             },
@@ -1014,7 +1014,7 @@ impl ResourceCache {
                     BlobImageParams {
                         request,
                         descriptor,
-                        dirty_rect: DirtyRect::AllDirty,
+                        dirty_rect: DirtyRect::All,
                     }
                 );
             }
@@ -1049,7 +1049,7 @@ impl ResourceCache {
 
                 let image_dirty_rect = to_image_dirty_rect(&template.dirty_rect);
                 // Don't request tiles that weren't invalidated.
-                if let DirtyRect::SomeDirty(dirty_rect) = image_dirty_rect {
+                if let DirtyRect::Partial(dirty_rect) = image_dirty_rect {
                     let dirty_rect = DeviceIntRect {
                         origin: point2(
                             dirty_rect.origin.x,
@@ -1106,7 +1106,7 @@ impl ResourceCache {
                                 tile: Some(tile),
                             },
                             descriptor,
-                            dirty_rect: DirtyRect::AllDirty,
+                            dirty_rect: DirtyRect::All,
                         }
                     );
                 });
@@ -1139,7 +1139,7 @@ impl ResourceCache {
 
                 let dirty_rect = if needs_upload {
                     // The texture cache entry has been evicted, treat it as all dirty.
-                    DirtyRect::AllDirty
+                    DirtyRect::All
                 } else {
                     template.dirty_rect
                 };
@@ -1541,7 +1541,7 @@ impl ResourceCache {
                 // rects to upload so we use each of these rasterized rects rather than the
                 // overall dirty rect of the image.
                 if let Some(rect) = blob_rasterized_rect {
-                    dirty_rect = DirtyRect::SomeDirty(rect);
+                    dirty_rect = DirtyRect::Partial(rect);
                 }
 
                 let filter = match request.rendering {
@@ -1805,13 +1805,13 @@ const NATIVE_FONT: &'static [u8] = include_bytes!("../res/Proggy.ttf");
 // This currently only casts the unit but will soon apply an offset
 fn to_image_dirty_rect(blob_dirty_rect: &BlobDirtyRect) -> ImageDirtyRect {
     match *blob_dirty_rect {
-        DirtyRect::SomeDirty(rect) => DirtyRect::SomeDirty(
+        DirtyRect::Partial(rect) => DirtyRect::Partial(
             DeviceIntRect {
                 origin: DeviceIntPoint::new(rect.origin.x, rect.origin.y),
                 size: DeviceIntSize::new(rect.size.width, rect.size.height),
             }
         ),
-        DirtyRect::AllDirty => DirtyRect::AllDirty,
+        DirtyRect::All => DirtyRect::All,
     }
 }
 
@@ -1909,7 +1909,7 @@ impl ResourceCache {
                                 rect: blob_size(desc.size).into(),
                                 format: desc.format,
                             },
-                            dirty_rect: DirtyRect::AllDirty,
+                            dirty_rect: DirtyRect::All,
                         }
                     ];
 

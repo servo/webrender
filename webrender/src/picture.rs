@@ -1843,7 +1843,7 @@ impl PicturePrimitive {
                                         TextureFilter::Linear,
                                         None,
                                         [0.0; 3],
-                                        DirtyRect::AllDirty,
+                                        DirtyRect::All,
                                         frame_state.gpu_cache,
                                         None,
                                         UvRectKind::Rect,
