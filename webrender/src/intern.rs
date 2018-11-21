@@ -393,3 +393,13 @@ where
         &item.data
     }
 }
+
+/// Implement `Internable` for a type that wants participate in interning.
+///
+/// see DisplayListFlattener::add_interned_primitive<P>
+pub trait Internable {
+    type Marker: UidMarker + Debug;
+    type Source: Eq + Hash + Clone + Debug;
+    type StoreData: From<Self::Source>;
+    type InternData;
+}
