@@ -133,16 +133,19 @@ pub struct DataStore<S, T, M> {
     _marker: PhantomData<M>,
 }
 
-impl<S, T, M> DataStore<S, T, M> where S: Debug, T: From<S>, M: Debug {
-    /// Construct a new data store
-    pub fn new() -> Self {
+impl<S, T, M> ::std::default::Default for DataStore<S, T, M> where S: Debug, T: From<S>, M: Debug
+{
+    fn default() -> Self {
         DataStore {
             items: Vec::new(),
             _source: PhantomData,
             _marker: PhantomData,
         }
     }
+}
 
+impl<S, T, M> DataStore<S, T, M> where S: Debug, T: From<S>, M: Debug
+{
     /// Apply any updates from the scene builder thread to
     /// this data store.
     pub fn apply_updates(
