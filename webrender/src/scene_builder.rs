@@ -14,7 +14,7 @@ use clip_scroll_tree::ClipScrollTree;
 use display_list_flattener::DisplayListFlattener;
 use intern::{Internable, Interner};
 use internal_types::{FastHashMap, FastHashSet};
-use prim_store::{PrimitiveContainer, PrimitiveDataInterner, PrimitiveDataUpdateList, PrimitiveStoreStats};
+use prim_store::{Clear, PrimitiveDataInterner, PrimitiveDataUpdateList, PrimitiveStoreStats};
 use prim_store::{LineDecorationDataInterner, LineDecoration, LineDecorationDataUpdateList};
 use prim_store::{TextRunDataInterner, TextRun, TextRunDataUpdateList};
 use resource_cache::FontInstanceMap;
@@ -178,7 +178,7 @@ pub trait InternerMut<I: Internable>
     fn interner_mut(&mut self) -> &mut Interner<I::Source, I::InternData, I::Marker>;
 }
 
-impl InternerMut<PrimitiveContainer> for DocumentResources {
+impl InternerMut<Clear> for DocumentResources {
     fn interner_mut(&mut self) -> &mut PrimitiveDataInterner {
         &mut self.prim_interner
     }

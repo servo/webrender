@@ -1607,7 +1607,6 @@ impl ClipData {
 }
 
 pub enum PrimitiveContainer {
-    Clear,
     Brush(BrushPrimitive),
     NormalBorder {
         border: NormalBorder,
@@ -1627,13 +1626,6 @@ pub enum PrimitiveContainer {
     Rectangle {
         color: ColorF,
     },
-}
-
-impl intern::Internable for PrimitiveContainer {
-    type Marker = PrimitiveDataMarker;
-    type Source = PrimitiveKey;
-    type StoreData = PrimitiveTemplate;
-    type InternData = PrimitiveSceneData;
 }
 
 impl IsVisible for PrimitiveContainer {
@@ -1657,8 +1649,7 @@ impl IsVisible for PrimitiveContainer {
                 }
             }
             PrimitiveContainer::NormalBorder { .. } |
-            PrimitiveContainer::ImageBorder { .. } |
-            PrimitiveContainer::Clear => {
+            PrimitiveContainer::ImageBorder { .. } => {
                 true
             }
             PrimitiveContainer::Rectangle { ref color, .. } => {
@@ -1676,9 +1667,6 @@ impl PrimitiveContainer {
         _info: &mut LayoutPrimitiveInfo
     ) -> (PrimitiveKeyKind, Option<PrimitiveDetails>) {
         match self {
-            PrimitiveContainer::Clear => {
-                (PrimitiveKeyKind::Clear, None)
-            }
             PrimitiveContainer::Rectangle { color, .. } => {
                 let key = PrimitiveKeyKind::Rectangle {
                     color: color.into(),
@@ -1789,10 +1777,38 @@ impl PrimitiveContainer {
             PrimitiveContainer::ImageBorder { .. } => {
                 panic!("bug: image borders are not supported in shadow contexts");
             }
-            PrimitiveContainer::Clear => {
-                panic!("bug: clear rects are not supported in shadow contexts");
-            }
         }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub struct Clear;
+
+impl intern::Internable for Clear {
+    type Marker = PrimitiveDataMarker;
+    type Source = PrimitiveKey;
+    type StoreData = PrimitiveTemplate;
+    type InternData = PrimitiveSceneData;
+}
+
+impl BuildKey<Clear> for PrimitiveKey {
+    fn build_key(
+        _: Clear,
+        info: &mut LayoutPrimitiveInfo
+    ) -> PrimitiveKey {
+        PrimitiveKey::new(
+            info.is_backface_visible,
+            info.rect,
+            info.clip_rect,
+            PrimitiveKeyKind::Clear,
+        )
+    }
+}
+
+impl IsVisible for Clear {
+    fn is_visible(&self) -> bool {
+                true
     }
 }
 

@@ -28,7 +28,7 @@ use prim_store::{BrushKind, BrushPrimitive, PrimitiveInstance, PrimitiveKeyKind}
 use prim_store::{ImageSource, PrimitiveOpacity, PrimitiveKey, PrimitiveSceneData, PrimitiveInstanceKind};
 use prim_store::{PrimitiveContainer, PrimitiveDataHandle, PrimitiveStore, PrimitiveStoreStats, BrushSegmentDescriptor};
 use prim_store::{PrimitiveUidBuilder, ScrollNodeAndClipChain, PictureIndex, OpacityBindingIndex};
-use prim_store::{PrimitiveUidMarker, TextRun, LineDecoration};
+use prim_store::{PrimitiveUidMarker, TextRun, LineDecoration, Clear};
 use prim_store::register_prim_chase_id;
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
@@ -1816,11 +1816,11 @@ impl<'a> DisplayListFlattener<'a> {
         clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayoutPrimitiveInfo,
     ) {
-        self.add_primitive(
+        self.add_interned_primitive(
             clip_and_scroll,
             info,
             Vec::new(),
-            PrimitiveContainer::Clear,
+            Clear,
         );
     }
 
@@ -2542,5 +2542,11 @@ impl From<PendingPrimitive<LineDecoration>> for ShadowItem {
 impl From<PendingPrimitive<TextRun>> for ShadowItem {
     fn from(text_run: PendingPrimitive<TextRun>) -> Self {
         ShadowItem::TextRun(text_run)
+    }
+}
+
+impl From<PendingPrimitive<Clear>> for ShadowItem {
+    fn from(_clear: PendingPrimitive<Clear>) -> Self {
+        panic!("bug: clear rects are not supported in shadow contexts");
     }
 }
