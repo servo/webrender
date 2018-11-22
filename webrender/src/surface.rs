@@ -235,22 +235,26 @@ impl SurfaceDescriptor {
             // For now, we only handle interned primitives. If we encounter
             // a legacy primitive or picture, then fail to create a cache
             // descriptor.
-            match prim_instance.kind {
+            let uid = match prim_instance.kind {
                 PrimitiveInstanceKind::Picture { .. } |
                 PrimitiveInstanceKind::LegacyPrimitive { .. } => {
                     return None;
                 }
-                PrimitiveInstanceKind::LineDecoration { .. } |
-                PrimitiveInstanceKind::TextRun { .. } |
-                PrimitiveInstanceKind::NormalBorder { .. } |
-                PrimitiveInstanceKind::Rectangle { .. } |
-                PrimitiveInstanceKind::ImageBorder { .. } |
-                PrimitiveInstanceKind::Clear => {}
-            }
+                PrimitiveInstanceKind::LineDecoration { data_handle, .. } |
+                PrimitiveInstanceKind::NormalBorder { data_handle, .. } |
+                PrimitiveInstanceKind::Rectangle { data_handle, .. } |
+                PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
+                PrimitiveInstanceKind::Clear { data_handle, .. } => {
+                    data_handle.uid()
+                }
+                PrimitiveInstanceKind::TextRun { data_handle, .. } => {
+                    data_handle.uid()
+                }
+            };
 
             // Record the unique identifier for the content represented
             // by this primitive.
-            primitive_ids.push(prim_instance.prim_data_handle.uid());
+            primitive_ids.push(uid);
         }
 
         // Get a list of spatial nodes that are relevant for the contents

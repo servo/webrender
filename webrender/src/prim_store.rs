@@ -15,7 +15,7 @@ use border::{create_nine_patch_segments, BorderSegmentCacheKey, NormalBorderAu};
 use clip::{ClipStore};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use clip::{ClipDataStore, ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem, ClipNodeCollector};
-use display_list_flattener::{AsInstanceKind, BuildKey, IsVisible};
+use display_list_flattener::{AsInstanceKind, BuildKey, CreateShadow, IsVisible};
 use euclid::{SideOffsets2D, TypedTransform3D, TypedRect, TypedScale};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use frame_builder::PrimitiveContext;
@@ -352,13 +352,6 @@ pub enum PrimitiveKeyKind {
     /// to instead have Option<PrimitiveKeyKind>. It should become
     /// clearer as we port more primitives to be interned.
     Unused,
-    /// A run of glyphs, with associated font information.
-    TextRun {
-        font: FontInstance,
-        offset: LayoutVector2DAu,
-        glyphs: Vec<GlyphInstance>,
-        shadow: bool,
-    },
     /// Identifying key for a line decoration.
     LineDecoration {
         // If the cache_key is Some(..) it is a line decoration
@@ -421,39 +414,35 @@ impl AsInstanceKind<PrimitiveDataHandle> for PrimitiveKey {
     /// of primitive key.
     fn as_instance_kind(
         &self,
-        prim_store: &mut PrimitiveStore,
+        data_handle: PrimitiveDataHandle,
+        _prim_store: &mut PrimitiveStore,
     ) -> PrimitiveInstanceKind {
         match self.kind {
             PrimitiveKeyKind::LineDecoration { .. } => {
                 PrimitiveInstanceKind::LineDecoration {
+                    data_handle,
                     cache_handle: None,
                 }
             }
-            PrimitiveKeyKind::TextRun { ref font, shadow, .. } => {
-                let run_index = prim_store.text_runs.push(TextRunPrimitive {
-                    used_font: font.clone(),
-                    glyph_keys_range: storage::Range::empty(),
-                    shadow,
-                });
-
-                PrimitiveInstanceKind::TextRun {
-                    run_index
-                }
-            }
             PrimitiveKeyKind::Clear => {
-                PrimitiveInstanceKind::Clear
+                PrimitiveInstanceKind::Clear {
+                    data_handle
+                }
             }
             PrimitiveKeyKind::NormalBorder { .. } => {
                 PrimitiveInstanceKind::NormalBorder {
+                    data_handle,
                     cache_handles: storage::Range::empty(),
                 }
             }
             PrimitiveKeyKind::ImageBorder { .. } => {
                 PrimitiveInstanceKind::ImageBorder {
+                    data_handle
                 }
             }
             PrimitiveKeyKind::Rectangle { .. } => {
                 PrimitiveInstanceKind::Rectangle {
+                    data_handle,
                     opacity_binding_index: OpacityBindingIndex::INVALID,
                     segment_instance_index: SegmentInstanceIndex::INVALID,
                 }
@@ -485,11 +474,6 @@ pub enum PrimitiveTemplateKind {
         cache_key: Option<LineDecorationCacheKey>,
         color: ColorF,
     },
-    TextRun {
-        font: FontInstance,
-        offset: LayoutVector2DAu,
-        glyphs: Vec<GlyphInstance>,
-    },
     NormalBorder {
         template: Box<NormalBorderTemplate>,
     },
@@ -514,13 +498,6 @@ impl PrimitiveKeyKind {
     ) -> PrimitiveTemplateKind {
         match self {
             PrimitiveKeyKind::Unused => PrimitiveTemplateKind::Unused,
-            PrimitiveKeyKind::TextRun { glyphs, font, offset, .. } => {
-                PrimitiveTemplateKind::TextRun {
-                    font,
-                    offset,
-                    glyphs,
-                }
-            }
             PrimitiveKeyKind::Clear => {
                 PrimitiveTemplateKind::Clear
             }
@@ -761,6 +738,7 @@ impl PrimitiveTemplate {
                     None => PrimitiveOpacity::from_alpha(color.a),
                 }
             }
+/*
             PrimitiveTemplateKind::TextRun { ref glyphs, ref font, ref offset, .. } => {
                 if let Some(mut request) = frame_state.gpu_cache.request(&mut self.gpu_cache_handle) {
                     request.push(ColorF::from(font.color).premultiplied());
@@ -799,6 +777,7 @@ impl PrimitiveTemplate {
 
                 PrimitiveOpacity::translucent()
             }
+*/
             PrimitiveTemplateKind::Unused => {
                 PrimitiveOpacity::translucent()
             }
@@ -1725,12 +1704,6 @@ impl ClipData {
 }
 
 pub enum PrimitiveContainer {
-    TextRun {
-        font: FontInstance,
-        offset: LayoutVector2D,
-        glyphs: Vec<GlyphInstance>,
-        shadow: bool,
-    },
     Clear,
     Brush(BrushPrimitive),
     LineDecoration {
@@ -1776,9 +1749,6 @@ impl IsVisible for PrimitiveContainer {
     //           primitive types to use this.
     fn is_visible(&self) -> bool {
         match *self {
-            PrimitiveContainer::TextRun { ref font, .. } => {
-                font.color.a > 0
-            }
             PrimitiveContainer::Brush(ref brush) => {
                 match brush.kind {
                     BrushKind::Image { .. } |
@@ -1810,16 +1780,6 @@ impl PrimitiveContainer {
         info: &mut LayoutPrimitiveInfo
     ) -> (PrimitiveKeyKind, Option<PrimitiveDetails>) {
         match self {
-            PrimitiveContainer::TextRun { font, offset, glyphs, shadow, .. } => {
-                let key = PrimitiveKeyKind::TextRun {
-                    font,
-                    offset: offset.to_au(),
-                    glyphs,
-                    shadow,
-                };
-
-                (key, None)
-            }
             PrimitiveContainer::Clear => {
                 (PrimitiveKeyKind::Clear, None)
             }
@@ -1960,22 +1920,6 @@ impl PrimitiveContainer {
         shadow: &Shadow,
     ) -> PrimitiveContainer {
         match *self {
-            PrimitiveContainer::TextRun { ref font, offset, ref glyphs, .. } => {
-                let mut font = FontInstance {
-                    color: shadow.color.into(),
-                    ..font.clone()
-                };
-                if shadow.blur_radius > 0.0 {
-                    font.disable_subpixel_aa();
-                }
-
-                PrimitiveContainer::TextRun {
-                    font,
-                    glyphs: glyphs.clone(),
-                    offset: offset + shadow.offset,
-                    shadow: true,
-                }
-            }
             PrimitiveContainer::LineDecoration { style, orientation, wavy_line_thickness, .. } => {
                 PrimitiveContainer::LineDecoration {
                     color: shadow.color,
@@ -2023,6 +1967,191 @@ impl PrimitiveContainer {
     }
 }
 
+/// A run of glyphs, with associated font information.
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct TextRunKey {
+    pub is_backface_visible: bool,
+    pub prim_rect: LayoutRectAu,
+    pub clip_rect: LayoutRectAu,
+    pub font: FontInstance,
+    pub offset: LayoutVector2DAu,
+    pub glyphs: Vec<GlyphInstance>,
+    pub shadow: bool,
+}
+
+impl TextRunKey {
+    pub fn new(info: &LayoutPrimitiveInfo, text_run: TextRun) -> Self {
+        TextRunKey {
+            is_backface_visible: info.is_backface_visible,
+            prim_rect: info.rect.to_au(),
+            clip_rect: info.clip_rect.to_au(),
+            font: text_run.font,
+            offset: text_run.offset.to_au(),
+            glyphs: text_run.glyphs,
+            shadow: text_run.shadow,
+        }
+    }
+}
+
+impl AsInstanceKind<TextRunDataHandle> for TextRunKey {
+    /// Construct a primitive instance that matches the type
+    /// of primitive key.
+    fn as_instance_kind(
+        &self,
+        data_handle: TextRunDataHandle,
+        prim_store: &mut PrimitiveStore,
+    ) -> PrimitiveInstanceKind {
+        let run_index = prim_store.text_runs.push(TextRunPrimitive {
+            used_font: self.font.clone(),
+            glyph_keys_range: storage::Range::empty(),
+            shadow: self.shadow,
+        });
+
+        PrimitiveInstanceKind::TextRun{ data_handle, run_index }
+    }
+}
+
+impl BuildKey<TextRun> for TextRunKey {
+    /// Build a new key from self with `info`.
+    fn build_key(source: TextRun, info: &mut LayoutPrimitiveInfo) -> TextRunKey {
+        TextRunKey::new(info, source)
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct TextRunTemplate {
+    pub is_backface_visible: bool,
+    pub prim_rect: LayoutRect,
+    pub clip_rect: LayoutRect,
+    pub font: FontInstance,
+    pub offset: LayoutVector2DAu,
+    pub glyphs: Vec<GlyphInstance>,
+    pub opacity: PrimitiveOpacity,
+    /// The GPU cache handle for a primitive template. Since this structure
+    /// is retained across display lists by interning, this GPU cache handle
+    /// also remains valid, which reduces the number of updates to the GPU
+    /// cache when a new display list is processed.
+    pub gpu_cache_handle: GpuCacheHandle,
+}
+
+impl From<TextRunKey> for TextRunTemplate {
+    fn from(item: TextRunKey) -> Self {
+        TextRunTemplate {
+            is_backface_visible: item.is_backface_visible,
+            prim_rect: LayoutRect::from_au(item.prim_rect),
+            clip_rect: LayoutRect::from_au(item.clip_rect),
+            font: item.font,
+            offset: item.offset,
+            glyphs: item.glyphs,
+            opacity: PrimitiveOpacity::translucent(),
+            gpu_cache_handle: GpuCacheHandle::new(),
+        }
+    }
+}
+
+impl TextRunTemplate {
+    /// Update the GPU cache for a given primitive template. This may be called multiple
+    /// times per frame, by each primitive reference that refers to this interned
+    /// template. The initial request call to the GPU cache ensures that work is only
+    /// done if the cache entry is invalid (due to first use or eviction).
+    pub fn update(
+        &mut self,
+        gpu_cache: &mut GpuCache,
+    ) {
+        if let Some(mut request) = gpu_cache.request(&mut self.gpu_cache_handle) {
+            request.push(ColorF::from(self.font.color).premultiplied());
+            // this is the only case where we need to provide plain color to GPU
+            let bg_color = ColorF::from(self.font.bg_color);
+            request.push([bg_color.r, bg_color.g, bg_color.b, 1.0]);
+            request.push([
+                self.offset.x.to_f32_px(),
+                self.offset.y.to_f32_px(),
+                0.0,
+                0.0,
+            ]);
+
+            let mut gpu_block = [0.0; 4];
+            for (i, src) in self.glyphs.iter().enumerate() {
+                // Two glyphs are packed per GPU block.
+
+                if (i & 1) == 0 {
+                    gpu_block[0] = src.point.x;
+                    gpu_block[1] = src.point.y;
+                } else {
+                    gpu_block[2] = src.point.x;
+                    gpu_block[3] = src.point.y;
+                    request.push(gpu_block);
+                }
+            }
+
+            // Ensure the last block is added in the case
+            // of an odd number of glyphs.
+            if (self.glyphs.len() & 1) != 0 {
+                request.push(gpu_block);
+            }
+
+            assert!(request.current_used_block_num() <= MAX_VERTEX_TEXTURE_WIDTH);
+        }
+
+        self.opacity = PrimitiveOpacity::translucent();
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+pub struct TextRunDataMarker;
+impl intern::UidMarker for TextRunDataMarker {
+    type UidMarker = PrimitiveUidMarker;
+}
+
+pub type TextRunDataStore = intern::DataStore<TextRunKey, TextRunTemplate, TextRunDataMarker>;
+pub type TextRunDataHandle = intern::Handle<TextRunDataMarker>;
+pub type TextRunDataUpdateList = intern::UpdateList<TextRunKey>;
+pub type TextRunDataInterner = intern::Interner<TextRunKey, PrimitiveSceneData, TextRunDataMarker>;
+
+pub struct TextRun {
+    pub font: FontInstance,
+    pub offset: LayoutVector2D,
+    pub glyphs: Vec<GlyphInstance>,
+    pub shadow: bool,
+}
+
+impl intern::Internable for TextRun {
+    type Marker = TextRunDataMarker;
+    type Source = TextRunKey;
+    type StoreData = TextRunTemplate;
+    type InternData = PrimitiveSceneData;
+}
+
+impl CreateShadow for TextRun {
+    fn create_shadow(&self, shadow: &Shadow) -> Self {
+        let mut font = FontInstance {
+            color: shadow.color.into(),
+            ..self.font.clone()
+        };
+        if shadow.blur_radius > 0.0 {
+            font.disable_subpixel_aa();
+        }
+
+        TextRun {
+            font,
+            glyphs: self.glyphs.clone(),
+            offset: self.offset + shadow.offset,
+            shadow: true
+        }
+    }
+}
+
+impl IsVisible for TextRun {
+    fn is_visible(&self) -> bool {
+        self.font.color.a > 0
+    }
+}
+
 pub enum PrimitiveDetails {
     Brush(BrushPrimitive),
 }
@@ -2042,20 +2171,29 @@ pub struct PrimitiveDebugId(pub usize);
 pub enum PrimitiveInstanceKind {
     /// Direct reference to a Picture
     Picture {
+        /// Handle to the common interned data for this primitive.
+        data_handle: PrimitiveDataHandle,
         pic_index: PictureIndex,
     },
     /// An old style, non-interned primitive. Uses prim_index to
     /// access the primitive details in the prim_store.
     LegacyPrimitive {
+        /// Handle to the common interned data for this primitive.
+        data_handle: PrimitiveDataHandle,
         prim_index: PrimitiveIndex,
     },
     /// A run of glyphs, with associated font parameters.
     TextRun {
+        /// Handle to the common interned data for this primitive.
+        data_handle: TextRunDataHandle,
+        /// Index to the per instance scratch data for this primitive.
         run_index: TextRunIndex,
     },
     /// A line decoration. cache_handle refers to a cached render
     /// task handle, if this line decoration is not a simple solid.
     LineDecoration {
+        /// Handle to the common interned data for this primitive.
+        data_handle: PrimitiveDataHandle,
         // TODO(gw): For now, we need to store some information in
         //           the primitive instance that is created during
         //           prepare_prims and read during the batching pass.
@@ -2067,16 +2205,25 @@ pub enum PrimitiveInstanceKind {
         cache_handle: Option<RenderTaskCacheEntryHandle>,
     },
     NormalBorder {
+        /// Handle to the common interned data for this primitive.
+        data_handle: PrimitiveDataHandle,
         cache_handles: storage::Range<RenderTaskCacheEntryHandle>,
     },
     ImageBorder {
+        /// Handle to the common interned data for this primitive.
+        data_handle: PrimitiveDataHandle,
     },
     Rectangle {
+        /// Handle to the common interned data for this primitive.
+        data_handle: PrimitiveDataHandle,
         opacity_binding_index: OpacityBindingIndex,
         segment_instance_index: SegmentInstanceIndex,
     },
     /// Clear out a rect, used for special effects.
-    Clear,
+    Clear {
+        /// Handle to the common interned data for this primitive.
+        data_handle: PrimitiveDataHandle,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -2086,9 +2233,6 @@ pub struct PrimitiveInstance {
     /// the relevant information for the primitive
     /// can be found.
     pub kind: PrimitiveInstanceKind,
-
-    /// Handle to the common interned data for this primitive.
-    pub prim_data_handle: PrimitiveDataHandle,
 
     /// The current combined local clip for this primitive, from
     /// the primitive local clip above and the current clip chain.
@@ -2127,13 +2271,11 @@ pub struct PrimitiveInstance {
 impl PrimitiveInstance {
     pub fn new(
         kind: PrimitiveInstanceKind,
-        prim_data_handle: PrimitiveDataHandle,
         clip_chain_id: ClipChainId,
         spatial_node_index: SpatialNodeIndex,
     ) -> Self {
         PrimitiveInstance {
             kind,
-            prim_data_handle,
             combined_local_clip_rect: LayoutRect::zero(),
             bounding_rect: None,
             #[cfg(debug_assertions)]
@@ -2298,7 +2440,7 @@ impl PrimitiveStore {
         state: &mut PictureUpdateState,
         frame_context: &FrameBuildingContext,
         resource_cache: &mut ResourceCache,
-        prim_data_store: &PrimitiveDataStore,
+        resources: &FrameResources,
         clip_store: &ClipStore,
     ) {
         if let Some(children) = self.pictures[pic_index.0].pre_update(
@@ -2311,7 +2453,7 @@ impl PrimitiveStore {
                     state,
                     frame_context,
                     resource_cache,
-                    prim_data_store,
+                    resources,
                     clip_store,
                 );
             }
@@ -2320,7 +2462,7 @@ impl PrimitiveStore {
                 state,
                 frame_context,
                 resource_cache,
-                prim_data_store,
+                resources,
                 &self.primitives,
                 &self.pictures,
                 clip_store,
@@ -2390,7 +2532,7 @@ impl PrimitiveStore {
             PrimitiveInstanceKind::Rectangle { .. } => {
                 return Some(pic_index);
             }
-            PrimitiveInstanceKind::Clear |
+            PrimitiveInstanceKind::Clear { .. } |
             PrimitiveInstanceKind::TextRun { .. } |
             PrimitiveInstanceKind::NormalBorder { .. } |
             PrimitiveInstanceKind::ImageBorder { .. } |
@@ -2399,7 +2541,7 @@ impl PrimitiveStore {
                 //       to use interned primitives, we will need
                 //       to handle opacity collapse here.
             }
-            PrimitiveInstanceKind::Picture { pic_index } => {
+            PrimitiveInstanceKind::Picture { pic_index, .. } => {
                 let pic = &self.pictures[pic_index.0];
 
                 // If we encounter a picture that is a pass-through
@@ -2409,7 +2551,7 @@ impl PrimitiveStore {
                     return self.get_opacity_collapse_prim(pic_index);
                 }
             }
-            PrimitiveInstanceKind::LegacyPrimitive { prim_index } => {
+            PrimitiveInstanceKind::LegacyPrimitive { prim_index, .. } => {
                 let prim = &self.primitives[prim_index.0];
                 match prim.details {
                     PrimitiveDetails::Brush(ref brush) => {
@@ -2463,7 +2605,7 @@ impl PrimitiveStore {
                         let opacity_binding = &mut self.opacity_bindings[*opacity_binding_index];
                         opacity_binding.push(binding);
                     }
-                    PrimitiveInstanceKind::LegacyPrimitive { prim_index } => {
+                    PrimitiveInstanceKind::LegacyPrimitive { prim_index, .. } => {
                         let prim = &mut self.primitives[prim_index.0];
                         match prim.details {
                             PrimitiveDetails::Brush(ref mut brush) => {
@@ -2528,7 +2670,7 @@ impl PrimitiveStore {
         // picture target, if being composited.
         let pic_info = {
             match prim_instance.kind {
-                PrimitiveInstanceKind::Picture { pic_index } => {
+                PrimitiveInstanceKind::Picture { pic_index ,.. } => {
                     let pic = &mut self.pictures[pic_index.0];
 
                     match pic.take_context(
@@ -2556,7 +2698,7 @@ impl PrimitiveStore {
                 PrimitiveInstanceKind::LegacyPrimitive { .. } |
                 PrimitiveInstanceKind::NormalBorder { .. } |
                 PrimitiveInstanceKind::ImageBorder { .. } |
-                PrimitiveInstanceKind::Clear => {
+                PrimitiveInstanceKind::Clear { .. } => {
                     None
                 }
             }
@@ -2599,21 +2741,23 @@ impl PrimitiveStore {
         };
 
         let (prim_local_rect, prim_local_clip_rect) = match prim_instance.kind {
-            PrimitiveInstanceKind::Picture { pic_index } => {
+            PrimitiveInstanceKind::Picture { pic_index, .. } => {
                 let pic = &self.pictures[pic_index.0];
                 (pic.local_rect, LayoutRect::max_rect())
             }
-            PrimitiveInstanceKind::TextRun { .. } |
-            PrimitiveInstanceKind::Clear |
-            PrimitiveInstanceKind::NormalBorder { .. } |
-            PrimitiveInstanceKind::ImageBorder { .. } |
-            PrimitiveInstanceKind::Rectangle { .. } |
-            PrimitiveInstanceKind::LineDecoration { .. } => {
-                let prim_data = &resources
-                    .prim_data_store[prim_instance.prim_data_handle];
+            PrimitiveInstanceKind::TextRun { data_handle, .. } => {
+                let prim_data = &resources.text_run_data_store[data_handle];
                 (prim_data.prim_rect, prim_data.clip_rect)
             }
-            PrimitiveInstanceKind::LegacyPrimitive { prim_index } => {
+            PrimitiveInstanceKind::Clear { data_handle, .. } |
+            PrimitiveInstanceKind::NormalBorder { data_handle, .. } |
+            PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
+            PrimitiveInstanceKind::Rectangle { data_handle, .. } |
+            PrimitiveInstanceKind::LineDecoration { data_handle, .. } => {
+                let prim_data = &resources.prim_data_store[data_handle];
+                (prim_data.prim_rect, prim_data.clip_rect)
+            }
+            PrimitiveInstanceKind::LegacyPrimitive { prim_index, .. } => {
                 let prim = &self.primitives[prim_index.0];
                 (prim.local_rect, prim.local_clip_rect)
             }
@@ -2757,7 +2901,7 @@ impl PrimitiveStore {
         }
 
         match prim_instance.kind {
-            PrimitiveInstanceKind::Picture { pic_index } => {
+            PrimitiveInstanceKind::Picture { pic_index, .. } => {
                 let pic = &mut self.pictures[pic_index.0];
                 if pic.prepare_for_render(
                     pic_index,
@@ -2798,7 +2942,7 @@ impl PrimitiveStore {
                 }
             }
             PrimitiveInstanceKind::TextRun { .. } |
-            PrimitiveInstanceKind::Clear |
+            PrimitiveInstanceKind::Clear { .. } |
             PrimitiveInstanceKind::Rectangle { .. } |
             PrimitiveInstanceKind::NormalBorder { .. } |
             PrimitiveInstanceKind::ImageBorder { .. } |
@@ -2813,7 +2957,7 @@ impl PrimitiveStore {
                     scratch,
                 );
             }
-            PrimitiveInstanceKind::LegacyPrimitive { prim_index } => {
+            PrimitiveInstanceKind::LegacyPrimitive { prim_index, .. } => {
                 let prim_details = &mut self.primitives[prim_index.0].details;
 
                 prim_instance.prepare_prim_for_render_inner(
@@ -2942,69 +3086,73 @@ impl PrimitiveStore {
         resources: &mut FrameResources,
         scratch: &mut PrimitiveScratchBuffer,
     ) {
-        let prim_data = &mut resources
-            .prim_data_store[prim_instance.prim_data_handle];
-
-        // Update the template this instane references, which may refresh the GPU
-        // cache with any shared template data.
-        prim_data.update(
-            frame_state,
-        );
-
         let is_chased = prim_instance.is_chased();
 
-        match (&mut prim_instance.kind, &mut prim_data.kind) {
-            (
-                PrimitiveInstanceKind::LineDecoration { ref mut cache_handle, .. },
-                PrimitiveTemplateKind::LineDecoration { ref cache_key, .. }
-            ) => {
-                // Work out the device pixel size to be used to cache this line decoration.
-                if is_chased {
-                    println!("\tline decoration key={:?}", cache_key);
-                }
+        match &mut prim_instance.kind {
+            PrimitiveInstanceKind::LineDecoration { data_handle, ref mut cache_handle, .. } => {
+                let prim_data = &mut resources.prim_data_store[*data_handle];
 
-                // If we have a cache key, it's a wavy / dashed / dotted line. Otherwise, it's
-                // a simple solid line.
-                if let Some(cache_key) = cache_key {
-                    // TODO(gw): Do we ever need / want to support scales for text decorations
-                    //           based on the current transform?
-                    let scale_factor = TypedScale::new(1.0) * frame_context.device_pixel_scale;
-                    let task_size = (LayoutSize::from_au(cache_key.size) * scale_factor).ceil().to_i32();
-                    let surfaces = &mut frame_state.surfaces;
+                // Update the template this instane references, which may refresh the GPU
+                // cache with any shared template data.
+                prim_data.update(frame_state);
 
-                    // Request a pre-rendered image task.
-                    // TODO(gw): This match is a bit untidy, but it should disappear completely
-                    //           once the prepare_prims and batching are unified. When that
-                    //           happens, we can use the cache handle immediately, and not need
-                    //           to temporarily store it in the primitive instance.
-                    *cache_handle = Some(frame_state.resource_cache.request_render_task(
-                        RenderTaskCacheKey {
-                            size: task_size,
-                            kind: RenderTaskCacheKeyKind::LineDecoration(cache_key.clone()),
-                        },
-                        frame_state.gpu_cache,
-                        frame_state.render_tasks,
-                        None,
-                        false,
-                        |render_tasks| {
-                            let task = RenderTask::new_line_decoration(
-                                task_size,
-                                cache_key.style,
-                                cache_key.orientation,
-                                cache_key.wavy_line_thickness.to_f32_px(),
-                                LayoutSize::from_au(cache_key.size),
-                            );
-                            let task_id = render_tasks.add(task);
-                            surfaces[pic_context.surface_index.0].tasks.push(task_id);
-                            task_id
+                match &prim_data.kind {
+                    PrimitiveTemplateKind::LineDecoration { ref cache_key, .. } => {
+                        // Work out the device pixel size to be used to cache this line decoration.
+                        if is_chased {
+                            println!("\tline decoration key={:?}", cache_key);
                         }
-                    ));
+
+                        // If we have a cache key, it's a wavy / dashed / dotted line. Otherwise, it's
+                        // a simple solid line.
+                        if let Some(cache_key) = cache_key {
+                            // TODO(gw): Do we ever need / want to support scales for text decorations
+                            //           based on the current transform?
+                            let scale_factor = TypedScale::new(1.0) * frame_context.device_pixel_scale;
+                            let task_size = (LayoutSize::from_au(cache_key.size) * scale_factor).ceil().to_i32();
+                            let surfaces = &mut frame_state.surfaces;
+
+                            // Request a pre-rendered image task.
+                            // TODO(gw): This match is a bit untidy, but it should disappear completely
+                            //           once the prepare_prims and batching are unified. When that
+                            //           happens, we can use the cache handle immediately, and not need
+                            //           to temporarily store it in the primitive instance.
+                            *cache_handle = Some(frame_state.resource_cache.request_render_task(
+                                RenderTaskCacheKey {
+                                    size: task_size,
+                                    kind: RenderTaskCacheKeyKind::LineDecoration(cache_key.clone()),
+                                },
+                                frame_state.gpu_cache,
+                                frame_state.render_tasks,
+                                None,
+                                false,
+                                |render_tasks| {
+                                    let task = RenderTask::new_line_decoration(
+                                        task_size,
+                                        cache_key.style,
+                                        cache_key.orientation,
+                                        cache_key.wavy_line_thickness.to_f32_px(),
+                                        LayoutSize::from_au(cache_key.size),
+                                    );
+                                    let task_id = render_tasks.add(task);
+                                    surfaces[pic_context.surface_index.0].tasks.push(task_id);
+                                    task_id
+                                }
+                            ));
+                        }
+                    },
+                    _ => unreachable!(),
                 }
             }
-            (
-                PrimitiveInstanceKind::TextRun { run_index, .. },
-                PrimitiveTemplateKind::TextRun { ref font, ref glyphs, .. }
-            ) => {
+            PrimitiveInstanceKind::TextRun { data_handle, run_index, .. } => {
+                let prim_data = &mut resources.text_run_data_store[*data_handle];
+
+                // Update the template this instane references, which may refresh the GPU
+                // cache with any shared template data.
+                prim_data.update(
+                    frame_state.gpu_cache,
+                );
+
                 // The transform only makes sense for screen space rasterization
                 let transform = prim_context.spatial_node.world_content_transform.to_transform();
 
@@ -3014,8 +3162,8 @@ impl PrimitiveStore {
                 //           to temporarily store it in the primitive instance.
                 let run = &mut self.text_runs[*run_index];
                 run.prepare_for_render(
-                    font,
-                    glyphs,
+                    &prim_data.font,
+                    &prim_data.glyphs,
                     frame_context.device_pixel_scale,
                     &transform,
                     pic_context,
@@ -3026,17 +3174,20 @@ impl PrimitiveStore {
                     scratch,
                 );
             }
-            (
-                PrimitiveInstanceKind::Clear,
-                PrimitiveTemplateKind::Clear
-            ) => {
-                // Nothing specific to prepare for clear rects, since the
-                // GPU cache is updated by the template earlier.
+            PrimitiveInstanceKind::Clear { data_handle, .. } => {
+                let prim_data = &mut resources.prim_data_store[*data_handle];
+
+                // Update the template this instane references, which may refresh the GPU
+                // cache with any shared template data.
+                prim_data.update(frame_state);
             }
-            (
-                PrimitiveInstanceKind::NormalBorder { ref mut cache_handles, .. },
-                PrimitiveTemplateKind::NormalBorder { template, .. }
-            ) => {
+            PrimitiveInstanceKind::NormalBorder { data_handle, ref mut cache_handles, .. } => {
+                let prim_data = &mut resources.prim_data_store[*data_handle];
+                let template = match prim_data.kind {
+                    PrimitiveTemplateKind::NormalBorder { ref template, .. } => template,
+                    _ => unreachable!()
+                };
+
                 // TODO(gw): When drawing in screen raster mode, we should also incorporate a
                 //           scale factor from the world transform to get an appropriately
                 //           sized border task.
@@ -3089,15 +3240,14 @@ impl PrimitiveStore {
                     .border_cache_handles
                     .extend(handles);
             }
-            (
-                PrimitiveInstanceKind::ImageBorder { .. },
-                PrimitiveTemplateKind::ImageBorder { .. }
-            ) => {
+            PrimitiveInstanceKind::ImageBorder { .. } => {
             }
-            (
-                PrimitiveInstanceKind::Rectangle { segment_instance_index, opacity_binding_index, .. },
-                PrimitiveTemplateKind::Rectangle { ref color, .. }
-            ) => {
+            PrimitiveInstanceKind::Rectangle { data_handle, segment_instance_index, opacity_binding_index, .. } => {
+                let prim_data = &resources.prim_data_store[*data_handle];
+                let color = match prim_data.kind {
+                    PrimitiveTemplateKind::Rectangle { ref color, .. } => color,
+                    _ => unreachable!()
+                };
                 if *segment_instance_index != SegmentInstanceIndex::UNUSED {
                     let segment_instance = &mut scratch.segment_instances[*segment_instance_index];
 
@@ -3427,7 +3577,7 @@ impl PrimitiveInstance {
                     };
                 }
             }
-            PrimitiveInstanceKind::LegacyPrimitive { prim_index } => {
+            PrimitiveInstanceKind::LegacyPrimitive { prim_index, .. } => {
                 let prim = &mut primitives[prim_index.0];
                 match prim.details {
                     PrimitiveDetails::Brush(ref mut brush) => {
@@ -3497,7 +3647,7 @@ impl PrimitiveInstance {
         let segments = match self.kind {
             PrimitiveInstanceKind::Picture { .. } |
             PrimitiveInstanceKind::TextRun { .. } |
-            PrimitiveInstanceKind::Clear |
+            PrimitiveInstanceKind::Clear { .. } |
             PrimitiveInstanceKind::LineDecoration { .. } => {
                 return false;
             }
@@ -3512,8 +3662,8 @@ impl PrimitiveInstance {
 
                 &mut scratch.segments[segment_instance.segments_range]
             }
-            PrimitiveInstanceKind::ImageBorder { .. } => {
-                let prim_data = &resources.prim_data_store[self.prim_data_handle];
+            PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
+                let prim_data = &resources.prim_data_store[data_handle];
 
                 // TODO: This is quite messy - once we remove legacy primitives we
                 //       can change this to be a tuple match on (instance, template)
@@ -3526,8 +3676,8 @@ impl PrimitiveInstance {
                     }
                 }
             }
-            PrimitiveInstanceKind::NormalBorder { .. } => {
-                let prim_data = &resources.prim_data_store[self.prim_data_handle];
+            PrimitiveInstanceKind::NormalBorder { data_handle, .. } => {
+                let prim_data = &resources.prim_data_store[data_handle];
 
                 // TODO: This is quite messy - once we remove legacy primitives we
                 //       can change this to be a tuple match on (instance, template)
@@ -3540,7 +3690,7 @@ impl PrimitiveInstance {
                     }
                 }
             }
-            PrimitiveInstanceKind::LegacyPrimitive { prim_index } => {
+            PrimitiveInstanceKind::LegacyPrimitive { prim_index, .. } => {
                 let prim = &primitives[prim_index.0];
                 match prim.details {
                     PrimitiveDetails::Brush(ref brush) => {

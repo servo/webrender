@@ -548,15 +548,9 @@ impl AlphaBatchBuilder {
             render_tasks,
         ).unwrap_or(OPAQUE_TASK_ADDRESS);
 
-        let prim_data = &ctx
-            .resources
-            .prim_data_store[prim_instance.prim_data_handle];
-
-        match (&prim_instance.kind, &prim_data.kind) {
-            (
-                PrimitiveInstanceKind::Clear,
-                PrimitiveTemplateKind::Clear,
-            ) => {
+        match prim_instance.kind {
+            PrimitiveInstanceKind::Clear { data_handle } => {
+                let prim_data = &ctx.resources.prim_data_store[data_handle];
                 let prim_cache_address = gpu_cache.get_address(&prim_data.gpu_cache_handle);
 
                 // TODO(gw): We can abstract some of the common code below into
@@ -600,10 +594,8 @@ impl AlphaBatchBuilder {
                     PrimitiveInstanceData::from(instance),
                 );
             }
-            (
-                PrimitiveInstanceKind::NormalBorder { cache_handles, .. },
-                PrimitiveTemplateKind::NormalBorder { template, .. },
-            ) => {
+            PrimitiveInstanceKind::NormalBorder { data_handle, ref cache_handles, .. } => {
+                let prim_data = &ctx.resources.prim_data_store[data_handle];
                 let prim_cache_address = gpu_cache.get_address(&prim_data.gpu_cache_handle);
                 let cache_handles = &ctx.scratch.border_cache_handles[*cache_handles];
                 let specified_blend_mode = BlendMode::PremultipliedAlpha;
@@ -659,6 +651,10 @@ impl AlphaBatchBuilder {
                     batch_params.prim_user_data,
                 );
 
+                let template = match prim_data.kind {
+                    PrimitiveTemplateKind::NormalBorder { ref template, .. } => template,
+                    _ => unreachable!()
+                };
                 self.add_segmented_prim_to_batch(
                     Some(template.brush_segments.as_slice()),
                     prim_data.opacity,
@@ -675,16 +671,13 @@ impl AlphaBatchBuilder {
                     ctx,
                 );
             }
-            (
-                PrimitiveInstanceKind::TextRun { run_index, .. },
-                PrimitiveTemplateKind::TextRun { .. },
-            ) => {
-                let run = &ctx.prim_store.text_runs[*run_index];
+            PrimitiveInstanceKind::TextRun { data_handle, run_index, .. } => {
+                let run = &ctx.prim_store.text_runs[run_index];
                 let subpx_dir = run.used_font.get_subpx_dir();
 
                 // The GPU cache data is stored in the template and reused across
                 // frames and display lists.
-
+                let prim_data = &ctx.resources.text_run_data_store[data_handle];
                 let glyph_fetch_buffer = &mut self.glyph_fetch_buffer;
                 let alpha_batch_list = &mut self.batch_list.alpha_batch_list;
                 let prim_cache_address = gpu_cache.get_address(&prim_data.gpu_cache_handle);
@@ -788,13 +781,11 @@ impl AlphaBatchBuilder {
                     },
                 );
             }
-            (
-                PrimitiveInstanceKind::LineDecoration { ref cache_handle, .. },
-                PrimitiveTemplateKind::LineDecoration { .. },
-            ) => {
+            PrimitiveInstanceKind::LineDecoration { data_handle, ref cache_handle, .. } => {
                 // The GPU cache data is stored in the template and reused across
                 // frames and display lists.
 
+                let prim_data = &ctx.resources.prim_data_store[data_handle];
                 let prim_cache_address = gpu_cache.get_address(&prim_data.gpu_cache_handle);
 
                 let (batch_kind, textures, prim_user_data, segment_user_data) = match cache_handle {
@@ -876,10 +867,7 @@ impl AlphaBatchBuilder {
                     PrimitiveInstanceData::from(instance),
                 );
             }
-            (
-                PrimitiveInstanceKind::Picture { pic_index },
-                PrimitiveTemplateKind::Unused,
-            ) => {
+            PrimitiveInstanceKind::Picture { pic_index, .. } => {
                 let picture = &ctx.prim_store.pictures[pic_index.0];
                 let non_segmented_blend_mode = BlendMode::PremultipliedAlpha;
                 let prim_cache_address = gpu_cache.get_address(&picture.gpu_location);
@@ -899,14 +887,14 @@ impl AlphaBatchBuilder {
                         for child in list {
                             let prim_instance = &picture.prim_list.prim_instances[child.anchor];
                             let pic_index = match prim_instance.kind {
-                                PrimitiveInstanceKind::Picture { pic_index } => pic_index,
+                                PrimitiveInstanceKind::Picture { pic_index, .. } => pic_index,
                                 PrimitiveInstanceKind::LineDecoration { .. } |
                                 PrimitiveInstanceKind::TextRun { .. } |
                                 PrimitiveInstanceKind::LegacyPrimitive { .. } |
                                 PrimitiveInstanceKind::NormalBorder { .. } |
                                 PrimitiveInstanceKind::ImageBorder { .. } |
                                 PrimitiveInstanceKind::Rectangle { .. } |
-                                PrimitiveInstanceKind::Clear => {
+                                PrimitiveInstanceKind::Clear { .. } => {
                                     unreachable!();
                                 }
                             };
@@ -1397,10 +1385,7 @@ impl AlphaBatchBuilder {
                     }
                 }
             }
-            (
-                PrimitiveInstanceKind::LegacyPrimitive { prim_index },
-                PrimitiveTemplateKind::Unused,
-            ) => {
+            PrimitiveInstanceKind::LegacyPrimitive { prim_index, .. } => {
                 let prim = &ctx.prim_store.primitives[prim_index.0];
 
                 // If the primitive is internally decomposed into multiple sub-primitives we may not
@@ -1550,10 +1535,14 @@ impl AlphaBatchBuilder {
                     }
                 }
             }
-            (
-                PrimitiveInstanceKind::ImageBorder { .. },
-                PrimitiveTemplateKind::ImageBorder { request, brush_segments, .. }
-            ) => {
+            PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
+                let prim_data = &ctx.resources.prim_data_store[data_handle];
+                let (request, brush_segments) = match prim_data.kind {
+                    PrimitiveTemplateKind::ImageBorder { ref request, ref brush_segments } => {
+                        (request, brush_segments)
+                    }
+                    _ => unreachable!()
+                };
                 let cache_item = resolve_image(
                     *request,
                     ctx.resource_cache,
@@ -1618,12 +1607,10 @@ impl AlphaBatchBuilder {
                     ctx,
                 );
             }
-            (
-                PrimitiveInstanceKind::Rectangle { segment_instance_index, opacity_binding_index, .. },
-                PrimitiveTemplateKind::Rectangle { .. }
-            ) => {
+            PrimitiveInstanceKind::Rectangle { data_handle, segment_instance_index, opacity_binding_index, .. } => {
+                let prim_data = &ctx.resources.prim_data_store[data_handle];
                 let specified_blend_mode = BlendMode::PremultipliedAlpha;
-                let opacity_binding = ctx.prim_store.get_opacity_binding(*opacity_binding_index);
+                let opacity_binding = ctx.prim_store.get_opacity_binding(opacity_binding_index);
 
                 let opacity = PrimitiveOpacity::from_alpha(opacity_binding);
                 let opacity = opacity.combine(prim_data.opacity);
@@ -1644,10 +1631,10 @@ impl AlphaBatchBuilder {
                     0,
                 );
 
-                let (prim_cache_address, segments) = if *segment_instance_index == SegmentInstanceIndex::UNUSED {
+                let (prim_cache_address, segments) = if segment_instance_index == SegmentInstanceIndex::UNUSED {
                     (gpu_cache.get_address(&prim_data.gpu_cache_handle), None)
                 } else {
-                    let segment_instance = &ctx.scratch.segment_instances[*segment_instance_index];
+                    let segment_instance = &ctx.scratch.segment_instances[segment_instance_index];
                     let segments = Some(&ctx.scratch.segments[segment_instance.segments_range]);
                     (gpu_cache.get_address(&segment_instance.gpu_cache_handle), segments)
                 };
@@ -1682,9 +1669,6 @@ impl AlphaBatchBuilder {
                     prim_instance.clip_task_index,
                     ctx,
                 );
-            }
-            _ => {
-                unreachable!();
             }
         }
     }

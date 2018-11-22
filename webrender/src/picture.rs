@@ -19,12 +19,14 @@ use gpu_types::{TransformPalette, TransformPaletteId, UvRectKind};
 use internal_types::FastHashSet;
 use plane_split::{Clipper, Polygon, Splitter};
 use prim_store::{PictureIndex, PrimitiveInstance, SpaceMapper, VisibleFace, PrimitiveInstanceKind};
-use prim_store::{get_raster_rects, PrimitiveDataInterner, PrimitiveDataStore, CoordinateSpaceMapping};
+use prim_store::{get_raster_rects, CoordinateSpaceMapping};
 use prim_store::{PrimitiveDetails, BrushKind, Primitive, OpacityBindingStorage};
+use render_backend::FrameResources;
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle, TileBlit};
 use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
 use resource_cache::ResourceCache;
 use scene::{FilterOpHelpers, SceneProperties};
+use scene_builder::DocumentResources;
 use smallvec::SmallVec;
 use surface::{SurfaceDescriptor, TransformKey};
 use std::{mem, ops};
@@ -343,7 +345,7 @@ impl TileCache {
         prim_instance: &PrimitiveInstance,
         surface_spatial_node_index: SpatialNodeIndex,
         clip_scroll_tree: &ClipScrollTree,
-        prim_data_store: &PrimitiveDataStore,
+        resources: &FrameResources,
         clip_chain_nodes: &[ClipChainNode],
         primitives: &[Primitive],
         pictures: &[PicturePrimitive],
@@ -356,10 +358,25 @@ impl TileCache {
             clip_scroll_tree,
         );
 
-        let prim_data = &prim_data_store[prim_instance.prim_data_handle];
+        let prim_rect = match prim_instance.kind {
+            PrimitiveInstanceKind::Picture { data_handle, .. } |
+            PrimitiveInstanceKind::LegacyPrimitive { data_handle, .. } |
+            PrimitiveInstanceKind::LineDecoration { data_handle, .. } |
+            PrimitiveInstanceKind::NormalBorder { data_handle, .. } |
+            PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
+            PrimitiveInstanceKind::Rectangle { data_handle, .. } |
+            PrimitiveInstanceKind::Clear { data_handle, .. } => {
+                let prim_data = &resources.prim_data_store[data_handle];
+                &prim_data.prim_rect
+            }
+            PrimitiveInstanceKind::TextRun { data_handle, .. }  => {
+                let prim_data = &resources.text_run_data_store[data_handle];
+                &prim_data.prim_rect
+            }
+        };
 
         // Map the primitive local rect into the picture space.
-        let rect = match self.space_mapper.map(&prim_data.prim_rect) {
+        let rect = match self.space_mapper.map(prim_rect) {
             Some(rect) => rect,
             None => {
                 return;
@@ -389,7 +406,7 @@ impl TileCache {
         let mut current_clip_chain_id = prim_instance.clip_chain_id;
 
         match prim_instance.kind {
-            PrimitiveInstanceKind::Picture { pic_index } => {
+            PrimitiveInstanceKind::Picture { pic_index,.. } => {
                 // Pictures can depend on animated opacity bindings.
                 let pic = &pictures[pic_index.0];
                 if let Some(PictureCompositeMode::Filter(FilterOp::Opacity(binding, _))) = pic.requested_composite_mode {
@@ -398,7 +415,7 @@ impl TileCache {
                     }
                 }
             }
-            PrimitiveInstanceKind::LegacyPrimitive { prim_index } => {
+            PrimitiveInstanceKind::LegacyPrimitive { prim_index, .. } => {
                 let prim = &primitives[prim_index.0];
 
                 // Some primitives can not be cached (e.g. external video images)
@@ -444,7 +461,7 @@ impl TileCache {
             }
             PrimitiveInstanceKind::TextRun { .. } |
             PrimitiveInstanceKind::LineDecoration { .. } |
-            PrimitiveInstanceKind::Clear |
+            PrimitiveInstanceKind::Clear { .. } |
             PrimitiveInstanceKind::NormalBorder { .. } |
             PrimitiveInstanceKind::ImageBorder { .. } => {
                 // These don't contribute dependencies
@@ -943,7 +960,7 @@ impl PrimitiveList {
     /// significantly faster.
     pub fn new(
         mut prim_instances: Vec<PrimitiveInstance>,
-        prim_interner: &PrimitiveDataInterner,
+        resources: &DocumentResources
     ) -> Self {
         let mut pictures = SmallVec::new();
         let mut clusters_map = FastHashMap::default();
@@ -956,7 +973,7 @@ impl PrimitiveList {
             // Check if this primitive is a picture. In future we should
             // remove this match and embed this info directly in the primitive instance.
             let is_pic = match prim_instance.kind {
-                PrimitiveInstanceKind::Picture { pic_index } => {
+                PrimitiveInstanceKind::Picture { pic_index, .. } => {
                     pictures.push(pic_index);
                     true
                 }
@@ -965,9 +982,23 @@ impl PrimitiveList {
                 }
             };
 
+            let prim_data = match prim_instance.kind {
+                PrimitiveInstanceKind::Picture { data_handle, .. } |
+                PrimitiveInstanceKind::LegacyPrimitive { data_handle, .. } |
+                PrimitiveInstanceKind::LineDecoration { data_handle, .. } |
+                PrimitiveInstanceKind::NormalBorder { data_handle, .. } |
+                PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
+                PrimitiveInstanceKind::Rectangle { data_handle, .. } |
+                PrimitiveInstanceKind::Clear {  data_handle, .. } => {
+                    &resources.prim_interner[data_handle]
+                }
+                PrimitiveInstanceKind::TextRun { data_handle, .. } => {
+                    &resources.text_run_interner[data_handle]
+                }
+            };
+
             // Get the key for the cluster that this primitive should
             // belong to.
-            let prim_data = &prim_interner[prim_instance.prim_data_handle];
             let key = PrimitiveClusterKey {
                 spatial_node_index: prim_instance.spatial_node_index,
                 is_backface_visible: prim_data.is_backface_visible,
@@ -1575,7 +1606,7 @@ impl PicturePrimitive {
         state: &mut PictureUpdateState,
         frame_context: &FrameBuildingContext,
         resource_cache: &mut ResourceCache,
-        prim_data_store: &PrimitiveDataStore,
+        resources: &FrameResources,
         primitives: &[Primitive],
         pictures: &[PicturePrimitive],
         clip_store: &ClipStore,
@@ -1591,7 +1622,7 @@ impl PicturePrimitive {
                     prim_instance,
                     self.spatial_node_index,
                     &frame_context.clip_scroll_tree,
-                    prim_data_store,
+                    resources,
                     &clip_store.clip_chain_nodes,
                     primitives,
                     pictures,

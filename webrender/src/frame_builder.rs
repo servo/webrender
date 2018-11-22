@@ -240,7 +240,7 @@ impl FrameBuilder {
             &mut pic_update_state,
             &frame_context,
             resource_cache,
-            &resources.prim_data_store,
+            resources,
             &self.clip_store,
         );
 
