@@ -1935,7 +1935,7 @@ impl PrimitiveScratchBuffer {
     pub fn new() -> Self {
         PrimitiveScratchBuffer {
             clip_mask_instances: Vec::new(),
-            glyph_keys: GlyphKeyStorage::new(),
+            glyph_keys: GlyphKeyStorage::new(0),
         }
     }
 
@@ -1953,6 +1953,25 @@ impl PrimitiveScratchBuffer {
     }
 }
 
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone, Debug)]
+pub struct PrimitiveStoreStats {
+    primitive_count: usize,
+    picture_count: usize,
+    text_run_count: usize,
+}
+
+impl PrimitiveStoreStats {
+    pub fn empty() -> Self {
+        PrimitiveStoreStats {
+            primitive_count: 0,
+            picture_count: 0,
+            text_run_count: 0,
+        }
+    }
+}
+
 pub struct PrimitiveStore {
     pub primitives: Vec<Primitive>,
     pub pictures: Vec<PicturePrimitive>,
@@ -1960,11 +1979,19 @@ pub struct PrimitiveStore {
 }
 
 impl PrimitiveStore {
-    pub fn new() -> PrimitiveStore {
+    pub fn new(stats: &PrimitiveStoreStats) -> PrimitiveStore {
         PrimitiveStore {
-            primitives: Vec::new(),
-            pictures: Vec::new(),
-            text_runs: TextRunStorage::new(),
+            primitives: Vec::with_capacity(stats.primitive_count),
+            pictures: Vec::with_capacity(stats.picture_count),
+            text_runs: TextRunStorage::new(stats.text_run_count),
+        }
+    }
+
+    pub fn get_stats(&self) -> PrimitiveStoreStats {
+        PrimitiveStoreStats {
+            primitive_count: self.primitives.len(),
+            picture_count: self.pictures.len(),
+            text_run_count: self.text_runs.len(),
         }
     }
 

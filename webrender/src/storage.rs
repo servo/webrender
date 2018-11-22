@@ -59,8 +59,14 @@ pub struct Storage<T> {
 }
 
 impl<T> Storage<T> {
-    pub fn new() -> Self {
-        Storage { data: vec![] }
+    pub fn new(initial_capacity: usize) -> Self {
+        Storage {
+            data: Vec::with_capacity(initial_capacity),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
     }
 
     pub fn push(&mut self, t: T) -> Index<T> {

@@ -14,6 +14,8 @@ use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap, PlaneSplitter};
 use picture::{PictureSurface, PictureUpdateState, SurfaceInfo, ROOT_SURFACE_INDEX, SurfaceIndex};
 use prim_store::{PrimitiveStore, SpaceMapper, PictureIndex, PrimitiveDebugId, PrimitiveScratchBuffer};
+#[cfg(feature = "replay")]
+use prim_store::{PrimitiveStoreStats};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_backend::{FrameResources, FrameStamp};
 use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
@@ -138,7 +140,7 @@ impl FrameBuilder {
     pub fn empty() -> Self {
         FrameBuilder {
             hit_testing_runs: Vec::new(),
-            prim_store: PrimitiveStore::new(),
+            prim_store: PrimitiveStore::new(&PrimitiveStoreStats::empty()),
             clip_store: ClipStore::new(),
             screen_rect: DeviceIntRect::zero(),
             window_size: DeviceIntSize::zero(),
