@@ -617,7 +617,7 @@ impl AlphaBatchBuilder {
                     transform_id,
                 };
 
-                let glyph_keys = &ctx.prim_store.glyph_keys[run.glyph_keys_range];
+                let glyph_keys = &ctx.scratch.glyph_keys[run.glyph_keys_range];
 
                 ctx.resource_cache.fetch_glyphs(
                     run.used_font.clone(),

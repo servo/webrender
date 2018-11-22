@@ -1347,7 +1347,7 @@ impl TextRunPrimitive {
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
         special_render_passes: &mut SpecialRenderPasses,
-        glyph_keys: &mut GlyphKeyStorage,
+        scratch: &mut PrimitiveScratchBuffer,
     ) {
         let cache_dirty = self.update_font_instance(
             specified_font,
@@ -1360,7 +1360,7 @@ impl TextRunPrimitive {
         if self.glyph_keys_range.is_empty() || cache_dirty {
             let subpx_dir = self.used_font.get_subpx_dir();
 
-            self.glyph_keys_range = glyph_keys.extend(
+            self.glyph_keys_range = scratch.glyph_keys.extend(
                 glyphs.iter().map(|src| {
                     let world_offset = self.used_font.transform.transform(&src.point);
                     let device_offset = device_pixel_scale.transform_point(&world_offset);
@@ -1370,7 +1370,7 @@ impl TextRunPrimitive {
 
         resource_cache.request_glyphs(
             self.used_font.clone(),
-            &glyph_keys[self.glyph_keys_range],
+            &scratch.glyph_keys[self.glyph_keys_range],
             gpu_cache,
             render_tasks,
             special_render_passes,
@@ -1925,17 +1925,23 @@ pub struct PrimitiveScratchBuffer {
     /// Contains a list of clip mask instance parameters
     /// per segment generated.
     pub clip_mask_instances: Vec<ClipMaskKind>,
+
+    /// List of glyphs keys that are allocated by each
+    /// text run instance.
+    pub glyph_keys: GlyphKeyStorage,
 }
 
 impl PrimitiveScratchBuffer {
     pub fn new() -> Self {
         PrimitiveScratchBuffer {
             clip_mask_instances: Vec::new(),
+            glyph_keys: GlyphKeyStorage::new(),
         }
     }
 
     pub fn recycle(&mut self) {
         recycle_vec(&mut self.clip_mask_instances);
+        self.glyph_keys.recycle();
     }
 
     pub fn begin_frame(&mut self) {
@@ -1950,8 +1956,6 @@ impl PrimitiveScratchBuffer {
 pub struct PrimitiveStore {
     pub primitives: Vec<Primitive>,
     pub pictures: Vec<PicturePrimitive>,
-
-    pub glyph_keys: GlyphKeyStorage,
     pub text_runs: TextRunStorage,
 }
 
@@ -1960,8 +1964,6 @@ impl PrimitiveStore {
         PrimitiveStore {
             primitives: Vec::new(),
             pictures: Vec::new(),
-
-            glyph_keys: GlyphKeyStorage::new(),
             text_runs: TextRunStorage::new(),
         }
     }
@@ -2627,7 +2629,7 @@ impl PrimitiveStore {
                     frame_state.gpu_cache,
                     frame_state.render_tasks,
                     frame_state.special_render_passes,
-                    &mut self.glyph_keys,
+                    frame_state.scratch,
                 );
             }
             (
