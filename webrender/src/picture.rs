@@ -325,10 +325,8 @@ impl TileCache {
                 let tile = if tx >= 0 && ty >= 0 && tx < self.tile_rect.size.width && ty < self.tile_rect.size.height {
                     let index = (ty * self.tile_rect.size.width + tx) as usize;
                     mem::replace(&mut self.tiles[index], Tile::new())
-                } else if let Some(tile) = self.old_tiles.remove(&TileOffset::new(x + x0, y + y0)) {
-                    tile
                 } else {
-                    Tile::new()
+                    self.old_tiles.remove(&TileOffset::new(x + x0, y + y0)).unwrap_or_else(Tile::new)
                 };
                 new_tiles.push(tile);
             }
@@ -449,8 +447,10 @@ impl TileCache {
             }
         }
 
-        for (key, value) in &mut opacity_bindings {
-            *value = scene_properties.get_float_value(*key).unwrap_or(*value);
+        for (key, current) in &mut opacity_bindings {
+            if let Some(value) = scene_properties.get_float_value(*key) {
+                *current = value;
+            }
         }
 
         // The transforms of any clips that are relative to the picture may affect

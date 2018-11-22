@@ -33,7 +33,7 @@ use util::{TransformedRectKind};
 // a dummy task that doesn't mask out anything.
 const OPAQUE_TASK_ADDRESS: RenderTaskAddress = RenderTaskAddress(0x7fff);
 
-// Used to signal there are no segments provided with this primitive.
+/// Used to signal there are no segments provided with this primitive.
 const INVALID_SEGMENT_INDEX: i32 = 0xffff;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
