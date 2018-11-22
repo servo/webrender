@@ -236,25 +236,13 @@ impl SurfaceDescriptor {
             // For now, we only handle interned primitives. If we encounter
             // a legacy primitive or picture, then fail to create a cache
             // descriptor.
-            match prim_instance.kind {
-                PrimitiveInstanceKind::Picture { .. } => {
-                    return None;
-                }
-                PrimitiveInstanceKind::Image { .. } |
-                PrimitiveInstanceKind::YuvImage { .. } |
-                PrimitiveInstanceKind::LineDecoration { .. } |
-                PrimitiveInstanceKind::LinearGradient { .. } |
-                PrimitiveInstanceKind::RadialGradient { .. } |
-                PrimitiveInstanceKind::TextRun { .. } |
-                PrimitiveInstanceKind::NormalBorder { .. } |
-                PrimitiveInstanceKind::Rectangle { .. } |
-                PrimitiveInstanceKind::ImageBorder { .. } |
-                PrimitiveInstanceKind::Clear => {}
+            if let PrimitiveInstanceKind::Picture { .. } = prim_instance.kind {
+                return None;
             }
 
             // Record the unique identifier for the content represented
             // by this primitive.
-            primitive_ids.push(prim_instance.prim_data_handle.uid());
+            primitive_ids.push(prim_instance.uid());
         }
 
         // Get a list of spatial nodes that are relevant for the contents
