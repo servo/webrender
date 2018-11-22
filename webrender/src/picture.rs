@@ -20,7 +20,7 @@ use internal_types::FastHashSet;
 use plane_split::{Clipper, Polygon, Splitter};
 use prim_store::{PictureIndex, PrimitiveInstance, SpaceMapper, VisibleFace, PrimitiveInstanceKind};
 use prim_store::{get_raster_rects, PrimitiveDataInterner, PrimitiveDataStore, CoordinateSpaceMapping};
-use prim_store::{PrimitiveDetails, BrushKind, Primitive};
+use prim_store::{PrimitiveDetails, BrushKind, Primitive, OpacityBindingStorage};
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle, TileBlit};
 use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
 use resource_cache::ResourceCache;
@@ -349,6 +349,7 @@ impl TileCache {
         pictures: &[PicturePrimitive],
         resource_cache: &ResourceCache,
         scene_properties: &SceneProperties,
+        opacity_binding_store: &OpacityBindingStorage,
     ) {
         self.space_mapper.set_target_spatial_node(
             prim_instance.spatial_node_index,
@@ -413,14 +414,16 @@ impl TileCache {
                             // TODO(gw): In future, we might be able to completely remove
                             //           opacity collapsing support. It's of limited use
                             //           once we have full picture caching.
-                            BrushKind::Solid { ref opacity_binding, .. } => {
+                            BrushKind::Solid { opacity_binding_index, .. } => {
+                                let opacity_binding = &opacity_binding_store[opacity_binding_index];
                                 for binding in &opacity_binding.bindings {
                                     if let PropertyBinding::Binding(key, default) = binding {
                                         opacity_bindings.push((key.id, *default));
                                     }
                                 }
                             }
-                            BrushKind::Image { ref opacity_binding, ref request, .. } => {
+                            BrushKind::Image { opacity_binding_index, ref request, .. } => {
+                                let opacity_binding = &opacity_binding_store[opacity_binding_index];
                                 for binding in &opacity_binding.bindings {
                                     if let PropertyBinding::Binding(key, default) = binding {
                                         opacity_bindings.push((key.id, *default));
@@ -1575,6 +1578,7 @@ impl PicturePrimitive {
         primitives: &[Primitive],
         pictures: &[PicturePrimitive],
         clip_store: &ClipStore,
+        opacity_binding_store: &OpacityBindingStorage,
     ) {
         if state.tile_cache_update_count == 0 {
             return;
@@ -1592,6 +1596,7 @@ impl PicturePrimitive {
                     pictures,
                     resource_cache,
                     frame_context.scene_properties,
+                    opacity_binding_store,
                 );
             }
         }

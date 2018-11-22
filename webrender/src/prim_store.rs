@@ -2046,6 +2046,7 @@ impl PrimitiveStore {
                 &self.primitives,
                 &self.pictures,
                 clip_store,
+                &self.opacity_bindings,
             );
 
             self.pictures[pic_index.0].post_update(
