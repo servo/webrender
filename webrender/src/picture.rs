@@ -361,7 +361,6 @@ impl TileCache {
         let prim_rect = match prim_instance.kind {
             PrimitiveInstanceKind::Picture { data_handle, .. } |
             PrimitiveInstanceKind::LegacyPrimitive { data_handle, .. } |
-            PrimitiveInstanceKind::LineDecoration { data_handle, .. } |
             PrimitiveInstanceKind::NormalBorder { data_handle, .. } |
             PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
             PrimitiveInstanceKind::Rectangle { data_handle, .. } |
@@ -371,6 +370,10 @@ impl TileCache {
             }
             PrimitiveInstanceKind::TextRun { data_handle, .. }  => {
                 let prim_data = &resources.text_run_data_store[data_handle];
+                &prim_data.prim_rect
+            }
+            PrimitiveInstanceKind::LineDecoration { data_handle, .. } => {
+                let prim_data = &resources.line_decoration_data_store[data_handle];
                 &prim_data.prim_rect
             }
         };
@@ -985,12 +988,14 @@ impl PrimitiveList {
             let prim_data = match prim_instance.kind {
                 PrimitiveInstanceKind::Picture { data_handle, .. } |
                 PrimitiveInstanceKind::LegacyPrimitive { data_handle, .. } |
-                PrimitiveInstanceKind::LineDecoration { data_handle, .. } |
                 PrimitiveInstanceKind::NormalBorder { data_handle, .. } |
                 PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
                 PrimitiveInstanceKind::Rectangle { data_handle, .. } |
                 PrimitiveInstanceKind::Clear {  data_handle, .. } => {
                     &resources.prim_interner[data_handle]
+                }
+                PrimitiveInstanceKind::LineDecoration { data_handle, .. } => {
+                    &resources.line_decoration_interner[data_handle]
                 }
                 PrimitiveInstanceKind::TextRun { data_handle, .. } => {
                     &resources.text_run_interner[data_handle]

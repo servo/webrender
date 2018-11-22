@@ -30,7 +30,7 @@ use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
 use hit_test::{HitTest, HitTester};
 use internal_types::{DebugOutput, FastHashMap, FastHashSet, RenderedDocument, ResultMsg};
-use prim_store::{PrimitiveDataStore, PrimitiveScratchBuffer, TextRunDataStore};
+use prim_store::{PrimitiveDataStore, PrimitiveScratchBuffer, LineDecorationDataStore, TextRunDataStore};
 use profiler::{BackendProfileCounters, IpcProfileCounters, ResourceProfileCounters};
 use record::ApiRecordingReceiver;
 use renderer::{AsyncPropertySampler, PipelineInfo};
@@ -202,6 +202,7 @@ pub struct FrameResources {
     /// Currently active / available primitives. Kept in sync with the
     /// primitive interner in the scene builder, per document.
     pub prim_data_store: PrimitiveDataStore,
+    pub line_decoration_data_store: LineDecorationDataStore,
     pub text_run_data_store: TextRunDataStore,
 }
 
@@ -1154,6 +1155,7 @@ impl RenderBackend {
         if let Some(updates) = doc_resource_updates {
             doc.resources.clip_data_store.apply_updates(updates.clip_updates);
             doc.resources.prim_data_store.apply_updates(updates.prim_updates);
+            doc.resources.line_decoration_data_store.apply_updates(updates.line_decoration_updates);
             doc.resources.text_run_data_store.apply_updates(updates.text_run_updates);
         }
 

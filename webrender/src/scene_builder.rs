@@ -15,6 +15,7 @@ use display_list_flattener::DisplayListFlattener;
 use intern::{Internable, Interner};
 use internal_types::{FastHashMap, FastHashSet};
 use prim_store::{PrimitiveContainer, PrimitiveDataInterner, PrimitiveDataUpdateList, PrimitiveStoreStats};
+use prim_store::{LineDecorationDataInterner, LineDecoration, LineDecorationDataUpdateList};
 use prim_store::{TextRunDataInterner, TextRun, TextRunDataUpdateList};
 use resource_cache::FontInstanceMap;
 use render_backend::DocumentView;
@@ -30,6 +31,7 @@ use std::time::Duration;
 pub struct DocumentResourceUpdates {
     pub clip_updates: ClipDataUpdateList,
     pub prim_updates: PrimitiveDataUpdateList,
+    pub line_decoration_updates: LineDecorationDataUpdateList,
     pub text_run_updates: TextRunDataUpdateList,
 }
 
@@ -167,6 +169,7 @@ pub struct DocumentResources {
     pub clip_interner: ClipDataInterner,
     pub prim_interner: PrimitiveDataInterner,
     pub text_run_interner: TextRunDataInterner,
+    pub line_decoration_interner: LineDecorationDataInterner,
 }
 
 // Access to `DocumentResources` interners by `Internable`
@@ -178,6 +181,12 @@ pub trait InternerMut<I: Internable>
 impl InternerMut<PrimitiveContainer> for DocumentResources {
     fn interner_mut(&mut self) -> &mut PrimitiveDataInterner {
         &mut self.prim_interner
+    }
+}
+
+impl InternerMut<LineDecoration> for DocumentResources {
+    fn interner_mut(&mut self) -> &mut LineDecorationDataInterner {
+        &mut self.line_decoration_interner
     }
 }
 
@@ -356,6 +365,11 @@ impl SceneBuilder {
                     .prim_interner
                     .end_frame_and_get_pending_updates();
 
+                let line_decoration_updates = item
+                    .doc_resources
+                    .line_decoration_interner
+                    .end_frame_and_get_pending_updates();
+
                 let text_run_updates = item
                     .doc_resources
                     .text_run_interner
@@ -365,6 +379,7 @@ impl SceneBuilder {
                     DocumentResourceUpdates {
                         clip_updates,
                         prim_updates,
+                        line_decoration_updates,
                         text_run_updates,
                     }
                 );
@@ -474,6 +489,11 @@ impl SceneBuilder {
                     .prim_interner
                     .end_frame_and_get_pending_updates();
 
+                let line_decoration_updates = doc
+                    .resources
+                    .line_decoration_interner
+                    .end_frame_and_get_pending_updates();
+
                 let text_run_updates = doc
                     .resources
                     .text_run_interner
@@ -483,6 +503,7 @@ impl SceneBuilder {
                     DocumentResourceUpdates {
                         clip_updates,
                         prim_updates,
+                        line_decoration_updates,
                         text_run_updates,
                     }
                 );

@@ -240,11 +240,13 @@ impl SurfaceDescriptor {
                 PrimitiveInstanceKind::LegacyPrimitive { .. } => {
                     return None;
                 }
-                PrimitiveInstanceKind::LineDecoration { data_handle, .. } |
                 PrimitiveInstanceKind::NormalBorder { data_handle, .. } |
                 PrimitiveInstanceKind::Rectangle { data_handle, .. } |
                 PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
                 PrimitiveInstanceKind::Clear { data_handle, .. } => {
+                    data_handle.uid()
+                }
+                PrimitiveInstanceKind::LineDecoration { data_handle, .. } => {
                     data_handle.uid()
                 }
                 PrimitiveInstanceKind::TextRun { data_handle, .. } => {

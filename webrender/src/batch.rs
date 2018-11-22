@@ -785,7 +785,9 @@ impl AlphaBatchBuilder {
                 // The GPU cache data is stored in the template and reused across
                 // frames and display lists.
 
-                let prim_data = &ctx.resources.prim_data_store[data_handle];
+                let prim_data = &ctx
+                    .resources
+                    .line_decoration_data_store[data_handle];
                 let prim_cache_address = gpu_cache.get_address(&prim_data.gpu_cache_handle);
 
                 let (batch_kind, textures, prim_user_data, segment_user_data) = match cache_handle {

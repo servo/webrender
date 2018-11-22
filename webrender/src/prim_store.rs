@@ -352,15 +352,6 @@ pub enum PrimitiveKeyKind {
     /// to instead have Option<PrimitiveKeyKind>. It should become
     /// clearer as we port more primitives to be interned.
     Unused,
-    /// Identifying key for a line decoration.
-    LineDecoration {
-        // If the cache_key is Some(..) it is a line decoration
-        // that relies on a render task (e.g. wavy). If the
-        // cache key is None, it uses a fast path to draw the
-        // line decoration as a solid rect.
-        cache_key: Option<LineDecorationCacheKey>,
-        color: ColorU,
-    },
     /// Clear an existing rect, used for special effects on some platforms.
     Clear,
     NormalBorder {
@@ -418,12 +409,6 @@ impl AsInstanceKind<PrimitiveDataHandle> for PrimitiveKey {
         _prim_store: &mut PrimitiveStore,
     ) -> PrimitiveInstanceKind {
         match self.kind {
-            PrimitiveKeyKind::LineDecoration { .. } => {
-                PrimitiveInstanceKind::LineDecoration {
-                    data_handle,
-                    cache_handle: None,
-                }
-            }
             PrimitiveKeyKind::Clear => {
                 PrimitiveInstanceKind::Clear {
                     data_handle
@@ -470,10 +455,6 @@ pub struct NormalBorderTemplate {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum PrimitiveTemplateKind {
-    LineDecoration {
-        cache_key: Option<LineDecorationCacheKey>,
-        color: ColorF,
-    },
     NormalBorder {
         template: Box<NormalBorderTemplate>,
     },
@@ -566,12 +547,6 @@ impl PrimitiveKeyKind {
             }
             PrimitiveKeyKind::Rectangle { color, .. } => {
                 PrimitiveTemplateKind::Rectangle {
-                    color: color.into(),
-                }
-            }
-            PrimitiveKeyKind::LineDecoration { cache_key, color } => {
-                PrimitiveTemplateKind::LineDecoration {
-                    cache_key,
                     color: color.into(),
                 }
             }
@@ -706,78 +681,6 @@ impl PrimitiveTemplate {
                     PrimitiveOpacity::opaque()
                 }
             }
-            PrimitiveTemplateKind::LineDecoration { ref cache_key, ref color } => {
-                if let Some(mut request) = frame_state.gpu_cache.request(&mut self.gpu_cache_handle) {
-                    // Work out the stretch parameters (for image repeat) based on the
-                    // line decoration parameters.
-
-                    match cache_key {
-                        Some(cache_key) => {
-                            request.push(color.premultiplied());
-                            request.push(PremultipliedColorF::WHITE);
-                            request.push([
-                                cache_key.size.width.to_f32_px(),
-                                cache_key.size.height.to_f32_px(),
-                                0.0,
-                                0.0,
-                            ]);
-                        }
-                        None => {
-                            request.push(color.premultiplied());
-                        }
-                    }
-
-                    request.write_segment(
-                        self.prim_rect,
-                        [0.0; 4],
-                    );
-                }
-
-                match cache_key {
-                    Some(..) => PrimitiveOpacity::translucent(),
-                    None => PrimitiveOpacity::from_alpha(color.a),
-                }
-            }
-/*
-            PrimitiveTemplateKind::TextRun { ref glyphs, ref font, ref offset, .. } => {
-                if let Some(mut request) = frame_state.gpu_cache.request(&mut self.gpu_cache_handle) {
-                    request.push(ColorF::from(font.color).premultiplied());
-                    // this is the only case where we need to provide plain color to GPU
-                    let bg_color = ColorF::from(font.bg_color);
-                    request.push([bg_color.r, bg_color.g, bg_color.b, 1.0]);
-                    request.push([
-                        offset.x.to_f32_px(),
-                        offset.y.to_f32_px(),
-                        0.0,
-                        0.0,
-                    ]);
-
-                    let mut gpu_block = [0.0; 4];
-                    for (i, src) in glyphs.iter().enumerate() {
-                        // Two glyphs are packed per GPU block.
-
-                        if (i & 1) == 0 {
-                            gpu_block[0] = src.point.x;
-                            gpu_block[1] = src.point.y;
-                        } else {
-                            gpu_block[2] = src.point.x;
-                            gpu_block[3] = src.point.y;
-                            request.push(gpu_block);
-                        }
-                    }
-
-                    // Ensure the last block is added in the case
-                    // of an odd number of glyphs.
-                    if (glyphs.len() & 1) != 0 {
-                        request.push(gpu_block);
-                    }
-
-                    assert!(request.current_used_block_num() <= MAX_VERTEX_TEXTURE_WIDTH);
-                }
-
-                PrimitiveOpacity::translucent()
-            }
-*/
             PrimitiveTemplateKind::Unused => {
                 PrimitiveOpacity::translucent()
             }
@@ -1706,12 +1609,6 @@ impl ClipData {
 pub enum PrimitiveContainer {
     Clear,
     Brush(BrushPrimitive),
-    LineDecoration {
-        color: ColorF,
-        style: LineStyle,
-        orientation: LineOrientation,
-        wavy_line_thickness: f32,
-    },
     NormalBorder {
         border: NormalBorder,
         widths: LayoutSideOffsets,
@@ -1764,8 +1661,7 @@ impl IsVisible for PrimitiveContainer {
             PrimitiveContainer::Clear => {
                 true
             }
-            PrimitiveContainer::Rectangle { ref color, .. } |
-            PrimitiveContainer::LineDecoration { ref color, .. } => {
+            PrimitiveContainer::Rectangle { ref color, .. } => {
                 color.a > 0.0
             }
         }
@@ -1777,7 +1673,7 @@ impl PrimitiveContainer {
     /// an old style PrimitiveDetails structure.
     pub fn build(
         self,
-        info: &mut LayoutPrimitiveInfo
+        _info: &mut LayoutPrimitiveInfo
     ) -> (PrimitiveKeyKind, Option<PrimitiveDetails>) {
         match self {
             PrimitiveContainer::Clear => {
@@ -1829,65 +1725,6 @@ impl PrimitiveContainer {
 
                 (key, None)
             }
-            PrimitiveContainer::LineDecoration { color, style, orientation, wavy_line_thickness } => {
-                // For line decorations, we can construct the render task cache key
-                // here during scene building, since it doesn't depend on device
-                // pixel ratio or transform.
-
-                let size = get_line_decoration_sizes(
-                    &info.rect.size,
-                    orientation,
-                    style,
-                    wavy_line_thickness,
-                );
-
-                let cache_key = size.map(|(inline_size, block_size)| {
-                    let size = match orientation {
-                        LineOrientation::Horizontal => LayoutSize::new(inline_size, block_size),
-                        LineOrientation::Vertical => LayoutSize::new(block_size, inline_size),
-                    };
-
-                    // If dotted, adjust the clip rect to ensure we don't draw a final
-                    // partial dot.
-                    if style == LineStyle::Dotted {
-                        let clip_size = match orientation {
-                            LineOrientation::Horizontal => {
-                                LayoutSize::new(
-                                    inline_size * (info.rect.size.width / inline_size).floor(),
-                                    info.rect.size.height,
-                                )
-                            }
-                            LineOrientation::Vertical => {
-                                LayoutSize::new(
-                                    info.rect.size.width,
-                                    inline_size * (info.rect.size.height / inline_size).floor(),
-                                )
-                            }
-                        };
-                        let clip_rect = LayoutRect::new(
-                            info.rect.origin,
-                            clip_size,
-                        );
-                        info.clip_rect = clip_rect
-                            .intersection(&info.clip_rect)
-                            .unwrap_or(LayoutRect::zero());
-                    }
-
-                    LineDecorationCacheKey {
-                        style,
-                        orientation,
-                        wavy_line_thickness: Au::from_f32_px(wavy_line_thickness),
-                        size: size.to_au(),
-                    }
-                });
-
-                let key = PrimitiveKeyKind::LineDecoration {
-                    cache_key,
-                    color: color.into(),
-                };
-
-                (key, None)
-            }
             PrimitiveContainer::Brush(prim) => {
                 (PrimitiveKeyKind::Unused, Some(PrimitiveDetails::Brush(prim)))
             }
@@ -1920,14 +1757,6 @@ impl PrimitiveContainer {
         shadow: &Shadow,
     ) -> PrimitiveContainer {
         match *self {
-            PrimitiveContainer::LineDecoration { style, orientation, wavy_line_thickness, .. } => {
-                PrimitiveContainer::LineDecoration {
-                    color: shadow.color,
-                    style,
-                    orientation,
-                    wavy_line_thickness,
-                }
-            }
             PrimitiveContainer::Rectangle { .. } => {
                 PrimitiveContainer::Rectangle {
                     color: shadow.color,
@@ -1966,6 +1795,228 @@ impl PrimitiveContainer {
         }
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+/// Identifying key for a line decoration.
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct LineDecorationKey {
+    pub is_backface_visible: bool,
+    pub prim_rect: LayoutRectAu,
+    pub clip_rect: LayoutRectAu,
+    // If the cache_key is Some(..) it is a line decoration
+    // that relies on a render task (e.g. wavy). If the
+    // cache key is None, it uses a fast path to draw the
+    // line decoration as a solid rect.
+    cache_key: Option<LineDecorationCacheKey>,
+    color: ColorU,
+}
+
+impl LineDecorationKey {
+    pub fn new(info: &LayoutPrimitiveInfo, cache_key: Option<LineDecorationCacheKey>, color: ColorF) -> Self {
+        LineDecorationKey {
+            is_backface_visible: info.is_backface_visible,
+            prim_rect: info.rect.to_au(),
+            clip_rect: info.clip_rect.to_au(),
+            cache_key,
+            color: color.into(),
+        }
+    }
+}
+
+impl AsInstanceKind<LineDecorationDataHandle> for LineDecorationKey {
+    /// Construct a primitive instance that matches the type
+    /// of primitive key.
+    fn as_instance_kind(
+        &self,
+        data_handle: LineDecorationDataHandle,
+        _prim_store: &mut PrimitiveStore,
+    ) -> PrimitiveInstanceKind {
+        PrimitiveInstanceKind::LineDecoration {
+            data_handle,
+            cache_handle: None,
+        }
+    }
+}
+
+impl BuildKey<LineDecoration> for LineDecorationKey {
+    /// Build a new key from self with `info`.
+    fn build_key(source: LineDecoration, info: &mut LayoutPrimitiveInfo) -> Self {
+        // For line decorations, we can construct the render task cache key
+        // here during scene building, since it doesn't depend on device
+        // pixel ratio or transform.
+
+        let size = get_line_decoration_sizes(
+            &info.rect.size,
+            source.orientation,
+            source.style,
+            source.wavy_line_thickness,
+        );
+
+        let cache_key = size.map(|(inline_size, block_size)| {
+            let size = match source.orientation {
+                LineOrientation::Horizontal => LayoutSize::new(inline_size, block_size),
+                LineOrientation::Vertical => LayoutSize::new(block_size, inline_size),
+            };
+
+            // If dotted, adjust the clip rect to ensure we don't draw a final
+            // partial dot.
+            if source.style == LineStyle::Dotted {
+                let clip_size = match source.orientation {
+                    LineOrientation::Horizontal => {
+                        LayoutSize::new(
+                            inline_size * (info.rect.size.width / inline_size).floor(),
+                            info.rect.size.height,
+                        )
+                    }
+                    LineOrientation::Vertical => {
+                        LayoutSize::new(
+                            info.rect.size.width,
+                            inline_size * (info.rect.size.height / inline_size).floor(),
+                        )
+                    }
+                };
+                let clip_rect = LayoutRect::new(
+                    info.rect.origin,
+                    clip_size,
+                );
+                info.clip_rect = clip_rect
+                    .intersection(&info.clip_rect)
+                    .unwrap_or(LayoutRect::zero());
+            }
+
+            LineDecorationCacheKey {
+                style: source.style,
+                orientation: source.orientation,
+                wavy_line_thickness: Au::from_f32_px(source.wavy_line_thickness),
+                size: size.to_au(),
+            }
+        });
+
+        LineDecorationKey::new(
+            info,
+            cache_key,
+            source.color,
+        )
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct LineDecorationTemplate {
+    pub is_backface_visible: bool,
+    pub prim_rect: LayoutRect,
+    pub clip_rect: LayoutRect,
+    pub cache_key: Option<LineDecorationCacheKey>,
+    pub color: ColorF,
+    pub opacity: PrimitiveOpacity,
+    /// The GPU cache handle for a primitive template. Since this structure
+    /// is retained across display lists by interning, this GPU cache handle
+    /// also remains valid, which reduces the number of updates to the GPU
+    /// cache when a new display list is processed.
+    pub gpu_cache_handle: GpuCacheHandle,
+}
+
+impl From<LineDecorationKey> for LineDecorationTemplate {
+    fn from(item: LineDecorationKey) -> Self {
+        LineDecorationTemplate {
+            is_backface_visible: item.is_backface_visible,
+            prim_rect: LayoutRect::from_au(item.prim_rect),
+            clip_rect: LayoutRect::from_au(item.clip_rect),
+            cache_key: item.cache_key,
+            color: item.color.into(),
+            opacity: PrimitiveOpacity::translucent(),
+            gpu_cache_handle: GpuCacheHandle::new(),
+        }
+    }
+}
+
+impl LineDecorationTemplate {
+    /// Update the GPU cache for a given primitive template. This may be called multiple
+    /// times per frame, by each primitive reference that refers to this interned
+    /// template. The initial request call to the GPU cache ensures that work is only
+    /// done if the cache entry is invalid (due to first use or eviction).
+    pub fn update(
+        &mut self,
+        gpu_cache: &mut GpuCache,
+    ) {
+        if let Some(mut request) = gpu_cache.request(&mut self.gpu_cache_handle) {
+            // Work out the stretch parameters (for image repeat) based on the
+            // line decoration parameters.
+
+            match self.cache_key {
+                Some(ref cache_key) => {
+                    request.push(self.color.premultiplied());
+                    request.push(PremultipliedColorF::WHITE);
+                    request.push([
+                        cache_key.size.width.to_f32_px(),
+                        cache_key.size.height.to_f32_px(),
+                        0.0,
+                        0.0,
+                    ]);
+                }
+                None => {
+                    request.push(self.color.premultiplied());
+                }
+            }
+
+            request.write_segment(
+                self.prim_rect,
+                [0.0; 4],
+            );
+        }
+
+        self.opacity = match self.cache_key {
+            Some(..) => PrimitiveOpacity::translucent(),
+            None => PrimitiveOpacity::from_alpha(self.color.a),
+        };
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+pub struct LineDecorationDataMarker;
+impl intern::UidMarker for LineDecorationDataMarker {
+    type UidMarker = PrimitiveUidMarker;
+}
+
+pub type LineDecorationDataStore = intern::DataStore<LineDecorationKey, LineDecorationTemplate, LineDecorationDataMarker>;
+pub type LineDecorationDataHandle = intern::Handle<LineDecorationDataMarker>;
+pub type LineDecorationDataUpdateList = intern::UpdateList<LineDecorationKey>;
+pub type LineDecorationDataInterner = intern::Interner<LineDecorationKey, PrimitiveSceneData, LineDecorationDataMarker>;
+
+pub struct LineDecoration {
+    pub color: ColorF,
+    pub style: LineStyle,
+    pub orientation: LineOrientation,
+    pub wavy_line_thickness: f32,
+}
+
+impl intern::Internable for LineDecoration {
+    type Marker = LineDecorationDataMarker;
+    type Source = LineDecorationKey;
+    type StoreData = LineDecorationTemplate;
+    type InternData = PrimitiveSceneData;
+}
+
+impl CreateShadow for LineDecoration {
+    fn create_shadow(&self, shadow: &Shadow) -> Self {
+        LineDecoration {
+            color: shadow.color, ..*self
+        }
+    }
+}
+
+impl IsVisible for LineDecoration {
+    fn is_visible(&self) -> bool {
+        self.color.a > 0.0
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 /// A run of glyphs, with associated font information.
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -2152,6 +2203,8 @@ impl IsVisible for TextRun {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
 pub enum PrimitiveDetails {
     Brush(BrushPrimitive),
 }
@@ -2193,7 +2246,7 @@ pub enum PrimitiveInstanceKind {
     /// task handle, if this line decoration is not a simple solid.
     LineDecoration {
         /// Handle to the common interned data for this primitive.
-        data_handle: PrimitiveDataHandle,
+        data_handle: LineDecorationDataHandle,
         // TODO(gw): For now, we need to store some information in
         //           the primitive instance that is created during
         //           prepare_prims and read during the batching pass.
@@ -2752,9 +2805,12 @@ impl PrimitiveStore {
             PrimitiveInstanceKind::Clear { data_handle, .. } |
             PrimitiveInstanceKind::NormalBorder { data_handle, .. } |
             PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
-            PrimitiveInstanceKind::Rectangle { data_handle, .. } |
-            PrimitiveInstanceKind::LineDecoration { data_handle, .. } => {
+            PrimitiveInstanceKind::Rectangle { data_handle, .. } => {
                 let prim_data = &resources.prim_data_store[data_handle];
+                (prim_data.prim_rect, prim_data.clip_rect)
+            }
+            PrimitiveInstanceKind::LineDecoration { data_handle, .. } => {
+                let prim_data = &resources.line_decoration_data_store[data_handle];
                 (prim_data.prim_rect, prim_data.clip_rect)
             }
             PrimitiveInstanceKind::LegacyPrimitive { prim_index, .. } => {
@@ -3090,58 +3146,53 @@ impl PrimitiveStore {
 
         match &mut prim_instance.kind {
             PrimitiveInstanceKind::LineDecoration { data_handle, ref mut cache_handle, .. } => {
-                let prim_data = &mut resources.prim_data_store[*data_handle];
+                let prim_data = &mut resources.line_decoration_data_store[*data_handle];
 
                 // Update the template this instane references, which may refresh the GPU
                 // cache with any shared template data.
-                prim_data.update(frame_state);
+                prim_data.update(frame_state.gpu_cache);
 
-                match &prim_data.kind {
-                    PrimitiveTemplateKind::LineDecoration { ref cache_key, .. } => {
-                        // Work out the device pixel size to be used to cache this line decoration.
-                        if is_chased {
-                            println!("\tline decoration key={:?}", cache_key);
+                // Work out the device pixel size to be used to cache this line decoration.
+                if is_chased {
+                    println!("\tline decoration key={:?}", prim_data.cache_key);
+                }
+
+                // If we have a cache key, it's a wavy / dashed / dotted line. Otherwise, it's
+                // a simple solid line.
+                if let Some(ref cache_key) = prim_data.cache_key {
+                    // TODO(gw): Do we ever need / want to support scales for text decorations
+                    //           based on the current transform?
+                    let scale_factor = TypedScale::new(1.0) * frame_context.device_pixel_scale;
+                    let task_size = (LayoutSize::from_au(cache_key.size) * scale_factor).ceil().to_i32();
+                    let surfaces = &mut frame_state.surfaces;
+
+                    // Request a pre-rendered image task.
+                    // TODO(gw): This match is a bit untidy, but it should disappear completely
+                    //           once the prepare_prims and batching are unified. When that
+                    //           happens, we can use the cache handle immediately, and not need
+                    //           to temporarily store it in the primitive instance.
+                    *cache_handle = Some(frame_state.resource_cache.request_render_task(
+                        RenderTaskCacheKey {
+                            size: task_size,
+                            kind: RenderTaskCacheKeyKind::LineDecoration(cache_key.clone()),
+                        },
+                        frame_state.gpu_cache,
+                        frame_state.render_tasks,
+                        None,
+                        false,
+                        |render_tasks| {
+                            let task = RenderTask::new_line_decoration(
+                                task_size,
+                                cache_key.style,
+                                cache_key.orientation,
+                                cache_key.wavy_line_thickness.to_f32_px(),
+                                LayoutSize::from_au(cache_key.size),
+                            );
+                            let task_id = render_tasks.add(task);
+                            surfaces[pic_context.surface_index.0].tasks.push(task_id);
+                            task_id
                         }
-
-                        // If we have a cache key, it's a wavy / dashed / dotted line. Otherwise, it's
-                        // a simple solid line.
-                        if let Some(cache_key) = cache_key {
-                            // TODO(gw): Do we ever need / want to support scales for text decorations
-                            //           based on the current transform?
-                            let scale_factor = TypedScale::new(1.0) * frame_context.device_pixel_scale;
-                            let task_size = (LayoutSize::from_au(cache_key.size) * scale_factor).ceil().to_i32();
-                            let surfaces = &mut frame_state.surfaces;
-
-                            // Request a pre-rendered image task.
-                            // TODO(gw): This match is a bit untidy, but it should disappear completely
-                            //           once the prepare_prims and batching are unified. When that
-                            //           happens, we can use the cache handle immediately, and not need
-                            //           to temporarily store it in the primitive instance.
-                            *cache_handle = Some(frame_state.resource_cache.request_render_task(
-                                RenderTaskCacheKey {
-                                    size: task_size,
-                                    kind: RenderTaskCacheKeyKind::LineDecoration(cache_key.clone()),
-                                },
-                                frame_state.gpu_cache,
-                                frame_state.render_tasks,
-                                None,
-                                false,
-                                |render_tasks| {
-                                    let task = RenderTask::new_line_decoration(
-                                        task_size,
-                                        cache_key.style,
-                                        cache_key.orientation,
-                                        cache_key.wavy_line_thickness.to_f32_px(),
-                                        LayoutSize::from_au(cache_key.size),
-                                    );
-                                    let task_id = render_tasks.add(task);
-                                    surfaces[pic_context.surface_index.0].tasks.push(task_id);
-                                    task_id
-                                }
-                            ));
-                        }
-                    },
-                    _ => unreachable!(),
+                    ));
                 }
             }
             PrimitiveInstanceKind::TextRun { data_handle, run_index, .. } => {

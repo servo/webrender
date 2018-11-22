@@ -27,8 +27,9 @@ use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, Primitiv
 use prim_store::{BrushKind, BrushPrimitive, PrimitiveInstance, PrimitiveKeyKind};
 use prim_store::{ImageSource, PrimitiveOpacity, PrimitiveKey, PrimitiveSceneData, PrimitiveInstanceKind};
 use prim_store::{PrimitiveContainer, PrimitiveDataHandle, PrimitiveStore, PrimitiveStoreStats, BrushSegmentDescriptor};
-use prim_store::{PrimitiveUidBuilder, ScrollNodeAndClipChain, PictureIndex, register_prim_chase_id, OpacityBindingIndex};
-use prim_store::{PrimitiveUidMarker, TextRun};
+use prim_store::{PrimitiveUidBuilder, ScrollNodeAndClipChain, PictureIndex, OpacityBindingIndex};
+use prim_store::{PrimitiveUidMarker, TextRun, LineDecoration};
+use prim_store::register_prim_chase_id;
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
@@ -1596,6 +1597,26 @@ impl<'a> DisplayListFlattener<'a> {
                                 // Add the new primitive to the shadow picture.
                                 prims.push(shadow_prim_instance);
                             }
+                            ShadowItem::LineDecoration(ref pending_line_decoration) => {
+                                // Offset the local rect and clip rect by the shadow offset.
+                                let mut info = pending_line_decoration.info.clone();
+                                info.rect = info.rect.translate(&pending_shadow.shadow.offset);
+                                info.clip_rect = info.clip_rect.translate(&pending_shadow.shadow.offset);
+
+                                // Construct and add a primitive for the given shadow.
+                                let shadow_prim_instance =
+                                    self.create_interned_primitive(
+                                        &info,
+                                        pending_line_decoration.clip_and_scroll.clip_chain_id,
+                                        pending_line_decoration.clip_and_scroll.spatial_node_index,
+                                        pending_line_decoration.prim.create_shadow(
+                                            &pending_shadow.shadow,
+                                        ),
+                                );
+
+                                // Add the new primitive to the shadow picture.
+                                prims.push(shadow_prim_instance);
+                            }
                             ShadowItem::TextRun(ref pending_text_run) => {
                                 // Offset the local rect and clip rect by the shadow offset.
                                 let mut info = pending_text_run.info.clone();
@@ -1698,6 +1719,27 @@ impl<'a> DisplayListFlattener<'a> {
                         self.add_primitive_to_draw_list(prim_instance);
                     }
                 },
+                ShadowItem::LineDecoration(pending_line_decoration) => {
+                    // For a normal primitive, if it has alpha > 0, then we add this
+                    // as a normal primitive to the parent picture.
+                    //
+                    // TODO(djg): Can this be cleaned up?  It looks identical to
+                    // another piece of code.
+                    if pending_line_decoration.prim.is_visible() {
+                        let prim_instance = self.create_interned_primitive(
+                            &pending_line_decoration.info,
+                            pending_line_decoration.clip_and_scroll.clip_chain_id,
+                            pending_line_decoration.clip_and_scroll.spatial_node_index,
+                            pending_line_decoration.prim,
+                        );
+                        self.register_chase_primitive_by_rect(
+                            &pending_line_decoration.info.rect,
+                            &prim_instance,
+                        );
+                        self.add_primitive_to_hit_testing_list(&pending_line_decoration.info, pending_line_decoration.clip_and_scroll);
+                        self.add_primitive_to_draw_list(prim_instance);
+                    }
+                },
                 ShadowItem::TextRun(pending_text_run) => {
                     // For a normal primitive, if it has alpha > 0, then we add this
                     // as a normal primitive to the parent picture.
@@ -1791,19 +1833,16 @@ impl<'a> DisplayListFlattener<'a> {
         color: &ColorF,
         style: LineStyle,
     ) {
-        let container = PrimitiveContainer::LineDecoration {
-            color: *color,
-            style,
-            orientation,
-            wavy_line_thickness,
-        };
-
-        self.add_primitive(
+        self.add_interned_primitive(
             clip_and_scroll,
             info,
             Vec::new(),
-            container,
-        );
+            LineDecoration {
+                color: *color,
+                style,
+                orientation,
+                wavy_line_thickness,
+        });
     }
 
     pub fn add_border(
@@ -2484,12 +2523,19 @@ struct PendingShadow {
 enum ShadowItem {
     Shadow(PendingShadow),
     Primitive(PendingPrimitive<PrimitiveContainer>),
+    LineDecoration(PendingPrimitive<LineDecoration>),
     TextRun(PendingPrimitive<TextRun>),
 }
 
 impl From<PendingPrimitive<PrimitiveContainer>> for ShadowItem {
     fn from(container: PendingPrimitive<PrimitiveContainer>) -> Self {
         ShadowItem::Primitive(container)
+    }
+}
+
+impl From<PendingPrimitive<LineDecoration>> for ShadowItem {
+    fn from(line_decoration: PendingPrimitive<LineDecoration>) -> Self {
+        ShadowItem::LineDecoration(line_decoration)
     }
 }
 
