@@ -16,6 +16,7 @@ use intern::{Internable, Interner};
 use internal_types::{FastHashMap, FastHashSet};
 use prim_store::{PrimitiveDataInterner, PrimitiveDataUpdateList, PrimitiveKeyKind};
 use prim_store::PrimitiveStoreStats;
+use prim_store::{TextRunDataInterner, TextRun, TextRunDataUpdateList};
 use resource_cache::FontInstanceMap;
 use render_backend::DocumentView;
 use renderer::{PipelineInfo, SceneBuilderHooks};
@@ -30,6 +31,7 @@ use std::time::Duration;
 pub struct DocumentResourceUpdates {
     pub clip_updates: ClipDataUpdateList,
     pub prim_updates: PrimitiveDataUpdateList,
+    pub text_run_updates: TextRunDataUpdateList,
 }
 
 /// Represents the work associated to a transaction before scene building.
@@ -165,6 +167,7 @@ pub enum SceneSwapResult {
 pub struct DocumentResources {
     pub clip_interner: ClipDataInterner,
     pub prim_interner: PrimitiveDataInterner,
+    pub text_run_interner: TextRunDataInterner,
 }
 
 // Access to `DocumentResources` interners by `Internable`
@@ -178,6 +181,13 @@ impl InternerMut<PrimitiveKeyKind> for DocumentResources {
         &mut self.prim_interner
     }
 }
+
+impl InternerMut<TextRun> for DocumentResources {
+    fn interner_mut(&mut self) -> &mut TextRunDataInterner {
+        &mut self.text_run_interner
+    }
+}
+
 
 // A document in the scene builder contains the current scene,
 // as well as a persistent clip interner. This allows clips
@@ -347,10 +357,16 @@ impl SceneBuilder {
                     .prim_interner
                     .end_frame_and_get_pending_updates();
 
+                let text_run_updates = item
+                    .doc_resources
+                    .text_run_interner
+                    .end_frame_and_get_pending_updates();
+
                 doc_resource_updates = Some(
                     DocumentResourceUpdates {
                         clip_updates,
                         prim_updates,
+                        text_run_updates,
                     }
                 );
 
@@ -459,10 +475,16 @@ impl SceneBuilder {
                     .prim_interner
                     .end_frame_and_get_pending_updates();
 
+                let text_run_updates = doc
+                    .resources
+                    .text_run_interner
+                    .end_frame_and_get_pending_updates();
+
                 doc_resource_updates = Some(
                     DocumentResourceUpdates {
                         clip_updates,
                         prim_updates,
+                        text_run_updates,
                     }
                 );
 
