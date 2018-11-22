@@ -681,7 +681,7 @@ pub struct BorderSegmentInfo {
 pub enum BorderSource {
     Image(ImageRequest),
     Border {
-        segments: SmallVec<[BorderSegmentInfo; 8]>,
+        segments: Vec<BorderSegmentInfo>,
         border: NormalBorder,
         widths: LayoutSideOffsets,
     },
@@ -771,7 +771,7 @@ impl BrushKind {
     pub fn new_border(
         mut border: NormalBorder,
         widths: LayoutSideOffsets,
-        segments: SmallVec<[BorderSegmentInfo; 8]>,
+        segments: Vec<BorderSegmentInfo>,
     ) -> BrushKind {
         // FIXME(emilio): Is this the best place to do this?
         border.normalize(&widths);
