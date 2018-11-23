@@ -5,30 +5,34 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 # This must be run from the root webrender directory!
+# Users may set the CARGOFLAGS environment variable to pass
+# additional flags to cargo if desired.
 
 set -o errexit
 set -o nounset
 set -o pipefail
 set -o xtrace
 
+CARGOFLAGS=${CARGOFLAGS:-"--verbose"}  # default to --verbose if not set
+
 pushd webrender_api
-cargo test --verbose --features "ipc"
+cargo test ${CARGOFLAGS} --features "ipc"
 popd
 
 pushd webrender
-cargo check --verbose --no-default-features
-cargo check --verbose --no-default-features --features capture
-cargo check --verbose --features capture,profiler
-cargo check --verbose --features replay
-cargo check --verbose --no-default-features --features pathfinder
+cargo check ${CARGOFLAGS} --no-default-features
+cargo check ${CARGOFLAGS} --no-default-features --features capture
+cargo check ${CARGOFLAGS} --features capture,profiler
+cargo check ${CARGOFLAGS} --features replay
+cargo check ${CARGOFLAGS} --no-default-features --features pathfinder
 popd
 
 pushd wrench
-cargo check --verbose --features env_logger
+cargo check ${CARGOFLAGS} --features env_logger
 popd
 
 pushd examples
-cargo check --verbose
+cargo check ${CARGOFLAGS}
 popd
 
-cargo test --all --verbose
+cargo test ${CARGOFLAGS} --all
