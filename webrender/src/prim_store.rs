@@ -33,7 +33,7 @@ use render_task::{RenderTaskCacheKeyKind, RenderTaskId, RenderTaskCacheEntryHand
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ImageProperties, ImageRequest, ResourceCache};
 use scene::SceneProperties;
-use segment::Segment;
+use segment::SegmentBuilder;
 use std::{cmp, fmt, mem, ops, u32, usize};
 #[cfg(debug_assertions)]
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -3059,8 +3059,6 @@ impl PrimitiveStore {
                 PrimitiveInstanceKind::Rectangle { segment_instance_index, opacity_binding_index, .. },
                 PrimitiveTemplateKind::Rectangle { ref color, .. }
             ) => {
-                debug_assert!(*segment_instance_index != SegmentInstanceIndex::INVALID);
-
                 if *segment_instance_index != SegmentInstanceIndex::UNUSED {
                     let segment_instance = &mut scratch.segment_instances[*segment_instance_index];
 
@@ -3208,14 +3206,14 @@ impl<'a> GpuDataRequest<'a> {
     }
 }
 
-    fn write_brush_segment_description<F>(
+    fn write_brush_segment_description(
         prim_local_rect: LayoutRect,
         prim_local_clip_rect: LayoutRect,
         clip_chain: &ClipChainInstance,
-        frame_state: &mut FrameBuildingState,
+        segment_builder: &mut SegmentBuilder,
+        clip_store: &ClipStore,
         resources: &FrameResources,
-        f: F
-    ) where F: FnMut(&Segment) {
+    ) -> bool {
         // If the brush is small, we generally want to skip building segments
         // and just draw it as a single primitive with clip mask. However,
         // if the clips are purely rectangles that have no per-fragment
@@ -3228,7 +3226,6 @@ impl<'a> GpuDataRequest<'a> {
         //           the clip sources here.
         let mut rect_clips_only = true;
 
-        let segment_builder = &mut frame_state.segment_builder;
         segment_builder.initialize(
             prim_local_rect,
             None,
@@ -3238,8 +3235,7 @@ impl<'a> GpuDataRequest<'a> {
         // Segment the primitive on all the local-space clip sources that we can.
         let mut local_clip_count = 0;
         for i in 0 .. clip_chain.clips_range.count {
-            let clip_instance = frame_state
-                .clip_store
+            let clip_instance = clip_store
                 .get_instance_from_range(&clip_chain.clips_range, i);
             let clip_node = &resources.clip_data_store[clip_instance.handle];
 
@@ -3331,8 +3327,10 @@ impl<'a> GpuDataRequest<'a> {
                 }
             }
 
-            segment_builder.build(f);
+            return true
         }
+
+        false
     }
 
 impl PrimitiveInstance {
@@ -3351,13 +3349,15 @@ impl PrimitiveInstance {
                 if *segment_instance_index == SegmentInstanceIndex::INVALID {
                     let mut segments: SmallVec<[BrushSegment; 8]> = SmallVec::new();
 
-                    write_brush_segment_description(
+                    if write_brush_segment_description(
                         prim_local_rect,
                         prim_local_clip_rect,
                         prim_clip_chain,
-                        frame_state,
+                        &mut frame_state.segment_builder,
+                        frame_state.clip_store,
                         resources,
-                        |segment| {
+                    ) {
+                        frame_state.segment_builder.build(|segment| {
                             segments.push(
                                 BrushSegment::new(
                                     segment.rect,
@@ -3367,8 +3367,8 @@ impl PrimitiveInstance {
                                     BrushFlags::empty(),
                                 ),
                             );
-                        }
-                    );
+                        });
+                    }
 
                     if segments.is_empty() {
                         *segment_instance_index = SegmentInstanceIndex::UNUSED;
@@ -3403,13 +3403,15 @@ impl PrimitiveInstance {
                                 if brush.kind.supports_segments(frame_state.resource_cache) {
                                     let mut segments = BrushSegmentVec::new();
 
-                                    write_brush_segment_description(
+                                    if write_brush_segment_description(
                                         prim_local_rect,
                                         prim_local_clip_rect,
                                         prim_clip_chain,
-                                        frame_state,
+                                        &mut frame_state.segment_builder,
+                                        frame_state.clip_store,
                                         resources,
-                                        |segment| {
+                                    ) {
+                                        frame_state.segment_builder.build(|segment| {
                                             segments.push(
                                                 BrushSegment::new(
                                                     segment.rect,
@@ -3419,8 +3421,8 @@ impl PrimitiveInstance {
                                                     BrushFlags::empty(),
                                                 ),
                                             );
-                                        }
-                                    );
+                                        });
+                                    }
 
                                     if !segments.is_empty() {
                                         brush.segment_desc = Some(BrushSegmentDescriptor {

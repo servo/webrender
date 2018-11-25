@@ -1644,7 +1644,6 @@ impl AlphaBatchBuilder {
                     0,
                 );
 
-                debug_assert!(*segment_instance_index != SegmentInstanceIndex::INVALID);
                 let (prim_cache_address, segments) = if *segment_instance_index == SegmentInstanceIndex::UNUSED {
                     (gpu_cache.get_address(&prim_data.gpu_cache_handle), None)
                 } else {
