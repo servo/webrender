@@ -463,7 +463,7 @@ pub struct Shadow {
     pub blur_radius: f32,
 }
 
-#[repr(u32)]
+#[repr(u8)]
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize, Ord, PartialOrd)]
 pub enum ExtendMode {
     Clamp,
