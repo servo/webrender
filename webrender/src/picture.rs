@@ -441,7 +441,6 @@ impl TileCache {
                     }
                 }
             }
-            PrimitiveInstanceKind::LegacyPrimitive { .. } |
             PrimitiveInstanceKind::TextRun { .. } |
             PrimitiveInstanceKind::LineDecoration { .. } |
             PrimitiveInstanceKind::Clear |
