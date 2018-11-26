@@ -447,6 +447,7 @@ impl TileCache {
             PrimitiveInstanceKind::Clear |
             PrimitiveInstanceKind::NormalBorder { .. } |
             PrimitiveInstanceKind::LinearGradient { .. } |
+            PrimitiveInstanceKind::RadialGradient { .. } |
             PrimitiveInstanceKind::ImageBorder { .. } => {
                 // These don't contribute dependencies
             }
