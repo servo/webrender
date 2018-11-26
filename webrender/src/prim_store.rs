@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipMode, ColorF, PictureRect, ColorU, LayoutPrimitiveInfo};
+use api::{AlphaType, BorderRadius, ClipMode, ColorF, PictureRect, ColorU, LayoutPrimitiveInfo};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, ExtendMode, DeviceRect, LayoutSideOffsetsAu};
 use api::{FilterOp, GlyphInstance, GradientStop, ImageKey, ImageRendering, TileOffset, RepeatMode};
 use api::{RasterSpace, LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize, LayoutToWorldTransform};
@@ -297,11 +297,6 @@ pub struct DeferredResolve {
     pub image_properties: ImageProperties,
     pub rendering: ImageRendering,
 }
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct PrimitiveIndex(pub usize);
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ClipTaskIndex(pub u32);
@@ -1553,23 +1548,6 @@ pub struct BorderSegmentInfo {
     pub cache_key: BorderSegmentCacheKey,
 }
 
-pub enum BrushKind {
-    /*
-    RadialGradient {
-        stops_handle: GpuCacheHandle,
-        stops_range: ItemRange<GradientStop>,
-        extend_mode: ExtendMode,
-        center: LayoutPoint,
-        start_radius: f32,
-        end_radius: f32,
-        ratio_xy: f32,
-        stretch_size: LayoutSize,
-        tile_spacing: LayoutSize,
-        visible_tiles_range: GradientTileRange,
-    },
-    */
-}
-
 bitflags! {
     /// Each bit of the edge AA mask is:
     /// 0, when the edge of the primitive needs to be considered for AA
@@ -1679,20 +1657,6 @@ impl BrushSegment {
             }
         }
     }
-}
-
-pub type BrushSegmentVec = SmallVec<[BrushSegment; 1]>;
-
-#[derive(Debug)]
-pub struct BrushSegmentDescriptor {
-    pub segments: BrushSegmentVec,
-}
-
-pub struct BrushPrimitive {
-    pub kind: BrushKind,
-    pub opacity: PrimitiveOpacity,
-    pub segment_desc: Option<BrushSegmentDescriptor>,
-    pub gpu_location: GpuCacheHandle,
 }
 
 // Key that identifies a unique (partial) image that is being
@@ -2339,22 +2303,19 @@ impl PrimitiveContainer {
         }
     }
 
-    /// Convert a source primitive container into a key, and optionally
-    /// an old style PrimitiveDetails structure.
+    /// Convert a source primitive container into a key.
     pub fn build(
         self,
         info: &mut LayoutPrimitiveInfo,
-    ) -> (PrimitiveKeyKind, Option<PrimitiveDetails>) {
+    ) -> PrimitiveKeyKind {
         match self {
             PrimitiveContainer::TextRun { font, offset, glyphs, shadow, .. } => {
-                let key = PrimitiveKeyKind::TextRun {
+                PrimitiveKeyKind::TextRun {
                     font,
                     offset: offset.to_au(),
                     glyphs,
                     shadow,
-                };
-
-                (key, None)
+                }
             }
             PrimitiveContainer::LinearGradient {
                 extend_mode,
@@ -2367,7 +2328,7 @@ impl PrimitiveContainer {
                 nine_patch,
                 ..
             } => {
-                let key = PrimitiveKeyKind::LinearGradient {
+                PrimitiveKeyKind::LinearGradient {
                     extend_mode,
                     start_point: start_point.into(),
                     end_point: end_point.into(),
@@ -2376,9 +2337,7 @@ impl PrimitiveContainer {
                     stops,
                     reverse_stops,
                     nine_patch,
-                };
-
-                (key, None)
+                }
             }
             PrimitiveContainer::RadialGradient {
                 extend_mode,
@@ -2390,7 +2349,7 @@ impl PrimitiveContainer {
                 stops,
                 ..
             } => {
-                let key = PrimitiveKeyKind::RadialGradient {
+                PrimitiveKeyKind::RadialGradient {
                     extend_mode,
                     center: center.into(),
                     params,
@@ -2398,22 +2357,18 @@ impl PrimitiveContainer {
                     tile_spacing: tile_spacing.into(),
                     nine_patch,
                     stops,
-                };
-
-                (key, None)
+                }
             }
             PrimitiveContainer::Clear => {
-                (PrimitiveKeyKind::Clear, None)
+                PrimitiveKeyKind::Clear
             }
             PrimitiveContainer::Rectangle { color, .. } => {
-                let key = PrimitiveKeyKind::Rectangle {
+                PrimitiveKeyKind::Rectangle {
                     color: color.into(),
-                };
-
-                (key, None)
+                }
             }
             PrimitiveContainer::Image { alpha_type, key, stretch_size, color, tile_spacing, image_rendering, sub_rect, .. } => {
-                let key = PrimitiveKeyKind::Image {
+                PrimitiveKeyKind::Image {
                     key,
                     tile_spacing: tile_spacing.into(),
                     stretch_size: stretch_size.into(),
@@ -2421,36 +2376,28 @@ impl PrimitiveContainer {
                     sub_rect,
                     image_rendering,
                     alpha_type,
-                };
-
-                (key, None)
+                }
             }
             PrimitiveContainer::YuvImage { color_depth, yuv_key, format, color_space, image_rendering, .. } => {
-                let key = PrimitiveKeyKind::YuvImage {
+                PrimitiveKeyKind::YuvImage {
                     color_depth,
                     yuv_key,
                     format,
                     color_space,
                     image_rendering,
-                };
-
-                (key, None)
+                }
             }
             PrimitiveContainer::ImageBorder { request, nine_patch, .. } => {
-                let key = PrimitiveKeyKind::ImageBorder {
+                PrimitiveKeyKind::ImageBorder {
                     request,
                     nine_patch,
-                };
-
-                (key, None)
+                }
             }
             PrimitiveContainer::NormalBorder { border, widths, .. } => {
-                let key = PrimitiveKeyKind::NormalBorder {
+                PrimitiveKeyKind::NormalBorder {
                     border: border.into(),
                     widths: widths.to_au(),
-                };
-
-                (key, None)
+                }
             }
             PrimitiveContainer::LineDecoration { color, style, orientation, wavy_line_thickness } => {
                 // For line decorations, we can construct the render task cache key
@@ -2504,12 +2451,10 @@ impl PrimitiveContainer {
                     }
                 });
 
-                let key = PrimitiveKeyKind::LineDecoration {
+                PrimitiveKeyKind::LineDecoration {
                     cache_key,
                     color: color.into(),
-                };
-
-                (key, None)
+                }
             }
         }
     }
@@ -2580,16 +2525,6 @@ impl PrimitiveContainer {
     }
 }
 
-pub enum PrimitiveDetails {
-    Brush(BrushPrimitive),
-}
-
-pub struct Primitive {
-    pub local_rect: LayoutRect,
-    pub local_clip_rect: LayoutRect,
-    pub details: PrimitiveDetails,
-}
-
 /// Instance specific fields for an image primitive. These are
 /// currently stored in a separate array to avoid bloating the
 /// size of PrimitiveInstance. In the future, we should be able
@@ -2619,11 +2554,6 @@ pub enum PrimitiveInstanceKind {
     /// Direct reference to a Picture
     Picture {
         pic_index: PictureIndex,
-    },
-    /// An old style, non-interned primitive. Uses prim_index to
-    /// access the primitive details in the prim_store.
-    LegacyPrimitive {
-        prim_index: PrimitiveIndex,
     },
     /// A run of glyphs, with associated font parameters.
     TextRun {
@@ -2839,7 +2769,6 @@ impl PrimitiveScratchBuffer {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Clone, Debug)]
 pub struct PrimitiveStoreStats {
-    primitive_count: usize,
     picture_count: usize,
     text_run_count: usize,
     opacity_binding_count: usize,
@@ -2849,7 +2778,6 @@ pub struct PrimitiveStoreStats {
 impl PrimitiveStoreStats {
     pub fn empty() -> Self {
         PrimitiveStoreStats {
-            primitive_count: 0,
             picture_count: 0,
             text_run_count: 0,
             opacity_binding_count: 0,
@@ -2859,7 +2787,6 @@ impl PrimitiveStoreStats {
 }
 
 pub struct PrimitiveStore {
-    pub primitives: Vec<Primitive>,
     pub pictures: Vec<PicturePrimitive>,
     pub text_runs: TextRunStorage,
 
@@ -2870,22 +2797,25 @@ pub struct PrimitiveStore {
 
     /// List of animated opacity bindings for a primitive.
     pub opacity_bindings: OpacityBindingStorage,
+
+    /// Total count of primitive instances contained in pictures.
+    /// This is used for profile counters only.
+    pub prim_count: usize,
 }
 
 impl PrimitiveStore {
     pub fn new(stats: &PrimitiveStoreStats) -> PrimitiveStore {
         PrimitiveStore {
-            primitives: Vec::with_capacity(stats.primitive_count),
             pictures: Vec::with_capacity(stats.picture_count),
             text_runs: TextRunStorage::new(stats.text_run_count),
             images: ImageInstanceStorage::new(stats.image_count),
             opacity_bindings: OpacityBindingStorage::new(stats.opacity_binding_count),
+            prim_count: 0,
         }
     }
 
     pub fn get_stats(&self) -> PrimitiveStoreStats {
         PrimitiveStoreStats {
-            primitive_count: self.primitives.len(),
             picture_count: self.pictures.len(),
             text_run_count: self.text_runs.len(),
             image_count: self.images.len(),
@@ -2898,6 +2828,7 @@ impl PrimitiveStore {
         prim: PicturePrimitive,
     ) -> PictureIndex {
         let index = PictureIndex(self.pictures.len());
+        self.prim_count += prim.prim_list.prim_instances.len();
         self.pictures.push(prim);
         index
     }
@@ -2949,25 +2880,6 @@ impl PrimitiveStore {
         }
     }
 
-    pub fn add_primitive(
-        &mut self,
-        local_rect: &LayoutRect,
-        local_clip_rect: &LayoutRect,
-        details: PrimitiveDetails,
-    ) -> PrimitiveIndex {
-        let prim_index = self.primitives.len();
-
-        let prim = Primitive {
-            local_rect: *local_rect,
-            local_clip_rect: *local_clip_rect,
-            details,
-        };
-
-        self.primitives.push(prim);
-
-        PrimitiveIndex(prim_index)
-    }
-
     pub fn get_opacity_binding(
         &self,
         opacity_binding_index: OpacityBindingIndex,
@@ -3011,7 +2923,6 @@ impl PrimitiveStore {
             PrimitiveInstanceKind::NormalBorder { .. } |
             PrimitiveInstanceKind::ImageBorder { .. } |
             PrimitiveInstanceKind::YuvImage { .. } |
-            PrimitiveInstanceKind::LegacyPrimitive { .. } |
             PrimitiveInstanceKind::LinearGradient { .. } |
             PrimitiveInstanceKind::RadialGradient { .. } |
             PrimitiveInstanceKind::LineDecoration { .. } => {
@@ -3094,10 +3005,6 @@ impl PrimitiveStore {
         self.pictures[pic_index.0].requested_composite_mode = None;
     }
 
-    pub fn prim_count(&self) -> usize {
-        self.primitives.len()
-    }
-
     pub fn prepare_prim_for_render(
         &mut self,
         prim_instance: &mut PrimitiveInstance,
@@ -3106,7 +3013,6 @@ impl PrimitiveStore {
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
-        display_list: &BuiltDisplayList,
         plane_split_anchor: usize,
         resources: &mut FrameResources,
         scratch: &mut PrimitiveScratchBuffer,
@@ -3143,7 +3049,6 @@ impl PrimitiveStore {
                 PrimitiveInstanceKind::TextRun { .. } |
                 PrimitiveInstanceKind::Rectangle { .. } |
                 PrimitiveInstanceKind::LineDecoration { .. } |
-                PrimitiveInstanceKind::LegacyPrimitive { .. } |
                 PrimitiveInstanceKind::NormalBorder { .. } |
                 PrimitiveInstanceKind::ImageBorder { .. } |
                 PrimitiveInstanceKind::YuvImage { .. } |
@@ -3210,10 +3115,6 @@ impl PrimitiveStore {
                 let prim_data = &resources
                     .prim_data_store[prim_instance.prim_data_handle];
                 (prim_data.prim_rect, prim_data.clip_rect)
-            }
-            PrimitiveInstanceKind::LegacyPrimitive { prim_index } => {
-                let prim = &self.primitives[prim_index.0];
-                (prim.local_rect, prim.local_clip_rect)
             }
         };
 
@@ -3420,19 +3321,6 @@ impl PrimitiveStore {
                     scratch,
                 );
             }
-            PrimitiveInstanceKind::LegacyPrimitive { prim_index } => {
-                let prim_details = &mut self.primitives[prim_index.0].details;
-
-                prim_instance.prepare_prim_for_render_inner(
-                    prim_local_rect,
-                    prim_details,
-                    prim_context,
-                    pic_context,
-                    frame_state,
-                    display_list,
-                    scratch,
-                );
-            }
         }
 
         true
@@ -3448,12 +3336,6 @@ impl PrimitiveStore {
         resources: &mut FrameResources,
         scratch: &mut PrimitiveScratchBuffer,
     ) {
-        let display_list = &frame_context
-            .pipelines
-            .get(&pic_context.pipeline_id)
-            .expect("No display list?")
-            .display_list;
-
         for (plane_split_anchor, prim_instance) in prim_list.prim_instances.iter_mut().enumerate() {
             prim_instance.bounding_rect = None;
 
@@ -3524,7 +3406,6 @@ impl PrimitiveStore {
                 pic_state,
                 frame_context,
                 frame_state,
-                display_list,
                 plane_split_anchor,
                 resources,
                 scratch,
@@ -4206,53 +4087,6 @@ impl PrimitiveInstance {
                 // These primitives don't support / need segments.
                 return;
             }
-            PrimitiveInstanceKind::LegacyPrimitive { prim_index } => {
-                let prim = &mut prim_store.primitives[prim_index.0];
-                match prim.details {
-                    PrimitiveDetails::Brush(ref mut brush) => {
-                        match brush.segment_desc {
-                            Some(..) => {
-                                // If we already have a segment descriptor, skip segment build.
-                                return;
-                            }
-                            None => {
-                                // If no segment descriptor built yet, see if it is a brush
-                                // type that wants to be segmented.
-                                let mut segments = BrushSegmentVec::new();
-
-                                if write_brush_segment_description(
-                                    prim_local_rect,
-                                    prim_local_clip_rect,
-                                    prim_clip_chain,
-                                    &mut frame_state.segment_builder,
-                                    frame_state.clip_store,
-                                    resources,
-                                ) {
-                                    frame_state.segment_builder.build(|segment| {
-                                        segments.push(
-                                            BrushSegment::new(
-                                                segment.rect,
-                                                segment.has_mask,
-                                                segment.edge_flags,
-                                                [0.0; 4],
-                                                BrushFlags::empty(),
-                                            ),
-                                        );
-                                    });
-                                }
-
-                                if !segments.is_empty() {
-                                    brush.segment_desc = Some(BrushSegmentDescriptor {
-                                        segments,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-
-                return;
-            }
         };
 
         if *segment_instance_index == SegmentInstanceIndex::INVALID {
@@ -4410,21 +4244,6 @@ impl PrimitiveInstance {
                     }
                 }
             }
-            PrimitiveInstanceKind::LegacyPrimitive { prim_index } => {
-                let prim = &prim_store.primitives[prim_index.0];
-                match prim.details {
-                    PrimitiveDetails::Brush(ref brush) => {
-                        match brush.segment_desc {
-                            Some(ref description) => {
-                                &description.segments
-                            }
-                            None => {
-                                return false;
-                            }
-                        }
-                    }
-                }
-            }
         };
 
         // If there are no segments, early out to avoid setting a valid
@@ -4492,18 +4311,6 @@ impl PrimitiveInstance {
         }
 
         true
-    }
-
-    fn prepare_prim_for_render_inner(
-        &mut self,
-        _prim_local_rect: LayoutRect,
-        _prim_details: &mut PrimitiveDetails,
-        _prim_context: &PrimitiveContext,
-        _pic_context: &PictureContext,
-        _frame_state: &mut FrameBuildingState,
-        _display_list: &BuiltDisplayList,
-        _scratch: &mut PrimitiveScratchBuffer,
-    ) {
     }
 
     fn update_clip_task(
@@ -4694,12 +4501,11 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<PrimitiveContainer>(), 176, "PrimitiveContainer size changed");
+    assert_eq!(mem::size_of::<PrimitiveContainer>(), 136, "PrimitiveContainer size changed");
     assert_eq!(mem::size_of::<PrimitiveInstance>(), 120, "PrimitiveInstance size changed");
     assert_eq!(mem::size_of::<PrimitiveInstanceKind>(), 16, "PrimitiveInstanceKind size changed");
     assert_eq!(mem::size_of::<PrimitiveTemplate>(), 176, "PrimitiveTemplate size changed");
     assert_eq!(mem::size_of::<PrimitiveTemplateKind>(), 112, "PrimitiveTemplateKind size changed");
     assert_eq!(mem::size_of::<PrimitiveKey>(), 152, "PrimitiveKey size changed");
     assert_eq!(mem::size_of::<PrimitiveKeyKind>(), 112, "PrimitiveKeyKind size changed");
-    assert_eq!(mem::size_of::<Primitive>(), 200, "Primitive size changed");
 }
