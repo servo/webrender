@@ -244,6 +244,7 @@ impl SurfaceDescriptor {
                 PrimitiveInstanceKind::YuvImage { .. } |
                 PrimitiveInstanceKind::LineDecoration { .. } |
                 PrimitiveInstanceKind::LinearGradient { .. } |
+                PrimitiveInstanceKind::RadialGradient { .. } |
                 PrimitiveInstanceKind::TextRun { .. } |
                 PrimitiveInstanceKind::NormalBorder { .. } |
                 PrimitiveInstanceKind::Rectangle { .. } |

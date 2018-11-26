@@ -17,20 +17,18 @@ use clip::{ClipChainId, ClipRegion, ClipItemKey, ClipStore, ClipItemSceneData};
 use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, ClipScrollTree, SpatialNodeIndex};
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
 use glyph_rasterizer::FontInstance;
-use gpu_cache::GpuCacheHandle;
 use hit_test::{HitTestingItem, HitTestingRun};
 use image::simplify_repeated_primitive;
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PrimitiveList};
-use prim_store::{BrushKind, BrushPrimitive, PrimitiveInstance, PrimitiveDataInterner, PrimitiveKeyKind};
+use prim_store::{PrimitiveInstance, PrimitiveDataInterner, PrimitiveKeyKind, RadialGradientParams};
 use prim_store::{PrimitiveKey, PrimitiveSceneData, PrimitiveInstanceKind, GradientStopKey, NinePatchDescriptor};
-use prim_store::{PrimitiveContainer, PrimitiveDataHandle, PrimitiveStore, PrimitiveStoreStats, BrushSegmentDescriptor};
-use prim_store::{ScrollNodeAndClipChain, PictureIndex, register_prim_chase_id, GradientTileRange};
+use prim_store::{PrimitiveContainer, PrimitiveDataHandle, PrimitiveStore, PrimitiveStoreStats};
+use prim_store::{ScrollNodeAndClipChain, PictureIndex, register_prim_chase_id};
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
 use scene_builder::DocumentResources;
-use smallvec::SmallVec;
 use spatial_node::{StickyFrameInfo};
 use std::{f32, mem};
 use std::collections::vec_deque::VecDeque;
@@ -600,7 +598,7 @@ impl<'a> DisplayListFlattener<'a> {
                 }
             }
             SpecificDisplayItem::RadialGradient(ref info) => {
-                let brush_kind = self.create_brush_kind_for_radial_gradient(
+                let prim = self.create_radial_gradient_prim(
                     &prim_info,
                     info.gradient.center,
                     info.gradient.start_offset * info.gradient.radius.width,
@@ -610,9 +608,15 @@ impl<'a> DisplayListFlattener<'a> {
                     info.gradient.extend_mode,
                     info.tile_size,
                     info.tile_spacing,
+                    pipeline_id,
+                    None,
                 );
-                let prim = PrimitiveContainer::Brush(BrushPrimitive::new(brush_kind, None));
-                self.add_primitive(clip_and_scroll, &prim_info, Vec::new(), prim);
+                self.add_primitive(
+                    clip_and_scroll,
+                    &prim_info,
+                    Vec::new(),
+                    prim,
+                );
             }
             SpecificDisplayItem::BoxShadow(ref box_shadow_info) => {
                 let bounds = box_shadow_info
@@ -1781,7 +1785,7 @@ impl<'a> DisplayListFlattener<'a> {
                         }
                     }
                     NinePatchBorderSource::RadialGradient(gradient) => {
-                        let brush_kind = self.create_brush_kind_for_radial_gradient(
+                        self.create_radial_gradient_prim(
                             &info,
                             gradient.center,
                             gradient.start_offset * gradient.radius.width,
@@ -1791,16 +1795,8 @@ impl<'a> DisplayListFlattener<'a> {
                             gradient.extend_mode,
                             LayoutSize::new(border.height as f32, border.width as f32),
                             LayoutSize::zero(),
-                        );
-
-                        let segments = nine_patch.create_segments(&info.rect);
-
-                        let descriptor = BrushSegmentDescriptor {
-                            segments: SmallVec::from_vec(segments),
-                        };
-
-                        PrimitiveContainer::Brush(
-                            BrushPrimitive::new(brush_kind, Some(descriptor))
+                            pipeline_id,
+                            Some(Box::new(nine_patch)),
                         )
                     }
                 };
@@ -1888,7 +1884,7 @@ impl<'a> DisplayListFlattener<'a> {
         })
     }
 
-    pub fn create_brush_kind_for_radial_gradient(
+    pub fn create_radial_gradient_prim(
         &mut self,
         info: &LayoutPrimitiveInfo,
         center: LayoutPoint,
@@ -1899,21 +1895,38 @@ impl<'a> DisplayListFlattener<'a> {
         extend_mode: ExtendMode,
         stretch_size: LayoutSize,
         mut tile_spacing: LayoutSize,
-    ) -> BrushKind {
+        pipeline_id: PipelineId,
+        nine_patch: Option<Box<NinePatchDescriptor>>,
+    ) -> PrimitiveContainer {
         let mut prim_rect = info.rect;
         simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
 
-        BrushKind::RadialGradient {
-            stops_range: stops,
-            extend_mode,
-            center,
+        // TODO(gw): It seems like we should be able to look this up once in
+        //           flatten_root() and pass to all children here to avoid
+        //           some hash lookups?
+        let display_list = self.scene.get_display_list_for_pipeline(pipeline_id);
+
+        let params = RadialGradientParams {
             start_radius,
             end_radius,
             ratio_xy,
-            stops_handle: GpuCacheHandle::new(),
+        };
+
+        let stops = display_list.get(stops).map(|stop| {
+            GradientStopKey {
+                offset: stop.offset,
+                color: stop.color.into(),
+            }
+        }).collect();
+
+        PrimitiveContainer::RadialGradient {
+            extend_mode,
+            center,
+            params,
             stretch_size,
             tile_spacing,
-            visible_tiles_range: GradientTileRange::empty(),
+            nine_patch,
+            stops,
         }
     }
 
