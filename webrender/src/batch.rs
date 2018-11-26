@@ -1756,7 +1756,7 @@ impl AlphaBatchBuilder {
             }
             (
                 PrimitiveInstanceKind::Image { image_instance_index, .. },
-                PrimitiveTemplateKind::Image { ref source, alpha_type, key, image_rendering, .. }
+                PrimitiveTemplateKind::Image { source, alpha_type, key, image_rendering, .. }
             ) => {
                 let image_instance = &ctx.prim_store.images[*image_instance_index];
                 let opacity_binding = ctx.prim_store.get_opacity_binding(image_instance.opacity_binding_index);
