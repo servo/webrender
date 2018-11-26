@@ -21,7 +21,8 @@ use util::{lerp, RectHelpers};
 // common cases.
 
 /// Maximum resolution in device pixels at which borders are rasterized.
-pub const MAX_BORDER_RESOLUTION: u32 = 2048;
+const MAX_BORDER_RESOLUTION: u32 = 2048;
+
 /// Maximum number of dots or dashes per segment to avoid freezing and filling up
 /// memory with unreasonable inputs. It would be better to address this by not building
 /// a list of per-dot information in the first place.

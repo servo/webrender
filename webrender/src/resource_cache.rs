@@ -484,15 +484,15 @@ impl ResourceCache {
     // handle will be returned. Otherwise, the user supplied
     // closure will be invoked to generate the render task
     // chain that is required to draw this task.
-    pub fn request_render_task<F>(
+    pub fn request_render_task(
         &mut self,
         key: RenderTaskCacheKey,
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
         user_data: Option<[f32; 3]>,
         is_opaque: bool,
-        f: F,
-    ) -> RenderTaskCacheEntryHandle where F: FnOnce(&mut RenderTaskTree) -> RenderTaskId {
+        f: impl FnOnce(&mut RenderTaskTree) -> RenderTaskId,
+    ) -> RenderTaskCacheEntryHandle {
         self.cached_render_tasks.request_render_task(
             key,
             &mut self.texture_cache,
@@ -500,8 +500,8 @@ impl ResourceCache {
             render_tasks,
             user_data,
             is_opaque,
-            |render_task_tree| Ok(f(render_task_tree))
-        ).expect("Failed to request a render task from the resource cache!")
+            f,
+        )
     }
 
     pub fn post_scene_building_update(

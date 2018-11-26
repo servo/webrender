@@ -1277,7 +1277,7 @@ impl RenderTaskCache {
         }
     }
 
-    pub fn request_render_task<F>(
+    pub fn request_render_task(
         &mut self,
         key: RenderTaskCacheKey,
         texture_cache: &mut TextureCache,
@@ -1285,9 +1285,8 @@ impl RenderTaskCache {
         render_tasks: &mut RenderTaskTree,
         user_data: Option<[f32; 3]>,
         is_opaque: bool,
-        f: F,
-    ) -> Result<RenderTaskCacheEntryHandle, ()>
-         where F: FnOnce(&mut RenderTaskTree) -> Result<RenderTaskId, ()> {
+        f: impl FnOnce(&mut RenderTaskTree) -> RenderTaskId,
+    ) -> RenderTaskCacheEntryHandle {
         // Get the texture cache handle for this cache key,
         // or create one.
         let cache_entries = &mut self.cache_entries;
@@ -1309,15 +1308,14 @@ impl RenderTaskCache {
             if texture_cache.request(&cache_entry.handle, gpu_cache) {
                 // Invoke user closure to get render task chain
                 // to draw this into the texture cache.
-                let render_task_id = try!(f(render_tasks));
-
+                let render_task_id = f(render_tasks);
                 cache_entry.pending_render_task_id = Some(render_task_id);
                 cache_entry.user_data = user_data;
                 cache_entry.is_opaque = is_opaque;
             }
         }
 
-        Ok(entry_handle.weak())
+        entry_handle.weak()
     }
 
     pub fn get_cache_entry(
