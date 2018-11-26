@@ -5,7 +5,7 @@
 
 use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayListIter, ClipAndScrollInfo};
 use api::{ClipId, ColorF, ComplexClipRegion, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::{DisplayItemRef, ExtendMode, ExternalScrollId};
+use api::{DisplayItemRef, ExtendMode, ExternalScrollId, AuHelpers};
 use api::{FilterOp, FontInstanceKey, GlyphInstance, GlyphOptions, RasterSpace, GradientStop};
 use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, LayoutPoint, ColorDepth};
 use api::{LayoutPrimitiveInfo, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
@@ -13,6 +13,7 @@ use api::{LineOrientation, LineStyle, NinePatchBorderSource, PipelineId};
 use api::{PropertyBinding, ReferenceFrame, ScrollFrameDisplayItem, ScrollSensitivity};
 use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
 use api::{ClipMode, TransformStyle, YuvColorSpace, YuvData};
+use app_units::Au;
 use clip::{ClipChainId, ClipRegion, ClipItemKey, ClipStore, ClipItemSceneData};
 use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, ClipScrollTree, SpatialNodeIndex};
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
@@ -23,8 +24,8 @@ use internal_types::{FastHashMap, FastHashSet};
 use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PrimitiveList};
 use prim_store::{PrimitiveInstance, PrimitiveDataInterner, PrimitiveKeyKind, RadialGradientParams};
 use prim_store::{PrimitiveKey, PrimitiveSceneData, PrimitiveInstanceKind, GradientStopKey, NinePatchDescriptor};
-use prim_store::{PrimitiveContainer, PrimitiveDataHandle, PrimitiveStore, PrimitiveStoreStats};
-use prim_store::{ScrollNodeAndClipChain, PictureIndex, register_prim_chase_id};
+use prim_store::{PrimitiveDataHandle, PrimitiveStore, PrimitiveStoreStats, LineDecorationCacheKey};
+use prim_store::{ScrollNodeAndClipChain, PictureIndex, register_prim_chase_id, get_line_decoration_sizes};
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
@@ -573,12 +574,12 @@ impl<'a> DisplayListFlattener<'a> {
                     &prim_info,
                     info.wavy_line_thickness,
                     info.orientation,
-                    &info.color,
+                    info.color,
                     info.style,
                 );
             }
             SpecificDisplayItem::Gradient(ref info) => {
-                if let Some(prim) = self.create_linear_gradient_prim(
+                if let Some(prim_key_kind) = self.create_linear_gradient_prim(
                     &prim_info,
                     info.gradient.start_point,
                     info.gradient.end_point,
@@ -593,12 +594,12 @@ impl<'a> DisplayListFlattener<'a> {
                         clip_and_scroll,
                         &prim_info,
                         Vec::new(),
-                        prim,
+                        prim_key_kind,
                     );
                 }
             }
             SpecificDisplayItem::RadialGradient(ref info) => {
-                let prim = self.create_radial_gradient_prim(
+                let prim_key_kind = self.create_radial_gradient_prim(
                     &prim_info,
                     info.gradient.center,
                     info.gradient.start_offset * info.gradient.radius.width,
@@ -615,7 +616,7 @@ impl<'a> DisplayListFlattener<'a> {
                     clip_and_scroll,
                     &prim_info,
                     Vec::new(),
-                    prim,
+                    prim_key_kind,
                 );
             }
             SpecificDisplayItem::BoxShadow(ref box_shadow_info) => {
@@ -628,7 +629,7 @@ impl<'a> DisplayListFlattener<'a> {
                     clip_and_scroll,
                     &prim_info,
                     &box_shadow_info.offset,
-                    &box_shadow_info.color,
+                    box_shadow_info.color,
                     box_shadow_info.blur_radius,
                     box_shadow_info.spread_radius,
                     box_shadow_info.border_radius,
@@ -842,12 +843,9 @@ impl<'a> DisplayListFlattener<'a> {
         info: &LayoutPrimitiveInfo,
         clip_chain_id: ClipChainId,
         spatial_node_index: SpatialNodeIndex,
-        container: PrimitiveContainer,
+        prim_key_kind: PrimitiveKeyKind,
     ) -> PrimitiveInstance {
         // Build a primitive key.
-        let mut info = info.clone();
-        let prim_key_kind = container.build(&mut info);
-
         let prim_key = PrimitiveKey::new(
             info.is_backface_visible,
             info.rect,
@@ -924,12 +922,12 @@ impl<'a> DisplayListFlattener<'a> {
         clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayoutPrimitiveInfo,
         clip_items: Vec<ClipItemKey>,
-        container: PrimitiveContainer,
+        key_kind: PrimitiveKeyKind,
     ) {
         // If a shadow context is not active, then add the primitive
         // directly to the parent picture.
         if self.pending_shadow_items.is_empty() {
-            if container.is_visible() {
+            if key_kind.is_visible() {
                 let clip_chain_id = self.build_clip_chain(
                     clip_items,
                     clip_and_scroll.spatial_node_index,
@@ -939,7 +937,7 @@ impl<'a> DisplayListFlattener<'a> {
                     info,
                     clip_chain_id,
                     clip_and_scroll.spatial_node_index,
-                    container,
+                    key_kind,
                 );
                 self.register_chase_primitive_by_rect(
                     &info.rect,
@@ -956,7 +954,7 @@ impl<'a> DisplayListFlattener<'a> {
             self.pending_shadow_items.push_back(ShadowItem::Primitive(PendingPrimitive {
                 clip_and_scroll,
                 info: *info,
-                container,
+                key_kind,
             }));
         }
     }
@@ -1542,7 +1540,7 @@ impl<'a> DisplayListFlattener<'a> {
                                 &info,
                                 pending_primitive.clip_and_scroll.clip_chain_id,
                                 pending_primitive.clip_and_scroll.spatial_node_index,
-                                pending_primitive.container.create_shadow(
+                                pending_primitive.key_kind.create_shadow(
                                     &pending_shadow.shadow,
                                 ),
                             );
@@ -1613,12 +1611,12 @@ impl<'a> DisplayListFlattener<'a> {
                 ShadowItem::Primitive(pending_primitive) => {
                     // For a normal primitive, if it has alpha > 0, then we add this
                     // as a normal primitive to the parent picture.
-                    if pending_primitive.container.is_visible() {
+                    if pending_primitive.key_kind.is_visible() {
                         let prim_instance = self.create_primitive(
                             &pending_primitive.info,
                             pending_primitive.clip_and_scroll.clip_chain_id,
                             pending_primitive.clip_and_scroll.spatial_node_index,
-                            pending_primitive.container,
+                            pending_primitive.key_kind,
                         );
                         self.register_chase_primitive_by_rect(
                             &pending_primitive.info.rect,
@@ -1672,8 +1670,8 @@ impl<'a> DisplayListFlattener<'a> {
             clip_and_scroll,
             info,
             Vec::new(),
-            PrimitiveContainer::Rectangle {
-                color,
+            PrimitiveKeyKind::Rectangle {
+                color: color.into(),
             },
         );
     }
@@ -1687,7 +1685,7 @@ impl<'a> DisplayListFlattener<'a> {
             clip_and_scroll,
             info,
             Vec::new(),
-            PrimitiveContainer::Clear,
+            PrimitiveKeyKind::Clear,
         );
     }
 
@@ -1697,21 +1695,69 @@ impl<'a> DisplayListFlattener<'a> {
         info: &LayoutPrimitiveInfo,
         wavy_line_thickness: f32,
         orientation: LineOrientation,
-        color: &ColorF,
+        color: ColorF,
         style: LineStyle,
     ) {
-        let container = PrimitiveContainer::LineDecoration {
-            color: *color,
-            style,
+        // For line decorations, we can construct the render task cache key
+        // here during scene building, since it doesn't depend on device
+        // pixel ratio or transform.
+        let mut info = info.clone();
+
+        let size = get_line_decoration_sizes(
+            &info.rect.size,
             orientation,
+            style,
             wavy_line_thickness,
-        };
+        );
+
+        let cache_key = size.map(|(inline_size, block_size)| {
+            let size = match orientation {
+                LineOrientation::Horizontal => LayoutSize::new(inline_size, block_size),
+                LineOrientation::Vertical => LayoutSize::new(block_size, inline_size),
+            };
+
+            // If dotted, adjust the clip rect to ensure we don't draw a final
+            // partial dot.
+            if style == LineStyle::Dotted {
+                let clip_size = match orientation {
+                    LineOrientation::Horizontal => {
+                        LayoutSize::new(
+                            inline_size * (info.rect.size.width / inline_size).floor(),
+                            info.rect.size.height,
+                        )
+                    }
+                    LineOrientation::Vertical => {
+                        LayoutSize::new(
+                            info.rect.size.width,
+                            inline_size * (info.rect.size.height / inline_size).floor(),
+                        )
+                    }
+                };
+                let clip_rect = LayoutRect::new(
+                    info.rect.origin,
+                    clip_size,
+                );
+                info.clip_rect = clip_rect
+                    .intersection(&info.clip_rect)
+                    .unwrap_or(LayoutRect::zero());
+            }
+
+            LineDecorationCacheKey {
+                style,
+                orientation,
+                wavy_line_thickness: Au::from_f32_px(wavy_line_thickness),
+                size: size.to_au(),
+            }
+        });
 
         self.add_primitive(
             clip_and_scroll,
-            info,
+            &info,
             Vec::new(),
-            container,
+            PrimitiveKeyKind::LineDecoration {
+                cache_key,
+                color: color.into(),
+            },
         );
     }
 
@@ -1738,7 +1784,7 @@ impl<'a> DisplayListFlattener<'a> {
 
                 let prim = match border.source {
                     NinePatchBorderSource::Image(image_key) => {
-                        PrimitiveContainer::ImageBorder {
+                        PrimitiveKeyKind::ImageBorder {
                             request: ImageRequest {
                                 key: image_key,
                                 rendering: ImageRendering::Auto,
@@ -1809,7 +1855,7 @@ impl<'a> DisplayListFlattener<'a> {
         mut tile_spacing: LayoutSize,
         pipeline_id: PipelineId,
         nine_patch: Option<Box<NinePatchDescriptor>>,
-    ) -> Option<PrimitiveContainer> {
+    ) -> Option<PrimitiveKeyKind> {
         let mut prim_rect = info.rect;
         simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
 
@@ -1851,12 +1897,12 @@ impl<'a> DisplayListFlattener<'a> {
             (start_point, end_point)
         };
 
-        Some(PrimitiveContainer::LinearGradient {
+        Some(PrimitiveKeyKind::LinearGradient {
             extend_mode,
-            start_point: sp,
-            end_point: ep,
-            stretch_size,
-            tile_spacing,
+            start_point: sp.into(),
+            end_point: ep.into(),
+            stretch_size: stretch_size.into(),
+            tile_spacing: tile_spacing.into(),
             stops,
             reverse_stops,
             nine_patch,
@@ -1876,7 +1922,7 @@ impl<'a> DisplayListFlattener<'a> {
         mut tile_spacing: LayoutSize,
         pipeline_id: PipelineId,
         nine_patch: Option<Box<NinePatchDescriptor>>,
-    ) -> PrimitiveContainer {
+    ) -> PrimitiveKeyKind {
         let mut prim_rect = info.rect;
         simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
 
@@ -1898,12 +1944,12 @@ impl<'a> DisplayListFlattener<'a> {
             }
         }).collect();
 
-        PrimitiveContainer::RadialGradient {
+        PrimitiveKeyKind::RadialGradient {
             extend_mode,
-            center,
+            center: center.into(),
             params,
-            stretch_size,
-            tile_spacing,
+            stretch_size: stretch_size.into(),
+            tile_spacing: tile_spacing.into(),
             nine_patch,
             stops,
         }
@@ -1969,10 +2015,10 @@ impl<'a> DisplayListFlattener<'a> {
             //           primitive template.
             let glyphs = display_list.get(glyph_range).collect();
 
-            PrimitiveContainer::TextRun {
+            PrimitiveKeyKind::TextRun {
                 glyphs,
                 font,
-                offset,
+                offset: offset.to_au(),
                 shadow: false,
             }
         };
@@ -2021,11 +2067,11 @@ impl<'a> DisplayListFlattener<'a> {
             clip_and_scroll,
             &info,
             Vec::new(),
-            PrimitiveContainer::Image {
+            PrimitiveKeyKind::Image {
                 key: image_key,
-                tile_spacing,
-                stretch_size,
-                color,
+                tile_spacing: tile_spacing.into(),
+                stretch_size: stretch_size.into(),
+                color: color.into(),
                 sub_rect,
                 image_rendering,
                 alpha_type,
@@ -2053,7 +2099,7 @@ impl<'a> DisplayListFlattener<'a> {
             clip_and_scroll,
             info,
             Vec::new(),
-            PrimitiveContainer::YuvImage {
+            PrimitiveKeyKind::YuvImage {
                 color_depth,
                 yuv_key,
                 format,
@@ -2192,7 +2238,7 @@ impl FlattenedStackingContext {
 struct PendingPrimitive {
     clip_and_scroll: ScrollNodeAndClipChain,
     info: LayoutPrimitiveInfo,
-    container: PrimitiveContainer,
+    key_kind: PrimitiveKeyKind,
 }
 
 /// As shadows are pushed, they are stored as pending
