@@ -13,7 +13,6 @@ use api::{LineOrientation, LineStyle, NinePatchBorderSource, PipelineId};
 use api::{PropertyBinding, ReferenceFrame, ScrollFrameDisplayItem, ScrollSensitivity};
 use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
 use api::{ClipMode, TransformStyle, YuvColorSpace, YuvData};
-use border::create_nine_patch_segments;
 use clip::{ClipChainId, ClipRegion, ClipItemKey, ClipStore, ClipItemSceneData};
 use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, ClipScrollTree, SpatialNodeIndex};
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
@@ -1794,10 +1793,7 @@ impl<'a> DisplayListFlattener<'a> {
                             LayoutSize::zero(),
                         );
 
-                        let segments = create_nine_patch_segments(
-                            &info.rect,
-                            &nine_patch,
-                        );
+                        let segments = nine_patch.create_segments(&info.rect);
 
                         let descriptor = BrushSegmentDescriptor {
                             segments: SmallVec::from_vec(segments),

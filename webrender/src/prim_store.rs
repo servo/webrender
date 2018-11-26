@@ -11,7 +11,7 @@ use api::{DeviceIntSideOffsets, WorldPixel, BoxShadowClipMode, NormalBorder, Wor
 use api::{PicturePixel, RasterPixel, ColorDepth, LineStyle, LineOrientation, LayoutSizeAu, AuHelpers, LayoutVector2DAu};
 use app_units::Au;
 use border::{get_max_scale_for_border, build_border_instances, create_border_segments};
-use border::{create_nine_patch_segments, BorderSegmentCacheKey, NormalBorderAu};
+use border::{BorderSegmentCacheKey, NormalBorderAu};
 use clip::{ClipStore};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use clip::{ClipDataStore, ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem, ClipNodeCollector};
@@ -804,10 +804,7 @@ impl PrimitiveKeyKind {
                 ref nine_patch,
                 ..
             } => {
-                let brush_segments = create_nine_patch_segments(
-                    rect,
-                    nine_patch,
-                );
+                let brush_segments = nine_patch.create_segments(rect);
 
                 PrimitiveTemplateKind::ImageBorder {
                     request,
@@ -874,10 +871,7 @@ impl PrimitiveKeyKind {
                 let mut brush_segments = Vec::new();
 
                 if let Some(ref nine_patch) = nine_patch {
-                    brush_segments = create_nine_patch_segments(
-                        rect,
-                        nine_patch,
-                    );
+                    brush_segments = nine_patch.create_segments(rect);
                 }
 
                 // Save opacity of the stops for use in
