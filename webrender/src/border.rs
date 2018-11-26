@@ -7,10 +7,10 @@ use api::{LayoutSideOffsets, LayoutSizeAu, LayoutPrimitiveInfo, LayoutToDeviceSc
 use api::{DeviceVector2D, DevicePoint, LayoutRect, LayoutSize, NormalBorder, DeviceIntSize};
 use api::{AuHelpers, LayoutPoint, RepeatMode, TexelRect};
 use ellipse::Ellipse;
-use euclid::{SideOffsets2D, vec2};
+use euclid::vec2;
 use display_list_flattener::DisplayListFlattener;
 use gpu_types::{BorderInstance, BorderSegment, BrushFlags};
-use prim_store::{BorderSegmentInfo, BrushSegment};
+use prim_store::{BorderSegmentInfo, BrushSegment, NinePatchDescriptor};
 use prim_store::{EdgeAaSegmentMask, PrimitiveContainer, ScrollNodeAndClipChain};
 use util::{lerp, RectHelpers};
 
@@ -1130,51 +1130,44 @@ pub fn build_border_instances(
 
 pub fn create_nine_patch_segments(
     rect: &LayoutRect,
-    widths: &LayoutSideOffsets,
-    width: i32,
-    height: i32,
-    slice: SideOffsets2D<i32>,
-    fill: bool,
-    repeat_horizontal: RepeatMode,
-    repeat_vertical: RepeatMode,
-    outset: SideOffsets2D<f32>,
+    nine_patch: &NinePatchDescriptor,
 ) -> Vec<BrushSegment> {
     // Calculate the modified rect as specific by border-image-outset
     let origin = LayoutPoint::new(
-        rect.origin.x - outset.left,
-        rect.origin.y - outset.top,
+        rect.origin.x - nine_patch.outset.left,
+        rect.origin.y - nine_patch.outset.top,
     );
     let size = LayoutSize::new(
-        rect.size.width + outset.left + outset.right,
-        rect.size.height + outset.top + outset.bottom,
+        rect.size.width + nine_patch.outset.left + nine_patch.outset.right,
+        rect.size.height + nine_patch.outset.top + nine_patch.outset.bottom,
     );
     let rect = LayoutRect::new(origin, size);
 
     // Calculate the local texel coords of the slices.
     let px0 = 0.0;
-    let px1 = slice.left as f32;
-    let px2 = width as f32 - slice.right as f32;
-    let px3 = width as f32;
+    let px1 = nine_patch.slice.left as f32;
+    let px2 = nine_patch.width as f32 - nine_patch.slice.right as f32;
+    let px3 = nine_patch.width as f32;
 
     let py0 = 0.0;
-    let py1 = slice.top as f32;
-    let py2 = height as f32 - slice.bottom as f32;
-    let py3 = height as f32;
+    let py1 = nine_patch.slice.top as f32;
+    let py2 = nine_patch.height as f32 - nine_patch.slice.bottom as f32;
+    let py3 = nine_patch.height as f32;
 
     let tl_outer = LayoutPoint::new(rect.origin.x, rect.origin.y);
-    let tl_inner = tl_outer + vec2(widths.left, widths.top);
+    let tl_inner = tl_outer + vec2(nine_patch.widths.left, nine_patch.widths.top);
 
     let tr_outer = LayoutPoint::new(rect.origin.x + rect.size.width, rect.origin.y);
-    let tr_inner = tr_outer + vec2(-widths.right, widths.top);
+    let tr_inner = tr_outer + vec2(-nine_patch.widths.right, nine_patch.widths.top);
 
     let bl_outer = LayoutPoint::new(rect.origin.x, rect.origin.y + rect.size.height);
-    let bl_inner = bl_outer + vec2(widths.left, -widths.bottom);
+    let bl_inner = bl_outer + vec2(nine_patch.widths.left, -nine_patch.widths.bottom);
 
     let br_outer = LayoutPoint::new(
         rect.origin.x + rect.size.width,
         rect.origin.y + rect.size.height,
     );
-    let br_inner = br_outer - vec2(widths.right, widths.bottom);
+    let br_inner = br_outer - vec2(nine_patch.widths.right, nine_patch.widths.bottom);
 
     fn add_segment(
         segments: &mut Vec<BrushSegment>,
@@ -1254,13 +1247,13 @@ pub fn create_nine_patch_segments(
     );
 
     // Center
-    if fill {
+    if nine_patch.fill {
         add_segment(
             &mut segments,
             LayoutRect::from_floats(tl_inner.x, tl_inner.y, tr_inner.x, bl_inner.y),
             TexelRect::new(px1, py1, px2, py2),
-            repeat_horizontal,
-            repeat_vertical
+            nine_patch.repeat_horizontal,
+            nine_patch.repeat_vertical
         );
     }
 
@@ -1271,7 +1264,7 @@ pub fn create_nine_patch_segments(
         &mut segments,
         LayoutRect::from_floats(tl_inner.x, tl_outer.y, tr_inner.x, tl_inner.y),
         TexelRect::new(px1, py0, px2, py1),
-        repeat_horizontal,
+        nine_patch.repeat_horizontal,
         RepeatMode::Stretch,
     );
     // Bottom
@@ -1279,7 +1272,7 @@ pub fn create_nine_patch_segments(
         &mut segments,
         LayoutRect::from_floats(bl_inner.x, bl_inner.y, br_inner.x, bl_outer.y),
         TexelRect::new(px1, py2, px2, py3),
-        repeat_horizontal,
+        nine_patch.repeat_horizontal,
         RepeatMode::Stretch,
     );
     // Left
@@ -1288,7 +1281,7 @@ pub fn create_nine_patch_segments(
         LayoutRect::from_floats(tl_outer.x, tl_inner.y, tl_inner.x, bl_inner.y),
         TexelRect::new(px0, py1, px1, py2),
         RepeatMode::Stretch,
-        repeat_vertical,
+        nine_patch.repeat_vertical,
     );
     // Right
     add_segment(
@@ -1296,7 +1289,7 @@ pub fn create_nine_patch_segments(
         LayoutRect::from_floats(tr_inner.x, tr_inner.y, br_outer.x, br_inner.y),
         TexelRect::new(px2, py1, px3, py2),
         RepeatMode::Stretch,
-        repeat_vertical,
+        nine_patch.repeat_vertical,
     );
 
     segments
