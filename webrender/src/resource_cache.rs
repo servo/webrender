@@ -434,8 +434,6 @@ pub struct ResourceCache {
     // If while building a frame we encounter blobs that we didn't already
     // rasterize, add them to this list and rasterize them synchronously.
     missing_blob_images: Vec<BlobImageParams>,
-    // The rasterizer associated with the current scene.
-    blob_image_rasterizer: Option<Box<AsyncBlobImageRasterizer>>,
 }
 
 impl ResourceCache {
@@ -459,7 +457,6 @@ impl ResourceCache {
             rasterized_blob_images: FastHashMap::default(),
             blob_image_templates: FastHashMap::default(),
             missing_blob_images: Vec::new(),
-            blob_image_rasterizer: None,
         }
     }
 
@@ -632,10 +629,6 @@ impl ResourceCache {
                 _ => { unreachable!(); }
             }
         );
-    }
-
-    pub fn set_blob_rasterizer(&mut self, rasterizer: Box<AsyncBlobImageRasterizer>) {
-        self.blob_image_rasterizer = Some(rasterizer);
     }
 
     pub fn add_rasterized_blob_images(&mut self, images: Vec<(BlobImageRequest, BlobImageResult)>) {
@@ -1503,7 +1496,7 @@ impl ResourceCache {
             .prepare_resources(&self.resources, &self.missing_blob_images);
 
         let is_low_priority = false;
-        let rasterized_blobs = self.blob_image_rasterizer
+        let rasterized_blobs = self.blob_image_handler
             .as_mut()
             .unwrap()
             .rasterize(&self.missing_blob_images, is_low_priority);
@@ -1972,8 +1965,7 @@ impl ResourceCache {
                     } else {
                         let blob_handler = self.blob_image_handler.as_mut().unwrap();
                         blob_handler.prepare_resources(&self.resources, blob_request_params);
-                        let mut rasterizer = blob_handler.create_blob_rasterizer();
-                        let (_, result) = rasterizer.rasterize(blob_request_params, false).pop().unwrap();
+                        let (_, result) = blob_handler.rasterize(blob_request_params, false).pop().unwrap();
                         result.expect("Blob rasterization failed")
                     };
 

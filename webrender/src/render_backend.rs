@@ -767,9 +767,6 @@ impl RenderBackend {
                         self.resource_cache.add_rasterized_blob_images(
                             replace(&mut txn.rasterized_blobs, Vec::new())
                         );
-                        if let Some(rasterizer) = txn.blob_rasterizer.take() {
-                            self.resource_cache.set_blob_rasterizer(rasterizer);
-                        }
 
                         self.update_document(
                             txn.document_id,

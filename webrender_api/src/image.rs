@@ -283,12 +283,25 @@ pub trait BlobImageResources {
     fn get_font_instance_data(&self, key: FontInstanceKey) -> Option<FontInstanceData>;
 }
 
+/// A group of rasterization requests to execute synchronously on the scene builder thread.
+pub trait AsyncBlobImageRasterizer : Send {
+    /// Rasterize the requests.
+    ///
+    /// Gecko uses te priority hint to schedule work in a way that minimizes the risk
+    /// of high priority work being blocked by (or enqued behind) low priority work.
+    fn rasterize(
+        &mut self,
+        requests: &[BlobImageParams],
+        low_priority: bool
+    ) -> Vec<(BlobImageRequest, BlobImageResult)>;
+}
+
 /// A handler on the render backend that can create rasterizer objects which will
 /// be sent to the scene builder thread to execute the rasterization.
 ///
 /// The handler is responsible for collecting resources, managing/updating blob commands
 /// and creating the rasterizer objects, but isn't expected to do any rasterization itself.
-pub trait BlobImageHandler: Send {
+pub trait BlobImageHandler: AsyncBlobImageRasterizer + Send {
     /// Creates a snapshot of the current state of blob images in the handler.
     fn create_blob_rasterizer(&mut self) -> Box<AsyncBlobImageRasterizer>;
 
@@ -321,20 +334,6 @@ pub trait BlobImageHandler: Send {
     /// resource cache deletes them.
     fn clear_namespace(&mut self, namespace: IdNamespace);
 }
-
-/// A group of rasterization requests to execute synchronously on the scene builder thread.
-pub trait AsyncBlobImageRasterizer : Send {
-    /// Rasterize the requests.
-    ///
-    /// Gecko uses te priority hint to schedule work in a way that minimizes the risk
-    /// of high priority work being blocked by (or enqued behind) low priority work.
-    fn rasterize(
-        &mut self,
-        requests: &[BlobImageParams],
-        low_priority: bool
-    ) -> Vec<(BlobImageRequest, BlobImageResult)>;
-}
-
 
 /// Input parameters for the BlobImageRasterizer.
 #[derive(Copy, Clone, Debug)]

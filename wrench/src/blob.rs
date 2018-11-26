@@ -164,6 +164,17 @@ impl BlobImageHandler for CheckerboardRenderer {
     }
 }
 
+impl AsyncBlobImageRasterizer for CheckerboardRenderer {
+    fn rasterize(
+        &mut self,
+        requests: &[BlobImageParams],
+        low_priority: bool
+    ) -> Vec<(BlobImageRequest, BlobImageResult)> {
+      let mut rasterizer = self.create_blob_rasterizer();
+      rasterizer.rasterize(requests, low_priority)
+    }
+}
+
 struct Command {
     request: BlobImageRequest,
     color: ColorU,

@@ -19,6 +19,7 @@ use std::sync::Arc;
 use webrender::api::{self, DisplayListBuilder, DocumentId, PipelineId, RenderApi, Transaction};
 use webrender::api::ColorF;
 use webrender::euclid::size2;
+use webrender::webrender_api::BlobImageHandler;
 
 // This example shows how to implement a very basic BlobImageHandler that can only render
 // a checkerboard pattern.
@@ -165,6 +166,17 @@ impl api::BlobImageHandler for CheckerboardRenderer {
             workers: Arc::clone(&self.workers),
             image_cmds: self.image_cmds.clone(),
         })
+    }
+}
+
+impl api::AsyncBlobImageRasterizer for CheckerboardRenderer {
+    fn rasterize(
+        &mut self,
+        requests: &[api::BlobImageParams],
+        low_priority: bool
+    ) -> Vec<(api::BlobImageRequest, api::BlobImageResult)> {
+      let mut rasterizer = self.create_blob_rasterizer();
+      rasterizer.rasterize(requests, low_priority)
     }
 }
 
