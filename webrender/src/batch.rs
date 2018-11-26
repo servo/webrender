@@ -902,7 +902,6 @@ impl AlphaBatchBuilder {
                                 PrimitiveInstanceKind::Picture { pic_index } => pic_index,
                                 PrimitiveInstanceKind::LineDecoration { .. } |
                                 PrimitiveInstanceKind::TextRun { .. } |
-                                PrimitiveInstanceKind::LegacyPrimitive { .. } |
                                 PrimitiveInstanceKind::NormalBorder { .. } |
                                 PrimitiveInstanceKind::ImageBorder { .. } |
                                 PrimitiveInstanceKind::Rectangle { .. } |
@@ -1400,11 +1399,6 @@ impl AlphaBatchBuilder {
                         );
                     }
                 }
-            }
-            (
-                PrimitiveInstanceKind::LegacyPrimitive { .. },
-                PrimitiveTemplateKind::Unused,
-            ) => {
             }
             (
                 PrimitiveInstanceKind::ImageBorder { .. },
@@ -2306,7 +2300,6 @@ impl PrimitiveInstance {
                     _ => unreachable!(),
                 }
             }
-            PrimitiveInstanceKind::LegacyPrimitive { .. } |
             PrimitiveInstanceKind::Picture { .. } |
             PrimitiveInstanceKind::TextRun { .. } |
             PrimitiveInstanceKind::LineDecoration { .. } |

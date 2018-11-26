@@ -844,13 +844,9 @@ impl<'a> DisplayListFlattener<'a> {
         spatial_node_index: SpatialNodeIndex,
         container: PrimitiveContainer,
     ) -> PrimitiveInstance {
-        // Build a primitive key, and optionally an old
-        // style PrimitiveDetails structure from the
-        // source primitive container.
+        // Build a primitive key.
         let mut info = info.clone();
-        let (prim_key_kind, prim_details) = container.build(
-            &mut info,
-        );
+        let prim_key_kind = container.build(&mut info);
 
         let prim_key = PrimitiveKey::new(
             info.is_backface_visible,
@@ -875,24 +871,7 @@ impl<'a> DisplayListFlattener<'a> {
                 }
             });
 
-        // If we are building an old style primitive, add it to
-        // the prim store, and create a primitive index for it.
-        // For an interned primitive, use the primitive key to
-        // create a matching primitive instance kind.
-        let instance_kind = match prim_details {
-            Some(prim_details) => {
-                let prim_index = self.prim_store.add_primitive(
-                    &info.rect,
-                    &info.clip_rect,
-                    prim_details,
-                );
-
-                PrimitiveInstanceKind::LegacyPrimitive { prim_index }
-            }
-            None => {
-                prim_key.to_instance_kind(&mut self.prim_store)
-            }
-        };
+        let instance_kind = prim_key.to_instance_kind(&mut self.prim_store);
 
         PrimitiveInstance::new(
             instance_kind,
