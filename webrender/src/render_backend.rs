@@ -506,7 +506,6 @@ impl Document {
     pub fn new_async_scene_ready(
         &mut self,
         mut built_scene: BuiltScene,
-        resource_cache: &ResourceCache,
     ) {
         self.scene = built_scene.scene;
         self.frame_is_valid = false;
@@ -519,7 +518,6 @@ impl Document {
         if let Some(frame_builder) = self.frame_builder.take() {
             frame_builder.destroy(
                 &mut retained_tiles,
-                resource_cache,
             );
         }
 
@@ -763,7 +761,6 @@ impl RenderBackend {
                             if let Some(mut built_scene) = txn.built_scene.take() {
                                 doc.new_async_scene_ready(
                                     built_scene,
-                                    &self.resource_cache,
                                 );
                             }
 

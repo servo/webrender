@@ -2618,12 +2618,10 @@ impl PrimitiveStore {
     pub fn destroy(
         self,
         retained_tiles: &mut FastHashMap<TileDescriptor, TextureCacheHandle>,
-        resource_cache: &ResourceCache,
     ) {
         for pic in self.pictures {
             pic.destroy(
                 retained_tiles,
-                resource_cache,
             );
         }
     }

@@ -191,11 +191,8 @@ impl Tile {
 
     /// Destroy a tile, optionally returning a handle and cache descriptor,
     /// if this surface was valid and may be useful on the next scene.
-    fn destroy(
-        self,
-        resource_cache: &ResourceCache,
-    ) -> Option<(TileDescriptor, TextureCacheHandle)> {
-        if self.is_valid && resource_cache.texture_cache.is_allocated(&self.handle) {
+    fn destroy(self) -> Option<(TileDescriptor, TextureCacheHandle)> {
+        if self.is_valid {
             Some((self.descriptor, self.handle))
         } else {
             None
@@ -424,12 +421,6 @@ impl TileCache {
                 // coordinate system (which is the common case!) then we are effectively drawing
                 // in a local space anyway, so don't care about that transform for the purposes
                 // of validating the surface cache contents.
-                let raster_spatial_node = &frame_context
-                    .clip_scroll_tree
-                    .spatial_nodes[raster_spatial_node_index.0];
-                let surface_spatial_node = &frame_context
-                    .clip_scroll_tree
-                    .spatial_nodes[surface_spatial_node_index.0];
 
                 let mut key = CoordinateSpaceMapping::<LayoutPixel, PicturePixel>::new(
                     raster_spatial_node_index,
@@ -438,10 +429,8 @@ impl TileCache {
                 ).expect("bug: unable to get coord mapping").into();
 
                 if let TransformKey::ScaleOffset(ref mut key) = key {
-                    if raster_spatial_node.coordinate_system_id == surface_spatial_node.coordinate_system_id {
-                        key.offset_x = 0.0;
-                        key.offset_y = 0.0;
-                    }
+                    key.offset_x = 0.0;
+                    key.offset_y = 0.0;
                 }
 
                 key
@@ -873,9 +862,7 @@ impl TileCache {
         // TODO(gw): Maybe it's worth keeping them around for a bit longer in
         //           some cases?
         for (_, handle) in retained_tiles.drain() {
-            if resource_cache.texture_cache.is_allocated(&handle) {
-                resource_cache.texture_cache.mark_unused(&handle);
-            }
+            resource_cache.texture_cache.mark_unused(&handle);
         }
 
         self.dirty_region = if dirty_rect.is_empty() {
@@ -1387,14 +1374,11 @@ impl PicturePrimitive {
     pub fn destroy(
         mut self,
         retained_tiles: &mut FastHashMap<TileDescriptor, TextureCacheHandle>,
-        resource_cache: &ResourceCache,
     ) {
         if let Some(tile_cache) = self.tile_cache.take() {
             debug_assert!(tile_cache.old_tiles.is_empty());
             for tile in tile_cache.tiles {
-                if let Some((descriptor, texture_handle)) = tile.destroy(resource_cache) {
-                    retained_tiles.insert(descriptor, texture_handle);
-                }
+                retained_tiles.extend(tile.destroy());
             }
         }
     }

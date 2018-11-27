@@ -193,11 +193,9 @@ impl FrameBuilder {
     pub fn destroy(
         self,
         retained_tiles: &mut FastHashMap<TileDescriptor, TextureCacheHandle>,
-        resource_cache: &ResourceCache,
     ) {
         self.prim_store.destroy(
             retained_tiles,
-            resource_cache,
         );
     }
 
