@@ -36,7 +36,7 @@ use std::{cmp, fmt, mem, ops, u32, usize};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use storage;
 use tiling::SpecialRenderPasses;
-use util::{ScaleOffset, MatrixHelpers, MaxRect, recycle_vec};
+use util::{ScaleOffset, MatrixHelpers, MaxRect, VecPushWith, recycle_vec};
 use util::{pack_as_float, project_rect, raster_rect_to_device_pixels};
 use smallvec::SmallVec;
 
@@ -2002,13 +2002,10 @@ impl PrimitiveStore {
         }
     }
 
-    pub fn create_picture(
-        &mut self,
-        prim: PicturePrimitive,
+    pub fn create_picture_with<F: FnOnce() -> PicturePrimitive>(
+        &mut self, fun: F
     ) -> PictureIndex {
-        let index = PictureIndex(self.pictures.len());
-        self.pictures.push(prim);
-        index
+        PictureIndex(self.pictures.push_with(fun))
     }
 
     /// Update a picture, determining surface configuration,

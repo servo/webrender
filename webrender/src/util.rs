@@ -8,11 +8,32 @@ use euclid::{Point2D, Rect, Size2D, TypedPoint2D, TypedRect, TypedSize2D, Vector
 use euclid::{TypedTransform2D, TypedTransform3D, TypedVector2D, TypedScale};
 use num_traits::Zero;
 use plane_split::{Clipper, Polygon};
-use std::{i32, f32, fmt};
+use std::{i32, f32, fmt, ptr};
 use std::borrow::Cow;
 
-// Matches the definition of SK_ScalarNearlyZero in Skia.
+/// Matches the definition of SK_ScalarNearlyZero in Skia.
 const NEARLY_ZERO: f32 = 1.0 / 4096.0;
+
+/// An extension trait for `Vec` that constructs an actual object in place
+/// of the allocation, avoiding the unnecessary copy that LLVM has to make.
+/// Returns the index of the pushed value.
+pub trait VecPushWith<T> {
+    fn push_with<F: FnOnce() -> T>(&mut self, fun: F) -> usize;
+}
+
+impl<T> VecPushWith<T> for Vec<T> {
+    fn push_with<F: FnOnce() -> T>(&mut self, fun: F) -> usize {
+        let index = self.len();
+        if self.capacity() == index {
+            self.reserve(1);
+        }
+        unsafe {
+            ptr::write(self.as_mut_ptr().add(index), fun());
+            self.set_len(index + 1);
+        }
+        index
+    }
+}
 
 // Represents an optimized transform where there is only
 // a scale and translation (which are guaranteed to maintain
