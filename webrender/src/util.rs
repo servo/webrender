@@ -8,11 +8,49 @@ use euclid::{Point2D, Rect, Size2D, TypedPoint2D, TypedRect, TypedSize2D, Vector
 use euclid::{TypedTransform2D, TypedTransform3D, TypedVector2D, TypedScale};
 use num_traits::Zero;
 use plane_split::{Clipper, Polygon};
-use std::{i32, f32, fmt};
+use std::{i32, f32, fmt, ptr};
 use std::borrow::Cow;
+
 
 // Matches the definition of SK_ScalarNearlyZero in Skia.
 const NEARLY_ZERO: f32 = 1.0 / 4096.0;
+
+/// A typesafe helper that separates new value construction from
+/// vector growing, which allows LLVM to elide the value copy.
+#[must_use]
+pub struct Allocation<'a, T: 'a> {
+    vec: &'a mut Vec<T>,
+    index: usize,
+}
+
+impl<'a, T> Allocation<'a, T> {
+    #[inline(always)]
+    pub fn init(self, value: T) -> usize {
+        unsafe {
+            ptr::write(self.vec.as_mut_ptr().add(self.index), value);
+            self.vec.set_len(self.index + 1);
+        }
+        self.index
+    }
+}
+
+pub trait VecHelper<T> {
+    fn alloc(&mut self) -> Allocation<T>;
+}
+
+impl<T> VecHelper<T> for Vec<T> {
+    fn alloc(&mut self) -> Allocation<T> {
+        let index = self.len();
+        if self.capacity() == index {
+            self.reserve(1);
+        }
+        Allocation {
+            vec: self,
+            index,
+        }
+    }
+}
+
 
 // Represents an optimized transform where there is only
 // a scale and translation (which are guaranteed to maintain
