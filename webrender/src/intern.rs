@@ -142,16 +142,10 @@ impl<S, T, M> DataStore<S, T, M> where S: Debug, T: From<S>, M: Debug {
         for update in update_list.updates {
             match update.kind {
                 UpdateKind::Insert => {
-                    let data = data_iter.next().unwrap();
-                    let item = Item {
-                        data: T::from(data),
+                    self.items.entry(update.index).set(Item {
+                        data: T::from(data_iter.next().unwrap()),
                         epoch: update_list.epoch,
-                    };
-                    if self.items.len() == update.index {
-                        self.items.push(item)
-                    } else {
-                        self.items[update.index] = item;
-                    }
+                    });
                 }
                 UpdateKind::Remove => {
                     self.items[update.index].epoch = Epoch::INVALID;
@@ -161,6 +155,7 @@ impl<S, T, M> DataStore<S, T, M> where S: Debug, T: From<S>, M: Debug {
                 }
             }
         }
+        debug_assert!(data_iter.next().is_none());
     }
 }
 
@@ -202,6 +197,8 @@ pub struct Interner<S : Eq + Hash + Clone + Debug, D, M> {
     update_data: Vec<S>,
     /// The current epoch for the interner.
     current_epoch: Epoch,
+    /// Incrementing counter for identifying stable values.
+    next_uid: usize,
     /// The information associated with each interned
     /// item that can be accessed by the interner.
     local_data: Vec<Item<D>>,
@@ -216,6 +213,7 @@ impl<S, D, M> Interner<S, D, M> where S: Eq + Hash + Clone + Debug, M: Copy + De
             updates: Vec::new(),
             update_data: Vec::new(),
             current_epoch: Epoch(1),
+            next_uid: 0,
             local_data: Vec::new(),
         }
     }
@@ -271,7 +269,7 @@ impl<S, D, M> Interner<S, D, M> where S: Eq + Hash + Clone + Debug, M: Copy + De
             index: index as u32,
             epoch: self.current_epoch,
             uid: ItemUid {
-                uid: self.map.len(),
+                uid: self.next_uid,
                 _marker: PhantomData,
             },
             _marker: PhantomData,
@@ -280,18 +278,14 @@ impl<S, D, M> Interner<S, D, M> where S: Eq + Hash + Clone + Debug, M: Copy + De
         // Store this handle so the next time it is
         // interned, it gets re-used.
         self.map.insert(data.clone(), handle);
+        self.next_uid += 1;
 
         // Create the local data for this item that is
         // being interned.
-        let local_item = Item {
+        self.local_data.entry(index).set(Item {
             epoch: self.current_epoch,
             data: f(),
-        };
-        if self.local_data.len() == index {
-            self.local_data.push(local_item);
-        } else {
-            self.local_data[index] = local_item;
-        }
+        });
 
         handle
     }
