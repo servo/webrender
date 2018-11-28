@@ -588,8 +588,8 @@ impl<Src, Dst> FastTransform<Src, Dst> {
             FastTransform::Offset(offset) => {
                 offset == TypedVector2D::zero()
             }
-            FastTransform::Transform { transform, .. } => {
-                transform == TypedTransform3D::identity()
+            FastTransform::Transform { ref transform, .. } => {
+                *transform == TypedTransform3D::identity()
             }
         }
     }

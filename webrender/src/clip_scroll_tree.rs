@@ -10,7 +10,7 @@ use internal_types::{FastHashMap, FastHashSet};
 use print_tree::{PrintTree, PrintTreePrinter};
 use scene::SceneProperties;
 use smallvec::SmallVec;
-use spatial_node::{ScrollFrameInfo, SpatialNode, SpatialNodeType, StickyFrameInfo};
+use spatial_node::{ScrollFrameInfo, SpatialNode, SpatialNodeType, StickyFrameInfo, ScrollFrameKind};
 use util::{LayoutToWorldFastTransform, ScaleOffset};
 
 pub type ScrollStates = FastHashMap<ExternalScrollId, ScrollFrameInfo>;
@@ -326,7 +326,7 @@ impl ClipScrollTree {
         frame_rect: &LayoutRect,
         content_size: &LayoutSize,
         scroll_sensitivity: ScrollSensitivity,
-        is_pipeline_root: bool,
+        frame_kind: ScrollFrameKind,
     ) -> SpatialNodeIndex {
         let node = SpatialNode::new_scroll_frame(
             pipeline_id,
@@ -335,7 +335,7 @@ impl ClipScrollTree {
             frame_rect,
             content_size,
             scroll_sensitivity,
-            is_pipeline_root,
+            frame_kind,
         );
         self.add_spatial_node(node)
     }
@@ -470,7 +470,7 @@ impl ClipScrollTree {
                 }
                 SpatialNodeType::ScrollFrame(ref info) => {
                     // Assume not identity since it may change with scrolling.
-                    if !info.is_pipeline_root {
+                    if let ScrollFrameKind::Explicit = info.frame_kind {
                         return false;
                     }
                 }
