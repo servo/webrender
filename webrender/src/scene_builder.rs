@@ -16,7 +16,7 @@ use intern::{Internable, Interner};
 use internal_types::{FastHashMap, FastHashSet};
 use prim_store::{PrimitiveDataInterner, PrimitiveDataUpdateList, PrimitiveKeyKind};
 use prim_store::PrimitiveStoreStats;
-use prim_store::{TextRunDataInterner, TextRun, TextRunDataUpdateList};
+use prim_store::text_run::{TextRunDataInterner, TextRun, TextRunDataUpdateList};
 use resource_cache::FontInstanceMap;
 use render_backend::DocumentView;
 use renderer::{PipelineInfo, SceneBuilderHooks};

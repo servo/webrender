@@ -27,7 +27,7 @@ use prim_store::{PrimitiveInstance, PrimitiveKeyKind, RadialGradientParams};
 use prim_store::{PrimitiveKey, PrimitiveSceneData, PrimitiveInstanceKind, GradientStopKey, NinePatchDescriptor};
 use prim_store::{PrimitiveDataHandle, PrimitiveStore, PrimitiveStoreStats, LineDecorationCacheKey};
 use prim_store::{ScrollNodeAndClipChain, PictureIndex, register_prim_chase_id, get_line_decoration_sizes};
-use prim_store::{TextRun};
+use prim_store::text_run::TextRun;
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
