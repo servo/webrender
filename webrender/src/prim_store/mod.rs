@@ -4,11 +4,11 @@
 
 use api::{AlphaType, BorderRadius, ClipMode, ColorF, PictureRect, ColorU};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, ExtendMode, DeviceRect, LayoutSideOffsetsAu};
-use api::{FilterOp, GlyphInstance, GradientStop, ImageKey, ImageRendering, TileOffset, RepeatMode};
-use api::{RasterSpace, LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize, LayoutToWorldTransform};
+use api::{FilterOp, GradientStop, ImageKey, ImageRendering, TileOffset, RepeatMode};
+use api::{LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize};
 use api::{PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat};
 use api::{DeviceIntSideOffsets, WorldPixel, BoxShadowClipMode, NormalBorder, WorldRect, LayoutToWorldScale};
-use api::{PicturePixel, RasterPixel, ColorDepth, LineStyle, LineOrientation, LayoutSizeAu, AuHelpers, LayoutVector2DAu};
+use api::{PicturePixel, RasterPixel, ColorDepth, LineStyle, LineOrientation, LayoutSizeAu, AuHelpers};
 use api::LayoutPrimitiveInfo;
 use app_units::Au;
 use border::{get_max_scale_for_border, build_border_instances, create_border_segments};
@@ -16,11 +16,11 @@ use border::{BorderSegmentCacheKey, NormalBorderAu};
 use clip::{ClipStore};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use clip::{ClipDataStore, ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem, ClipNodeCollector};
-use display_list_flattener::{AsInstanceKind, BuildKey, CreateShadow, IsVisible};
+use display_list_flattener::{AsInstanceKind, BuildKey, IsVisible};
 use euclid::{SideOffsets2D, TypedTransform3D, TypedRect, TypedScale, TypedSize2D};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use frame_builder::PrimitiveContext;
-use glyph_rasterizer::{FontInstance, FontTransform, GlyphKey, FONT_SIZE_LIMIT};
+use glyph_rasterizer::GlyphKey;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest, ToGpuBlocks};
 use gpu_types::BrushFlags;
 use image::{self, Repetition};
@@ -28,10 +28,11 @@ use intern;
 use internal_types::FastHashMap;
 use picture::{PictureCompositeMode, PicturePrimitive, PictureUpdateState};
 use picture::{ClusterRange, PrimitiveList, SurfaceIndex, TileDescriptor};
+use prim_store::text_run::{TextRunDataHandle, TextRunPrimitive};
 #[cfg(debug_assertions)]
 use render_backend::{FrameId};
 use render_backend::FrameResources;
-use render_task::{BlitSource, RenderTask, RenderTaskCacheKey, RenderTaskTree, to_cache_size};
+use render_task::{BlitSource, RenderTask, RenderTaskCacheKey, to_cache_size};
 use render_task::{RenderTaskCacheKeyKind, RenderTaskId, RenderTaskCacheEntryHandle};
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ImageProperties, ImageRequest, ResourceCache};
@@ -42,10 +43,11 @@ use std::{cmp, fmt, hash, mem, ops, u32, usize};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use storage;
 use texture_cache::TextureCacheHandle;
-use tiling::SpecialRenderPasses;
 use util::{ScaleOffset, MatrixHelpers, MaxRect, recycle_vec};
 use util::{pack_as_float, project_rect, raster_rect_to_device_pixels};
 use smallvec::SmallVec;
+
+pub mod text_run;
 
 /// Counter for unique primitive IDs for debug tracing.
 #[cfg(debug_assertions)]
@@ -1887,304 +1889,6 @@ impl GradientGpuBlockBuilder {
     }
 }
 
-/// A run of glyphs, with associated font information.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct TextRunKey {
-    pub is_backface_visible: bool,
-    pub prim_rect: RectangleKey,
-    pub clip_rect: RectangleKey,
-    pub font: FontInstance,
-    pub offset: LayoutVector2DAu,
-    pub glyphs: Vec<GlyphInstance>,
-    pub shadow: bool,
-}
-
-impl TextRunKey {
-    pub fn new(info: &LayoutPrimitiveInfo, text_run: TextRun) -> Self {
-        TextRunKey {
-            is_backface_visible: info.is_backface_visible,
-            prim_rect: info.rect.into(),
-            clip_rect: info.clip_rect.into(),
-            font: text_run.font,
-            offset: text_run.offset.into(),
-            glyphs: text_run.glyphs,
-            shadow: text_run.shadow,
-        }
-    }
-}
-
-impl AsInstanceKind<TextRunDataHandle> for TextRunKey {
-    /// Construct a primitive instance that matches the type
-    /// of primitive key.
-    fn as_instance_kind(
-        &self,
-        data_handle: TextRunDataHandle,
-        prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
-        let run_index = prim_store.text_runs.push(TextRunPrimitive {
-            used_font: self.font.clone(),
-            glyph_keys_range: storage::Range::empty(),
-            shadow: self.shadow,
-        });
-
-        PrimitiveInstanceKind::TextRun{ data_handle, run_index }
-    }
-}
-
-impl BuildKey<TextRun> for TextRunKey {
-    /// Build a new key from self with `info`.
-    fn build_key(info: &LayoutPrimitiveInfo, source: TextRun) -> TextRunKey {
-        TextRunKey::new(info, source)
-    }
-}
-
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct TextRunTemplate {
-    pub is_backface_visible: bool,
-    pub prim_rect: LayoutRect,
-    pub clip_rect: LayoutRect,
-    pub font: FontInstance,
-    pub offset: LayoutVector2DAu,
-    pub glyphs: Vec<GlyphInstance>,
-    pub opacity: PrimitiveOpacity,
-    /// The GPU cache handle for a primitive template. Since this structure
-    /// is retained across display lists by interning, this GPU cache handle
-    /// also remains valid, which reduces the number of updates to the GPU
-    /// cache when a new display list is processed.
-    pub gpu_cache_handle: GpuCacheHandle,
-}
-
-impl From<TextRunKey> for TextRunTemplate {
-    fn from(item: TextRunKey) -> Self {
-        TextRunTemplate {
-            is_backface_visible: item.is_backface_visible,
-            prim_rect: item.prim_rect.into(),
-            clip_rect: item.clip_rect.into(),
-            font: item.font,
-            offset: item.offset,
-            glyphs: item.glyphs,
-            opacity: PrimitiveOpacity::translucent(),
-            gpu_cache_handle: GpuCacheHandle::new(),
-        }
-    }
-}
-
-impl TextRunTemplate {
-    /// Update the GPU cache for a given primitive template. This may be called multiple
-    /// times per frame, by each primitive reference that refers to this interned
-    /// template. The initial request call to the GPU cache ensures that work is only
-    /// done if the cache entry is invalid (due to first use or eviction).
-    pub fn update(
-        &mut self,
-        frame_state: &mut FrameBuildingState,
-    ) {
-        self.write_prim_gpu_blocks(frame_state);
-        self.opacity = PrimitiveOpacity::translucent();
-    }
-
-    fn write_prim_gpu_blocks(
-        &mut self,
-        frame_state: &mut FrameBuildingState,
-    ) {
-        if let Some(mut request) = frame_state.gpu_cache.request(&mut self.gpu_cache_handle) {
-            request.push(ColorF::from(self.font.color).premultiplied());
-            // this is the only case where we need to provide plain color to GPU
-            let bg_color = ColorF::from(self.font.bg_color);
-            request.push([bg_color.r, bg_color.g, bg_color.b, 1.0]);
-            request.push([
-                self.offset.x.to_f32_px(),
-                self.offset.y.to_f32_px(),
-                0.0,
-                0.0,
-            ]);
-
-            let mut gpu_block = [0.0; 4];
-            for (i, src) in self.glyphs.iter().enumerate() {
-                // Two glyphs are packed per GPU block.
-
-                if (i & 1) == 0 {
-                    gpu_block[0] = src.point.x;
-                    gpu_block[1] = src.point.y;
-                } else {
-                    gpu_block[2] = src.point.x;
-                    gpu_block[3] = src.point.y;
-                    request.push(gpu_block);
-                }
-            }
-
-            // Ensure the last block is added in the case
-            // of an odd number of glyphs.
-            if (self.glyphs.len() & 1) != 0 {
-                request.push(gpu_block);
-            }
-
-            assert!(request.current_used_block_num() <= MAX_VERTEX_TEXTURE_WIDTH);
-        }
-    }
-}
-
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
-pub struct TextRunDataMarker;
-impl intern::UidMarker for TextRunDataMarker {
-    type UidMarker = PrimitiveUidMarker;
-}
-
-pub type TextRunDataStore = intern::DataStore<TextRunKey, TextRunTemplate, TextRunDataMarker>;
-pub type TextRunDataHandle = intern::Handle<TextRunDataMarker>;
-pub type TextRunDataUpdateList = intern::UpdateList<TextRunKey>;
-pub type TextRunDataInterner = intern::Interner<TextRunKey, PrimitiveSceneData, TextRunDataMarker>;
-
-pub struct TextRun {
-    pub font: FontInstance,
-    pub offset: LayoutVector2DAu,
-    pub glyphs: Vec<GlyphInstance>,
-    pub shadow: bool,
-}
-
-impl intern::Internable for TextRun {
-    type Marker = TextRunDataMarker;
-    type Source = TextRunKey;
-    type StoreData = TextRunTemplate;
-    type InternData = PrimitiveSceneData;
-}
-
-impl CreateShadow for TextRun {
-    fn create_shadow(&self, shadow: &Shadow) -> Self {
-        let mut font = FontInstance {
-            color: shadow.color.into(),
-            ..self.font.clone()
-        };
-        if shadow.blur_radius > 0.0 {
-            font.disable_subpixel_aa();
-        }
-
-        TextRun {
-            font,
-            glyphs: self.glyphs.clone(),
-            offset: self.offset + shadow.offset.to_au(),
-            shadow: true
-        }
-    }
-}
-
-impl IsVisible for TextRun {
-    fn is_visible(&self) -> bool {
-        self.font.color.a > 0
-    }
-}
-
-#[derive(Debug)]
-pub struct TextRunPrimitive {
-    pub used_font: FontInstance,
-    pub glyph_keys_range: storage::Range<GlyphKey>,
-    pub shadow: bool,
-}
-
-impl TextRunPrimitive {
-    pub fn update_font_instance(
-        &mut self,
-        specified_font: &FontInstance,
-        device_pixel_scale: DevicePixelScale,
-        transform: &LayoutToWorldTransform,
-        allow_subpixel_aa: bool,
-        raster_space: RasterSpace,
-    ) -> bool {
-        // Get the current font size in device pixels
-        let device_font_size = specified_font.size.scale_by(device_pixel_scale.0);
-
-        // Determine if rasterizing glyphs in local or screen space.
-        // Only support transforms that can be coerced to simple 2D transforms.
-        let transform_glyphs = if transform.has_perspective_component() ||
-           !transform.has_2d_inverse() ||
-           // Font sizes larger than the limit need to be scaled, thus can't use subpixels.
-           transform.exceeds_2d_scale(FONT_SIZE_LIMIT / device_font_size.to_f64_px()) ||
-           // Otherwise, ensure the font is rasterized in screen-space.
-           raster_space != RasterSpace::Screen {
-            false
-        } else {
-            true
-        };
-
-        // Get the font transform matrix (skew / scale) from the complete transform.
-        let font_transform = if transform_glyphs {
-            // Quantize the transform to minimize thrashing of the glyph cache.
-            FontTransform::from(transform).quantize()
-        } else {
-            FontTransform::identity()
-        };
-
-        // If the transform or device size is different, then the caller of
-        // this method needs to know to rebuild the glyphs.
-        let cache_dirty =
-            self.used_font.transform != font_transform ||
-            self.used_font.size != device_font_size;
-
-        // Construct used font instance from the specified font instance
-        self.used_font = FontInstance {
-            transform: font_transform,
-            size: device_font_size,
-            ..specified_font.clone()
-        };
-
-        // If subpixel AA is disabled due to the backing surface the glyphs
-        // are being drawn onto, disable it (unless we are using the
-        // specifial subpixel mode that estimates background color).
-        if (!allow_subpixel_aa && self.used_font.bg_color.a == 0) ||
-            // If using local space glyphs, we don't want subpixel AA.
-            !transform_glyphs {
-            self.used_font.disable_subpixel_aa();
-        }
-
-        cache_dirty
-    }
-
-    fn prepare_for_render(
-        &mut self,
-        specified_font: &FontInstance,
-        glyphs: &[GlyphInstance],
-        device_pixel_scale: DevicePixelScale,
-        transform: &LayoutToWorldTransform,
-        pic_context: &PictureContext,
-        resource_cache: &mut ResourceCache,
-        gpu_cache: &mut GpuCache,
-        render_tasks: &mut RenderTaskTree,
-        special_render_passes: &mut SpecialRenderPasses,
-        scratch: &mut PrimitiveScratchBuffer,
-    ) {
-        let cache_dirty = self.update_font_instance(
-            specified_font,
-            device_pixel_scale,
-            transform,
-            pic_context.allow_subpixel_aa,
-            pic_context.raster_space,
-        );
-
-        if self.glyph_keys_range.is_empty() || cache_dirty {
-            let subpx_dir = self.used_font.get_subpx_dir();
-
-            self.glyph_keys_range = scratch.glyph_keys.extend(
-                glyphs.iter().map(|src| {
-                    let world_offset = self.used_font.transform.transform(&src.point);
-                    let device_offset = device_pixel_scale.transform_point(&world_offset);
-                    GlyphKey::new(src.index, device_offset, subpx_dir)
-                }));
-        }
-
-        resource_cache.request_glyphs(
-            self.used_font.clone(),
-            &scratch.glyph_keys[self.glyph_keys_range],
-            gpu_cache,
-            render_tasks,
-            special_render_passes,
-        );
-    }
-}
-
 #[derive(Debug)]
 #[repr(C)]
 struct ClipRect {
@@ -3523,6 +3227,7 @@ impl PrimitiveStore {
             }
             PrimitiveInstanceKind::NormalBorder { data_handle, ref mut cache_handles, .. } => {
                 let prim_data = &mut resources.prim_data_store[*data_handle];
+
                 // Update the template this instane references, which may refresh the GPU
                 // cache with any shared template data.
                 prim_data.update(
