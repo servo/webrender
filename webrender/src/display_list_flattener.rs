@@ -1080,6 +1080,25 @@ impl<'a> DisplayListFlattener<'a> {
     pub fn pop_stacking_context(&mut self) {
         let stacking_context = self.sc_stack.pop().unwrap();
 
+        // If we encounter a stacking context that is effectively a no-op, then instead
+        // of creating a picture, just append the primitive list to the parent stacking
+        // context as a short cut. This serves two purposes:
+        // (a) It's an optimization to reduce picture count and allocations, as display lists
+        //     often contain a lot of these stacking contexts that don't require pictures or
+        //     off-screen surfaces.
+        // (b) It's useful for the initial version of picture caching in gecko, by enabling
+        //     is to just look for interesting scroll roots on the root stacking context,
+        //     without having to consider cuts at stacking context boundaries.
+        if let Some(parent_sc) = self.sc_stack.last_mut() {
+            if stacking_context.is_redundant(
+                parent_sc,
+                self.clip_scroll_tree,
+            ) {
+                parent_sc.primitives.extend(stacking_context.primitives);
+                return;
+            }
+        }
+
         // An arbitrary large clip rect. For now, we don't
         // specify a clip specific to the stacking context.
         // However, now that they are represented as Picture
@@ -2188,6 +2207,51 @@ impl FlattenedStackingContext {
     /// Return true if the stacking context has a valid preserve-3d property
     pub fn is_3d(&self) -> bool {
         self.transform_style == TransformStyle::Preserve3D && self.composite_ops.is_empty()
+    }
+
+    /// Return true if the stacking context isn't needed.
+    pub fn is_redundant(
+        &self,
+        parent: &FlattenedStackingContext,
+        clip_scroll_tree: &ClipScrollTree,
+    ) -> bool {
+        // Any 3d context is required
+        if let Picture3DContext::In { .. } = self.context_3d {
+            return false;
+        }
+
+        // If there are filters / mix-blend-mode
+        if !self.composite_ops.is_empty() {
+            return false;
+        }
+
+        // If backface visibility is different
+        if self.primitive_data_handle.uid() != parent.primitive_data_handle.uid() {
+            return false;
+        }
+
+        // If rasterization space is different
+        if self.requested_raster_space != parent.requested_raster_space {
+            return false;
+        }
+
+        // If different clipp chains
+        if self.clip_chain_id != parent.clip_chain_id {
+            return false;
+        }
+
+        // If need to isolate in surface due to clipping / mix-blend-mode
+        if self.should_isolate {
+            return false;
+        }
+
+        // If represents a transform, it may affect backface visibility of children
+        if !clip_scroll_tree.node_is_identity(self.spatial_node_index) {
+            return false;
+        }
+
+        // It is redundant!
+        true
     }
 
     /// For a Preserve3D context, cut the sequence of the immediate flat children
