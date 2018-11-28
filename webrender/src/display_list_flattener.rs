@@ -382,6 +382,7 @@ impl<'a> DisplayListFlattener<'a> {
             &frame_rect,
             &content_rect.size,
             info.scroll_sensitivity,
+            false,
         );
     }
 
@@ -499,6 +500,7 @@ impl<'a> DisplayListFlattener<'a> {
             &iframe_rect,
             &pipeline.content_size,
             ScrollSensitivity::ScriptAndInputEvents,
+            true,
         );
 
         self.flatten_root(
@@ -1344,6 +1346,7 @@ impl<'a> DisplayListFlattener<'a> {
             &LayoutRect::new(LayoutPoint::zero(), *viewport_size),
             content_size,
             ScrollSensitivity::ScriptAndInputEvents,
+            true,
         );
     }
 
@@ -1455,6 +1458,7 @@ impl<'a> DisplayListFlattener<'a> {
         frame_rect: &LayoutRect,
         content_size: &LayoutSize,
         scroll_sensitivity: ScrollSensitivity,
+        is_pipeline_root: bool,
     ) -> SpatialNodeIndex {
         let parent_node_index = self.id_to_index_mapper.get_spatial_node_index(parent_id);
         let node_index = self.clip_scroll_tree.add_scroll_frame(
@@ -1464,6 +1468,7 @@ impl<'a> DisplayListFlattener<'a> {
             frame_rect,
             content_size,
             scroll_sensitivity,
+            is_pipeline_root,
         );
         self.id_to_index_mapper.map_spatial_node(new_node_id, node_index);
         self.id_to_index_mapper.map_to_parent_clip_chain(new_node_id, &parent_id);

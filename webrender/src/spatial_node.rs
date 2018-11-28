@@ -96,6 +96,7 @@ impl SpatialNode {
         frame_rect: &LayoutRect,
         content_size: &LayoutSize,
         scroll_sensitivity: ScrollSensitivity,
+        is_pipeline_root: bool,
     ) -> Self {
         let node_type = SpatialNodeType::ScrollFrame(ScrollFrameInfo::new(
                 *frame_rect,
@@ -105,6 +106,7 @@ impl SpatialNode {
                     (content_size.height - frame_rect.size.height).max(0.0)
                 ),
                 external_id,
+                is_pipeline_root,
             )
         );
 
@@ -584,6 +586,14 @@ pub struct ScrollFrameInfo {
     /// which may change between frames.
     pub external_id: Option<ExternalScrollId>,
 
+    /// If true, this is a scroll frame added implicitly by WR when adding
+    /// a pipeline (either the root or an iframe). We need to exclude these
+    /// when searching for scroll roots we care about for picture caching.
+    /// TODO(gw): I think we can actually completely remove the implicit
+    ///           scroll frame being added by WR, and rely on the embedder
+    ///           to define scroll frames. However, that involves API changes
+    ///           so we will use this as a temporary hack!
+    pub is_pipeline_root: bool,
 }
 
 /// Manages scrolling offset.
@@ -593,6 +603,7 @@ impl ScrollFrameInfo {
         scroll_sensitivity: ScrollSensitivity,
         scrollable_size: LayoutSize,
         external_id: Option<ExternalScrollId>,
+        is_pipeline_root: bool,
     ) -> ScrollFrameInfo {
         ScrollFrameInfo {
             viewport_rect,
@@ -600,6 +611,7 @@ impl ScrollFrameInfo {
             scroll_sensitivity,
             scrollable_size,
             external_id,
+            is_pipeline_root,
         }
     }
 
@@ -620,6 +632,7 @@ impl ScrollFrameInfo {
             scroll_sensitivity: self.scroll_sensitivity,
             scrollable_size: self.scrollable_size,
             external_id: self.external_id,
+            is_pipeline_root: self.is_pipeline_root,
         }
     }
 }
