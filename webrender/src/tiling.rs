@@ -25,7 +25,7 @@ use render_task::{BlitSource, RenderTaskAddress, RenderTaskId, RenderTaskKind, T
 use render_task::{BlurTask, ClearMode, GlyphTask, RenderTaskLocation, RenderTaskTree, ScalingTask};
 use resource_cache::ResourceCache;
 use std::{cmp, usize, f32, i32, mem};
-use texture_allocator::GuillotineAllocator;
+use texture_allocator::{ArrayAllocationTracker, FreeRectSlice};
 #[cfg(feature = "pathfinder")]
 use webrender_api::{DevicePixel, FontRenderMode};
 
@@ -55,41 +55,6 @@ pub struct RenderTargetContext<'a, 'rc> {
     pub scratch: &'a PrimitiveScratchBuffer,
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-struct TextureAllocator {
-    // TODO(gw): Replace this with a simpler allocator for
-    // render target allocation - this use case doesn't need
-    // to deal with coalescing etc that the general texture
-    // cache allocator requires.
-    allocator: GuillotineAllocator,
-
-    // Track the used rect of the render target, so that
-    // we can set a scissor rect and only clear to the
-    // used portion of the target as an optimization.
-    used_rect: DeviceIntRect,
-}
-
-impl TextureAllocator {
-    fn new(size: DeviceIntSize) -> Self {
-        TextureAllocator {
-            allocator: GuillotineAllocator::new(size),
-            used_rect: DeviceIntRect::zero(),
-        }
-    }
-
-    fn allocate(&mut self, size: &DeviceIntSize) -> Option<DeviceIntPoint> {
-        let origin = self.allocator.allocate(size);
-
-        if let Some(origin) = origin {
-            let rect = DeviceIntRect::new(origin, *size);
-            self.used_rect = rect.union(&self.used_rect);
-        }
-
-        origin
-    }
-}
-
 /// Represents a number of rendering operations on a surface.
 ///
 /// In graphics parlance, a "render target" usually means "a surface (texture or
@@ -105,17 +70,7 @@ impl TextureAllocator {
 /// and sometimes on its parameters. See `RenderTask::target_kind`.
 pub trait RenderTarget {
     /// Creates a new RenderTarget of the given type.
-    fn new(
-        size: Option<DeviceIntSize>,
-        screen_size: DeviceIntSize,
-    ) -> Self;
-
-    /// Allocates a region of the given size in this target, and returns either
-    /// the offset of that region or `None` if it won't fit.
-    ///
-    /// If a non-`None` result is returned, that value is generally stored in
-    /// a task which is then added to this target via `add_task()`.
-    fn allocate(&mut self, size: DeviceIntSize) -> Option<DeviceIntPoint>;
+    fn new(screen_size: DeviceIntSize) -> Self;
 
     /// Optional hook to provide additional processing for the target at the
     /// end of the build phase.
@@ -150,8 +105,11 @@ pub trait RenderTarget {
         transforms: &mut TransformPalette,
         deferred_resolves: &mut Vec<DeferredResolve>,
     );
-    fn used_rect(&self) -> DeviceIntRect;
+
     fn needs_depth(&self) -> bool;
+
+    fn used_rect(&self) -> DeviceIntRect;
+    fn add_used(&mut self, rect: DeviceIntRect);
 }
 
 /// A tag used to identify the output format of a `RenderTarget`.
@@ -203,6 +161,7 @@ pub struct RenderTargetList<T> {
     pub max_dynamic_size: DeviceIntSize,
     pub targets: Vec<T>,
     pub saved_index: Option<SavedTargetIndex>,
+    pub alloc_tracker: ArrayAllocationTracker,
 }
 
 impl<T: RenderTarget> RenderTargetList<T> {
@@ -216,6 +175,7 @@ impl<T: RenderTarget> RenderTargetList<T> {
             max_dynamic_size: DeviceIntSize::new(0, 0),
             targets: Vec::new(),
             saved_index: None,
+            alloc_tracker: ArrayAllocationTracker::new(),
         }
     }
 
@@ -271,31 +231,35 @@ impl<T: RenderTarget> RenderTargetList<T> {
         &mut self,
         alloc_size: DeviceIntSize,
     ) -> (DeviceIntPoint, RenderTargetIndex) {
-        let existing_origin = self.targets
-            .last_mut()
-            .and_then(|target| target.allocate(alloc_size));
-
-        let origin = match existing_origin {
-            Some(origin) => origin,
+        let (target_index, origin) = match self.alloc_tracker.allocate(&alloc_size) {
+            Some(allocation) => allocation,
             None => {
                 // Have the allocator restrict slice sizes to our max ideal
                 // dimensions, unless we've already gone bigger on a previous
                 // slice.
+                // TODO: round up!
                 let allocator_dimensions = DeviceIntSize::new(
                     cmp::max(IDEAL_MAX_TEXTURE_DIMENSION, self.max_dynamic_size.width),
                     cmp::max(IDEAL_MAX_TEXTURE_DIMENSION, self.max_dynamic_size.height),
                 );
-                let mut new_target = T::new(Some(allocator_dimensions), self.screen_size);
-                let origin = new_target.allocate(alloc_size).expect(&format!(
-                    "Each render task must allocate <= size of one target! ({})",
-                    alloc_size
-                ));
-                self.targets.push(new_target);
-                origin
+
+                let slice = FreeRectSlice(self.targets.len() as u32);
+                self.targets.push(T::new(self.screen_size));
+
+                self.alloc_tracker.extend(
+                    slice,
+                    allocator_dimensions,
+                    alloc_size,
+                );
+
+                (slice, DeviceIntPoint::zero())
             }
         };
 
-        (origin, RenderTargetIndex(self.targets.len() - 1))
+        self.targets[target_index.0 as usize]
+            .add_used(DeviceIntRect::new(origin, alloc_size));
+
+        (origin, RenderTargetIndex(target_index.0 as usize))
     }
 
     pub fn needs_depth(&self) -> bool {
@@ -384,23 +348,16 @@ pub struct ColorRenderTarget {
     pub outputs: Vec<FrameOutput>,
     pub tile_blits: Vec<TileBlit>,
     pub color_clears: Vec<RenderTaskId>,
-    allocator: Option<TextureAllocator>,
     alpha_tasks: Vec<RenderTaskId>,
     screen_size: DeviceIntSize,
+    // Track the used rect of the render target, so that
+    // we can set a scissor rect and only clear to the
+    // used portion of the target as an optimization.
+    pub used_rect: DeviceIntRect,
 }
 
 impl RenderTarget for ColorRenderTarget {
-    fn allocate(&mut self, size: DeviceIntSize) -> Option<DeviceIntPoint> {
-        self.allocator
-            .as_mut()
-            .expect("bug: calling allocate on framebuffer")
-            .allocate(&size)
-    }
-
-    fn new(
-        size: Option<DeviceIntSize>,
-        screen_size: DeviceIntSize,
-    ) -> Self {
+    fn new(screen_size: DeviceIntSize) -> Self {
         ColorRenderTarget {
             alpha_batch_containers: Vec::new(),
             vertical_blurs: Vec::new(),
@@ -408,12 +365,12 @@ impl RenderTarget for ColorRenderTarget {
             readbacks: Vec::new(),
             scalings: Vec::new(),
             blits: Vec::new(),
-            allocator: size.map(TextureAllocator::new),
             outputs: Vec::new(),
             alpha_tasks: Vec::new(),
             color_clears: Vec::new(),
             tile_blits: Vec::new(),
             screen_size,
+            used_rect: DeviceIntRect::zero(),
         }
     }
 
@@ -595,17 +552,18 @@ impl RenderTarget for ColorRenderTarget {
         }
     }
 
-    fn used_rect(&self) -> DeviceIntRect {
-        self.allocator
-            .as_ref()
-            .expect("bug: used_rect called on framebuffer")
-            .used_rect
-    }
-
     fn needs_depth(&self) -> bool {
         self.alpha_batch_containers.iter().any(|ab| {
             !ab.opaque_batches.is_empty()
         })
+    }
+
+    fn used_rect(&self) -> DeviceIntRect {
+        self.used_rect
+    }
+
+    fn add_used(&mut self, rect: DeviceIntRect) {
+        self.used_rect = self.used_rect.union(&rect);
     }
 }
 
@@ -622,25 +580,21 @@ pub struct AlphaRenderTarget {
     pub horizontal_blurs: Vec<BlurInstance>,
     pub scalings: Vec<ScalingInstance>,
     pub zero_clears: Vec<RenderTaskId>,
-    allocator: TextureAllocator,
+    // Track the used rect of the render target, so that
+    // we can set a scissor rect and only clear to the
+    // used portion of the target as an optimization.
+    pub used_rect: DeviceIntRect,
 }
 
 impl RenderTarget for AlphaRenderTarget {
-    fn allocate(&mut self, size: DeviceIntSize) -> Option<DeviceIntPoint> {
-        self.allocator.allocate(&size)
-    }
-
-    fn new(
-        size: Option<DeviceIntSize>,
-        _: DeviceIntSize,
-    ) -> Self {
+    fn new(_screen_size: DeviceIntSize) -> Self {
         AlphaRenderTarget {
             clip_batcher: ClipBatcher::new(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
             scalings: Vec::new(),
             zero_clears: Vec::new(),
-            allocator: TextureAllocator::new(size.expect("bug: alpha targets need size")),
+            used_rect: DeviceIntRect::zero(),
         }
     }
 
@@ -723,12 +677,16 @@ impl RenderTarget for AlphaRenderTarget {
         }
     }
 
-    fn used_rect(&self) -> DeviceIntRect {
-        self.allocator.used_rect
-    }
-
     fn needs_depth(&self) -> bool {
         false
+    }
+
+    fn used_rect(&self) -> DeviceIntRect {
+        self.used_rect
+    }
+
+    fn add_used(&mut self, rect: DeviceIntRect) {
+        self.used_rect = self.used_rect.union(&rect);
     }
 }
 
@@ -890,7 +848,7 @@ impl RenderPass {
     /// Creates a pass for the main framebuffer. There is only one of these, and
     /// it is always the last pass.
     pub fn new_main_framebuffer(screen_size: DeviceIntSize) -> Self {
-        let target = ColorRenderTarget::new(None, screen_size);
+        let target = ColorRenderTarget::new(screen_size);
         RenderPass {
             kind: RenderPassKind::MainFramebuffer(target),
             tasks: vec![],
