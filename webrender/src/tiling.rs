@@ -82,12 +82,7 @@ impl TextureAllocator {
         let origin = self.allocator.allocate(size);
 
         if let Some(origin) = origin {
-            // TODO(gw): We need to make all the device rects
-            //           be consistent in the use of the
-            //           DeviceIntRect and DeviceIntRect types!
-            let origin = DeviceIntPoint::new(origin.x as i32, origin.y as i32);
-            let size = DeviceIntSize::new(size.width as i32, size.height as i32);
-            let rect = DeviceIntRect::new(origin, size);
+            let rect = DeviceIntRect::new(origin, *size);
             self.used_rect = rect.union(&self.used_rect);
         }
 
