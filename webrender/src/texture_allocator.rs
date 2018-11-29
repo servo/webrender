@@ -25,19 +25,20 @@ pub struct GuillotineAllocator {
     texture_size: DeviceIntSize,
     free_list: FreeRectList,
     allocations: u32,
-    dirty: bool,
 }
 
 impl GuillotineAllocator {
-    pub fn new(texture_size: DeviceIntSize) -> GuillotineAllocator {
-        let mut page = GuillotineAllocator {
+    pub fn new(texture_size: DeviceIntSize) -> Self {
+        let mut free_list = FreeRectList::new();
+        free_list.push(DeviceIntRect::new(
+            DeviceIntPoint::zero(),
             texture_size,
-            free_list: FreeRectList::new(),
+        ));
+        GuillotineAllocator {
+            texture_size,
+            free_list,
             allocations: 0,
-            dirty: false,
-        };
-        page.clear();
-        page
+        }
     }
 
     fn find_index_of_best_rect_in_bin(
@@ -47,7 +48,9 @@ impl GuillotineAllocator {
     ) -> Option<FreeListIndex> {
         let mut smallest_index_and_area = None;
         for (candidate_index, candidate_rect) in self.free_list[bin].iter().enumerate() {
-            if !requested_dimensions.fits_inside(&candidate_rect.size) {
+            if requested_dimensions.width > candidate_rect.size.width ||
+                requested_dimensions.height > candidate_rect.size.height
+            {
                 continue;
             }
 
@@ -128,15 +131,12 @@ impl GuillotineAllocator {
             )
         }
 
-        // Add the guillotined rects back to the free list. If any changes were made, we're now
-        // dirty since coalescing might be able to defragment.
+        // Add the guillotined rects back to the free list.
         if !util::rect_is_empty(&new_free_rect_to_right) {
             self.free_list[bin].push(new_free_rect_to_right);
-            self.dirty = true
         }
         if !util::rect_is_empty(&new_free_rect_to_bottom) {
             self.free_list[bin].push(new_free_rect_to_bottom);
-            self.dirty = true
         }
 
         // Bump the allocation counter.
@@ -144,16 +144,6 @@ impl GuillotineAllocator {
 
         // Return the result.
         Some(chosen_rect.origin)
-    }
-
-    fn clear(&mut self) {
-        self.free_list = FreeRectList::new();
-        self.free_list.push(DeviceIntRect::new(
-            DeviceIntPoint::zero(),
-            self.texture_size,
-        ));
-        self.allocations = 0;
-        self.dirty = false;
     }
 }
 
@@ -205,15 +195,5 @@ impl FreeListBin {
             .find(|(_, &min_size)| min_size <= size.width && min_size <= size.height)
             .map(|(id, _)| FreeListBin(id as u8))
             .expect("Unable to find a bin!")
-    }
-}
-
-trait FitsInside {
-    fn fits_inside(&self, other: &Self) -> bool;
-}
-
-impl FitsInside for DeviceIntSize {
-    fn fits_inside(&self, other: &DeviceIntSize) -> bool {
-        self.width <= other.width && self.height <= other.height
     }
 }
