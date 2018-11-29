@@ -37,6 +37,9 @@ const STYLE_MASK: i32 = 0x00FF_FF00;
 /// we try to avoid it. This can go away when proper tiling support lands,
 /// since we can then split large primitives across multiple textures.
 const IDEAL_MAX_TEXTURE_DIMENSION: i32 = 2048;
+/// If we ever need a larger texture than the ideal, we better round it up to a
+/// reasonable number in order to have a bit of leeway in placing things inside.
+const TEXTURE_DIMENSION_MASK: i32 = 0xFF;
 
 /// Identifies a given `RenderTarget` in a `RenderTargetList`.
 #[derive(Debug, Copy, Clone)]
@@ -206,43 +209,27 @@ impl<T: RenderTarget> RenderTargetList<T> {
         }
     }
 
-    fn add_task(
-        &mut self,
-        task_id: RenderTaskId,
-        ctx: &RenderTargetContext,
-        gpu_cache: &mut GpuCache,
-        render_tasks: &mut RenderTaskTree,
-        clip_store: &ClipStore,
-        transforms: &mut TransformPalette,
-        deferred_resolves: &mut Vec<DeferredResolve>,
-    ) {
-        self.targets.last_mut().unwrap().add_task(
-            task_id,
-            ctx,
-            gpu_cache,
-            render_tasks,
-            clip_store,
-            transforms,
-            deferred_resolves,
-        );
-    }
-
     fn allocate(
         &mut self,
         alloc_size: DeviceIntSize,
-    ) -> (DeviceIntPoint, RenderTargetIndex) {
-        let (target_index, origin) = match self.alloc_tracker.allocate(&alloc_size) {
+    ) -> (RenderTargetIndex, DeviceIntPoint) {
+        let (free_rect_slice, origin) = match self.alloc_tracker.allocate(&alloc_size) {
             Some(allocation) => allocation,
             None => {
                 // Have the allocator restrict slice sizes to our max ideal
                 // dimensions, unless we've already gone bigger on a previous
                 // slice.
-                // TODO: round up!
+                let rounded_dimensions = DeviceIntSize::new(
+                    (self.max_dynamic_size.width + TEXTURE_DIMENSION_MASK) & !TEXTURE_DIMENSION_MASK,
+                    (self.max_dynamic_size.height + TEXTURE_DIMENSION_MASK) & !TEXTURE_DIMENSION_MASK,
+                );
                 let allocator_dimensions = DeviceIntSize::new(
-                    cmp::max(IDEAL_MAX_TEXTURE_DIMENSION, self.max_dynamic_size.width),
-                    cmp::max(IDEAL_MAX_TEXTURE_DIMENSION, self.max_dynamic_size.height),
+                    cmp::max(IDEAL_MAX_TEXTURE_DIMENSION, rounded_dimensions.width),
+                    cmp::max(IDEAL_MAX_TEXTURE_DIMENSION, rounded_dimensions.height),
                 );
 
+                assert!(alloc_size.width <= allocator_dimensions.width &&
+                    alloc_size.height <= allocator_dimensions.height);
                 let slice = FreeRectSlice(self.targets.len() as u32);
                 self.targets.push(T::new(self.screen_size));
 
@@ -256,10 +243,10 @@ impl<T: RenderTarget> RenderTargetList<T> {
             }
         };
 
-        self.targets[target_index.0 as usize]
+        self.targets[free_rect_slice.0 as usize]
             .add_used(DeviceIntRect::new(origin, alloc_size));
 
-        (origin, RenderTargetIndex(target_index.0 as usize))
+        (RenderTargetIndex(free_rect_slice.0 as usize), origin)
     }
 
     pub fn needs_depth(&self) -> bool {
@@ -955,26 +942,26 @@ impl RenderPass {
 
                 // Step through each task, adding to batches as appropriate.
                 for &task_id in &self.tasks {
-                    let (target_kind, texture_target) = {
+                    let (target_kind, texture_target, layer) = {
                         let task = &mut render_tasks[task_id];
                         let target_kind = task.target_kind();
 
                         // Find a target to assign this task to, or create a new
                         // one if required.
-                        let texture_target = match task.location {
+                        let (texture_target, layer) = match task.location {
                             RenderTaskLocation::TextureCache { texture, layer, .. } => {
-                                Some((texture, layer))
+                                (Some(texture), layer)
                             }
                             RenderTaskLocation::Fixed(..) => {
-                                None
+                                (None, 0)
                             }
                             RenderTaskLocation::Dynamic(ref mut origin, size) => {
-                                let (alloc_origin, target_index) =  match target_kind {
+                                let (target_index, alloc_origin) =  match target_kind {
                                     RenderTargetKind::Color => color.allocate(size),
                                     RenderTargetKind::Alpha => alpha.allocate(size),
                                 };
                                 *origin = Some((alloc_origin, target_index));
-                                None
+                                (None, target_index.0)
                             }
                         };
 
@@ -991,13 +978,13 @@ impl RenderPass {
                         // information to the GPU cache, if appropriate.
                         task.write_gpu_blocks(gpu_cache);
 
-                        (target_kind, texture_target)
+                        (target_kind, texture_target, layer)
                     };
 
                     match texture_target {
                         Some(texture_target) => {
                             let texture = texture_cache
-                                .entry(texture_target)
+                                .entry((texture_target, layer))
                                 .or_insert(
                                     TextureCacheRenderTarget::new(target_kind)
                                 );
@@ -1005,7 +992,7 @@ impl RenderPass {
                         }
                         None => {
                             match target_kind {
-                                RenderTargetKind::Color => color.add_task(
+                                RenderTargetKind::Color => color.targets[layer].add_task(
                                     task_id,
                                     ctx,
                                     gpu_cache,
@@ -1014,7 +1001,7 @@ impl RenderPass {
                                     transforms,
                                     deferred_resolves,
                                 ),
-                                RenderTargetKind::Alpha => alpha.add_task(
+                                RenderTargetKind::Alpha => alpha.targets[layer].add_task(
                                     task_id,
                                     ctx,
                                     gpu_cache,
