@@ -1,4 +1,3 @@
-
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1267,7 +1266,7 @@ impl<'a> DisplayListFlattener<'a> {
                 PrimitiveInstanceKind::Picture { ref mut pic_index, ..} => *pic_index = current_pic_index,
                 _ => unreachable!()
             };
-           
+
             if cur_instance.is_chased() {
                 println!("\tis a composite picture for a stacking context with {:?}", filter);
             }
@@ -1304,7 +1303,7 @@ impl<'a> DisplayListFlattener<'a> {
                 PrimitiveInstanceKind::Picture { ref mut pic_index, ..} => *pic_index = current_pic_index,
                 _ => unreachable!()
             };
-            
+
             if cur_instance.is_chased() {
                 println!("\tis a mix-blend picture for a stacking context with {:?}", mix_blend_mode);
             }
@@ -1602,42 +1601,10 @@ impl<'a> DisplayListFlattener<'a> {
                         match item {
                             // TODO(djg): ugh. de-duplicate this code.
                             ShadowItem::Primitive(ref pending_primitive) => {
-                                // Offset the local rect and clip rect by the shadow offset.
-                                let mut info = pending_primitive.info.clone();
-                                info.rect = info.rect.translate(&pending_shadow.shadow.offset);
-                                info.clip_rect = info.clip_rect.translate(&pending_shadow.shadow.offset);
-
-                                // Construct and add a primitive for the given shadow.
-                                let shadow_prim_instance = self.create_primitive(
-                                    &info,
-                                    pending_primitive.clip_and_scroll.clip_chain_id,
-                                    pending_primitive.clip_and_scroll.spatial_node_index,
-                                    pending_primitive.prim.create_shadow(
-                                        &pending_shadow.shadow,
-                                    ),
-                                );
-
-                                // Add the new primitive to the shadow picture.
-                                prims.push(shadow_prim_instance);
+                                self.add_shadow_prim(&pending_shadow, pending_primitive, &mut prims)
                             }
                             ShadowItem::TextRun(ref pending_text_run) => {
-                                // Offset the local rect and clip rect by the shadow offset.
-                                let mut info = pending_text_run.info.clone();
-                                info.rect = info.rect.translate(&pending_shadow.shadow.offset);
-                                info.clip_rect = info.clip_rect.translate(&pending_shadow.shadow.offset);
-
-                                // Construct and add a primitive for the given shadow.
-                                let shadow_prim_instance = self.create_primitive(
-                                        &info,
-                                        pending_text_run.clip_and_scroll.clip_chain_id,
-                                        pending_text_run.clip_and_scroll.spatial_node_index,
-                                        pending_text_run.prim.create_shadow(
-                                            &pending_shadow.shadow,
-                                        ),
-                                );
-
-                                // Add the new primitive to the shadow picture.
-                                prims.push(shadow_prim_instance);
+                                self.add_shadow_prim(&pending_shadow, pending_text_run, &mut prims)
                             }
                             _ => {}
                         }
@@ -1704,37 +1671,64 @@ impl<'a> DisplayListFlattener<'a> {
                     }
                 }
                 ShadowItem::Primitive(pending_primitive) => {
-                    // For a normal primitive, if it has alpha > 0, then we add this
-                    // as a normal primitive to the parent picture.
-                    if pending_primitive.prim.is_visible() {
-                        self.add_prim_to_draw_list(
-                            &pending_primitive.info,
-                            pending_primitive.clip_and_scroll.clip_chain_id,
-                            pending_primitive.clip_and_scroll,
-                            pending_primitive.prim,
-                        );
-                    }
+                    self.add_shadow_prim_to_draw_list(pending_primitive)
                 },
                 ShadowItem::TextRun(pending_text_run) => {
-                    // For a normal primitive, if it has alpha > 0, then we add this
-                    // as a normal primitive to the parent picture.
-                    //
-                    // TODO(djg): Can this be cleaned up?  It looks identical to
-                    // another piece of code.
-                    if pending_text_run.prim.is_visible() {
-                        self.add_prim_to_draw_list(
-                            &pending_text_run.info,
-                            pending_text_run.clip_and_scroll.clip_chain_id,
-                            pending_text_run.clip_and_scroll,
-                            pending_text_run.prim,
-                        );
-                    }
+                    self.add_shadow_prim_to_draw_list(pending_text_run)
                 },
             }
         }
 
         debug_assert!(items.is_empty());
         self.pending_shadow_items = items;
+    }
+
+    fn add_shadow_prim<P>(
+        &mut self,
+        pending_shadow: &PendingShadow,
+        pending_primitive: &PendingPrimitive<P>,
+        prims: &mut Vec<PrimitiveInstance>,
+    )
+    where
+        P: Internable<InternData=PrimitiveSceneData> + CreateShadow,
+        P::Source: AsInstanceKind<Handle<P::Marker>> + BuildKey<P>,
+        DocumentResources: InternerMut<P>,
+    {
+        // Offset the local rect and clip rect by the shadow offset.
+        let mut info = pending_primitive.info.clone();
+        info.rect = info.rect.translate(&pending_shadow.shadow.offset);
+        info.clip_rect = info.clip_rect.translate(&pending_shadow.shadow.offset);
+
+        // Construct and add a primitive for the given shadow.
+        let shadow_prim_instance = self.create_primitive(
+            &info,
+            pending_primitive.clip_and_scroll.clip_chain_id,
+            pending_primitive.clip_and_scroll.spatial_node_index,
+            pending_primitive.prim.create_shadow(
+                &pending_shadow.shadow,
+            ),
+        );
+
+        // Add the new primitive to the shadow picture.
+        prims.push(shadow_prim_instance);
+    }
+
+    fn add_shadow_prim_to_draw_list<P>(&mut self, pending_primitive: PendingPrimitive<P>)
+    where
+        P: Internable<InternData = PrimitiveSceneData> + IsVisible,
+        P::Source: AsInstanceKind<Handle<P::Marker>> + BuildKey<P>,
+        DocumentResources: InternerMut<P>,
+    {
+        // For a normal primitive, if it has alpha > 0, then we add this
+        // as a normal primitive to the parent picture.
+        if pending_primitive.prim.is_visible() {
+            self.add_prim_to_draw_list(
+                &pending_primitive.info,
+                pending_primitive.clip_and_scroll.clip_chain_id,
+                pending_primitive.clip_and_scroll,
+                pending_primitive.prim,
+            );
+        }
     }
 
     #[cfg(debug_assertions)]
