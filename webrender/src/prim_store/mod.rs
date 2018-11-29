@@ -16,7 +16,7 @@ use border::{BorderSegmentCacheKey, NormalBorderAu};
 use clip::{ClipStore};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use clip::{ClipDataStore, ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem, ClipNodeCollector};
-use display_list_flattener::{AsInstanceKind, BuildKey, IsVisible};
+use display_list_flattener::{AsInstanceKind, BuildKey, CreateShadow, IsVisible};
 use euclid::{SideOffsets2D, TypedTransform3D, TypedRect, TypedScale, TypedSize2D};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use frame_builder::PrimitiveContext;
@@ -2102,11 +2102,11 @@ impl IsVisible for PrimitiveKeyKind {
     }
 }
 
-impl PrimitiveKeyKind {
+impl CreateShadow for PrimitiveKeyKind {
     // Create a clone of this PrimitiveContainer, applying whatever
     // changes are necessary to the primitive to support rendering
     // it as part of the supplied shadow.
-    pub fn create_shadow(
+    fn create_shadow(
         &self,
         shadow: &Shadow,
     ) -> PrimitiveKeyKind {
