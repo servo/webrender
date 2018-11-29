@@ -54,7 +54,7 @@ impl GuillotineAllocator {
                 continue;
             }
 
-            let candidate_area = candidate_rect.size.width * candidate_rect.size.height;
+            let candidate_area = candidate_rect.size.area();
             smallest_index_and_area = Some((candidate_index, candidate_area));
             break;
         }
@@ -85,10 +85,7 @@ impl GuillotineAllocator {
         if requested_dimensions.width == 0 || requested_dimensions.height == 0 {
             return Some(DeviceIntPoint::new(0, 0));
         }
-        let index = match self.find_index_of_best_rect(requested_dimensions) {
-            None => return None,
-            Some(index) => index,
-        };
+        let index = self.find_index_of_best_rect(requested_dimensions)?;
 
         // Remove the rect from the free list and decide how to guillotine it. We choose the split
         // that results in the single largest area (Min Area Split Rule, MINAS).
@@ -113,15 +110,11 @@ impl GuillotineAllocator {
                 chosen_rect.size.height - requested_dimensions.height,
             ),
         );
-        let candidate_free_rect_to_right_area =
-            candidate_free_rect_to_right.size.width * candidate_free_rect_to_right.size.height;
-        let candidate_free_rect_to_bottom_area =
-            candidate_free_rect_to_bottom.size.width * candidate_free_rect_to_bottom.size.height;
 
         // Guillotine the rectangle.
         let new_free_rect_to_right;
         let new_free_rect_to_bottom;
-        if candidate_free_rect_to_right_area > candidate_free_rect_to_bottom_area {
+        if candidate_free_rect_to_right.size.area() > candidate_free_rect_to_bottom.size.area() {
             new_free_rect_to_right = DeviceIntRect::new(
                 candidate_free_rect_to_right.origin,
                 DeviceIntSize::new(
@@ -226,10 +219,9 @@ enum FreeListBin {
 
 impl FreeListBin {
     fn for_size(size: &DeviceIntSize) -> FreeListBin {
-        if size.width >= MINIMUM_LARGE_RECT_SIZE && size.height >= MINIMUM_LARGE_RECT_SIZE {
+        if size.width >= MINIMUM_LARGE_RECT_SIZE || size.height >= MINIMUM_LARGE_RECT_SIZE {
             FreeListBin::Large
-        } else if size.width >= MINIMUM_MEDIUM_RECT_SIZE && size.height >= MINIMUM_MEDIUM_RECT_SIZE
-        {
+        } else if size.width >= MINIMUM_MEDIUM_RECT_SIZE || size.height >= MINIMUM_MEDIUM_RECT_SIZE {
             FreeListBin::Medium
         } else {
             debug_assert!(size.width > 0 && size.height > 0);
