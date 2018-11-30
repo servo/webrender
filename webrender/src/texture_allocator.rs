@@ -204,3 +204,61 @@ impl ArrayAllocationTracker {
         );
     }
 }
+
+#[cfg(test)]
+fn random_fill(count: usize, texture_size: i32) -> f32 {
+    use rand::{thread_rng, Rng};
+
+    let total_rect = DeviceIntRect::new(
+        DeviceIntPoint::zero(),
+        DeviceIntSize::new(texture_size, texture_size),
+    );
+    let mut rng = thread_rng();
+    let mut allocator = ArrayAllocationTracker::new();
+    let mut slices: Vec<Vec<DeviceIntRect>> = Vec::new();
+    let mut requested_area = 0f32;
+    // fill up the allocator
+    for _ in 0 .. count {
+        let size = DeviceIntSize::new(
+            rng.gen_range(1, texture_size),
+            rng.gen_range(1, texture_size),
+        );
+        requested_area += size.area() as f32;
+
+        match allocator.allocate(&size) {
+            Some((slice, origin)) => {
+                let rect = DeviceIntRect::new(origin, size);
+                assert_eq!(None, slices[slice.0 as usize].iter().find(|r| r.intersects(&rect)));
+                assert!(total_rect.contains_rect(&rect));
+                slices[slice.0 as usize].push(rect);
+            }
+            None => {
+                allocator.extend(FreeRectSlice(slices.len() as u32), total_rect.size, size);
+                let rect = DeviceIntRect::new(DeviceIntPoint::zero(), size);
+                slices.push(vec![rect]);
+            }
+        }
+    }
+    // validate the free rects
+    for (i, free_vecs) in allocator.bins.iter().enumerate() {
+        for fr in free_vecs {
+            assert_eq!(FreeListBin(i as u8), FreeListBin::for_size(&fr.rect.size));
+            assert_eq!(None, slices[fr.slice.0 as usize].iter().find(|r| r.intersects(&fr.rect)));
+            assert!(total_rect.contains_rect(&fr.rect));
+            slices[fr.slice.0 as usize].push(fr.rect);
+        }
+    }
+
+    let allocated_area = slices.len() as f32 * (texture_size * texture_size) as f32;
+    requested_area / allocated_area
+}
+
+#[test]
+fn test_small() {
+    random_fill(100, 100);
+}
+
+#[test]
+fn test_large() {
+    random_fill(1000, 10000);
+}
