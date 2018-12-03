@@ -16,7 +16,7 @@ use border::{BorderSegmentCacheKey, NormalBorderAu};
 use clip::{ClipStore};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use clip::{ClipDataStore, ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem, ClipNodeCollector};
-use display_list_flattener::{AsInstanceKind, BuildKey, CreateShadow, IsVisible};
+use display_list_flattener::{AsInstanceKind, CreateShadow, IsVisible};
 use euclid::{SideOffsets2D, TypedTransform3D, TypedRect, TypedScale, TypedSize2D};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use frame_builder::PrimitiveContext;
@@ -725,20 +725,6 @@ impl AsInstanceKind<PrimitiveDataHandle> for PrimitiveKey {
     }
 }
 
-impl BuildKey<PrimitiveKeyKind> for PrimitiveKey {
-    fn build_key(
-        info: &LayoutPrimitiveInfo,
-        prim_key_kind: PrimitiveKeyKind,
-    ) -> PrimitiveKey {
-        PrimitiveKey::new(
-            info.is_backface_visible,
-            info.rect,
-            info.clip_rect,
-            prim_key_kind,
-        )
-    }
-}
-
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct NormalBorderTemplate {
@@ -1436,6 +1422,15 @@ impl intern::Internable for PrimitiveKeyKind {
     type Source = PrimitiveKey;
     type StoreData = PrimitiveTemplate;
     type InternData = PrimitiveSceneData;
+
+    fn build_key(self, info: &LayoutPrimitiveInfo) -> PrimitiveKey {
+        PrimitiveKey::new(
+            info.is_backface_visible,
+            info.rect,
+            info.clip_rect,
+            self,
+        )
+    }
 }
 
 pub type PrimitiveDataStore = intern::DataStore<PrimitiveKey, PrimitiveTemplate, PrimitiveDataMarker>;
