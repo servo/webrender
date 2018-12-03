@@ -5,8 +5,7 @@
 use api::{AuHelpers, ColorF, DevicePixelScale, GlyphInstance, LayoutPrimitiveInfo};
 use api::{LayoutRect, LayoutToWorldTransform, LayoutVector2DAu, RasterSpace};
 use api::Shadow;
-use display_list_flattener::{AsInstanceKind, BuildKey, CreateShadow};
-use display_list_flattener::IsVisible;
+use display_list_flattener::{AsInstanceKind, CreateShadow, IsVisible};
 use frame_builder::{FrameBuildingState, PictureContext};
 use glyph_rasterizer::{FontInstance, FontTransform, GlyphKey, FONT_SIZE_LIMIT};
 use gpu_cache::{GpuCache, GpuCacheHandle};
@@ -64,13 +63,6 @@ impl AsInstanceKind<TextRunDataHandle> for TextRunKey {
         });
 
         PrimitiveInstanceKind::TextRun{ data_handle, run_index }
-    }
-}
-
-impl BuildKey<TextRun> for TextRunKey {
-    /// Build a new key from self with `info`.
-    fn build_key(info: &LayoutPrimitiveInfo, source: TextRun) -> TextRunKey {
-        TextRunKey::new(info, source)
     }
 }
 
@@ -182,6 +174,11 @@ impl intern::Internable for TextRun {
     type Source = TextRunKey;
     type StoreData = TextRunTemplate;
     type InternData = PrimitiveSceneData;
+
+    /// Build a new key from self with `info`.
+    fn build_key(self, info: &LayoutPrimitiveInfo) -> TextRunKey {
+        TextRunKey::new(info, self)
+    }
 }
 
 impl CreateShadow for TextRun {

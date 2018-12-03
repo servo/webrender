@@ -1040,11 +1040,11 @@ impl<'a> DisplayListFlattener<'a> {
     ) -> PrimitiveInstance
     where
         P: Internable<InternData=PrimitiveSceneData>,
-        P::Source: AsInstanceKind<Handle<P::Marker>> + BuildKey<P>,
+        P::Source: AsInstanceKind<Handle<P::Marker>>,
         DocumentResources: InternerMut<P>,
     {
         // Build a primitive key.
-        let prim_key = P::Source::build_key(info, prim);
+        let prim_key = prim.build_key(info);
 
         // Get a tight bounding / culling rect for this primitive
         // from its local rect intersection with minimal local
@@ -1120,7 +1120,7 @@ impl<'a> DisplayListFlattener<'a> {
     )
     where
         P: Internable<InternData = PrimitiveSceneData> + IsVisible,
-        P::Source: AsInstanceKind<Handle<P::Marker>> + BuildKey<P>,
+        P::Source: AsInstanceKind<Handle<P::Marker>>,
         DocumentResources: InternerMut<P>,
         ShadowItem: From<PendingPrimitive<P>>
     {
@@ -1162,7 +1162,7 @@ impl<'a> DisplayListFlattener<'a> {
     )
     where
         P: Internable<InternData = PrimitiveSceneData>,
-        P::Source: AsInstanceKind<Handle<P::Marker>> + BuildKey<P>,
+        P::Source: AsInstanceKind<Handle<P::Marker>>,
         DocumentResources: InternerMut<P>,
     {
         let prim_instance = self.create_primitive(
@@ -1880,7 +1880,7 @@ impl<'a> DisplayListFlattener<'a> {
     )
     where
         P: Internable<InternData=PrimitiveSceneData> + CreateShadow,
-        P::Source: AsInstanceKind<Handle<P::Marker>> + BuildKey<P>,
+        P::Source: AsInstanceKind<Handle<P::Marker>>,
         DocumentResources: InternerMut<P>,
     {
         // Offset the local rect and clip rect by the shadow offset.
@@ -1905,7 +1905,7 @@ impl<'a> DisplayListFlattener<'a> {
     fn add_shadow_prim_to_draw_list<P>(&mut self, pending_primitive: PendingPrimitive<P>)
     where
         P: Internable<InternData = PrimitiveSceneData> + IsVisible,
-        P::Source: AsInstanceKind<Handle<P::Marker>> + BuildKey<P>,
+        P::Source: AsInstanceKind<Handle<P::Marker>>,
         DocumentResources: InternerMut<P>,
     {
         // For a normal primitive, if it has alpha > 0, then we add this
@@ -2428,10 +2428,6 @@ pub trait AsInstanceKind<H> {
         data_handle: H,
         prim_store: &mut PrimitiveStore,
     ) -> PrimitiveInstanceKind;
-}
-
-pub trait BuildKey<S> {
-    fn build_key(info: &LayoutPrimitiveInfo, source: S) -> Self;
 }
 
 pub trait CreateShadow {
