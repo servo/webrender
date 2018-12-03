@@ -30,7 +30,8 @@ use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
 use hit_test::{HitTest, HitTester};
 use internal_types::{DebugOutput, FastHashMap, FastHashSet, RenderedDocument, ResultMsg};
-use prim_store::{PrimitiveDataStore, PrimitiveScratchBuffer};
+use prim_store::{PrimitiveDataStore, PrimitiveScratchBuffer, PrimitiveInstance};
+use prim_store::{PrimitiveInstanceKind, PrimTemplateCommonData};
 use prim_store::text_run::TextRunDataStore;
 use profiler::{BackendProfileCounters, IpcProfileCounters, ResourceProfileCounters};
 use record::ApiRecordingReceiver;
@@ -203,6 +204,33 @@ pub struct FrameResources {
     /// primitive interner in the scene builder, per document.
     pub prim_data_store: PrimitiveDataStore,
     pub text_run_data_store: TextRunDataStore,
+}
+
+impl FrameResources {
+    pub fn as_common_data(
+        &self,
+        prim_inst: &PrimitiveInstance
+    ) -> &PrimTemplateCommonData {
+        match prim_inst.kind {
+            PrimitiveInstanceKind::Picture { data_handle, .. } |
+            PrimitiveInstanceKind::LineDecoration { data_handle, .. } |
+            PrimitiveInstanceKind::NormalBorder { data_handle, .. } |
+            PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
+            PrimitiveInstanceKind::Rectangle { data_handle, .. } |
+            PrimitiveInstanceKind::YuvImage { data_handle, .. } |
+            PrimitiveInstanceKind::Image { data_handle, .. } |
+            PrimitiveInstanceKind::LinearGradient { data_handle, .. } |
+            PrimitiveInstanceKind::RadialGradient { data_handle, .. } |
+            PrimitiveInstanceKind::Clear { data_handle, .. } => {
+                let prim_data = &self.prim_data_store[data_handle];
+                &prim_data.common
+            }
+            PrimitiveInstanceKind::TextRun { data_handle, .. }  => {
+                let prim_data = &self.text_run_data_store[data_handle];
+                &prim_data.common
+            }
+        }
+    }
 }
 
 struct Document {

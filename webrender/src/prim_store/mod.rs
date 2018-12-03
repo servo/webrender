@@ -2817,20 +2817,8 @@ impl PrimitiveStore {
                 let pic = &self.pictures[pic_index.0];
                 (pic.local_rect, LayoutRect::max_rect())
             }
-            PrimitiveInstanceKind::Clear { data_handle, .. } |
-            PrimitiveInstanceKind::NormalBorder { data_handle, .. } |
-            PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
-            PrimitiveInstanceKind::Rectangle { data_handle, .. } |
-            PrimitiveInstanceKind::YuvImage { data_handle, .. } |
-            PrimitiveInstanceKind::Image { data_handle, .. } |
-            PrimitiveInstanceKind::LinearGradient { data_handle, .. } |
-            PrimitiveInstanceKind::RadialGradient { data_handle, .. } |
-            PrimitiveInstanceKind::LineDecoration { data_handle, .. } => {
-                let prim_data = &resources.prim_data_store[data_handle];
-                (prim_data.prim_rect, prim_data.clip_rect)
-            }
-            PrimitiveInstanceKind::TextRun { data_handle, .. } => {
-                let prim_data = &resources.text_run_data_store[data_handle];
+            _ => {
+                let prim_data = &resources.as_common_data(&prim_instance);
                 (prim_data.prim_rect, prim_data.clip_rect)
             }
         };
