@@ -3,21 +3,22 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AuHelpers, ColorF, DevicePixelScale, GlyphInstance, LayoutPrimitiveInfo};
-use api::{LayoutRect, LayoutToWorldTransform, LayoutVector2DAu, RasterSpace};
+use api::{LayoutToWorldTransform, LayoutVector2DAu, RasterSpace};
 use api::Shadow;
 use display_list_flattener::{AsInstanceKind, CreateShadow, IsVisible};
 use frame_builder::{FrameBuildingState, PictureContext};
 use glyph_rasterizer::{FontInstance, FontTransform, GlyphKey, FONT_SIZE_LIMIT};
-use gpu_cache::{GpuCache, GpuCacheHandle};
+use gpu_cache::GpuCache;
 use intern;
 use prim_store::{PrimitiveOpacity, PrimitiveSceneData,  PrimitiveScratchBuffer};
-use prim_store::{PrimitiveStore, RectangleKey};
+use prim_store::{PrimitiveStore, PrimKeyCommonData, PrimTemplateCommonData};
 use render_task::{RenderTaskTree};
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ResourceCache};
 use tiling::SpecialRenderPasses;
 use util::{MatrixHelpers};
 use prim_store::PrimitiveInstanceKind;
+use std::ops;
 use storage;
 
 /// A run of glyphs, with associated font information.
@@ -25,9 +26,7 @@ use storage;
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct TextRunKey {
-    pub is_backface_visible: bool,
-    pub prim_rect: RectangleKey,
-    pub clip_rect: RectangleKey,
+    pub common: PrimKeyCommonData,
     pub font: FontInstance,
     pub offset: LayoutVector2DAu,
     pub glyphs: Vec<GlyphInstance>,
@@ -37,9 +36,7 @@ pub struct TextRunKey {
 impl TextRunKey {
     pub fn new(info: &LayoutPrimitiveInfo, text_run: TextRun) -> Self {
         TextRunKey {
-            is_backface_visible: info.is_backface_visible,
-            prim_rect: info.rect.into(),
-            clip_rect: info.clip_rect.into(),
+            common: PrimKeyCommonData::with_info(info),
             font: text_run.font,
             offset: text_run.offset.into(),
             glyphs: text_run.glyphs,
@@ -69,31 +66,33 @@ impl AsInstanceKind<TextRunDataHandle> for TextRunKey {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TextRunTemplate {
-    pub is_backface_visible: bool,
-    pub prim_rect: LayoutRect,
-    pub clip_rect: LayoutRect,
+    pub common: PrimTemplateCommonData,
     pub font: FontInstance,
     pub offset: LayoutVector2DAu,
     pub glyphs: Vec<GlyphInstance>,
-    pub opacity: PrimitiveOpacity,
-    /// The GPU cache handle for a primitive template. Since this structure
-    /// is retained across display lists by interning, this GPU cache handle
-    /// also remains valid, which reduces the number of updates to the GPU
-    /// cache when a new display list is processed.
-    pub gpu_cache_handle: GpuCacheHandle,
+}
+
+impl ops::Deref for TextRunTemplate {
+    type Target = PrimTemplateCommonData;
+    fn deref(&self) -> &Self::Target {
+        &self.common
+    }
+}
+
+impl ops::DerefMut for TextRunTemplate {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.common
+    }
 }
 
 impl From<TextRunKey> for TextRunTemplate {
     fn from(item: TextRunKey) -> Self {
+        let common = PrimTemplateCommonData::with_key_common(item.common);
         TextRunTemplate {
-            is_backface_visible: item.is_backface_visible,
-            prim_rect: item.prim_rect.into(),
-            clip_rect: item.clip_rect.into(),
+            common,
             font: item.font,
             offset: item.offset,
             glyphs: item.glyphs,
-            opacity: PrimitiveOpacity::translucent(),
-            gpu_cache_handle: GpuCacheHandle::new(),
         }
     }
 }
@@ -115,7 +114,7 @@ impl TextRunTemplate {
         &mut self,
         frame_state: &mut FrameBuildingState,
     ) {
-        if let Some(mut request) = frame_state.gpu_cache.request(&mut self.gpu_cache_handle) {
+        if let Some(mut request) = frame_state.gpu_cache.request(&mut self.common.gpu_cache_handle) {
             request.push(ColorF::from(self.font.color).premultiplied());
             // this is the only case where we need to provide plain color to GPU
             let bg_color = ColorF::from(self.font.bg_color);
