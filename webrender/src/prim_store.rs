@@ -3089,10 +3089,6 @@ impl PrimitiveStore {
                         0.0,
                         0.0,
                     ]);
-                    request.write_segment(
-                        pic.local_rect,
-                        [0.0; 4],
-                    );
                 }
             }
             PrimitiveInstanceKind::TextRun { .. } |
