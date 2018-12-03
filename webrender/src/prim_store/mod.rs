@@ -623,10 +623,27 @@ impl From<LayoutPoint> for PointKey {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct PrimitiveKey {
+pub struct PrimKeyCommonData {
     pub is_backface_visible: bool,
     pub prim_rect: RectangleKey,
     pub clip_rect: RectangleKey,
+}
+
+impl PrimKeyCommonData {
+    pub fn with_info(info: &LayoutPrimitiveInfo) -> Self {
+        PrimKeyCommonData {
+            is_backface_visible: info.is_backface_visible,
+            prim_rect: info.rect.into(),
+            clip_rect: info.clip_rect.into(),
+        }
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct PrimitiveKey {
+    pub common: PrimKeyCommonData,
     pub kind: PrimitiveKeyKind,
 }
 
@@ -638,9 +655,11 @@ impl PrimitiveKey {
         kind: PrimitiveKeyKind,
     ) -> Self {
         PrimitiveKey {
-            is_backface_visible,
-            prim_rect: prim_rect.into(),
-            clip_rect: clip_rect.into(),
+            common: PrimKeyCommonData {
+                is_backface_visible,
+                prim_rect: prim_rect.into(),
+                clip_rect: clip_rect.into(),
+            },
             kind,
         }
     }
@@ -969,11 +988,10 @@ impl PrimitiveKeyKind {
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct PrimitiveTemplate {
+pub struct PrimTemplateCommonData {
     pub is_backface_visible: bool,
     pub prim_rect: LayoutRect,
     pub clip_rect: LayoutRect,
-    pub kind: PrimitiveTemplateKind,
     pub opacity: PrimitiveOpacity,
     /// The GPU cache handle for a primitive template. Since this structure
     /// is retained across display lists by interning, this GPU cache handle
@@ -982,20 +1000,44 @@ pub struct PrimitiveTemplate {
     pub gpu_cache_handle: GpuCacheHandle,
 }
 
-impl From<PrimitiveKey> for PrimitiveTemplate {
-    fn from(item: PrimitiveKey) -> Self {
-        let prim_rect = item.prim_rect.into();
-        let clip_rect = item.clip_rect.into();
-        let kind = item.kind.into_template(&prim_rect);
-
-        PrimitiveTemplate {
-            is_backface_visible: item.is_backface_visible,
-            prim_rect,
-            clip_rect,
-            kind,
+impl PrimTemplateCommonData {
+    pub fn with_key_common(common: PrimKeyCommonData) -> Self {
+        PrimTemplateCommonData {
+            is_backface_visible: common.is_backface_visible,
+            prim_rect: common.prim_rect.into(),
+            clip_rect: common.clip_rect.into(),
             gpu_cache_handle: GpuCacheHandle::new(),
             opacity: PrimitiveOpacity::translucent(),
         }
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct PrimitiveTemplate {
+    pub common: PrimTemplateCommonData,
+    pub kind: PrimitiveTemplateKind,
+}
+
+impl ops::Deref for PrimitiveTemplate {
+    type Target = PrimTemplateCommonData;
+    fn deref(&self) -> &Self::Target {
+        &self.common
+    }
+}
+
+impl ops::DerefMut for PrimitiveTemplate {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.common
+    }
+}
+
+impl From<PrimitiveKey> for PrimitiveTemplate {
+    fn from(item: PrimitiveKey) -> Self {
+        let common = PrimTemplateCommonData::with_key_common(item.common);
+        let kind = item.kind.into_template(&common.prim_rect);
+
+        PrimitiveTemplate { common, kind, }
     }
 }
 
@@ -1173,10 +1215,10 @@ impl PrimitiveTemplate {
         surface_index: SurfaceIndex,
         frame_state: &mut FrameBuildingState,
     ) {
-        if let Some(mut request) = frame_state.gpu_cache.request(&mut self.gpu_cache_handle) {
+        if let Some(mut request) = frame_state.gpu_cache.request(&mut self.common.gpu_cache_handle) {
             self.kind.write_prim_gpu_blocks(
                 &mut request,
-                self.prim_rect.size,
+                self.common.prim_rect.size,
             );
             self.kind.write_segment_gpu_blocks(&mut request);
         }
@@ -1215,8 +1257,8 @@ impl PrimitiveTemplate {
                 // then we just assume the gradient is translucent for now.
                 // (In the future we could consider segmenting in some cases).
                 let stride = stretch_size + tile_spacing;
-                if stride.width >= self.prim_rect.size.width &&
-                   stride.height >= self.prim_rect.size.height {
+                if stride.width >= self.common.prim_rect.size.width &&
+                   stride.height >= self.common.prim_rect.size.height {
                     stops_opacity
                 } else {
                     PrimitiveOpacity::translucent()
