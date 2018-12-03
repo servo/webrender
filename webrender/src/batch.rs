@@ -586,7 +586,7 @@ impl AlphaBatchBuilder {
                 };
 
                 let instance = PrimitiveInstanceData::from(BrushInstance {
-                    segment_index: 0,
+                    segment_index: INVALID_SEGMENT_INDEX,
                     edge_flags: EdgeAaSegmentMask::all(),
                     clip_task_address,
                     brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
@@ -862,7 +862,7 @@ impl AlphaBatchBuilder {
                 };
 
                 let instance = PrimitiveInstanceData::from(BrushInstance {
-                    segment_index: 0,
+                    segment_index: INVALID_SEGMENT_INDEX,
                     edge_flags: EdgeAaSegmentMask::all(),
                     clip_task_address,
                     brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
