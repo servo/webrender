@@ -435,8 +435,6 @@ pub struct ResourceCache {
     // If while building a frame we encounter blobs that we didn't already
     // rasterize, add them to this list and rasterize them synchronously.
     missing_blob_images: Vec<BlobImageParams>,
-    // The rasterizer associated with the current scene.
-    blob_image_rasterizer: Option<Box<AsyncBlobImageRasterizer>>,
     // A log of the last three frames worth of deleted image keys kept
     // for debugging purposes.
     deleted_blob_keys: VecDeque<Vec<BlobImageKey>>
@@ -463,7 +461,6 @@ impl ResourceCache {
             rasterized_blob_images: FastHashMap::default(),
             blob_image_templates: FastHashMap::default(),
             missing_blob_images: Vec::new(),
-            blob_image_rasterizer: None,
             // We want to keep three frames worth of delete blob keys
             deleted_blob_keys: vec![Vec::new(), Vec::new(), Vec::new()].into(),
         }
@@ -638,10 +635,6 @@ impl ResourceCache {
                 _ => { unreachable!(); }
             }
         );
-    }
-
-    pub fn set_blob_rasterizer(&mut self, rasterizer: Box<AsyncBlobImageRasterizer>) {
-        self.blob_image_rasterizer = Some(rasterizer);
     }
 
     pub fn add_rasterized_blob_images(&mut self, images: Vec<(BlobImageRequest, BlobImageResult)>) {
@@ -1478,6 +1471,7 @@ impl ResourceCache {
         &mut self,
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
+        blob_image_rasterizer: Option<Box<AsyncBlobImageRasterizer>>,
         texture_cache_profile: &mut TextureCacheProfileCounters,
     ) {
         profile_scope!("block_until_all_resources_added");
@@ -1494,7 +1488,9 @@ impl ResourceCache {
             texture_cache_profile,
         );
 
-        self.rasterize_missing_blob_images();
+        if !self.missing_blob_images.is_empty() {
+            self.rasterize_missing_blob_images(&mut *blob_image_rasterizer.unwrap());
+        }
 
         // Apply any updates of new / updated images (incl. blobs) to the texture cache.
         self.update_texture_cache(gpu_cache);
@@ -1507,11 +1503,7 @@ impl ResourceCache {
         self.texture_cache.end_frame(texture_cache_profile);
     }
 
-    fn rasterize_missing_blob_images(&mut self) {
-        if self.missing_blob_images.is_empty() {
-            return;
-        }
-
+    fn rasterize_missing_blob_images(&mut self, blob_image_rasterizer: &mut AsyncBlobImageRasterizer) {
         self.blob_image_handler
             .as_mut()
             .unwrap()
@@ -1524,9 +1516,7 @@ impl ResourceCache {
             }
         }
         let is_low_priority = false;
-        let rasterized_blobs = self.blob_image_rasterizer
-            .as_mut()
-            .unwrap()
+        let rasterized_blobs = blob_image_rasterizer
             .rasterize(&self.missing_blob_images, is_low_priority);
 
         self.add_rasterized_blob_images(rasterized_blobs);

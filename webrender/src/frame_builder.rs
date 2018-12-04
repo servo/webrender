@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use api::{AsyncBlobImageRasterizer};
 use api::{ColorF, DeviceIntPoint, DevicePixelScale, LayoutPixel, PicturePixel, RasterPixel};
 use api::{DeviceIntRect, DeviceIntSize, DocumentLayer, FontRenderMode};
 use api::{LayoutPoint, LayoutRect, LayoutSize, PipelineId, RasterSpace, WorldPoint, WorldRect, WorldPixel};
@@ -372,6 +373,7 @@ impl FrameBuilder {
         scene_properties: &SceneProperties,
         resources: &mut FrameResources,
         scratch: &mut PrimitiveScratchBuffer,
+        blob_rasterizer: Option<Box<AsyncBlobImageRasterizer>>,
     ) -> Frame {
         profile_scope!("build");
         debug_assert!(
@@ -416,9 +418,12 @@ impl FrameBuilder {
             scratch,
         );
 
-        resource_cache.block_until_all_resources_added(gpu_cache,
-                                                       &mut render_tasks,
-                                                       texture_cache_profile);
+        resource_cache.block_until_all_resources_added(
+            gpu_cache,
+            &mut render_tasks,
+            blob_rasterizer,
+            texture_cache_profile,
+        );
 
         let mut passes = vec![
             special_render_passes.alpha_glyph_pass,

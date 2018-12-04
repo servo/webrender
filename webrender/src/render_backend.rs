@@ -8,7 +8,7 @@
 //! See the comment at the top of the `renderer` module for a description of
 //! how these two pieces interact.
 
-use api::{ApiMsg, BuiltDisplayList, ClearCache, DebugCommand};
+use api::{ApiMsg, AsyncBlobImageRasterizer, BuiltDisplayList, ClearCache, DebugCommand};
 #[cfg(feature = "debugger")]
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
 use api::{DevicePixelScale, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
@@ -405,6 +405,7 @@ impl Document {
         &mut self,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
+        blob_rasterizer: Option<Box<AsyncBlobImageRasterizer>>,
         resource_profile: &mut ResourceProfileCounters,
     ) -> RenderedDocument {
         let accumulated_scale_factor = self.view.accumulated_scale_factor();
@@ -432,6 +433,7 @@ impl Document {
                 &self.dynamic_properties,
                 &mut self.resources,
                 &mut self.scratch,
+                blob_rasterizer,
             );
             self.hit_tester = Some(frame_builder.create_hit_tester(
                 &self.clip_scroll_tree,
@@ -786,9 +788,6 @@ impl RenderBackend {
                         self.resource_cache.add_rasterized_blob_images(
                             replace(&mut txn.rasterized_blobs, Vec::new())
                         );
-                        if let Some(rasterizer) = txn.blob_rasterizer.take() {
-                            self.resource_cache.set_blob_rasterizer(rasterizer);
-                        }
 
                         self.update_document(
                             txn.document_id,
@@ -798,6 +797,7 @@ impl RenderBackend {
                             replace(&mut txn.notifications, Vec::new()),
                             txn.render_frame,
                             txn.invalidate_rendered_frame,
+                            txn.blob_rasterizer.take(),
                             &mut frame_counter,
                             &mut profile_counters,
                             has_built_scene,
@@ -1111,9 +1111,6 @@ impl RenderBackend {
         }
 
         if !transaction_msg.use_scene_builder_thread && txn.can_skip_scene_builder() {
-            if let Some(rasterizer) = txn.blob_rasterizer.take() {
-                self.resource_cache.set_blob_rasterizer(rasterizer);
-            }
             self.update_document(
                 txn.document_id,
                 replace(&mut txn.resource_updates, Vec::new()),
@@ -1122,6 +1119,7 @@ impl RenderBackend {
                 replace(&mut txn.notifications, Vec::new()),
                 txn.render_frame,
                 txn.invalidate_rendered_frame,
+                txn.blob_rasterizer.take(),
                 frame_counter,
                 profile_counters,
                 false
@@ -1158,6 +1156,7 @@ impl RenderBackend {
         mut notifications: Vec<NotificationRequest>,
         mut render_frame: bool,
         invalidate_rendered_frame: bool,
+        blob_rasterizer: Option<Box<AsyncBlobImageRasterizer>>,
         frame_counter: &mut u32,
         profile_counters: &mut BackendProfileCounters,
         has_built_scene: bool,
@@ -1242,6 +1241,7 @@ impl RenderBackend {
                 let rendered_document = doc.build_frame(
                     &mut self.resource_cache,
                     &mut self.gpu_cache,
+                    blob_rasterizer,
                     &mut profile_counters.resources,
                 );
 
@@ -1492,6 +1492,7 @@ impl RenderBackend {
                 let rendered_document = doc.build_frame(
                     &mut self.resource_cache,
                     &mut self.gpu_cache,
+                    None,
                     &mut profile_counters.resources,
                 );
                 //TODO: write down doc's pipeline info?
