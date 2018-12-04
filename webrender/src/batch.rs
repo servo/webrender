@@ -1971,7 +1971,7 @@ impl AlphaBatchBuilder {
         let base_instance = BrushInstance {
             prim_header_index,
             clip_task_address,
-            segment_index: 0,
+            segment_index: INVALID_SEGMENT_INDEX,
             edge_flags,
             brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
             user_data: uv_rect_address.as_int(),
@@ -2188,7 +2188,7 @@ fn add_gradient_tiles(
             BrushInstance {
                 prim_header_index,
                 clip_task_address,
-                segment_index: 0,
+                segment_index: INVALID_SEGMENT_INDEX,
                 edge_flags: EdgeAaSegmentMask::all(),
                 brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
                 user_data: 0,

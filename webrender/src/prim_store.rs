@@ -833,7 +833,7 @@ impl PrimitiveKeyKind {
                 let mut border_segments = Vec::new();
 
                 create_border_segments(
-                    rect,
+                    rect.size,
                     &border,
                     &widths,
                     &mut border_segments,
@@ -854,7 +854,7 @@ impl PrimitiveKeyKind {
                 ref nine_patch,
                 ..
             } => {
-                let brush_segments = nine_patch.create_segments(rect);
+                let brush_segments = nine_patch.create_segments(rect.size);
 
                 PrimitiveTemplateKind::ImageBorder {
                     request,
@@ -921,7 +921,7 @@ impl PrimitiveKeyKind {
                 let mut brush_segments = Vec::new();
 
                 if let Some(ref nine_patch) = nine_patch {
-                    brush_segments = nine_patch.create_segments(rect);
+                    brush_segments = nine_patch.create_segments(rect.size);
                 }
 
                 // Save opacity of the stops for use in
@@ -955,7 +955,7 @@ impl PrimitiveKeyKind {
                 let mut brush_segments = Vec::new();
 
                 if let Some(ref nine_patch) = nine_patch {
-                    brush_segments = nine_patch.create_segments(rect);
+                    brush_segments = nine_patch.create_segments(rect.size);
                 }
 
                 let stops = stops.iter().map(|stop| {
@@ -3494,7 +3494,6 @@ impl PrimitiveStore {
                                     request.push(PremultipliedColorF::WHITE);
                                     request.push(PremultipliedColorF::WHITE);
                                     request.push([tile.rect.size.width, tile.rect.size.height, 0.0, 0.0]);
-                                    request.write_segment(tile.rect, [0.0; 4]);
                                 }
 
                                 image_instance.visible_tiles.push(VisibleImageTile {
@@ -3534,7 +3533,7 @@ impl PrimitiveStore {
                         frame_state,
                         &pic_context.dirty_world_rect,
                         &mut scratch.gradient_tiles,
-                        &mut |rect, mut request| {
+                        &mut |_, mut request| {
                             request.push([
                                 start_point.x,
                                 start_point.y,
@@ -3547,7 +3546,6 @@ impl PrimitiveStore {
                                 stretch_size.height,
                                 0.0,
                             ]);
-                            request.write_segment(*rect, [0.0; 4]);
                         }
                     );
 
@@ -3574,7 +3572,7 @@ impl PrimitiveStore {
                         frame_state,
                         &pic_context.dirty_world_rect,
                         &mut scratch.gradient_tiles,
-                        &mut |rect, mut request| {
+                        &mut |_, mut request| {
                             request.push([
                                 center.x,
                                 center.y,
@@ -3587,7 +3585,6 @@ impl PrimitiveStore {
                                 stretch_size.width,
                                 stretch_size.height,
                             ]);
-                            request.write_segment(*rect, [0.0; 4]);
                         },
                     );
 
@@ -3919,7 +3916,7 @@ impl PrimitiveInstance {
                 frame_state.segment_builder.build(|segment| {
                     segments.push(
                         BrushSegment::new(
-                            segment.rect,
+                            segment.rect.translate(&LayoutVector2D::new(-prim_local_rect.origin.x, -prim_local_rect.origin.y)),
                             segment.has_mask,
                             segment.edge_flags,
                             [0.0; 4],
@@ -3950,6 +3947,7 @@ impl PrimitiveInstance {
 
     fn update_clip_task_for_brush(
         &mut self,
+        prim_origin: LayoutPoint,
         prim_local_clip_rect: LayoutRect,
         root_spatial_node_index: SpatialNodeIndex,
         prim_bounding_rect: WorldRect,
@@ -4098,7 +4096,7 @@ impl PrimitiveInstance {
                     .clip_store
                     .build_clip_chain_instance(
                         self.clip_chain_id,
-                        segment.local_rect,
+                        segment.local_rect.translate(&LayoutVector2D::new(prim_origin.x, prim_origin.y)),
                         prim_local_clip_rect,
                         prim_context.spatial_node_index,
                         &pic_state.map_local_to_pic,
@@ -4165,6 +4163,7 @@ impl PrimitiveInstance {
 
         // First try to  render this primitive's mask using optimized brush rendering.
         if self.update_clip_task_for_brush(
+            prim_local_rect.origin,
             prim_local_clip_rect,
             root_spatial_node_index,
             prim_bounding_rect,
