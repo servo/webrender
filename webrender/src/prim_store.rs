@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, BorderRadius, ClipMode, ColorF, PictureRect, ColorU};
+use api::{AlphaType, BorderRadius, ClipMode, ColorF, PictureRect, ColorU, LayoutVector2D};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, ExtendMode, DeviceRect, LayoutSideOffsetsAu};
 use api::{FilterOp, GlyphInstance, GradientStop, ImageKey, ImageRendering, TileOffset, RepeatMode};
 use api::{RasterSpace, LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize, LayoutToWorldTransform};
@@ -1528,7 +1528,7 @@ pub struct VisibleImageTile {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct VisibleMaskImageTile {
     pub tile_offset: TileOffset,
-    pub handle: GpuCacheHandle,
+    pub tile_rect: LayoutRect,
 }
 
 #[derive(Debug)]
@@ -2057,16 +2057,18 @@ impl ClipCorner {
 #[derive(Debug)]
 #[repr(C)]
 pub struct ImageMaskData {
-    /// The local rect of the whole masked area.
-    pub local_mask_rect: LayoutRect,
-    /// The local rect of an individual tile.
-    pub local_tile_rect: LayoutRect,
+    /// The local size of the whole masked area.
+    pub local_mask_size: LayoutSize,
 }
 
 impl ToGpuBlocks for ImageMaskData {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(self.local_mask_rect);
-        request.push(self.local_tile_rect);
+        request.push([
+            self.local_mask_size.width,
+            self.local_mask_size.height,
+            0.0,
+            0.0,
+        ]);
     }
 }
 
@@ -2080,10 +2082,19 @@ pub struct ClipData {
 }
 
 impl ClipData {
-    pub fn rounded_rect(rect: &LayoutRect, radii: &BorderRadius, mode: ClipMode) -> ClipData {
+    pub fn rounded_rect(size: LayoutSize, radii: &BorderRadius, mode: ClipMode) -> ClipData {
+        // TODO(gw): For simplicity, keep most of the clip GPU structs the
+        //           same as they were, even though the origin is now always
+        //           zero, since they are in the clip's local space. In future,
+        //           we could reduce the GPU cache size of ClipData.
+        let rect = LayoutRect::new(
+            LayoutPoint::zero(),
+            size,
+        );
+
         ClipData {
             rect: ClipRect {
-                rect: *rect,
+                rect,
                 mode: mode as u32 as f32,
             },
             top_left: ClipCorner {
@@ -2138,7 +2149,16 @@ impl ClipData {
         }
     }
 
-    pub fn uniform(rect: LayoutRect, radius: f32, mode: ClipMode) -> ClipData {
+    pub fn uniform(size: LayoutSize, radius: f32, mode: ClipMode) -> ClipData {
+        // TODO(gw): For simplicity, keep most of the clip GPU structs the
+        //           same as they were, even though the origin is now always
+        //           zero, since they are in the clip's local space. In future,
+        //           we could reduce the GPU cache size of ClipData.
+        let rect = LayoutRect::new(
+            LayoutPoint::zero(),
+            size,
+        );
+
         ClipData {
             rect: ClipRect {
                 rect,
@@ -3752,12 +3772,12 @@ impl<'a> GpuDataRequest<'a> {
             local_clip_count += 1;
 
             let (local_clip_rect, radius, mode) = match clip_node.item {
-                ClipItem::RoundedRectangle(rect, radii, clip_mode) => {
+                ClipItem::RoundedRectangle(size, radii, clip_mode) => {
                     rect_clips_only = false;
-                    (rect, Some(radii), clip_mode)
+                    (LayoutRect::new(clip_instance.local_pos, size), Some(radii), clip_mode)
                 }
-                ClipItem::Rectangle(rect, mode) => {
-                    (rect, None, mode)
+                ClipItem::Rectangle(size, mode) => {
+                    (LayoutRect::new(clip_instance.local_pos, size), None, mode)
                 }
                 ClipItem::BoxShadow(ref info) => {
                     rect_clips_only = false;
@@ -3775,9 +3795,12 @@ impl<'a> GpuDataRequest<'a> {
                     // box-shadow can have an effect on the result. This
                     // ensures clip-mask tasks get allocated for these
                     // pixel regions, even if no other clips affect them.
+                    let prim_shadow_rect = info.prim_shadow_rect.translate(
+                        &LayoutVector2D::new(clip_instance.local_pos.x, clip_instance.local_pos.y),
+                    );
                     segment_builder.push_mask_region(
-                        info.prim_shadow_rect,
-                        info.prim_shadow_rect.inflate(
+                        prim_shadow_rect,
+                        prim_shadow_rect.inflate(
                             -0.5 * info.original_alloc_size.width,
                             -0.5 * info.original_alloc_size.height,
                         ),

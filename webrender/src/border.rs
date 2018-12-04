@@ -171,7 +171,7 @@ pub struct BorderSegmentCacheKey {
 
 pub fn ensure_no_corner_overlap(
     radius: &mut BorderRadius,
-    rect: &LayoutRect,
+    size: LayoutSize,
 ) {
     let mut ratio = 1.0;
     let top_left_radius = &mut radius.top_left;
@@ -180,23 +180,23 @@ pub fn ensure_no_corner_overlap(
     let bottom_left_radius = &mut radius.bottom_left;
 
     let sum = top_left_radius.width + top_right_radius.width;
-    if rect.size.width < sum {
-        ratio = f32::min(ratio, rect.size.width / sum);
+    if size.width < sum {
+        ratio = f32::min(ratio, size.width / sum);
     }
 
     let sum = bottom_left_radius.width + bottom_right_radius.width;
-    if rect.size.width < sum {
-        ratio = f32::min(ratio, rect.size.width / sum);
+    if size.width < sum {
+        ratio = f32::min(ratio, size.width / sum);
     }
 
     let sum = top_left_radius.height + bottom_left_radius.height;
-    if rect.size.height < sum {
-        ratio = f32::min(ratio, rect.size.height / sum);
+    if size.height < sum {
+        ratio = f32::min(ratio, size.height / sum);
     }
 
     let sum = top_right_radius.height + bottom_right_radius.height;
-    if rect.size.height < sum {
-        ratio = f32::min(ratio, rect.size.height / sum);
+    if size.height < sum {
+        ratio = f32::min(ratio, size.height / sum);
     }
 
     if ratio < 1. {
@@ -223,7 +223,7 @@ impl<'a> DisplayListFlattener<'a> {
         clip_and_scroll: ScrollNodeAndClipChain,
     ) {
         let mut border = *border;
-        ensure_no_corner_overlap(&mut border.radius, &info.rect);
+        ensure_no_corner_overlap(&mut border.radius, info.rect.size);
 
         self.add_primitive(
             clip_and_scroll,
