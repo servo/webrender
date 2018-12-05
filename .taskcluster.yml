@@ -18,7 +18,7 @@ metadata:
 # instances configured and running.
 tasks:
   # For the docker-worker tasks, the Docker image used
-  # (staktrace/webrender-test:freetype28) was created using the Dockerfile in
+  # (staktrace/webrender-test:debian) was created using the Dockerfile in
   # ci-scripts/docker-image.
   #
   # The docker image may need to be updated over time if the set of required
@@ -44,7 +44,7 @@ tasks:
           - master
     payload:
       maxRunTime: 7200
-      image: 'staktrace/webrender-test:freetype28'
+      image: 'staktrace/webrender-test:debian'
       env:
         RUST_BACKTRACE: 'full'
         RUSTFLAGS: '--deny warnings'
@@ -54,6 +54,7 @@ tasks:
         - '-c'
         - >-
           curl https://sh.rustup.rs -sSf | sh -s -- -y &&
+          source $HOME/.cargo/env &&
           git clone {{event.head.repo.url}} webrender && cd webrender &&
           git checkout {{event.head.sha}} &&
           servo-tidy &&
@@ -77,7 +78,7 @@ tasks:
           - master
     payload:
       maxRunTime: 7200
-      image: 'staktrace/webrender-test:freetype28'
+      image: 'staktrace/webrender-test:debian'
       env:
         RUST_BACKTRACE: 'full'
         RUSTFLAGS: '--deny warnings'
@@ -87,6 +88,7 @@ tasks:
         - '-c'
         - >-
           curl https://sh.rustup.rs -sSf | sh -s -- -y &&
+          source $HOME/.cargo/env &&
           git clone {{event.head.repo.url}} webrender && cd webrender &&
           git checkout {{event.head.sha}} &&
           servo-tidy &&
