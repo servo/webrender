@@ -325,7 +325,7 @@ impl<'a> DisplayListFlattener<'a> {
                 .prim_interner
                 .intern(&prim_key, || {
                     PrimitiveSceneData {
-                        normalized_clip_rect: LayoutRect::max_rect(),
+                        prim_relative_clip_rect: LayoutRect::max_rect(),
                         prim_size: LayoutSize::zero(),
                         is_backface_visible: true,
                     }
@@ -1045,19 +1045,20 @@ impl<'a> DisplayListFlattener<'a> {
         P::Source: AsInstanceKind<Handle<P::Marker>>,
         DocumentResources: InternerMut<P>,
     {
-        let normalized_clip_rect = info.clip_rect
-            .translate(&LayoutVector2D::new(-info.rect.origin.x, -info.rect.origin.y))
+        let offset = info.rect.origin.to_vector();
+        let prim_relative_clip_rect = info.clip_rect
+            .translate(&-offset)
             .into();
 
         // Build a primitive key.
-        let prim_key = prim.build_key(info, normalized_clip_rect);
+        let prim_key = prim.build_key(info, prim_relative_clip_rect);
 
         let interner = self.resources.interner_mut();
         let prim_data_handle =
             interner
             .intern(&prim_key, || {
                 PrimitiveSceneData {
-                    normalized_clip_rect,
+                    prim_relative_clip_rect,
                     prim_size: info.rect.size,
                     is_backface_visible: info.is_backface_visible,
                 }
@@ -1273,7 +1274,7 @@ impl<'a> DisplayListFlattener<'a> {
             .prim_interner
             .intern(&prim_key, || {
                 PrimitiveSceneData {
-                    normalized_clip_rect: LayoutRect::max_rect(),
+                    prim_relative_clip_rect: LayoutRect::max_rect(),
                     prim_size: LayoutSize::zero(),
                     is_backface_visible,
                 }
@@ -1842,7 +1843,7 @@ impl<'a> DisplayListFlattener<'a> {
                             .prim_interner
                             .intern(&shadow_prim_key, || {
                                 PrimitiveSceneData {
-                                    normalized_clip_rect: LayoutRect::max_rect(),
+                                    prim_relative_clip_rect: LayoutRect::max_rect(),
                                     prim_size: LayoutSize::zero(),
                                     is_backface_visible: true,
                                 }

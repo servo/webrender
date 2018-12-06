@@ -391,6 +391,6 @@ pub trait Internable {
     fn build_key(
         self,
         info: &LayoutPrimitiveInfo,
-        normalized_clip_rect: LayoutRect,
+        prim_relative_clip_rect: LayoutRect,
     ) -> Self::Source;
 }

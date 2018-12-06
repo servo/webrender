@@ -338,7 +338,7 @@ impl GpuCacheAddress {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveSceneData {
     pub prim_size: LayoutSize,
-    pub normalized_clip_rect: LayoutRect,
+    pub prim_relative_clip_rect: LayoutRect,
     pub is_backface_visible: bool,
 }
 
@@ -627,18 +627,18 @@ impl From<LayoutPoint> for PointKey {
 pub struct PrimKeyCommonData {
     pub is_backface_visible: bool,
     pub prim_size: SizeKey,
-    pub normalized_clip_rect: RectangleKey,
+    pub prim_relative_clip_rect: RectangleKey,
 }
 
 impl PrimKeyCommonData {
     pub fn with_info(
         info: &LayoutPrimitiveInfo,
-        normalized_clip_rect: LayoutRect,
+        prim_relative_clip_rect: LayoutRect,
     ) -> Self {
         PrimKeyCommonData {
             is_backface_visible: info.is_backface_visible,
             prim_size: info.rect.size.into(),
-            normalized_clip_rect: normalized_clip_rect.into(),
+            prim_relative_clip_rect: prim_relative_clip_rect.into(),
         }
     }
 }
@@ -655,14 +655,14 @@ impl PrimitiveKey {
     pub fn new(
         is_backface_visible: bool,
         prim_size: LayoutSize,
-        normalized_clip_rect: LayoutRect,
+        prim_relative_clip_rect: LayoutRect,
         kind: PrimitiveKeyKind,
     ) -> Self {
         PrimitiveKey {
             common: PrimKeyCommonData {
                 is_backface_visible,
                 prim_size: prim_size.into(),
-                normalized_clip_rect: normalized_clip_rect.into(),
+                prim_relative_clip_rect: prim_relative_clip_rect.into(),
             },
             kind,
         }
@@ -995,7 +995,7 @@ impl PrimitiveKeyKind {
 pub struct PrimTemplateCommonData {
     pub is_backface_visible: bool,
     pub prim_size: LayoutSize,
-    pub normalized_clip_rect: LayoutRect,
+    pub prim_relative_clip_rect: LayoutRect,
     pub opacity: PrimitiveOpacity,
     /// The GPU cache handle for a primitive template. Since this structure
     /// is retained across display lists by interning, this GPU cache handle
@@ -1009,7 +1009,7 @@ impl PrimTemplateCommonData {
         PrimTemplateCommonData {
             is_backface_visible: common.is_backface_visible,
             prim_size: common.prim_size.into(),
-            normalized_clip_rect: common.normalized_clip_rect.into(),
+            prim_relative_clip_rect: common.prim_relative_clip_rect.into(),
             gpu_cache_handle: GpuCacheHandle::new(),
             opacity: PrimitiveOpacity::translucent(),
         }
@@ -1472,12 +1472,12 @@ impl intern::Internable for PrimitiveKeyKind {
     fn build_key(
         self,
         info: &LayoutPrimitiveInfo,
-        normalized_clip_rect: LayoutRect,
+        prim_relative_clip_rect: LayoutRect,
     ) -> PrimitiveKey {
         PrimitiveKey::new(
             info.is_backface_visible,
             info.rect.size,
-            normalized_clip_rect,
+            prim_relative_clip_rect,
             self,
         )
     }
@@ -2859,7 +2859,7 @@ impl PrimitiveStore {
                     prim_data.prim_size,
                 );
                 let clip_rect = prim_data
-                    .normalized_clip_rect
+                    .prim_relative_clip_rect
                     .translate(&LayoutVector2D::new(prim_instance.prim_origin.x, prim_instance.prim_origin.y));
 
                 (prim_rect, clip_rect)
@@ -4323,10 +4323,10 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<PrimitiveInstance>(), 120, "PrimitiveInstance size changed");
+    assert_eq!(mem::size_of::<PrimitiveInstance>(), 128, "PrimitiveInstance size changed");
     assert_eq!(mem::size_of::<PrimitiveInstanceKind>(), 40, "PrimitiveInstanceKind size changed");
-    assert_eq!(mem::size_of::<PrimitiveTemplate>(), 176, "PrimitiveTemplate size changed");
+    assert_eq!(mem::size_of::<PrimitiveTemplate>(), 168, "PrimitiveTemplate size changed");
     assert_eq!(mem::size_of::<PrimitiveTemplateKind>(), 112, "PrimitiveTemplateKind size changed");
-    assert_eq!(mem::size_of::<PrimitiveKey>(), 136, "PrimitiveKey size changed");
+    assert_eq!(mem::size_of::<PrimitiveKey>(), 128, "PrimitiveKey size changed");
     assert_eq!(mem::size_of::<PrimitiveKeyKind>(), 96, "PrimitiveKeyKind size changed");
 }

@@ -36,13 +36,13 @@ pub struct TextRunKey {
 impl TextRunKey {
     pub fn new(
         info: &LayoutPrimitiveInfo,
-        normalized_clip_rect: LayoutRect,
+        prim_relative_clip_rect: LayoutRect,
         text_run: TextRun,
     ) -> Self {
         TextRunKey {
             common: PrimKeyCommonData::with_info(
                 info,
-                normalized_clip_rect,
+                prim_relative_clip_rect,
             ),
             font: text_run.font,
             offset: text_run.offset.into(),
@@ -185,11 +185,11 @@ impl intern::Internable for TextRun {
     fn build_key(
         self,
         info: &LayoutPrimitiveInfo,
-        normalized_clip_rect: LayoutRect,
+        prim_relative_clip_rect: LayoutRect,
     ) -> TextRunKey {
         TextRunKey::new(
             info,
-            normalized_clip_rect,
+            prim_relative_clip_rect,
             self,
         )
     }
@@ -338,7 +338,7 @@ fn test_struct_sizes() {
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<TextRun>(), 112, "TextRun size changed");
-    assert_eq!(mem::size_of::<TextRunTemplate>(), 168, "TextRunTemplate size changed");
-    assert_eq!(mem::size_of::<TextRunKey>(), 144, "TextRunKey size changed");
+    assert_eq!(mem::size_of::<TextRunTemplate>(), 160, "TextRunTemplate size changed");
+    assert_eq!(mem::size_of::<TextRunKey>(), 136, "TextRunKey size changed");
     assert_eq!(mem::size_of::<TextRunPrimitive>(), 88, "TextRunPrimitive size changed");
 }
