@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AuHelpers, ColorF, DevicePixelScale, GlyphInstance, LayoutPrimitiveInfo};
-use api::{LayoutToWorldTransform, LayoutVector2DAu, RasterSpace};
+use api::{LayoutRect, LayoutToWorldTransform, LayoutVector2DAu, RasterSpace};
 use api::Shadow;
 use display_list_flattener::{AsInstanceKind, CreateShadow, IsVisible};
 use frame_builder::{FrameBuildingState, PictureContext};
@@ -34,9 +34,16 @@ pub struct TextRunKey {
 }
 
 impl TextRunKey {
-    pub fn new(info: &LayoutPrimitiveInfo, text_run: TextRun) -> Self {
+    pub fn new(
+        info: &LayoutPrimitiveInfo,
+        normalized_clip_rect: LayoutRect,
+        text_run: TextRun,
+    ) -> Self {
         TextRunKey {
-            common: PrimKeyCommonData::with_info(info),
+            common: PrimKeyCommonData::with_info(
+                info,
+                normalized_clip_rect,
+            ),
             font: text_run.font,
             offset: text_run.offset.into(),
             glyphs: text_run.glyphs,
@@ -175,8 +182,16 @@ impl intern::Internable for TextRun {
     type InternData = PrimitiveSceneData;
 
     /// Build a new key from self with `info`.
-    fn build_key(self, info: &LayoutPrimitiveInfo) -> TextRunKey {
-        TextRunKey::new(info, self)
+    fn build_key(
+        self,
+        info: &LayoutPrimitiveInfo,
+        normalized_clip_rect: LayoutRect,
+    ) -> TextRunKey {
+        TextRunKey::new(
+            info,
+            normalized_clip_rect,
+            self,
+        )
     }
 }
 

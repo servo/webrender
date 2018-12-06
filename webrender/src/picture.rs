@@ -5,7 +5,7 @@
 use api::{DeviceRect, FilterOp, MixBlendMode, PipelineId, PremultipliedColorF, PictureRect, PicturePoint};
 use api::{DeviceIntRect, DevicePoint, LayoutRect, PictureToRasterTransform, LayoutPixel, PropertyBinding, PropertyBindingId};
 use api::{DevicePixelScale, RasterRect, RasterSpace, PictureSize, DeviceIntPoint, ColorF, ImageKey, DirtyRect};
-use api::{PicturePixel, RasterPixel, WorldPixel, WorldRect, ImageFormat, ImageDescriptor};
+use api::{PicturePixel, RasterPixel, WorldPixel, WorldRect, ImageFormat, ImageDescriptor, LayoutVector2D};
 use box_shadow::{BLUR_SAMPLE_SCALE};
 use clip::{ClipNodeCollector, ClipStore, ClipChainId, ClipChainNode};
 use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, ClipScrollTree, SpatialNodeIndex};
@@ -617,11 +617,19 @@ impl TileCache {
 
         let prim_data = &resources.as_common_data(&prim_instance);
 
+        let prim_rect = LayoutRect::new(
+            prim_instance.prim_origin,
+            prim_data.prim_size,
+        );
+        let clip_rect = prim_data
+            .normalized_clip_rect
+            .translate(&LayoutVector2D::new(prim_instance.prim_origin.x, prim_instance.prim_origin.y));
+
         // Map the primitive local rect into the picture space.
         // TODO(gw): We should maybe store this in the primitive template
         //           during interning so that we never have to calculate
         //           it during frame building.
-        let culling_rect = match prim_data.prim_rect.intersection(&prim_data.clip_rect) {
+        let culling_rect = match prim_rect.intersection(&clip_rect) {
             Some(rect) => rect,
             None => return,
         };
@@ -1328,7 +1336,18 @@ impl PrimitiveList {
             // a picture, include a minimal bounding rect in the cluster bounds.
             let cluster = &mut clusters[cluster_index];
             if !is_pic {
-                cluster.bounding_rect = cluster.bounding_rect.union(&prim_data.culling_rect);
+                let prim_rect = LayoutRect::new(
+                    prim_instance.prim_origin,
+                    prim_data.prim_size,
+                );
+                let clip_rect = prim_data
+                    .normalized_clip_rect
+                    .translate(&LayoutVector2D::new(prim_instance.prim_origin.x, prim_instance.prim_origin.y));
+                let culling_rect = clip_rect
+                    .intersection(&prim_rect)
+                    .unwrap_or(LayoutRect::zero());
+
+                cluster.bounding_rect = cluster.bounding_rect.union(&culling_rect);
             }
 
             // Define a range of clusters that this primitive belongs to. For now, this

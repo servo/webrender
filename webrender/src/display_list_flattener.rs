@@ -316,7 +316,7 @@ impl<'a> DisplayListFlattener<'a> {
             // of the primitives selected as belonging to the main scroll root.
             let prim_key = PrimitiveKey::new(
                 true,
-                LayoutRect::zero(),
+                LayoutSize::zero(),
                 LayoutRect::max_rect(),
                 PrimitiveKeyKind::Unused,
             );
@@ -325,7 +325,8 @@ impl<'a> DisplayListFlattener<'a> {
                 .prim_interner
                 .intern(&prim_key, || {
                     PrimitiveSceneData {
-                        culling_rect: LayoutRect::zero(),
+                        normalized_clip_rect: LayoutRect::max_rect(),
+                        prim_size: LayoutSize::zero(),
                         is_backface_visible: true,
                     }
                 }
@@ -345,6 +346,7 @@ impl<'a> DisplayListFlattener<'a> {
             ));
 
             let instance = PrimitiveInstance::new(
+                LayoutPoint::zero(),
                 PrimitiveInstanceKind::Picture {
                     data_handle: primitive_data_handle,
                     pic_index: PictureIndex(pic_index)
@@ -1043,22 +1045,20 @@ impl<'a> DisplayListFlattener<'a> {
         P::Source: AsInstanceKind<Handle<P::Marker>>,
         DocumentResources: InternerMut<P>,
     {
-        // Build a primitive key.
-        let prim_key = prim.build_key(info);
+        let normalized_clip_rect = info.clip_rect
+            .translate(&LayoutVector2D::new(-info.rect.origin.x, -info.rect.origin.y))
+            .into();
 
-        // Get a tight bounding / culling rect for this primitive
-        // from its local rect intersection with minimal local
-        // clip rect.
-        let culling_rect = info.clip_rect
-            .intersection(&info.rect)
-            .unwrap_or(LayoutRect::zero());
+        // Build a primitive key.
+        let prim_key = prim.build_key(info, normalized_clip_rect);
 
         let interner = self.resources.interner_mut();
         let prim_data_handle =
             interner
             .intern(&prim_key, || {
                 PrimitiveSceneData {
-                    culling_rect,
+                    normalized_clip_rect,
+                    prim_size: info.rect.size,
                     is_backface_visible: info.is_backface_visible,
                 }
             });
@@ -1067,6 +1067,7 @@ impl<'a> DisplayListFlattener<'a> {
                                                       &mut self.prim_store);
 
         PrimitiveInstance::new(
+            info.rect.origin,
             instance_kind,
             clip_chain_id,
             spatial_node_index,
@@ -1263,7 +1264,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         let prim_key = PrimitiveKey::new(
             is_backface_visible,
-            LayoutRect::zero(),
+            LayoutSize::zero(),
             LayoutRect::max_rect(),
             PrimitiveKeyKind::Unused,
         );
@@ -1272,7 +1273,8 @@ impl<'a> DisplayListFlattener<'a> {
             .prim_interner
             .intern(&prim_key, || {
                 PrimitiveSceneData {
-                    culling_rect: LayoutRect::zero(),
+                    normalized_clip_rect: LayoutRect::max_rect(),
+                    prim_size: LayoutSize::zero(),
                     is_backface_visible,
                 }
             }
@@ -1378,6 +1380,7 @@ impl<'a> DisplayListFlattener<'a> {
         let mut current_pic_index = leaf_pic_index;
         let data_handle = stacking_context.primitive_data_handle;
         let mut cur_instance = PrimitiveInstance::new(
+            LayoutPoint::zero(),
             PrimitiveInstanceKind::Picture {
                 data_handle,
                 pic_index: leaf_pic_index
@@ -1830,7 +1833,7 @@ impl<'a> DisplayListFlattener<'a> {
 
                         let shadow_prim_key = PrimitiveKey::new(
                             true,
-                            LayoutRect::zero(),
+                            LayoutSize::zero(),
                             LayoutRect::max_rect(),
                             PrimitiveKeyKind::Unused,
                         );
@@ -1839,13 +1842,15 @@ impl<'a> DisplayListFlattener<'a> {
                             .prim_interner
                             .intern(&shadow_prim_key, || {
                                 PrimitiveSceneData {
-                                    culling_rect: LayoutRect::zero(),
+                                    normalized_clip_rect: LayoutRect::max_rect(),
+                                    prim_size: LayoutSize::zero(),
                                     is_backface_visible: true,
                                 }
                             }
                         );
 
                         let shadow_prim_instance = PrimitiveInstance::new(
+                            LayoutPoint::zero(),
                             PrimitiveInstanceKind::Picture {
                                 data_handle: shadow_prim_data_handle,
                                 pic_index: shadow_pic_index
@@ -2571,6 +2576,7 @@ impl FlattenedStackingContext {
         );
 
         Some(PrimitiveInstance::new(
+            LayoutPoint::zero(),
             PrimitiveInstanceKind::Picture {
                 data_handle: self.primitive_data_handle,
                 pic_index
