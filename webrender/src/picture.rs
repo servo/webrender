@@ -665,7 +665,7 @@ impl TileCache {
 
         // Some primitives can not be cached (e.g. external video images)
         let is_cacheable = prim_instance.is_cacheable(
-            &resources.prim_data_store,
+            &resources,
             resource_cache,
         );
 
@@ -690,7 +690,7 @@ impl TileCache {
                 }
             }
             PrimitiveInstanceKind::Image { data_handle, image_instance_index, .. } => {
-                let prim_data = &resources.prim_data_store[data_handle];
+                let image_data = &resources.image_data_store[data_handle];
                 let image_instance = &image_instances[image_instance_index];
                 let opacity_binding_index = image_instance.opacity_binding_index;
 
@@ -703,14 +703,7 @@ impl TileCache {
                     }
                 }
 
-                match prim_data.kind {
-                    PrimitiveTemplateKind::Image { key, .. } => {
-                        image_keys.push(key);
-                    }
-                    _ => {
-                        unreachable!();
-                    }
-                }
+                image_keys.push(image_data.key);
             }
             PrimitiveInstanceKind::YuvImage { data_handle, .. } => {
                 let prim_data = &resources.prim_data_store[data_handle];
@@ -1300,9 +1293,11 @@ impl PrimitiveList {
                 PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
                 PrimitiveInstanceKind::Rectangle { data_handle, .. } |
                 PrimitiveInstanceKind::YuvImage { data_handle, .. } |
-                PrimitiveInstanceKind::Image { data_handle, .. } |
                 PrimitiveInstanceKind::Clear { data_handle, .. } => {
                     &resources.prim_interner[data_handle]
+                }
+                PrimitiveInstanceKind::Image { data_handle, .. } => {
+                    &resources.image_interner[data_handle]
                 }
                 PrimitiveInstanceKind::LinearGradient { data_handle, .. } => {
                     &resources.linear_grad_interner[data_handle]

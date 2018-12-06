@@ -20,6 +20,7 @@ use prim_store::gradient::{
     LinearGradient, LinearGradientDataInterner, LinearGradientDataUpdateList,
     RadialGradient, RadialGradientDataInterner, RadialGradientDataUpdateList
 };
+use prim_store::image::{Image, ImageDataInterner, ImageDataUpdateList};
 use prim_store::text_run::{TextRunDataInterner, TextRun, TextRunDataUpdateList};
 use resource_cache::{BlobImageRasterizerEpoch, FontInstanceMap};
 use render_backend::DocumentView;
@@ -35,6 +36,7 @@ use std::time::Duration;
 pub struct DocumentResourceUpdates {
     pub clip_updates: ClipDataUpdateList,
     pub prim_updates: PrimitiveDataUpdateList,
+    pub image_updates: ImageDataUpdateList,
     pub linear_grad_updates: LinearGradientDataUpdateList,
     pub radial_grad_updates: RadialGradientDataUpdateList,
     pub text_run_updates: TextRunDataUpdateList,
@@ -180,6 +182,7 @@ pub enum SceneSwapResult {
 pub struct DocumentResources {
     pub clip_interner: ClipDataInterner,
     pub prim_interner: PrimitiveDataInterner,
+    pub image_interner: ImageDataInterner,
     pub linear_grad_interner: LinearGradientDataInterner,
     pub radial_grad_interner: RadialGradientDataInterner,
     pub text_run_interner: TextRunDataInterner,
@@ -191,30 +194,27 @@ pub trait InternerMut<I: Internable>
     fn interner_mut(&mut self) -> &mut Interner<I::Source, I::InternData, I::Marker>;
 }
 
-impl InternerMut<PrimitiveKeyKind> for DocumentResources {
-    fn interner_mut(&mut self) -> &mut PrimitiveDataInterner {
-        &mut self.prim_interner
+macro_rules! impl_internet_mut {
+    ($($ty:ident: $mem:ident,)*) => {
+        $(impl InternerMut<$ty> for DocumentResources {
+            fn interner_mut(&mut self) -> &mut Interner<
+                <$ty as Internable>::Source,
+                <$ty as Internable>::InternData,
+                <$ty as Internable>::Marker
+            > {
+                &mut self.$mem
+            }
+        })*
     }
 }
 
-impl InternerMut<LinearGradient> for DocumentResources {
-    fn interner_mut(&mut self) -> &mut LinearGradientDataInterner {
-        &mut self.linear_grad_interner
-    }
+impl_internet_mut! {
+    Image: image_interner,
+    LinearGradient: linear_grad_interner,
+    RadialGradient: radial_grad_interner,
+    TextRun: text_run_interner,
+    PrimitiveKeyKind: prim_interner,
 }
-
-impl InternerMut<RadialGradient> for DocumentResources {
-    fn interner_mut(&mut self) -> &mut RadialGradientDataInterner {
-        &mut self.radial_grad_interner
-    }
-}
-
-impl InternerMut<TextRun> for DocumentResources {
-    fn interner_mut(&mut self) -> &mut TextRunDataInterner {
-        &mut self.text_run_interner
-    }
-}
-
 
 // A document in the scene builder contains the current scene,
 // as well as a persistent clip interner. This allows clips
@@ -386,6 +386,11 @@ impl SceneBuilder {
                     .prim_interner
                     .end_frame_and_get_pending_updates();
 
+                let image_updates = item
+                    .doc_resources
+                    .image_interner
+                    .end_frame_and_get_pending_updates();
+
                 let linear_grad_updates = item
                     .doc_resources
                     .linear_grad_interner
@@ -405,6 +410,7 @@ impl SceneBuilder {
                     DocumentResourceUpdates {
                         clip_updates,
                         prim_updates,
+                        image_updates,
                         linear_grad_updates,
                         radial_grad_updates,
                         text_run_updates,
@@ -516,6 +522,11 @@ impl SceneBuilder {
                     .prim_interner
                     .end_frame_and_get_pending_updates();
 
+                let image_updates = doc
+                    .resources
+                    .image_interner
+                    .end_frame_and_get_pending_updates();
+
                 let linear_grad_updates = doc
                     .resources
                     .linear_grad_interner
@@ -535,6 +546,7 @@ impl SceneBuilder {
                     DocumentResourceUpdates {
                         clip_updates,
                         prim_updates,
+                        image_updates,
                         linear_grad_updates,
                         radial_grad_updates,
                         text_run_updates,

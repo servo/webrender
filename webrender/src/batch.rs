@@ -15,10 +15,12 @@ use gpu_types::{PrimitiveInstanceData, RasterizationSpace, GlyphInstance};
 use gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex, TransformPaletteId, TransformPalette};
 use internal_types::{FastHashMap, SavedTargetIndex, TextureSource};
 use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PictureSurface};
-use prim_store::{DeferredResolve, PrimitiveTemplateKind, PrimitiveDataStore};
-use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveInstanceKind};
+use prim_store::{DeferredResolve, PrimitiveTemplateKind};
+use prim_store::{EdgeAaSegmentMask, PrimitiveInstanceKind};
 use prim_store::{VisibleGradientTile, PrimitiveInstance, PrimitiveOpacity, SegmentInstanceIndex};
 use prim_store::{BrushSegment, ClipMaskKind, ClipTaskIndex};
+use prim_store::image::ImageSource;
+use render_backend::FrameResources;
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind, ShaderColorMode};
 use renderer::BLOCKS_PER_UV_RECT;
@@ -1646,27 +1648,21 @@ impl AlphaBatchBuilder {
                 );
             }
             PrimitiveInstanceKind::Image { data_handle, image_instance_index, .. } => {
-                let prim_data = &ctx.resources.prim_data_store[data_handle];
-                let (source, alpha_type, key, image_rendering) = match prim_data.kind {
-                    PrimitiveTemplateKind::Image { ref source, alpha_type, key, image_rendering, .. } => {
-                        (source, alpha_type, key, image_rendering)
-                    }
-                    _ => unreachable!()
-                };
+                let image_data = &ctx.resources.image_data_store[data_handle];
                 let image_instance = &ctx.prim_store.images[image_instance_index];
                 let opacity_binding = ctx.prim_store.get_opacity_binding(image_instance.opacity_binding_index);
-                let specified_blend_mode = match alpha_type {
+                let specified_blend_mode = match image_data.alpha_type {
                     AlphaType::PremultipliedAlpha => BlendMode::PremultipliedAlpha,
                     AlphaType::Alpha => BlendMode::Alpha,
                 };
                 let request = ImageRequest {
-                    key: key,
-                    rendering: image_rendering,
+                    key: image_data.key,
+                    rendering: image_data.image_rendering,
                     tile: None,
                 };
 
                 if image_instance.visible_tiles.is_empty() {
-                    let cache_item = match *source {
+                    let cache_item = match image_data.source {
                         ImageSource::Default => {
                             resolve_image(
                                 request,
@@ -1692,7 +1688,7 @@ impl AlphaBatchBuilder {
                     let textures = BatchTextures::color(cache_item.texture_id);
 
                     let opacity = PrimitiveOpacity::from_alpha(opacity_binding);
-                    let opacity = opacity.combine(prim_data.opacity);
+                    let opacity = opacity.combine(image_data.opacity);
 
                     let non_segmented_blend_mode = if !opacity.is_opaque ||
                         prim_instance.clip_task_index != ClipTaskIndex::INVALID ||
@@ -1707,7 +1703,7 @@ impl AlphaBatchBuilder {
                         BrushBatchKind::Image(get_buffer_kind(cache_item.texture_id)),
                         textures,
                         [
-                            ShaderColorMode::Image as i32 | ((alpha_type as i32) << 16),
+                            ShaderColorMode::Image as i32 | ((image_data.alpha_type as i32) << 16),
                             RasterizationSpace::Local as i32,
                             get_shader_opacity(opacity_binding),
                         ],
@@ -1716,7 +1712,7 @@ impl AlphaBatchBuilder {
 
                     debug_assert!(image_instance.segment_instance_index != SegmentInstanceIndex::INVALID);
                     let (prim_cache_address, segments) = if image_instance.segment_instance_index == SegmentInstanceIndex::UNUSED {
-                        (gpu_cache.get_address(&prim_data.gpu_cache_handle), None)
+                        (gpu_cache.get_address(&image_data.gpu_cache_handle), None)
                     } else {
                         let segment_instance = &ctx.scratch.segment_instances[image_instance.segment_instance_index];
                         let segments = Some(&ctx.scratch.segments[segment_instance.segments_range]);
@@ -1760,7 +1756,7 @@ impl AlphaBatchBuilder {
                             gpu_cache,
                             deferred_resolves,
                             request.with_tile(tile.tile_offset),
-                            alpha_type,
+                            image_data.alpha_type,
                             get_shader_opacity(opacity_binding),
                         ) {
                             let prim_cache_address = gpu_cache.get_address(&tile.handle);
@@ -2282,19 +2278,19 @@ impl BrushBatchParameters {
 impl PrimitiveInstance {
     pub fn is_cacheable(
         &self,
-        prim_data_store: &PrimitiveDataStore,
+        resources: &FrameResources,
         resource_cache: &ResourceCache,
     ) -> bool {
         let image_key = match self.kind {
-            PrimitiveInstanceKind::Image { data_handle, .. } |
+            PrimitiveInstanceKind::Image { data_handle, .. } => {
+                let image_data = &resources.image_data_store[data_handle];
+                image_data.key
+            }
             PrimitiveInstanceKind::YuvImage { data_handle, .. } => {
-                let prim_data = &prim_data_store[data_handle];
+                let prim_data = &resources.prim_data_store[data_handle];
                 match prim_data.kind {
                     PrimitiveTemplateKind::YuvImage { ref yuv_key, .. } => {
                         yuv_key[0]
-                    }
-                    PrimitiveTemplateKind::Image { key, .. } => {
-                        key
                     }
                     _ => unreachable!(),
                 }
