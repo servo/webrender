@@ -551,10 +551,10 @@ impl AlphaBatchBuilder {
             render_tasks,
         ).unwrap_or(OPAQUE_TASK_ADDRESS);
 
-        let prim_data = &ctx.resources.as_common_data(&prim_instance);
+        let prim_common_data = &ctx.resources.as_common_data(&prim_instance);
         let prim_rect = LayoutRect::new(
             prim_instance.prim_origin,
-            prim_data.prim_size,
+            prim_common_data.prim_size,
         );
 
         match prim_instance.kind {
@@ -1523,26 +1523,20 @@ impl AlphaBatchBuilder {
                 );
             }
             PrimitiveInstanceKind::YuvImage { data_handle, segment_instance_index, .. } => {
-                let prim_data = &ctx.resources.prim_data_store[data_handle];
-                let (format, yuv_key, image_rendering, color_depth, color_space) = match prim_data.kind {
-                    PrimitiveTemplateKind::YuvImage { ref format, yuv_key, ref image_rendering, ref color_depth, ref color_space, .. } => {
-                        (format, yuv_key, image_rendering, color_depth, color_space)
-                    }
-                    _ => unreachable!()
-                };
+                let yuv_image_data = &ctx.resources.yuv_image_data_store[data_handle];
                 let mut textures = BatchTextures::no_texture();
                 let mut uv_rect_addresses = [0; 3];
 
                 //yuv channel
-                let channel_count = format.get_plane_num();
+                let channel_count = yuv_image_data.format.get_plane_num();
                 debug_assert!(channel_count <= 3);
                 for channel in 0 .. channel_count {
-                    let image_key = yuv_key[channel];
+                    let image_key = yuv_image_data.yuv_key[channel];
 
                     let cache_item = resolve_image(
                         ImageRequest {
                             key: image_key,
-                            rendering: *image_rendering,
+                            rendering: yuv_image_data.image_rendering,
                             tile: None,
                         },
                         ctx.resource_cache,
@@ -1562,16 +1556,16 @@ impl AlphaBatchBuilder {
                 // All yuv textures should be the same type.
                 let buffer_kind = get_buffer_kind(textures.colors[0]);
                 assert!(
-                    textures.colors[1 .. format.get_plane_num()]
+                    textures.colors[1 .. yuv_image_data.format.get_plane_num()]
                         .iter()
                         .all(|&tid| buffer_kind == get_buffer_kind(tid))
                 );
 
                 let kind = BrushBatchKind::YuvImage(
                     buffer_kind,
-                    *format,
-                    *color_depth,
-                    *color_space,
+                    yuv_image_data.format,
+                    yuv_image_data.color_depth,
+                    yuv_image_data.color_space,
                 );
 
                 let batch_params = BrushBatchParameters::shared(
@@ -1587,7 +1581,7 @@ impl AlphaBatchBuilder {
 
                 let specified_blend_mode = BlendMode::PremultipliedAlpha;
 
-                let non_segmented_blend_mode = if !prim_data.opacity.is_opaque ||
+                let non_segmented_blend_mode = if !prim_common_data.opacity.is_opaque ||
                     prim_instance.clip_task_index != ClipTaskIndex::INVALID ||
                     transform_kind == TransformedRectKind::Complex
                 {
@@ -1598,7 +1592,7 @@ impl AlphaBatchBuilder {
 
                 debug_assert!(segment_instance_index != SegmentInstanceIndex::INVALID);
                 let (prim_cache_address, segments) = if segment_instance_index == SegmentInstanceIndex::UNUSED {
-                    (gpu_cache.get_address(&prim_data.gpu_cache_handle), None)
+                    (gpu_cache.get_address(&prim_common_data.gpu_cache_handle), None)
                 } else {
                     let segment_instance = &ctx.scratch.segment_instances[segment_instance_index];
                     let segments = Some(&ctx.scratch.segments[segment_instance.segments_range]);
@@ -1622,7 +1616,7 @@ impl AlphaBatchBuilder {
 
                 self.add_segmented_prim_to_batch(
                     segments,
-                    prim_data.opacity,
+                    prim_common_data.opacity,
                     &batch_params,
                     specified_blend_mode,
                     non_segmented_blend_mode,
@@ -2276,13 +2270,8 @@ impl PrimitiveInstance {
                 image_data.key
             }
             PrimitiveInstanceKind::YuvImage { data_handle, .. } => {
-                let prim_data = &resources.prim_data_store[data_handle];
-                match prim_data.kind {
-                    PrimitiveTemplateKind::YuvImage { ref yuv_key, .. } => {
-                        yuv_key[0]
-                    }
-                    _ => unreachable!(),
-                }
+                let yuv_image_data = &resources.yuv_image_data_store[data_handle];
+                yuv_image_data.yuv_key[0]
             }
             PrimitiveInstanceKind::Picture { .. } |
             PrimitiveInstanceKind::TextRun { .. } |

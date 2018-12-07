@@ -3,9 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{
-    AlphaType, ColorF, ColorU, DeviceIntRect, DeviceIntSideOffsets,
+    AlphaType, ColorDepth, ColorF, ColorU, DeviceIntRect, DeviceIntSideOffsets,
     DeviceIntSize, ImageRendering, LayoutRect, LayoutSize, LayoutPrimitiveInfo,
-    PremultipliedColorF, Shadow, TileOffset
+    PremultipliedColorF, Shadow, TileOffset, YuvColorSpace, YuvFormat
 };
 use api::ImageKey as ApiImageKey;
 use display_list_flattener::{AsInstanceKind, CreateShadow, IsVisible};
@@ -24,6 +24,7 @@ use render_task::{
 };
 use resource_cache::ImageRequest;
 use std::ops::{Deref, DerefMut};
+use util::pack_as_float;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -441,6 +442,205 @@ impl IsVisible for Image {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct YuvImageKey {
+    pub common: PrimKeyCommonData,
+    pub color_depth: ColorDepth,
+    pub yuv_key: [ApiImageKey; 3],
+    pub format: YuvFormat,
+    pub color_space: YuvColorSpace,
+    pub image_rendering: ImageRendering,
+}
+
+impl YuvImageKey {
+    pub fn new(
+        is_backface_visible: bool,
+        prim_size: LayoutSize,
+        prim_relative_clip_rect: LayoutRect,
+        yuv_image: YuvImage,
+    ) -> Self {
+
+        YuvImageKey {
+            common: PrimKeyCommonData {
+                is_backface_visible,
+                prim_size: prim_size.into(),
+                prim_relative_clip_rect: prim_relative_clip_rect.into(),
+            },
+            color_depth: yuv_image.color_depth,
+            yuv_key: yuv_image.yuv_key,
+            format: yuv_image.format,
+            color_space: yuv_image.color_space,
+            image_rendering: yuv_image.image_rendering,
+        }
+    }
+}
+
+impl InternDebug for YuvImageKey {}
+
+impl AsInstanceKind<YuvImageDataHandle> for YuvImageKey {
+    /// Construct a primitive instance that matches the type
+    /// of primitive key.
+    fn as_instance_kind(
+        &self,
+        data_handle: YuvImageDataHandle,
+        _prim_store: &mut PrimitiveStore,
+    ) -> PrimitiveInstanceKind {
+        PrimitiveInstanceKind::YuvImage {
+            data_handle,
+            segment_instance_index: SegmentInstanceIndex::INVALID
+        }
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct YuvImageTemplate {
+    pub common: PrimTemplateCommonData,
+    pub color_depth: ColorDepth,
+    pub yuv_key: [ApiImageKey; 3],
+    pub format: YuvFormat,
+    pub color_space: YuvColorSpace,
+    pub image_rendering: ImageRendering,
+}
+
+impl From<YuvImageKey> for YuvImageTemplate {
+    fn from(item: YuvImageKey) -> Self {
+        let common = PrimTemplateCommonData::with_key_common(item.common);
+
+        YuvImageTemplate {
+            common,
+            color_depth: item.color_depth,
+            yuv_key: item.yuv_key,
+            format: item.format,
+            color_space: item.color_space,
+            image_rendering: item.image_rendering,
+        }
+    }
+}
+
+impl Deref for YuvImageTemplate {
+    type Target = PrimTemplateCommonData;
+    fn deref(&self) -> &Self::Target {
+        &self.common
+    }
+}
+
+impl DerefMut for YuvImageTemplate {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.common
+    }
+}
+
+fn write_yuv_image_gpu_blocks(
+    request: &mut GpuDataRequest,
+    color_depth: ColorDepth,
+    format: YuvFormat,
+    color_space: YuvColorSpace,
+) {
+    request.push([
+        color_depth.rescaling_factor(),
+        pack_as_float(color_space as u32),
+        pack_as_float(format as u32),
+        0.0
+    ]);
+}
+
+impl YuvImageTemplate {
+    /// Update the GPU cache for a given primitive template. This may be called multiple
+    /// times per frame, by each primitive reference that refers to this interned
+    /// template. The initial request call to the GPU cache ensures that work is only
+    /// done if the cache entry is invalid (due to first use or eviction).
+    pub fn update(
+        &mut self,
+        frame_state: &mut FrameBuildingState,
+    ) {
+        if let Some(mut request) =
+            frame_state.gpu_cache.request(&mut self.common.gpu_cache_handle) {
+                // write_prim_gpu_blocks
+                write_yuv_image_gpu_blocks(
+                    &mut request,
+                    self.color_depth,
+                    self.format,
+                    self.color_space
+                );
+                // write_segment_gpu_blocks
+            }
+
+        let channel_num = self.format.get_plane_num();
+        debug_assert!(channel_num <= 3);
+        for channel in 0 .. channel_num {
+            frame_state.resource_cache.request_image(
+                ImageRequest {
+                    key: self.yuv_key[channel],
+                    rendering: self.image_rendering,
+                    tile: None,
+                },
+                frame_state.gpu_cache,
+            );
+        }
+
+        self.opacity = PrimitiveOpacity::translucent();
+    }
+
+    pub fn write_prim_gpu_blocks(&self, request: &mut GpuDataRequest) {
+        write_yuv_image_gpu_blocks(
+            request,
+            self.color_depth,
+            self.format,
+            self.color_space,
+        );
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+pub struct YuvImageDataMarker;
+
+pub type YuvImageDataStore = DataStore<YuvImageKey, YuvImageTemplate, YuvImageDataMarker>;
+pub type YuvImageDataHandle = Handle<YuvImageDataMarker>;
+pub type YuvImageDataUpdateList = UpdateList<YuvImageKey>;
+pub type YuvImageDataInterner = Interner<YuvImageKey, PrimitiveSceneData, YuvImageDataMarker>;
+
+pub struct YuvImage {
+    pub color_depth: ColorDepth,
+    pub yuv_key: [ApiImageKey; 3],
+    pub format: YuvFormat,
+    pub color_space: YuvColorSpace,
+    pub image_rendering: ImageRendering,
+}
+
+impl Internable for YuvImage {
+    type Marker = YuvImageDataMarker;
+    type Source = YuvImageKey;
+    type StoreData = YuvImageTemplate;
+    type InternData = PrimitiveSceneData;
+
+    /// Build a new key from self with `info`.
+    fn build_key(
+        self,
+        info: &LayoutPrimitiveInfo,
+        prim_relative_clip_rect: LayoutRect,
+    ) -> YuvImageKey {
+        YuvImageKey::new(
+            info.is_backface_visible,
+            info.rect.size,
+            prim_relative_clip_rect,
+            self
+        )
+    }
+}
+
+impl IsVisible for YuvImage {
+    fn is_visible(&self) -> bool {
+        true
+    }
+}
+
 #[test]
 #[cfg(target_os = "linux")]
 fn test_struct_sizes() {
@@ -454,4 +654,7 @@ fn test_struct_sizes() {
     assert_eq!(mem::size_of::<Image>(), 56, "Image size changed");
     assert_eq!(mem::size_of::<ImageTemplate>(), 144, "ImageTemplate size changed");
     assert_eq!(mem::size_of::<ImageKey>(), 84, "ImageKey size changed");
+    assert_eq!(mem::size_of::<YuvImage>(), 36, "YuvImage size changed");
+    assert_eq!(mem::size_of::<YuvImageTemplate>(), 96, "YuvImageTemplate size changed");
+    assert_eq!(mem::size_of::<YuvImageKey>(), 64, "YuvImageKey size changed");
 }
