@@ -408,6 +408,7 @@ pub struct InternProfileCounters {
     pub linear_gradients: ResourceProfileCounter,
     pub radial_gradients: ResourceProfileCounter,
     pub text_runs: ResourceProfileCounter,
+    pub yuv_images: ResourceProfileCounter,
     pub clips: ResourceProfileCounter,
 }
 
@@ -455,6 +456,7 @@ impl BackendProfileCounters {
                 linear_gradients: ResourceProfileCounter::new("Interned linear gradients"),
                 radial_gradients: ResourceProfileCounter::new("Interned radial gradients"),
                 text_runs: ResourceProfileCounter::new("Interned text runs"),
+                yuv_images: ResourceProfileCounter::new("Interned YUV images"),
                 clips: ResourceProfileCounter::new("Interned clips"),
             },
         }
@@ -1109,6 +1111,7 @@ impl Profiler {
                 &backend_profile.intern.linear_gradients,
                 &backend_profile.intern.radial_gradients,
                 &backend_profile.intern.text_runs,
+                &backend_profile.intern.yuv_images,
             ],
             debug_renderer,
             true,

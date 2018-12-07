@@ -27,7 +27,7 @@ use prim_store::{PrimitiveKey, PrimitiveSceneData, PrimitiveInstanceKind, NinePa
 use prim_store::{PrimitiveDataHandle, PrimitiveStore, PrimitiveStoreStats, LineDecorationCacheKey};
 use prim_store::{ScrollNodeAndClipChain, PictureIndex, register_prim_chase_id, get_line_decoration_sizes};
 use prim_store::gradient::{GradientStopKey, LinearGradient, RadialGradient, RadialGradientParams};
-use prim_store::image::Image;
+use prim_store::image::{Image, YuvImage};
 use prim_store::text_run::TextRun;
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
@@ -2428,11 +2428,11 @@ impl<'a> DisplayListFlattener<'a> {
             YuvData::InterleavedYCbCr(plane_0) => [plane_0, ImageKey::DUMMY, ImageKey::DUMMY],
         };
 
-        self.add_primitive(
+        self.add_nonshadowable_primitive(
             clip_and_scroll,
             info,
             Vec::new(),
-            PrimitiveKeyKind::YuvImage {
+            YuvImage {
                 color_depth,
                 yuv_key,
                 format,

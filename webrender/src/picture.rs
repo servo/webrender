@@ -21,7 +21,7 @@ use internal_types::FastHashSet;
 use plane_split::{Clipper, Polygon, Splitter};
 use prim_store::{PictureIndex, PrimitiveInstance, SpaceMapper, VisibleFace, PrimitiveInstanceKind};
 use prim_store::{get_raster_rects, CoordinateSpaceMapping};
-use prim_store::{OpacityBindingStorage, PrimitiveTemplateKind, ImageInstanceStorage, OpacityBindingIndex, SizeKey};
+use prim_store::{OpacityBindingStorage, ImageInstanceStorage, OpacityBindingIndex, SizeKey};
 use render_backend::FrameResources;
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle, TileBlit};
 use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
@@ -706,15 +706,8 @@ impl TileCache {
                 image_keys.push(image_data.key);
             }
             PrimitiveInstanceKind::YuvImage { data_handle, .. } => {
-                let prim_data = &resources.prim_data_store[data_handle];
-                match prim_data.kind {
-                    PrimitiveTemplateKind::YuvImage { ref yuv_key, .. } => {
-                        image_keys.extend_from_slice(yuv_key);
-                    }
-                    _ => {
-                        unreachable!();
-                    }
-                }
+                let yuv_image_data = &resources.yuv_image_data_store[data_handle];
+                image_keys.extend_from_slice(&yuv_image_data.yuv_key);
             }
             PrimitiveInstanceKind::TextRun { .. } |
             PrimitiveInstanceKind::LineDecoration { .. } |
@@ -1292,7 +1285,6 @@ impl PrimitiveList {
                 PrimitiveInstanceKind::NormalBorder { data_handle, .. } |
                 PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
                 PrimitiveInstanceKind::Rectangle { data_handle, .. } |
-                PrimitiveInstanceKind::YuvImage { data_handle, .. } |
                 PrimitiveInstanceKind::Clear { data_handle, .. } => {
                     &resources.prim_interner[data_handle]
                 }
@@ -1307,6 +1299,9 @@ impl PrimitiveList {
                 }
                 PrimitiveInstanceKind::TextRun { data_handle, .. } => {
                     &resources.text_run_interner[data_handle]
+                }
+                PrimitiveInstanceKind::YuvImage { data_handle, .. } => {
+                    &resources.yuv_image_interner[data_handle]
                 }
             };
 

@@ -4,11 +4,11 @@
 
 use api::{BorderRadius, ClipMode, ColorF, PictureRect, ColorU, LayoutVector2D};
 use api::{DeviceIntRect, DevicePixelScale, DeviceRect, LayoutSideOffsetsAu};
-use api::{FilterOp, ImageKey, ImageRendering, TileOffset, RepeatMode};
+use api::{FilterOp, ImageRendering, TileOffset, RepeatMode};
 use api::{LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize};
-use api::{PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat};
+use api::{PremultipliedColorF, PropertyBinding, Shadow};
 use api::{WorldPixel, BoxShadowClipMode, NormalBorder, WorldRect, LayoutToWorldScale};
-use api::{PicturePixel, RasterPixel, ColorDepth, LineStyle, LineOrientation, LayoutSizeAu, AuHelpers};
+use api::{PicturePixel, RasterPixel, LineStyle, LineOrientation, LayoutSizeAu, AuHelpers};
 use api::LayoutPrimitiveInfo;
 use app_units::Au;
 use border::{get_max_scale_for_border, build_border_instances, create_border_segments};
@@ -29,7 +29,7 @@ use internal_types::FastHashMap;
 use picture::{PictureCompositeMode, PicturePrimitive, PictureUpdateState};
 use picture::{ClusterRange, PrimitiveList, SurfaceIndex, TileDescriptor};
 use prim_store::gradient::{LinearGradientDataHandle, RadialGradientDataHandle};
-use prim_store::image::{ImageDataHandle, ImageInstance, VisibleImageTile};
+use prim_store::image::{ImageDataHandle, ImageInstance, VisibleImageTile, YuvImageDataHandle};
 use prim_store::text_run::{TextRunDataHandle, TextRunPrimitive};
 #[cfg(debug_assertions)]
 use render_backend::{FrameId};
@@ -379,13 +379,6 @@ pub enum PrimitiveKeyKind {
     Rectangle {
         color: ColorU,
     },
-    YuvImage {
-        color_depth: ColorDepth,
-        yuv_key: [ImageKey; 3],
-        format: YuvFormat,
-        color_space: YuvColorSpace,
-        image_rendering: ImageRendering,
-    },
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -645,12 +638,6 @@ impl AsInstanceKind<PrimitiveDataHandle> for PrimitiveKey {
                     segment_instance_index: SegmentInstanceIndex::INVALID,
                 }
             }
-            PrimitiveKeyKind::YuvImage { .. } => {
-                PrimitiveInstanceKind::YuvImage {
-                    data_handle,
-                    segment_instance_index: SegmentInstanceIndex::INVALID
-                }
-            }
             PrimitiveKeyKind::Unused => {
                 // Should never be hit as this method should not be
                 // called for old style primitives.
@@ -687,13 +674,6 @@ pub enum PrimitiveTemplateKind {
     },
     Rectangle {
         color: ColorF,
-    },
-    YuvImage {
-        color_depth: ColorDepth,
-        yuv_key: [ImageKey; 3],
-        format: YuvFormat,
-        color_space: YuvColorSpace,
-        image_rendering: ImageRendering,
     },
     Clear,
     Unused,
@@ -754,15 +734,6 @@ impl PrimitiveKeyKind {
             PrimitiveKeyKind::Rectangle { color, .. } => {
                 PrimitiveTemplateKind::Rectangle {
                     color: color.into(),
-                }
-            }
-            PrimitiveKeyKind::YuvImage { color_depth, yuv_key, format, color_space, image_rendering, .. } => {
-                PrimitiveTemplateKind::YuvImage {
-                    color_depth,
-                    yuv_key,
-                    format,
-                    color_space,
-                    image_rendering,
                 }
             }
             PrimitiveKeyKind::LineDecoration { cache_key, color } => {
@@ -888,14 +859,6 @@ impl PrimitiveTemplateKind {
                     }
                 }
             }
-            PrimitiveTemplateKind::YuvImage { color_depth, .. } => {
-                request.push([
-                    color_depth.rescaling_factor(),
-                    0.0,
-                    0.0,
-                    0.0
-                ]);
-            }
             PrimitiveTemplateKind::Unused => {}
         }
     }
@@ -926,7 +889,6 @@ impl PrimitiveTemplateKind {
             PrimitiveTemplateKind::Clear |
             PrimitiveTemplateKind::LineDecoration { .. } |
             PrimitiveTemplateKind::Rectangle { .. } |
-            PrimitiveTemplateKind::YuvImage { .. } |
             PrimitiveTemplateKind::Unused => {}
         }
     }
@@ -982,22 +944,6 @@ impl PrimitiveTemplate {
                     Some(..) => PrimitiveOpacity::translucent(),
                     None => PrimitiveOpacity::from_alpha(color.a),
                 }
-            }
-            PrimitiveTemplateKind::YuvImage { format, yuv_key, image_rendering, .. } => {
-                let channel_num = format.get_plane_num();
-                debug_assert!(channel_num <= 3);
-                for channel in 0 .. channel_num {
-                    frame_state.resource_cache.request_image(
-                        ImageRequest {
-                            key: yuv_key[channel],
-                            rendering: image_rendering,
-                            tile: None,
-                        },
-                        frame_state.gpu_cache,
-                    );
-                }
-
-                PrimitiveOpacity::translucent()
             }
             PrimitiveTemplateKind::Unused => {
                 PrimitiveOpacity::translucent()
@@ -1456,7 +1402,6 @@ impl IsVisible for PrimitiveKeyKind {
         match *self {
             PrimitiveKeyKind::NormalBorder { .. } |
             PrimitiveKeyKind::ImageBorder { .. } |
-            PrimitiveKeyKind::YuvImage { .. } |
             PrimitiveKeyKind::Clear |
             PrimitiveKeyKind::Unused => {
                 true
@@ -1497,7 +1442,6 @@ impl CreateShadow for PrimitiveKeyKind {
                 }
             }
             PrimitiveKeyKind::ImageBorder { .. } |
-            PrimitiveKeyKind::YuvImage { .. } |
             PrimitiveKeyKind::Unused |
             PrimitiveKeyKind::Clear => {
                 panic!("bug: this prim is not supported in shadow contexts");
@@ -1558,7 +1502,7 @@ pub enum PrimitiveInstanceKind {
     },
     YuvImage {
         /// Handle to the common interned data for this primitive.
-        data_handle: PrimitiveDataHandle,
+        data_handle: YuvImageDataHandle,
         segment_instance_index: SegmentInstanceIndex,
     },
     Image {
@@ -1669,8 +1613,7 @@ impl PrimitiveInstance {
             PrimitiveInstanceKind::Clear { data_handle, .. } |
             PrimitiveInstanceKind::NormalBorder { data_handle, .. } |
             PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
-            PrimitiveInstanceKind::Rectangle { data_handle, .. } |
-            PrimitiveInstanceKind::YuvImage { data_handle, .. } => {
+            PrimitiveInstanceKind::Rectangle { data_handle, .. } => {
                 data_handle.uid()
             }
             PrimitiveInstanceKind::Image { data_handle, .. } => {
@@ -1683,6 +1626,9 @@ impl PrimitiveInstance {
                 data_handle.uid()
             }
             PrimitiveInstanceKind::TextRun { data_handle, .. } => {
+                data_handle.uid()
+            }
+            PrimitiveInstanceKind::YuvImage { data_handle, .. } => {
                 data_handle.uid()
             }
         }
@@ -2630,13 +2576,35 @@ impl PrimitiveStore {
                 write_segment(prim_data, *segment_instance_index, frame_state, scratch);
             }
             PrimitiveInstanceKind::YuvImage { data_handle, segment_instance_index, .. } => {
-                let prim_data = &mut resources.prim_data_store[*data_handle];
+                let yuv_image_data = &mut resources.yuv_image_data_store[*data_handle];
 
                 // Update the template this instane references, which may refresh the GPU
                 // cache with any shared template data.
-                prim_data.update(frame_state);
+                yuv_image_data.update(frame_state);
 
-                write_segment(prim_data, *segment_instance_index, frame_state, scratch);
+                // write_segment(yuv_image_data, *segment_instance_index, frame_state, scratch);
+                debug_assert!(*segment_instance_index != SegmentInstanceIndex::INVALID);
+                if *segment_instance_index != SegmentInstanceIndex::UNUSED {
+                    let segment_instance =
+                        &mut scratch.segment_instances[*segment_instance_index];
+
+                    if let Some(mut request) =
+                        frame_state
+                        .gpu_cache
+                        .request(&mut segment_instance.gpu_cache_handle)
+                    {
+                        let segments = &scratch.segments[segment_instance.segments_range];
+
+                        yuv_image_data.write_prim_gpu_blocks(&mut request);
+
+                        for segment in segments {
+                            request.write_segment(
+                                segment.local_rect,
+                                [0.0; 4],
+                            );
+                        }
+                    }
+                }
             }
             PrimitiveInstanceKind::Image { data_handle, image_instance_index, .. } => {
                 let image_data = &mut resources.image_data_store[*data_handle];
@@ -2749,7 +2717,11 @@ impl PrimitiveStore {
                     let segment_instance =
                         &mut scratch.segment_instances[image_instance.segment_instance_index];
 
-                    if let Some(mut request) = frame_state.gpu_cache.request(&mut segment_instance.gpu_cache_handle) {
+                    if let Some(mut request) =
+                        frame_state
+                        .gpu_cache
+                        .request(&mut segment_instance.gpu_cache_handle)
+                    {
                         let segments = &scratch.segments[segment_instance.segments_range];
 
                         image_data.write_prim_gpu_blocks(&mut request);

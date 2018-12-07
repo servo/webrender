@@ -33,7 +33,7 @@ use internal_types::{DebugOutput, FastHashMap, FastHashSet, RenderedDocument, Re
 use prim_store::{PrimitiveDataStore, PrimitiveScratchBuffer, PrimitiveInstance};
 use prim_store::{PrimitiveInstanceKind, PrimTemplateCommonData};
 use prim_store::gradient::{LinearGradientDataStore, RadialGradientDataStore};
-use prim_store::image::ImageDataStore;
+use prim_store::image::{ImageDataStore, YuvImageDataStore};
 use prim_store::text_run::TextRunDataStore;
 use profiler::{BackendProfileCounters, IpcProfileCounters, ResourceProfileCounters};
 use record::ApiRecordingReceiver;
@@ -209,6 +209,7 @@ pub struct FrameResources {
     pub linear_grad_data_store: LinearGradientDataStore,
     pub radial_grad_data_store: RadialGradientDataStore,
     pub text_run_data_store: TextRunDataStore,
+    pub yuv_image_data_store: YuvImageDataStore,
 }
 
 impl FrameResources {
@@ -222,7 +223,6 @@ impl FrameResources {
             PrimitiveInstanceKind::NormalBorder { data_handle, .. } |
             PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
             PrimitiveInstanceKind::Rectangle { data_handle, .. } |
-            PrimitiveInstanceKind::YuvImage { data_handle, .. } |
             PrimitiveInstanceKind::Clear { data_handle, .. } => {
                 let prim_data = &self.prim_data_store[data_handle];
                 &prim_data.common
@@ -241,6 +241,10 @@ impl FrameResources {
             }
             PrimitiveInstanceKind::TextRun { data_handle, .. }  => {
                 let prim_data = &self.text_run_data_store[data_handle];
+                &prim_data.common
+            }
+            PrimitiveInstanceKind::YuvImage { data_handle, .. } => {
+                let prim_data = &self.yuv_image_data_store[data_handle];
                 &prim_data.common
             }
         }
@@ -1240,6 +1244,10 @@ impl RenderBackend {
             doc.resources.text_run_data_store.apply_updates(
                 updates.text_run_updates,
                 &mut profile_counters.intern.text_runs,
+            );
+            doc.resources.yuv_image_data_store.apply_updates(
+                updates.yuv_image_updates,
+                &mut profile_counters.intern.yuv_images,
             );
         }
 

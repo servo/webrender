@@ -20,7 +20,10 @@ use prim_store::gradient::{
     LinearGradient, LinearGradientDataInterner, LinearGradientDataUpdateList,
     RadialGradient, RadialGradientDataInterner, RadialGradientDataUpdateList
 };
-use prim_store::image::{Image, ImageDataInterner, ImageDataUpdateList};
+use prim_store::image::{
+    Image, ImageDataInterner, ImageDataUpdateList,
+    YuvImage, YuvImageDataInterner, YuvImageDataUpdateList,
+};
 use prim_store::text_run::{TextRunDataInterner, TextRun, TextRunDataUpdateList};
 use resource_cache::{BlobImageRasterizerEpoch, FontInstanceMap};
 use render_backend::DocumentView;
@@ -40,6 +43,7 @@ pub struct DocumentResourceUpdates {
     pub linear_grad_updates: LinearGradientDataUpdateList,
     pub radial_grad_updates: RadialGradientDataUpdateList,
     pub text_run_updates: TextRunDataUpdateList,
+    pub yuv_image_updates: YuvImageDataUpdateList,
 }
 
 /// Represents the work associated to a transaction before scene building.
@@ -186,6 +190,7 @@ pub struct DocumentResources {
     pub linear_grad_interner: LinearGradientDataInterner,
     pub radial_grad_interner: RadialGradientDataInterner,
     pub text_run_interner: TextRunDataInterner,
+    pub yuv_image_interner: YuvImageDataInterner,
 }
 
 // Access to `DocumentResources` interners by `Internable`
@@ -214,6 +219,7 @@ impl_internet_mut! {
     RadialGradient: radial_grad_interner,
     TextRun: text_run_interner,
     PrimitiveKeyKind: prim_interner,
+    YuvImage: yuv_image_interner,
 }
 
 // A document in the scene builder contains the current scene,
@@ -406,6 +412,11 @@ impl SceneBuilder {
                     .text_run_interner
                     .end_frame_and_get_pending_updates();
 
+                let yuv_image_updates = item
+                    .doc_resources
+                    .yuv_image_interner
+                    .end_frame_and_get_pending_updates();
+
                 doc_resource_updates = Some(
                     DocumentResourceUpdates {
                         clip_updates,
@@ -414,6 +425,7 @@ impl SceneBuilder {
                         linear_grad_updates,
                         radial_grad_updates,
                         text_run_updates,
+                        yuv_image_updates,
                     }
                 );
 
@@ -542,6 +554,11 @@ impl SceneBuilder {
                     .text_run_interner
                     .end_frame_and_get_pending_updates();
 
+                let yuv_image_updates = doc
+                    .resources
+                    .yuv_image_interner
+                    .end_frame_and_get_pending_updates();
+
                 doc_resource_updates = Some(
                     DocumentResourceUpdates {
                         clip_updates,
@@ -550,6 +567,7 @@ impl SceneBuilder {
                         linear_grad_updates,
                         radial_grad_updates,
                         text_run_updates,
+                        yuv_image_updates,
                     }
                 );
 
