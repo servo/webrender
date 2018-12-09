@@ -614,6 +614,8 @@ impl PrimitiveKey {
     }
 }
 
+impl intern::InternDebug for PrimitiveKey {}
+
 impl AsInstanceKind<PrimitiveDataHandle> for PrimitiveKey {
     /// Construct a primitive instance that matches the type
     /// of primitive key.
