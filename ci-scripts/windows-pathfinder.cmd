@@ -8,29 +8,7 @@
 
 if NOT DEFINED CARGOFLAGS SET CARGOFLAGS=--verbose
 
-pushd webrender_api
-cargo test %CARGOFLAGS%
-if %ERRORLEVEL% NEQ 0 EXIT /b %ERRORLEVEL%
-popd
-
 pushd webrender
-cargo test %CARGOFLAGS%
-if %ERRORLEVEL% NEQ 0 EXIT /b %ERRORLEVEL%
-popd
-
-pushd wrench
-cargo test --verbose
-if %ERRORLEVEL% NEQ 0 EXIT /b %ERRORLEVEL%
-cargo run --release -- --angle reftest
-if %ERRORLEVEL% NEQ 0 EXIT /b %ERRORLEVEL%
-popd
-
-pushd examples
-cargo check --verbose
-if %ERRORLEVEL% NEQ 0 EXIT /b %ERRORLEVEL%
-popd
-
-pushd direct-composition
-cargo check --verbose
+cargo check %CARGOFLAGS% --no-default-features --features pathfinder
 if %ERRORLEVEL% NEQ 0 EXIT /b %ERRORLEVEL%
 popd
