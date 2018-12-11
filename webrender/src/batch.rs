@@ -604,8 +604,9 @@ impl AlphaBatchBuilder {
                 );
             }
             PrimitiveInstanceKind::NormalBorder { data_handle, ref cache_handles, .. } => {
-                let prim_data = &ctx.resources.prim_data_store[data_handle];
-                let prim_cache_address = gpu_cache.get_address(&prim_data.gpu_cache_handle);
+                let prim_data = &ctx.resources.normal_border_data_store[data_handle];
+                let common_data = &prim_data.common;
+                let prim_cache_address = gpu_cache.get_address(&common_data.gpu_cache_handle);
                 let cache_handles = &ctx.scratch.border_cache_handles[*cache_handles];
                 let specified_blend_mode = BlendMode::PremultipliedAlpha;
                 let mut segment_data: SmallVec<[SegmentInstanceData; 8]> = SmallVec::new();
@@ -626,7 +627,7 @@ impl AlphaBatchBuilder {
                     );
                 }
 
-                let non_segmented_blend_mode = if !prim_data.opacity.is_opaque ||
+                let non_segmented_blend_mode = if !common_data.opacity.is_opaque ||
                     prim_instance.clip_task_index != ClipTaskIndex::INVALID ||
                     transform_kind == TransformedRectKind::Complex
                 {
@@ -660,13 +661,10 @@ impl AlphaBatchBuilder {
                     batch_params.prim_user_data,
                 );
 
-                let template = match prim_data.kind {
-                    PrimitiveTemplateKind::NormalBorder { ref template, .. } => template,
-                    _ => unreachable!()
-                };
+                let border_data = &prim_data.kind;
                 self.add_segmented_prim_to_batch(
-                    Some(template.brush_segments.as_slice()),
-                    prim_data.opacity,
+                    Some(border_data.brush_segments.as_slice()),
+                    common_data.opacity,
                     &batch_params,
                     specified_blend_mode,
                     non_segmented_blend_mode,
