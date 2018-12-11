@@ -405,6 +405,7 @@ pub struct IpcProfileCounters {
 pub struct InternProfileCounters {
     pub prims: ResourceProfileCounter,
     pub images: ResourceProfileCounter,
+    pub image_borders: ResourceProfileCounter,
     pub linear_gradients: ResourceProfileCounter,
     pub normal_borders: ResourceProfileCounter,
     pub radial_gradients: ResourceProfileCounter,
@@ -454,6 +455,7 @@ impl BackendProfileCounters {
             intern: InternProfileCounters {
                 prims: ResourceProfileCounter::new("Interned primitives"),
                 images: ResourceProfileCounter::new("Interned images"),
+                image_borders: ResourceProfileCounter::new("Interned image borders"),
                 linear_gradients: ResourceProfileCounter::new("Interned linear gradients"),
                 normal_borders: ResourceProfileCounter::new("Interner normal borders"),
                 radial_gradients: ResourceProfileCounter::new("Interned radial gradients"),
@@ -1110,6 +1112,7 @@ impl Profiler {
                 &backend_profile.intern.clips,
                 &backend_profile.intern.prims,
                 &backend_profile.intern.images,
+                &backend_profile.intern.image_borders,
                 &backend_profile.intern.linear_gradients,
                 &backend_profile.intern.normal_borders,
                 &backend_profile.intern.radial_gradients,

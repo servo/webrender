@@ -33,7 +33,7 @@ use internal_types::{DebugOutput, FastHashMap, FastHashSet, RenderedDocument, Re
 use picture::RetainedTiles;
 use prim_store::{PrimitiveDataStore, PrimitiveScratchBuffer, PrimitiveInstance};
 use prim_store::{PrimitiveInstanceKind, PrimTemplateCommonData};
-use prim_store::borders::{NormalBorderDataStore};
+use prim_store::borders::{ImageBorderDataStore, NormalBorderDataStore};
 use prim_store::gradient::{LinearGradientDataStore, RadialGradientDataStore};
 use prim_store::image::{ImageDataStore, YuvImageDataStore};
 use prim_store::text_run::TextRunDataStore;
@@ -208,6 +208,7 @@ pub struct FrameResources {
     /// primitive interner in the scene builder, per document.
     pub prim_data_store: PrimitiveDataStore,
     pub image_data_store: ImageDataStore,
+    pub image_border_data_store: ImageBorderDataStore,
     pub linear_grad_data_store: LinearGradientDataStore,
     pub normal_border_data_store: NormalBorderDataStore,
     pub radial_grad_data_store: RadialGradientDataStore,
@@ -223,7 +224,6 @@ impl FrameResources {
         match prim_inst.kind {
             PrimitiveInstanceKind::Picture { data_handle, .. } |
             PrimitiveInstanceKind::LineDecoration { data_handle, .. } |
-            PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
             PrimitiveInstanceKind::Rectangle { data_handle, .. } |
             PrimitiveInstanceKind::Clear { data_handle, .. } => {
                 let prim_data = &self.prim_data_store[data_handle];
@@ -231,6 +231,10 @@ impl FrameResources {
             }
             PrimitiveInstanceKind::Image { data_handle, .. } => {
                 let prim_data = &self.image_data_store[data_handle];
+                &prim_data.common
+            }
+            PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
+                let prim_data = &self.image_border_data_store[data_handle];
                 &prim_data.common
             }
             PrimitiveInstanceKind::LinearGradient { data_handle, .. } => {
@@ -1238,6 +1242,10 @@ impl RenderBackend {
             doc.resources.image_data_store.apply_updates(
                 updates.image_updates,
                 &mut profile_counters.intern.images,
+            );
+            doc.resources.image_border_data_store.apply_updates(
+                updates.image_border_updates,
+                &mut profile_counters.intern.image_borders,
             );
             doc.resources.linear_grad_data_store.apply_updates(
                 updates.linear_grad_updates,

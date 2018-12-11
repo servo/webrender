@@ -26,7 +26,7 @@ use prim_store::{PrimitiveInstance, PrimitiveKeyKind, PictureCompositeKey};
 use prim_store::{PrimitiveKey, PrimitiveSceneData, PrimitiveInstanceKind, NinePatchDescriptor};
 use prim_store::{PrimitiveStore, PrimitiveStoreStats, LineDecorationCacheKey};
 use prim_store::{ScrollNodeAndClipChain, PictureIndex, register_prim_chase_id, get_line_decoration_sizes};
-use prim_store::borders::{NormalBorder};
+use prim_store::borders::{ImageBorder, NormalBorder};
 use prim_store::gradient::{GradientStopKey, LinearGradient, RadialGradient, RadialGradientParams};
 use prim_store::image::{Image, YuvImage};
 use prim_store::text_run::TextRun;
@@ -2122,7 +2122,7 @@ impl<'a> DisplayListFlattener<'a> {
 
                 match border.source {
                     NinePatchBorderSource::Image(image_key) => {
-                        let prim = PrimitiveKeyKind::ImageBorder {
+                        let prim = ImageBorder {
                             request: ImageRequest {
                                 key: image_key,
                                 rendering: ImageRendering::Auto,
@@ -2131,7 +2131,7 @@ impl<'a> DisplayListFlattener<'a> {
                             nine_patch,
                         };
 
-                        self.add_primitive(
+                        self.add_nonshadowable_primitive(
                             clip_and_scroll,
                             info,
                             Vec::new(),

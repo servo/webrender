@@ -27,7 +27,7 @@ use image::{Repetition};
 use intern;
 use picture::{PictureCompositeMode, PicturePrimitive, PictureUpdateState, TileCacheUpdateState};
 use picture::{ClusterRange, PrimitiveList, SurfaceIndex, SurfaceInfo, RetainedTiles, RasterConfig};
-use prim_store::borders::{NormalBorderDataHandle};
+use prim_store::borders::{ImageBorderDataHandle, NormalBorderDataHandle};
 use prim_store::gradient::{LinearGradientDataHandle, RadialGradientDataHandle};
 use prim_store::image::{ImageDataHandle, ImageInstance, VisibleImageTile, YuvImageDataHandle};
 use prim_store::text_run::{TextRunDataHandle, TextRunPrimitive};
@@ -473,10 +473,6 @@ pub enum PrimitiveKeyKind {
     },
     /// Clear an existing rect, used for special effects on some platforms.
     Clear,
-    ImageBorder {
-        request: ImageRequest,
-        nine_patch: NinePatchDescriptor,
-    },
     Rectangle {
         color: ColorU,
     },
@@ -767,11 +763,6 @@ impl AsInstanceKind<PrimitiveDataHandle> for PrimitiveKey {
                     data_handle
                 }
             }
-            PrimitiveKeyKind::ImageBorder { .. } => {
-                PrimitiveInstanceKind::ImageBorder {
-                    data_handle
-                }
-            }
             PrimitiveKeyKind::Rectangle { .. } => {
                 PrimitiveInstanceKind::Rectangle {
                     data_handle,
@@ -797,10 +788,6 @@ pub enum PrimitiveTemplateKind {
         cache_key: Option<LineDecorationCacheKey>,
         color: ColorF,
     },
-    ImageBorder {
-        request: ImageRequest,
-        brush_segments: Vec<BrushSegment>,
-    },
     Rectangle {
         color: ColorF,
     },
@@ -814,10 +801,7 @@ pub enum PrimitiveTemplateKind {
 /// is invoked when a primitive key is created and the interner
 /// doesn't currently contain a primitive with this key.
 impl PrimitiveKeyKind {
-    fn into_template(
-        self,
-        size: LayoutSize,
-    ) -> PrimitiveTemplateKind {
+    fn into_template(self) -> PrimitiveTemplateKind {
         match self {
             PrimitiveKeyKind::Picture { .. } => {
                 PrimitiveTemplateKind::Picture {
@@ -826,18 +810,6 @@ impl PrimitiveKeyKind {
             }
             PrimitiveKeyKind::Clear => {
                 PrimitiveTemplateKind::Clear
-            }
-            PrimitiveKeyKind::ImageBorder {
-                request,
-                ref nine_patch,
-                ..
-            } => {
-                let brush_segments = nine_patch.create_segments(size);
-
-                PrimitiveTemplateKind::ImageBorder {
-                    request,
-                    brush_segments,
-                }
             }
             PrimitiveKeyKind::Rectangle { color, .. } => {
                 PrimitiveTemplateKind::Rectangle {
@@ -910,7 +882,7 @@ impl ops::DerefMut for PrimitiveTemplate {
 impl From<PrimitiveKey> for PrimitiveTemplate {
     fn from(item: PrimitiveKey) -> Self {
         let common = PrimTemplateCommonData::with_key_common(item.common);
-        let kind = item.kind.into_template(common.prim_size);
+        let kind = item.kind.into_template();
 
         PrimitiveTemplate { common, kind, }
     }
@@ -920,8 +892,7 @@ impl PrimitiveTemplateKind {
     /// Write any GPU blocks for the primitive template to the given request object.
     fn write_prim_gpu_blocks(
         &self,
-        request: &mut GpuDataRequest,
-        prim_size: LayoutSize,
+        request: &mut GpuDataRequest
     ) {
         match *self {
             PrimitiveTemplateKind::Clear => {
@@ -930,19 +901,6 @@ impl PrimitiveTemplateKind {
             }
             PrimitiveTemplateKind::Rectangle { ref color, .. } => {
                 request.push(color.premultiplied());
-            }
-            PrimitiveTemplateKind::ImageBorder { .. } => {
-                // Border primitives currently used for
-                // image borders, and run through the
-                // normal brush_image shader.
-                request.push(PremultipliedColorF::WHITE);
-                request.push(PremultipliedColorF::WHITE);
-                request.push([
-                    prim_size.width,
-                    prim_size.height,
-                    0.0,
-                    0.0,
-                ]);
             }
             PrimitiveTemplateKind::LineDecoration { ref cache_key, ref color } => {
                 match cache_key {
@@ -964,27 +922,6 @@ impl PrimitiveTemplateKind {
             PrimitiveTemplateKind::Picture { .. } => {}
         }
     }
-
-    fn write_segment_gpu_blocks(
-        &self,
-        request: &mut GpuDataRequest,
-    ) {
-        match *self {
-            PrimitiveTemplateKind::ImageBorder { ref brush_segments, .. } => {
-                for segment in brush_segments {
-                    // has to match VECS_PER_SEGMENT
-                    request.write_segment(
-                        segment.local_rect,
-                        segment.extra_data,
-                    );
-                }
-            }
-            PrimitiveTemplateKind::Clear |
-            PrimitiveTemplateKind::LineDecoration { .. } |
-            PrimitiveTemplateKind::Rectangle { .. } |
-            PrimitiveTemplateKind::Picture { .. } => {}
-        }
-    }
 }
 
 impl PrimitiveTemplate {
@@ -997,11 +934,7 @@ impl PrimitiveTemplate {
         frame_state: &mut FrameBuildingState,
     ) {
         if let Some(mut request) = frame_state.gpu_cache.request(&mut self.common.gpu_cache_handle) {
-            self.kind.write_prim_gpu_blocks(
-                &mut request,
-                self.common.prim_size,
-            );
-            self.kind.write_segment_gpu_blocks(&mut request);
+            self.kind.write_prim_gpu_blocks(&mut request);
         }
 
         self.opacity = match self.kind {
@@ -1010,23 +943,6 @@ impl PrimitiveTemplate {
             }
             PrimitiveTemplateKind::Rectangle { ref color, .. } => {
                 PrimitiveOpacity::from_alpha(color.a)
-            }
-            PrimitiveTemplateKind::ImageBorder { request, .. } => {
-                let image_properties = frame_state
-                    .resource_cache
-                    .get_image_properties(request.key);
-
-                if let Some(image_properties) = image_properties {
-                    frame_state.resource_cache.request_image(
-                        request,
-                        frame_state.gpu_cache,
-                    );
-                    PrimitiveOpacity {
-                        is_opaque: image_properties.descriptor.is_opaque,
-                    }
-                } else {
-                    PrimitiveOpacity::opaque()
-                }
             }
             PrimitiveTemplateKind::LineDecoration { ref cache_key, ref color } => {
                 match cache_key {
@@ -1489,7 +1405,6 @@ impl IsVisible for PrimitiveKeyKind {
     //           primitive types to use this.
     fn is_visible(&self) -> bool {
         match *self {
-            PrimitiveKeyKind::ImageBorder { .. } |
             PrimitiveKeyKind::Clear |
             PrimitiveKeyKind::Picture { .. } => {
                 true
@@ -1522,7 +1437,6 @@ impl CreateShadow for PrimitiveKeyKind {
                     color: shadow.color.into(),
                 }
             }
-            PrimitiveKeyKind::ImageBorder { .. } |
             PrimitiveKeyKind::Picture { .. } |
             PrimitiveKeyKind::Clear => {
                 panic!("bug: this prim is not supported in shadow contexts");
@@ -1573,7 +1487,7 @@ pub enum PrimitiveInstanceKind {
     },
     ImageBorder {
         /// Handle to the common interned data for this primitive.
-        data_handle: PrimitiveDataHandle,
+        data_handle: ImageBorderDataHandle,
     },
     Rectangle {
         /// Handle to the common interned data for this primitive.
@@ -1692,11 +1606,13 @@ impl PrimitiveInstance {
             PrimitiveInstanceKind::Picture { data_handle, .. } |
             PrimitiveInstanceKind::LineDecoration { data_handle, .. } |
             PrimitiveInstanceKind::Clear { data_handle, .. } |
-            PrimitiveInstanceKind::ImageBorder { data_handle, .. } |
             PrimitiveInstanceKind::Rectangle { data_handle, .. } => {
                 data_handle.uid()
             }
             PrimitiveInstanceKind::Image { data_handle, .. } => {
+                data_handle.uid()
+            }
+            PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
                 data_handle.uid()
             }
             PrimitiveInstanceKind::LinearGradient { data_handle, .. } => {
@@ -2718,11 +2634,11 @@ impl PrimitiveStore {
                     .extend(handles);
             }
             PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
-                let prim_data = &mut resources.prim_data_store[*data_handle];
+                let prim_data = &mut resources.image_border_data_store[*data_handle];
 
                 // Update the template this instane references, which may refresh the GPU
                 // cache with any shared template data.
-                prim_data.update(frame_state);
+                prim_data.kind.update(&mut prim_data.common, frame_state);
             }
             PrimitiveInstanceKind::Rectangle { data_handle, segment_instance_index, opacity_binding_index, .. } => {
                 let prim_data = &mut resources.prim_data_store[*data_handle];
@@ -2740,7 +2656,6 @@ impl PrimitiveStore {
                 write_segment(*segment_instance_index, frame_state, scratch, |request| {
                     prim_data.kind.write_prim_gpu_blocks(
                         request,
-                        prim_data.prim_size,
                     );
                 });
             }
@@ -3347,18 +3262,11 @@ impl PrimitiveInstance {
                 &scratch.segments[segment_instance.segments_range]
             }
             PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
-                let prim_data = &resources.prim_data_store[data_handle];
+                let border_data = &resources.image_border_data_store[data_handle].kind;
 
                 // TODO: This is quite messy - once we remove legacy primitives we
                 //       can change this to be a tuple match on (instance, template)
-                match prim_data.kind {
-                    PrimitiveTemplateKind::ImageBorder { ref brush_segments, .. } => {
-                        brush_segments.as_slice()
-                    }
-                    _ => {
-                        unreachable!();
-                    }
-                }
+                border_data.brush_segments.as_slice()
             }
             PrimitiveInstanceKind::NormalBorder { data_handle, .. } => {
                 let border_data = &resources.normal_border_data_store[data_handle].kind;
@@ -3650,8 +3558,8 @@ fn test_struct_sizes() {
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<PrimitiveInstance>(), 128, "PrimitiveInstance size changed");
     assert_eq!(mem::size_of::<PrimitiveInstanceKind>(), 40, "PrimitiveInstanceKind size changed");
-    assert_eq!(mem::size_of::<PrimitiveTemplate>(), 112, "PrimitiveTemplate size changed");
-    assert_eq!(mem::size_of::<PrimitiveTemplateKind>(), 56, "PrimitiveTemplateKind size changed");
-    assert_eq!(mem::size_of::<PrimitiveKey>(), 124, "PrimitiveKey size changed");
-    assert_eq!(mem::size_of::<PrimitiveKeyKind>(), 96, "PrimitiveKeyKind size changed");
+    assert_eq!(mem::size_of::<PrimitiveTemplate>(), 96, "PrimitiveTemplate size changed");
+    assert_eq!(mem::size_of::<PrimitiveTemplateKind>(), 36, "PrimitiveTemplateKind size changed");
+    assert_eq!(mem::size_of::<PrimitiveKey>(), 52, "PrimitiveKey size changed");
+    assert_eq!(mem::size_of::<PrimitiveKeyKind>(), 24, "PrimitiveKeyKind size changed");
 }

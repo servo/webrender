@@ -16,10 +16,12 @@ use frame_builder::{FrameBuildingState};
 use gpu_cache::GpuDataRequest;
 use intern;
 use prim_store::{
-    BorderSegmentInfo, BrushSegment, PrimKey, PrimKeyCommonData, PrimTemplate,
-    PrimTemplateCommonData, PrimitiveInstanceKind, PrimitiveOpacity,
-    PrimitiveSceneData, PrimitiveStore
+    BorderSegmentInfo, BrushSegment, NinePatchDescriptor, PrimKey,
+    PrimKeyCommonData, PrimTemplate, PrimTemplateCommonData,
+    PrimitiveInstanceKind, PrimitiveOpacity, PrimitiveSceneData,
+    PrimitiveStore
 };
+use resource_cache::ImageRequest;
 use storage;
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -205,6 +207,174 @@ impl IsVisible for NormalBorder {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct ImageBorder {
+    pub request: ImageRequest,
+    pub nine_patch: NinePatchDescriptor,
+}
+
+pub type ImageBorderKey = PrimKey<ImageBorder>;
+
+impl ImageBorderKey {
+    pub fn new(
+        info: &LayoutPrimitiveInfo,
+        prim_relative_clip_rect: LayoutRect,
+        image_border: ImageBorder,
+    ) -> Self {
+        ImageBorderKey {
+            common: PrimKeyCommonData::with_info(
+                info,
+                prim_relative_clip_rect,
+            ),
+            kind: image_border,
+        }
+    }
+}
+
+impl intern::InternDebug for ImageBorderKey {}
+
+impl AsInstanceKind<ImageBorderDataHandle> for ImageBorderKey {
+    /// Construct a primitive instance that matches the type
+    /// of primitive key.
+    fn as_instance_kind(
+        &self,
+        data_handle: ImageBorderDataHandle,
+        _: &mut PrimitiveStore,
+    ) -> PrimitiveInstanceKind {
+        PrimitiveInstanceKind::ImageBorder {
+            data_handle
+        }
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct ImageBorderData {
+    pub request: ImageRequest,
+    pub brush_segments: Vec<BrushSegment>,
+}
+
+impl ImageBorderData {
+    /// Update the GPU cache for a given primitive template. This may be called multiple
+    /// times per frame, by each primitive reference that refers to this interned
+    /// template. The initial request call to the GPU cache ensures that work is only
+    /// done if the cache entry is invalid (due to first use or eviction).
+    pub fn update(
+        &mut self,
+        common: &mut PrimTemplateCommonData,
+        frame_state: &mut FrameBuildingState,
+    ) {
+        if let Some(ref mut request) = frame_state.gpu_cache.request(&mut common.gpu_cache_handle) {
+            self.write_prim_gpu_blocks(request, &common.prim_size);
+            self.write_segment_gpu_blocks(request);
+        }
+
+        let image_properties = frame_state
+            .resource_cache
+            .get_image_properties(self.request.key);
+
+        common.opacity = if let Some(image_properties) = image_properties {
+            frame_state.resource_cache.request_image(
+                self.request,
+                frame_state.gpu_cache,
+            );
+            PrimitiveOpacity {
+                is_opaque: image_properties.descriptor.is_opaque,
+            }
+        } else {
+            PrimitiveOpacity::opaque()
+        }
+    }
+
+    fn write_prim_gpu_blocks(
+        &self,
+        request: &mut GpuDataRequest,
+        prim_size: &LayoutSize,
+    ) {
+        // Border primitives currently used for
+        // image borders, and run through the
+        // normal brush_image shader.
+        request.push(PremultipliedColorF::WHITE);
+        request.push(PremultipliedColorF::WHITE);
+        request.push([
+            prim_size.width,
+            prim_size.height,
+            0.0,
+            0.0,
+        ]);
+    }
+
+    fn write_segment_gpu_blocks(
+        &self,
+        request: &mut GpuDataRequest,
+    ) {
+        for segment in &self.brush_segments {
+            // has to match VECS_PER_SEGMENT
+            request.write_segment(
+                segment.local_rect,
+                segment.extra_data,
+            );
+        }
+    }
+}
+
+pub type ImageBorderTemplate = PrimTemplate<ImageBorderData>;
+
+impl From<ImageBorderKey> for ImageBorderTemplate {
+    fn from(key: ImageBorderKey) -> Self {
+        let common = PrimTemplateCommonData::with_key_common(key.common);
+
+        let brush_segments = key.kind.nine_patch.create_segments(common.prim_size);
+        ImageBorderTemplate {
+            common,
+            kind: ImageBorderData {
+                request: key.kind.request,
+                brush_segments,
+            }
+        }
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+pub struct ImageBorderDataMarker;
+
+pub type ImageBorderDataStore = intern::DataStore<ImageBorderKey, ImageBorderTemplate, ImageBorderDataMarker>;
+pub type ImageBorderDataHandle = intern::Handle<ImageBorderDataMarker>;
+pub type ImageBorderDataUpdateList = intern::UpdateList<ImageBorderKey>;
+pub type ImageBorderDataInterner = intern::Interner<ImageBorderKey, PrimitiveSceneData, ImageBorderDataMarker>;
+
+impl intern::Internable for ImageBorder {
+    type Marker = ImageBorderDataMarker;
+    type Source = ImageBorderKey;
+    type StoreData = ImageBorderTemplate;
+    type InternData = PrimitiveSceneData;
+
+    /// Build a new key from self with `info`.
+    fn build_key(
+        self,
+        info: &LayoutPrimitiveInfo,
+        prim_relative_clip_rect: LayoutRect,
+    ) -> ImageBorderKey {
+        ImageBorderKey::new(
+            info,
+            prim_relative_clip_rect,
+            self,
+        )
+    }
+}
+
+impl IsVisible for ImageBorder {
+    fn is_visible(&self) -> bool {
+        true
+    }
+}
+
 #[test]
 #[cfg(target_os = "linux")]
 fn test_struct_sizes() {
@@ -218,4 +388,7 @@ fn test_struct_sizes() {
     assert_eq!(mem::size_of::<NormalBorder>(), 84, "NormalBorder size changed");
     assert_eq!(mem::size_of::<NormalBorderTemplate>(), 240, "NormalBorderTemplate size changed");
     assert_eq!(mem::size_of::<NormalBorderKey>(), 112, "NormalBorderKey size changed");
+    assert_eq!(mem::size_of::<ImageBorder>(), 92, "ImageBorder size changed");
+    assert_eq!(mem::size_of::<ImageBorderTemplate>(), 104, "ImageBorderTemplate size changed");
+    assert_eq!(mem::size_of::<ImageBorderKey>(), 120, "ImageBorderKey size changed");
 }
