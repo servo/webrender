@@ -17,3 +17,7 @@ build: false
 
 test_script:
   - cmd.exe /c ci-scripts\windows-tests.cmd
+  # Pathfinder builds servo-freetype-sys as a dependency which has additional
+  # build requirements. So we do it in a separate .cmd file that we skip over
+  # in Firefox CI for now.
+  - cmd.exe /c ci-scripts\windows-pathfinder.cmd
