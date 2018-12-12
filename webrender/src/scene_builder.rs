@@ -28,6 +28,9 @@ use prim_store::image::{
     Image, ImageDataInterner, ImageDataUpdateList,
     YuvImage, YuvImageDataInterner, YuvImageDataUpdateList,
 };
+use prim_store::line_dec::{
+    LineDecoration, LineDecorationDataInterner, LineDecorationDataUpdateList
+};
 use prim_store::text_run::{TextRunDataInterner, TextRun, TextRunDataUpdateList};
 use resource_cache::{BlobImageRasterizerEpoch, FontInstanceMap};
 use render_backend::DocumentView;
@@ -45,6 +48,7 @@ pub struct DocumentResourceUpdates {
     pub prim_updates: PrimitiveDataUpdateList,
     pub image_updates: ImageDataUpdateList,
     pub image_border_updates: ImageBorderDataUpdateList,
+    pub line_decoration_updates: LineDecorationDataUpdateList,
     pub linear_grad_updates: LinearGradientDataUpdateList,
     pub normal_border_updates: NormalBorderDataUpdateList,
     pub radial_grad_updates: RadialGradientDataUpdateList,
@@ -199,6 +203,7 @@ pub struct DocumentResources {
     pub prim_interner: PrimitiveDataInterner,
     pub image_interner: ImageDataInterner,
     pub image_border_interner: ImageBorderDataInterner,
+    pub line_decoration_interner: LineDecorationDataInterner,
     pub linear_grad_interner: LinearGradientDataInterner,
     pub normal_border_interner: NormalBorderDataInterner,
     pub radial_grad_interner: RadialGradientDataInterner,
@@ -229,6 +234,7 @@ macro_rules! impl_internet_mut {
 impl_internet_mut! {
     Image: image_interner,
     ImageBorder: image_border_interner,
+    LineDecoration: line_decoration_interner,
     LinearGradient: linear_grad_interner,
     NormalBorderPrim: normal_border_interner,
     PrimitiveKeyKind: prim_interner,
@@ -417,6 +423,11 @@ impl SceneBuilder {
                     .image_border_interner
                     .end_frame_and_get_pending_updates();
 
+                let line_decoration_updates = item
+                    .doc_resources
+                    .line_decoration_interner
+                    .end_frame_and_get_pending_updates();
+
                 let linear_grad_updates = item
                     .doc_resources
                     .linear_grad_interner
@@ -448,6 +459,7 @@ impl SceneBuilder {
                         prim_updates,
                         image_updates,
                         image_border_updates,
+                        line_decoration_updates,
                         linear_grad_updates,
                         normal_border_updates,
                         radial_grad_updates,
@@ -571,6 +583,11 @@ impl SceneBuilder {
                     .image_border_interner
                     .end_frame_and_get_pending_updates();
 
+                let line_decoration_updates = doc
+                    .resources
+                    .line_decoration_interner
+                    .end_frame_and_get_pending_updates();
+
                 let linear_grad_updates = doc
                     .resources
                     .linear_grad_interner
@@ -602,6 +619,7 @@ impl SceneBuilder {
                         prim_updates,
                         image_updates,
                         image_border_updates,
+                        line_decoration_updates,
                         linear_grad_updates,
                         normal_border_updates,
                         radial_grad_updates,

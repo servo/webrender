@@ -24,11 +24,12 @@ use internal_types::{FastHashMap, FastHashSet};
 use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PrimitiveList};
 use prim_store::{PrimitiveInstance, PrimitiveKeyKind, PictureCompositeKey};
 use prim_store::{PrimitiveKey, PrimitiveSceneData, PrimitiveInstanceKind, NinePatchDescriptor};
-use prim_store::{PrimitiveStore, PrimitiveStoreStats, LineDecorationCacheKey};
+use prim_store::{PrimitiveStore, PrimitiveStoreStats};
 use prim_store::{ScrollNodeAndClipChain, PictureIndex, register_prim_chase_id, get_line_decoration_sizes};
 use prim_store::borders::{ImageBorder, NormalBorderPrim};
 use prim_store::gradient::{GradientStopKey, LinearGradient, RadialGradient, RadialGradientParams};
 use prim_store::image::{Image, YuvImage};
+use prim_store::line_dec::{LineDecoration, LineDecorationCacheKey};
 use prim_store::text_run::TextRun;
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
@@ -1825,6 +1826,9 @@ impl<'a> DisplayListFlattener<'a> {
                             ShadowItem::Image(ref pending_image) => {
                                 self.add_shadow_prim(&pending_shadow, pending_image, &mut prims)
                             }
+                            ShadowItem::LineDecoration(ref pending_line_dec) => {
+                                self.add_shadow_prim(&pending_shadow, pending_line_dec, &mut prims)
+                            }
                             ShadowItem::NormalBorder(ref pending_border) => {
                                 self.add_shadow_prim(&pending_shadow, pending_border, &mut prims)
                             }
@@ -1907,9 +1911,12 @@ impl<'a> DisplayListFlattener<'a> {
                 ShadowItem::Image(pending_image) => {
                     self.add_shadow_prim_to_draw_list(pending_image)
                 },
+                ShadowItem::LineDecoration(pending_line_dec) => {
+                    self.add_shadow_prim_to_draw_list(pending_line_dec)
+                },
                 ShadowItem::NormalBorder(pending_border) => {
                     self.add_shadow_prim_to_draw_list(pending_border)
-                }
+                },
                 ShadowItem::Primitive(pending_primitive) => {
                     self.add_shadow_prim_to_draw_list(pending_primitive)
                 },
@@ -2092,7 +2099,7 @@ impl<'a> DisplayListFlattener<'a> {
             clip_and_scroll,
             &info,
             Vec::new(),
-            PrimitiveKeyKind::LineDecoration {
+            LineDecoration {
                 cache_key,
                 color: color.into(),
             },
@@ -2683,6 +2690,7 @@ pub struct PendingShadow {
 pub enum ShadowItem {
     Shadow(PendingShadow),
     Image(PendingPrimitive<Image>),
+    LineDecoration(PendingPrimitive<LineDecoration>),
     NormalBorder(PendingPrimitive<NormalBorderPrim>),
     Primitive(PendingPrimitive<PrimitiveKeyKind>),
     TextRun(PendingPrimitive<TextRun>),
@@ -2691,6 +2699,12 @@ pub enum ShadowItem {
 impl From<PendingPrimitive<Image>> for ShadowItem {
     fn from(image: PendingPrimitive<Image>) -> Self {
         ShadowItem::Image(image)
+    }
+}
+
+impl From<PendingPrimitive<LineDecoration>> for ShadowItem {
+    fn from(line_dec: PendingPrimitive<LineDecoration>) -> Self {
+        ShadowItem::LineDecoration(line_dec)
     }
 }
 

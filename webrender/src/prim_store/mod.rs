@@ -8,7 +8,7 @@ use api::{FilterOp, ImageRendering, TileOffset, RepeatMode, MixBlendMode};
 use api::{LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize, PropertyBindingId};
 use api::{PremultipliedColorF, PropertyBinding, Shadow};
 use api::{WorldPixel, BoxShadowClipMode, WorldRect, LayoutToWorldScale};
-use api::{PicturePixel, RasterPixel, LineStyle, LineOrientation, LayoutSizeAu, AuHelpers};
+use api::{PicturePixel, RasterPixel, LineStyle, LineOrientation, AuHelpers};
 use api::LayoutPrimitiveInfo;
 use app_units::Au;
 use border::{get_max_scale_for_border, build_border_instances};
@@ -30,6 +30,7 @@ use picture::{ClusterIndex, PrimitiveList, SurfaceIndex, SurfaceInfo, RetainedTi
 use prim_store::borders::{ImageBorderDataHandle, NormalBorderDataHandle};
 use prim_store::gradient::{LinearGradientDataHandle, RadialGradientDataHandle};
 use prim_store::image::{ImageDataHandle, ImageInstance, VisibleImageTile, YuvImageDataHandle};
+use prim_store::line_dec::LineDecorationDataHandle;
 use prim_store::text_run::{TextRunDataHandle, TextRunPrimitive};
 #[cfg(debug_assertions)]
 use render_backend::{FrameId};
@@ -51,6 +52,7 @@ use smallvec::SmallVec;
 pub mod borders;
 pub mod gradient;
 pub mod image;
+pub mod line_dec;
 pub mod text_run;
 
 /// Counter for unique primitive IDs for debug tracing.
@@ -462,15 +464,6 @@ impl From<Option<PictureCompositeMode>> for PictureCompositeKey {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum PrimitiveKeyKind {
-    /// Identifying key for a line decoration.
-    LineDecoration {
-        // If the cache_key is Some(..) it is a line decoration
-        // that relies on a render task (e.g. wavy). If the
-        // cache key is None, it uses a fast path to draw the
-        // line decoration as a solid rect.
-        cache_key: Option<LineDecorationCacheKey>,
-        color: ColorU,
-    },
     /// Clear an existing rect, used for special effects on some platforms.
     Clear,
     Rectangle {
@@ -752,12 +745,6 @@ impl AsInstanceKind<PrimitiveDataHandle> for PrimitiveKey {
         _: &mut PrimitiveStore,
     ) -> PrimitiveInstanceKind {
         match self.kind {
-            PrimitiveKeyKind::LineDecoration { .. } => {
-                PrimitiveInstanceKind::LineDecoration {
-                    data_handle,
-                    cache_handle: None,
-                }
-            }
             PrimitiveKeyKind::Clear => {
                 PrimitiveInstanceKind::Clear {
                     data_handle
@@ -784,10 +771,6 @@ impl AsInstanceKind<PrimitiveDataHandle> for PrimitiveKey {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum PrimitiveTemplateKind {
-    LineDecoration {
-        cache_key: Option<LineDecorationCacheKey>,
-        color: ColorF,
-    },
     Rectangle {
         color: ColorF,
     },
@@ -813,12 +796,6 @@ impl PrimitiveKeyKind {
             }
             PrimitiveKeyKind::Rectangle { color, .. } => {
                 PrimitiveTemplateKind::Rectangle {
-                    color: color.into(),
-                }
-            }
-            PrimitiveKeyKind::LineDecoration { cache_key, color } => {
-                PrimitiveTemplateKind::LineDecoration {
-                    cache_key,
                     color: color.into(),
                 }
             }
@@ -902,23 +879,6 @@ impl PrimitiveTemplateKind {
             PrimitiveTemplateKind::Rectangle { ref color, .. } => {
                 request.push(color.premultiplied());
             }
-            PrimitiveTemplateKind::LineDecoration { ref cache_key, ref color } => {
-                match cache_key {
-                    Some(cache_key) => {
-                        request.push(color.premultiplied());
-                        request.push(PremultipliedColorF::WHITE);
-                        request.push([
-                            cache_key.size.width.to_f32_px(),
-                            cache_key.size.height.to_f32_px(),
-                            0.0,
-                            0.0,
-                        ]);
-                    }
-                    None => {
-                        request.push(color.premultiplied());
-                    }
-                }
-            }
             PrimitiveTemplateKind::Picture { .. } => {}
         }
     }
@@ -943,12 +903,6 @@ impl PrimitiveTemplate {
             }
             PrimitiveTemplateKind::Rectangle { ref color, .. } => {
                 PrimitiveOpacity::from_alpha(color.a)
-            }
-            PrimitiveTemplateKind::LineDecoration { ref cache_key, ref color } => {
-                match cache_key {
-                    Some(..) => PrimitiveOpacity::translucent(),
-                    None => PrimitiveOpacity::from_alpha(color.a),
-                }
             }
             PrimitiveTemplateKind::Picture { .. } => {
                 PrimitiveOpacity::translucent()
@@ -1160,16 +1114,6 @@ impl BrushSegment {
             }
         }
     }
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct LineDecorationCacheKey {
-    pub style: LineStyle,
-    pub orientation: LineOrientation,
-    pub wavy_line_thickness: Au,
-    pub size: LayoutSizeAu,
 }
 
 #[derive(Debug)]
@@ -1409,8 +1353,7 @@ impl IsVisible for PrimitiveKeyKind {
             PrimitiveKeyKind::Picture { .. } => {
                 true
             }
-            PrimitiveKeyKind::Rectangle { ref color, .. } |
-            PrimitiveKeyKind::LineDecoration { ref color, .. } => {
+            PrimitiveKeyKind::Rectangle { ref color, .. } => {
                 color.a > 0
             }
         }
@@ -1426,12 +1369,6 @@ impl CreateShadow for PrimitiveKeyKind {
         shadow: &Shadow,
     ) -> PrimitiveKeyKind {
         match *self {
-            PrimitiveKeyKind::LineDecoration { ref cache_key, .. } => {
-                PrimitiveKeyKind::LineDecoration {
-                    color: shadow.color.into(),
-                    cache_key: cache_key.clone(),
-                }
-            }
             PrimitiveKeyKind::Rectangle { .. } => {
                 PrimitiveKeyKind::Rectangle {
                     color: shadow.color.into(),
@@ -1469,7 +1406,7 @@ pub enum PrimitiveInstanceKind {
     /// task handle, if this line decoration is not a simple solid.
     LineDecoration {
         /// Handle to the common interned data for this primitive.
-        data_handle: PrimitiveDataHandle,
+        data_handle: LineDecorationDataHandle,
         // TODO(gw): For now, we need to store some information in
         //           the primitive instance that is created during
         //           prepare_prims and read during the batching pass.
@@ -1606,7 +1543,6 @@ impl PrimitiveInstance {
     pub fn uid(&self) -> intern::ItemUid {
         match &self.kind {
             PrimitiveInstanceKind::Picture { data_handle, .. } |
-            PrimitiveInstanceKind::LineDecoration { data_handle, .. } |
             PrimitiveInstanceKind::Clear { data_handle, .. } |
             PrimitiveInstanceKind::Rectangle { data_handle, .. } => {
                 data_handle.uid()
@@ -1615,6 +1551,9 @@ impl PrimitiveInstance {
                 data_handle.uid()
             }
             PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
+                data_handle.uid()
+            }
+            PrimitiveInstanceKind::LineDecoration { data_handle, .. } => {
                 data_handle.uid()
             }
             PrimitiveInstanceKind::LinearGradient { data_handle, .. } => {
@@ -2450,58 +2389,55 @@ impl PrimitiveStore {
 
         match &mut prim_instance.kind {
             PrimitiveInstanceKind::LineDecoration { data_handle, ref mut cache_handle, .. } => {
-                let prim_data = &mut resources.prim_data_store[*data_handle];
+                let prim_data = &mut resources.line_decoration_data_store[*data_handle];
+                let common_data = &mut prim_data.common;
+                let line_dec_data = &mut prim_data.kind;
 
                 // Update the template this instane references, which may refresh the GPU
                 // cache with any shared template data.
-                prim_data.update(frame_state);
+                line_dec_data.update(common_data, frame_state);
 
-                match &prim_data.kind {
-                    PrimitiveTemplateKind::LineDecoration { ref cache_key, .. } => {
-                        // Work out the device pixel size to be used to cache this line decoration.
-                        if is_chased {
-                            println!("\tline decoration key={:?}", cache_key);
+                // Work out the device pixel size to be used to cache this line decoration.
+                if is_chased {
+                    println!("\tline decoration key={:?}", line_dec_data.cache_key);
+                }
+
+                // If we have a cache key, it's a wavy / dashed / dotted line. Otherwise, it's
+                // a simple solid line.
+                if let Some(cache_key) = line_dec_data.cache_key.as_ref() {
+                    // TODO(gw): Do we ever need / want to support scales for text decorations
+                    //           based on the current transform?
+                    let scale_factor = TypedScale::new(1.0) * frame_context.device_pixel_scale;
+                    let task_size = (LayoutSize::from_au(cache_key.size) * scale_factor).ceil().to_i32();
+                    let surfaces = &mut frame_state.surfaces;
+
+                    // Request a pre-rendered image task.
+                    // TODO(gw): This match is a bit untidy, but it should disappear completely
+                    //           once the prepare_prims and batching are unified. When that
+                    //           happens, we can use the cache handle immediately, and not need
+                    //           to temporarily store it in the primitive instance.
+                    *cache_handle = Some(frame_state.resource_cache.request_render_task(
+                        RenderTaskCacheKey {
+                            size: task_size,
+                            kind: RenderTaskCacheKeyKind::LineDecoration(cache_key.clone()),
+                        },
+                        frame_state.gpu_cache,
+                        frame_state.render_tasks,
+                        None,
+                        false,
+                        |render_tasks| {
+                            let task = RenderTask::new_line_decoration(
+                                task_size,
+                                cache_key.style,
+                                cache_key.orientation,
+                                cache_key.wavy_line_thickness.to_f32_px(),
+                                LayoutSize::from_au(cache_key.size),
+                            );
+                            let task_id = render_tasks.add(task);
+                            surfaces[pic_context.surface_index.0].tasks.push(task_id);
+                            task_id
                         }
-
-                        // If we have a cache key, it's a wavy / dashed / dotted line. Otherwise, it's
-                        // a simple solid line.
-                        if let Some(cache_key) = cache_key {
-                            // TODO(gw): Do we ever need / want to support scales for text decorations
-                            //           based on the current transform?
-                            let scale_factor = TypedScale::new(1.0) * frame_context.device_pixel_scale;
-                            let task_size = (LayoutSize::from_au(cache_key.size) * scale_factor).ceil().to_i32();
-                            let surfaces = &mut frame_state.surfaces;
-
-                            // Request a pre-rendered image task.
-                            // TODO(gw): This match is a bit untidy, but it should disappear completely
-                            //           once the prepare_prims and batching are unified. When that
-                            //           happens, we can use the cache handle immediately, and not need
-                            //           to temporarily store it in the primitive instance.
-                            *cache_handle = Some(frame_state.resource_cache.request_render_task(
-                                RenderTaskCacheKey {
-                                    size: task_size,
-                                    kind: RenderTaskCacheKeyKind::LineDecoration(cache_key.clone()),
-                                },
-                                frame_state.gpu_cache,
-                                frame_state.render_tasks,
-                                None,
-                                false,
-                                |render_tasks| {
-                                    let task = RenderTask::new_line_decoration(
-                                        task_size,
-                                        cache_key.style,
-                                        cache_key.orientation,
-                                        cache_key.wavy_line_thickness.to_f32_px(),
-                                        LayoutSize::from_au(cache_key.size),
-                                    );
-                                    let task_id = render_tasks.add(task);
-                                    surfaces[pic_context.surface_index.0].tasks.push(task_id);
-                                    task_id
-                                }
-                            ));
-                        }
-                    },
-                    _ => unreachable!(),
+                    ));
                 }
             }
             PrimitiveInstanceKind::TextRun { data_handle, run_index, .. } => {
@@ -3528,8 +3464,8 @@ fn test_struct_sizes() {
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<PrimitiveInstance>(), 120, "PrimitiveInstance size changed");
     assert_eq!(mem::size_of::<PrimitiveInstanceKind>(), 40, "PrimitiveInstanceKind size changed");
-    assert_eq!(mem::size_of::<PrimitiveTemplate>(), 96, "PrimitiveTemplate size changed");
-    assert_eq!(mem::size_of::<PrimitiveTemplateKind>(), 36, "PrimitiveTemplateKind size changed");
+    assert_eq!(mem::size_of::<PrimitiveTemplate>(), 80, "PrimitiveTemplate size changed");
+    assert_eq!(mem::size_of::<PrimitiveTemplateKind>(), 20, "PrimitiveTemplateKind size changed");
     assert_eq!(mem::size_of::<PrimitiveKey>(), 116, "PrimitiveKey size changed");
     assert_eq!(mem::size_of::<PrimitiveKeyKind>(), 88, "PrimitiveKeyKind size changed");
 }
