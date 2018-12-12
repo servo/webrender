@@ -18,6 +18,7 @@ platform(linux,mac) fuzzy(1,331) color_targets(1) alpha_targets(0) == screen-spa
 platform(linux) fuzzy(11,4592) == screen-space-blur.yaml screen-space-blur.png
 platform(linux,mac) == nested-rotate-x.yaml nested-rotate-x.png
 platform(linux,mac) != nested-rotate-x.yaml nested-rotate-x-flat.yaml
+platform(linux,mac) == nested-rotate-x-flat.yaml nested-rotate-x-flat.png
 platform(linux,mac) == nested-preserve-3d.yaml nested-preserve-3d.png
 platform(linux,mac) fuzzy(1,283) == near-plane-clip.yaml near-plane-clip.png
 platform(linux,mac) == perspective-mask.yaml perspective-mask.png
