@@ -693,13 +693,13 @@ impl TileCache {
         }
 
         // Translate the rectangle into the virtual tile space
-        let rect = rect.translate(&-self.local_origin.to_vector());
+        let origin = rect.origin - self.local_origin;
 
         // Get the tile coordinates in the picture space.
-        let x0 = (rect.origin.x / self.local_tile_size.width).floor() as i32;
-        let y0 = (rect.origin.y / self.local_tile_size.height).floor() as i32;
-        let x1 = ((rect.origin.x + rect.size.width) / self.local_tile_size.width).ceil() as i32;
-        let y1 = ((rect.origin.y + rect.size.height) / self.local_tile_size.height).ceil() as i32;
+        let x0 = (origin.x / self.local_tile_size.width).floor() as i32;
+        let y0 = (origin.y / self.local_tile_size.height).floor() as i32;
+        let x1 = ((origin.x + rect.size.width) / self.local_tile_size.width).ceil() as i32;
+        let y1 = ((origin.y + rect.size.height) / self.local_tile_size.height).ceil() as i32;
 
         // Build the list of resources that this primitive has dependencies on.
         let mut opacity_bindings: SmallVec<[PropertyBindingId; 4]> = SmallVec::new();
@@ -2083,8 +2083,8 @@ impl PicturePrimitive {
                 if let PictureCompositeMode::Filter(FilterOp::DropShadow(..)) = raster_config.composite_mode {
                     gpu_cache.invalidate(&self.extra_gpu_data_handle);
                 }
+                self.local_rect = surface_rect;
             }
-            self.local_rect = surface_rect;
 
             // Drop shadows draw both a content and shadow rect, so need to expand the local
             // rect of any surfaces to be composited in parent surfaces correctly.
