@@ -20,7 +20,7 @@ use gpu_types::{TransformPalette, TransformPaletteId, UvRectKind};
 use internal_types::FastHashSet;
 use plane_split::{Clipper, Polygon, Splitter};
 use prim_store::{PictureIndex, PrimitiveInstance, SpaceMapper, VisibleFace, PrimitiveInstanceKind};
-use prim_store::{get_raster_rects, CoordinateSpaceMapping};
+use prim_store::{get_raster_rects, CoordinateSpaceMapping, PointKey};
 use prim_store::{OpacityBindingStorage, PrimitiveTemplateKind, ImageInstanceStorage, OpacityBindingIndex, SizeKey};
 use render_backend::FrameResources;
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle, TileBlit};
@@ -247,13 +247,27 @@ impl Tile {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct TileTransformIndex(u32);
 
+/// Defines a key that uniquely identifies a primitive instance.
+#[derive(Debug, Eq, PartialEq, Hash)]
+pub struct PrimitiveDescriptor {
+    /// Uniquely identifies the content of the primitive template.
+    prim_uid: ItemUid,
+    /// The origin in local space of this primitive.
+    origin: PointKey,
+    /// The first clip in the clip_uids array of clips that affect this tile.
+    first_clip: u16,
+    /// The number of clips that affect this primitive instance.
+    clip_count: u16,
+}
+
 /// Uniquely describes the content of this tile, in a way that can be
 /// (reasonably) efficiently hashed and compared.
 #[derive(Debug, Eq, PartialEq, Hash)]
 pub struct TileDescriptor {
-    /// List of primitive unique identifiers. The uid is guaranteed
-    /// to uniquely describe the content of the primitive.
-    pub prim_uids: Vec<ItemUid>,
+    /// List of primitive instance unique identifiers. The uid is guaranteed
+    /// to uniquely describe the content of the primitive template, while
+    /// the other parameters describe the clip chain and instance params.
+    pub prims: Vec<PrimitiveDescriptor>,
 
     /// List of clip node unique identifiers. The uid is guaranteed
     /// to uniquely describe the content of the clip node.
@@ -288,7 +302,7 @@ impl TileDescriptor {
         raster_transform: TransformKey,
     ) -> Self {
         TileDescriptor {
-            prim_uids: Vec::new(),
+            prims: Vec::new(),
             clip_uids: Vec::new(),
             transform_ids: Vec::new(),
             opacity_bindings: Vec::new(),
@@ -302,7 +316,7 @@ impl TileDescriptor {
     /// Clear the dependency information for a tile, when the dependencies
     /// are being rebuilt.
     fn clear(&mut self) {
-        self.prim_uids.clear();
+        self.prims.clear();
         self.clip_uids.clear();
         self.transform_ids.clear();
         self.transforms.clear();
@@ -835,7 +849,12 @@ impl TileCache {
                 }
 
                 // Update the tile descriptor, used for tile comparison during scene swaps.
-                tile.descriptor.prim_uids.push(prim_instance.uid());
+                tile.descriptor.prims.push(PrimitiveDescriptor {
+                    prim_uid: prim_instance.uid(),
+                    origin: prim_instance.prim_origin.into(),
+                    first_clip: tile.descriptor.clip_uids.len() as u16,
+                    clip_count: clip_chain_uids.len() as u16,
+                });
                 tile.descriptor.clip_uids.extend_from_slice(&clip_chain_uids);
             }
         }
