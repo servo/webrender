@@ -78,7 +78,8 @@ pub type TileRect = TypedRect<i32, TileCoordinate>;
 /// The size in device pixels of a cached tile. The currently chosen
 /// size is arbitrary. We should do some profiling to find the best
 /// size for real world pages.
-pub const TILE_SIZE_DP: i32 = 512;
+pub const TILE_SIZE_WIDTH: i32 = 1024;
+pub const TILE_SIZE_HEIGHT: i32 = 256;
 
 /// Information about the state of a transform dependency.
 #[derive(Debug)]
@@ -430,8 +431,8 @@ impl TileCache {
         let world_tile_rect = WorldRect::from_floats(
             0.0,
             0.0,
-            TILE_SIZE_DP as f32 / frame_context.device_pixel_scale.0,
-            TILE_SIZE_DP as f32 / frame_context.device_pixel_scale.0,
+            TILE_SIZE_WIDTH as f32 / frame_context.device_pixel_scale.0,
+            TILE_SIZE_HEIGHT as f32 / frame_context.device_pixel_scale.0,
         );
         let local_tile_rect = world_mapper
             .unmap(&world_tile_rect)
@@ -2203,8 +2204,8 @@ impl PicturePrimitive {
                         //           we will need to correctly select an opacity
                         //           here and a blend mode in batch.rs.
                         let descriptor = ImageDescriptor::new(
-                            TILE_SIZE_DP,
-                            TILE_SIZE_DP,
+                            TILE_SIZE_WIDTH,
+                            TILE_SIZE_HEIGHT,
                             ImageFormat::BGRA8,
                             true,
                             false,
@@ -2254,8 +2255,8 @@ impl PicturePrimitive {
                                     // Set up the blit command now that we know where the dest
                                     // rect is in the texture cache.
                                     let offset = DeviceIntPoint::new(
-                                        (x - dirty_region.tile_offset.x) * TILE_SIZE_DP,
-                                        (y - dirty_region.tile_offset.y) * TILE_SIZE_DP,
+                                        (x - dirty_region.tile_offset.x) * TILE_SIZE_WIDTH,
+                                        (y - dirty_region.tile_offset.y) * TILE_SIZE_HEIGHT,
                                     );
 
                                     blits.push(TileBlit {
