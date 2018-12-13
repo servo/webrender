@@ -571,15 +571,32 @@ impl TileCache {
 
         // Get the tile coordinates in the picture space.
         let pic_rect = TypedRect::from_untyped(&pic_rect.to_untyped());
-        let local_pic_rect = pic_rect.translate(&-self.local_origin.to_vector());
-
-        let x0 = (local_pic_rect.origin.x / self.local_tile_size.width).floor() as i32;
-        let y0 = (local_pic_rect.origin.y / self.local_tile_size.height).floor() as i32;
-        let x1 = ((local_pic_rect.origin.x + local_pic_rect.size.width) / self.local_tile_size.width).ceil() as i32;
-        let y1 = ((local_pic_rect.origin.y + local_pic_rect.size.height) / self.local_tile_size.height).ceil() as i32;
+        let (p0, p1) = self.get_tile_coords_for_rect(&pic_rect);
 
         // Update the tile array allocation if needed.
-        self.reconfigure_tiles_if_required(x0, y0, x1, y1);
+        self.reconfigure_tiles_if_required(p0.x, p0.y, p1.x, p1.y);
+    }
+
+    /// Get the tile coordinates for a given rectangle.
+    fn get_tile_coords_for_rect(
+        &self,
+        rect: &LayoutRect,
+    ) -> (TileOffset, TileOffset) {
+        // Translate the rectangle into the virtual tile space
+        let origin = rect.origin - self.local_origin;
+
+        // Get the tile coordinates in the picture space.
+        let p0 = TileOffset::new(
+            (origin.x / self.local_tile_size.width).floor() as i32,
+            (origin.y / self.local_tile_size.height).floor() as i32,
+        );
+
+        let p1 = TileOffset::new(
+            ((origin.x + rect.size.width) / self.local_tile_size.width).ceil() as i32,
+            ((origin.y + rect.size.height) / self.local_tile_size.height).ceil() as i32,
+        );
+
+        (p0, p1)
     }
 
     /// Resize the 2D tiles array if needed in order to fit dependencies
@@ -707,14 +724,8 @@ impl TileCache {
             return;
         }
 
-        // Translate the rectangle into the virtual tile space
-        let origin = rect.origin - self.local_origin;
-
         // Get the tile coordinates in the picture space.
-        let x0 = (origin.x / self.local_tile_size.width).floor() as i32;
-        let y0 = (origin.y / self.local_tile_size.height).floor() as i32;
-        let x1 = ((origin.x + rect.size.width) / self.local_tile_size.width).ceil() as i32;
-        let y1 = ((origin.y + rect.size.height) / self.local_tile_size.height).ceil() as i32;
+        let (p0, p1) = self.get_tile_coords_for_rect(&rect);
 
         // Build the list of resources that this primitive has dependencies on.
         let mut opacity_bindings: SmallVec<[PropertyBindingId; 4]> = SmallVec::new();
@@ -810,8 +821,8 @@ impl TileCache {
 
         // Normalize the tile coordinates before adding to tile dependencies.
         // For each affected tile, mark any of the primitive dependencies.
-        for y in y0 - self.tile_rect.origin.y .. y1 - self.tile_rect.origin.y {
-            for x in x0 - self.tile_rect.origin.x .. x1 - self.tile_rect.origin.x {
+        for y in p0.y - self.tile_rect.origin.y .. p1.y - self.tile_rect.origin.y {
+            for x in p0.x - self.tile_rect.origin.x .. p1.x - self.tile_rect.origin.x {
                 let index = (y * self.tile_rect.size.width + x) as usize;
                 let tile = &mut self.tiles[index];
 
