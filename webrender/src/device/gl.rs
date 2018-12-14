@@ -1151,11 +1151,6 @@ impl Device {
         let supports_copy_image_sub_data = supports_extension(&extensions, "GL_EXT_copy_image") ||
             supports_extension(&extensions, "GL_ARB_copy_image");
 
-        // Explicitly set some global states to the values we expect.
-        gl.disable(gl::FRAMEBUFFER_SRGB);
-        gl.disable(gl::MULTISAMPLE);
-        gl.disable(gl::POLYGON_SMOOTH);
-
         Device {
             gl,
             resource_override_path,
@@ -1289,19 +1284,9 @@ impl Device {
         }
     }
 
-    // If an assertion is hit in this function, something outside of WebRender is likely
-    // messing with the GL context's global state.
-    pub fn check_gl_state(&self) {
-        debug_assert!(self.gl.is_enabled(gl::FRAMEBUFFER_SRGB) == 0);
-        debug_assert!(self.gl.is_enabled(gl::MULTISAMPLE) == 0);
-        debug_assert!(self.gl.is_enabled(gl::POLYGON_SMOOTH) == 0);
-    }
-
     pub fn begin_frame(&mut self) -> GpuFrameId {
         debug_assert!(!self.inside_frame);
         self.inside_frame = true;
-
-        self.check_gl_state();
 
         // Retrieve the currently set FBO.
         let mut default_read_fbo = [0];
