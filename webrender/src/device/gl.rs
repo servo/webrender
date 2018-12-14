@@ -1427,8 +1427,15 @@ impl Device {
         );
     }
 
+    /// Creates an unbound FBO object. Additional attachment API calls are
+    /// required to make it complete.
+    pub fn create_fbo(&mut self) -> FBOId {
+        FBOId(self.gl.gen_framebuffers(1)[0])
+    }
+
+    /// Creates an FBO with the given texture bound as the color attachment.
     pub fn create_fbo_for_external_texture(&mut self, texture_id: u32) -> FBOId {
-        let fbo = FBOId(self.gl.gen_framebuffers(1)[0]);
+        let fbo = self.create_fbo();
         fbo.bind(self.gl(), FBOTarget::Draw);
         self.gl.framebuffer_texture_2d(
             gl::DRAW_FRAMEBUFFER,
@@ -1436,6 +1443,11 @@ impl Device {
             gl::TEXTURE_2D,
             texture_id,
             0,
+        );
+        debug_assert_eq!(
+            self.gl.check_frame_buffer_status(gl::DRAW_FRAMEBUFFER),
+            gl::FRAMEBUFFER_COMPLETE,
+            "Incomplete framebuffer",
         );
         self.bound_draw_fbo.bind(self.gl(), FBOTarget::Draw);
         fbo
@@ -1859,6 +1871,12 @@ impl Device {
                     depth_rb.0,
                 );
             }
+
+            debug_assert_eq!(
+                self.gl.check_frame_buffer_status(gl::DRAW_FRAMEBUFFER),
+                gl::FRAMEBUFFER_COMPLETE,
+                "Incomplete framebuffer",
+            );
         }
         self.bind_external_draw_target(original_bound_fbo);
     }
