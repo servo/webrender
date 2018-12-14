@@ -1046,11 +1046,18 @@ impl<'a> From<DrawTarget<'a>> for ReadTarget<'a> {
 
 impl Device {
     pub fn new(
-        gl: Rc<gl::Gl>,
+        mut gl: Rc<gl::Gl>,
         resource_override_path: Option<PathBuf>,
         upload_method: UploadMethod,
         cached_programs: Option<Rc<ProgramCache>>,
     ) -> Device {
+        // On debug builds, assert that each GL call is error-free. We don't do
+        // this on release builds because the synchronous call can stall the
+        // pipeline.
+        if cfg!(debug_assertions) {
+            gl = gl::ErrorCheckingGl::wrap(gl);
+        }
+
         let mut max_texture_size = [0];
         let mut max_texture_layers = [0];
         unsafe {
