@@ -2120,6 +2120,13 @@ impl PrimitiveStore {
         }
     }
 
+    #[allow(unused)]
+    pub fn print_picture_tree(&self, root: PictureIndex) {
+        use print_tree::PrintTree;
+        let mut pt = PrintTree::new("picture tree");
+        self.pictures[root.0].print(&self.pictures, root, &mut pt);
+    }
+
     /// Destroy an existing primitive store. This is called just before
     /// a primitive store is replaced with a newly built scene.
     pub fn destroy(
