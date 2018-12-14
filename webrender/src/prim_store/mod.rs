@@ -962,10 +962,10 @@ impl PrimitiveTemplateKind {
                     }
                 }
             }
-            PrimitiveTemplateKind::YuvImage { color_depth, .. } => {
+            PrimitiveTemplateKind::YuvImage { color_depth, color_space, .. } => {
                 request.push([
                     color_depth.rescaling_factor(),
-                    0.0,
+                    pack_as_float(color_space as u32),
                     0.0,
                     0.0
                 ]);

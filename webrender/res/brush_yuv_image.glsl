@@ -10,12 +10,9 @@
 //           for the various YUV modes. To save on the number of shaders we
 //           need to compile, it might be worth just doing this as an
 //           uber-shader instead.
-// TODO(gw): Regardless of the above, we should remove the separate shader
-//           compilations for the different color space matrix below. That
-//           can be provided by a branch in the VS and pushed through the
-//           interpolators, or even as a uniform that breaks batches, rather
-//           that needing to compile to / select a different shader when
-//           there is a different color space.
+
+#define YUV_COLOR_SPACE_REC601 0
+#define YUV_COLOR_SPACE_REC709 1
 
 #ifdef WR_FEATURE_ALPHA_PASS
 varying vec2 vLocalPos;
@@ -48,8 +45,39 @@ varying vec2 vLocalPos;
 #endif
 
 flat varying float vCoefficient;
+flat varying mat3 vYuvColorMatrix;
 
 #ifdef WR_VERTEX_SHADER
+// The constants added to the Y, U and V components are applied in the fragment shader.
+
+// From Rec601:
+// [R]   [1.1643835616438356,  0.0,                 1.5960267857142858   ]   [Y -  16]
+// [G] = [1.1643835616438358, -0.3917622900949137, -0.8129676472377708   ] x [U - 128]
+// [B]   [1.1643835616438356,  2.017232142857143,   8.862867620416422e-17]   [V - 128]
+//
+// For the range [0,1] instead of [0,255].
+//
+// The matrix is stored in column-major.
+const mat3 YuvColorMatrixRec601 = mat3(
+    1.16438,  1.16438, 1.16438,
+    0.0,     -0.39176, 2.01723,
+    1.59603, -0.81297, 0.0
+);
+
+// From Rec709:
+// [R]   [1.1643835616438356,  4.2781193979771426e-17, 1.7927410714285714]   [Y -  16]
+// [G] = [1.1643835616438358, -0.21324861427372963,   -0.532909328559444 ] x [U - 128]
+// [B]   [1.1643835616438356,  2.1124017857142854,     0.0               ]   [V - 128]
+//
+// For the range [0,1] instead of [0,255]:
+//
+// The matrix is stored in column-major.
+const mat3 YuvColorMatrixRec709 = mat3(
+    1.16438,  1.16438,  1.16438,
+    0.0    , -0.21325,  2.11240,
+    1.79274, -0.53291,  0.0
+);
+
 void write_uv_rect(
     int resource_id,
     vec2 f,
@@ -74,11 +102,12 @@ void write_uv_rect(
 
 struct YuvPrimitive {
     float coefficient;
+    int color_space;
 };
 
 YuvPrimitive fetch_yuv_primitive(int address) {
     vec4 data = fetch_from_gpu_cache_1(address);
-    return YuvPrimitive(data.x);
+    return YuvPrimitive(data.x, int(data.y));
 }
 
 void brush_vs(
@@ -96,6 +125,12 @@ void brush_vs(
 
     YuvPrimitive prim = fetch_yuv_primitive(prim_address);
     vCoefficient = prim.coefficient;
+
+    if (prim.color_space == YUV_COLOR_SPACE_REC601) {
+      vYuvColorMatrix = YuvColorMatrixRec601;
+    } else {
+      vYuvColorMatrix = YuvColorMatrixRec709;
+    }
 
 #ifdef WR_FEATURE_ALPHA_PASS
     vLocalPos = vi.local_pos;
@@ -115,41 +150,6 @@ void brush_vs(
 #endif
 
 #ifdef WR_FRAGMENT_SHADER
-
-#if !defined(WR_FEATURE_YUV_REC601) && !defined(WR_FEATURE_YUV_REC709)
-#define WR_FEATURE_YUV_REC601
-#endif
-
-// The constants added to the Y, U and V components are applied in the fragment shader.
-#if defined(WR_FEATURE_YUV_REC601)
-// From Rec601:
-// [R]   [1.1643835616438356,  0.0,                 1.5960267857142858   ]   [Y -  16]
-// [G] = [1.1643835616438358, -0.3917622900949137, -0.8129676472377708   ] x [U - 128]
-// [B]   [1.1643835616438356,  2.017232142857143,   8.862867620416422e-17]   [V - 128]
-//
-// For the range [0,1] instead of [0,255].
-//
-// The matrix is stored in column-major.
-const mat3 YuvColorMatrix = mat3(
-    1.16438,  1.16438, 1.16438,
-    0.0,     -0.39176, 2.01723,
-    1.59603, -0.81297, 0.0
-);
-#elif defined(WR_FEATURE_YUV_REC709)
-// From Rec709:
-// [R]   [1.1643835616438356,  4.2781193979771426e-17, 1.7927410714285714]   [Y -  16]
-// [G] = [1.1643835616438358, -0.21324861427372963,   -0.532909328559444 ] x [U - 128]
-// [B]   [1.1643835616438356,  2.1124017857142854,     0.0               ]   [V - 128]
-//
-// For the range [0,1] instead of [0,255]:
-//
-// The matrix is stored in column-major.
-const mat3 YuvColorMatrix = mat3(
-    1.16438,  1.16438,  1.16438,
-    0.0    , -0.21325,  2.11240,
-    1.79274, -0.53291,  0.0
-);
-#endif
 
 Fragment brush_fs() {
     vec3 yuv_value;
@@ -178,7 +178,7 @@ Fragment brush_fs() {
 #endif
 
     // See the YuvColorMatrix definition for an explanation of where the constants come from.
-    vec3 rgb = YuvColorMatrix * (yuv_value * vCoefficient - vec3(0.06275, 0.50196, 0.50196));
+    vec3 rgb = vYuvColorMatrix * (yuv_value * vCoefficient - vec3(0.06275, 0.50196, 0.50196));
     vec4 color = vec4(rgb, 1.0);
 
 #ifdef WR_FEATURE_ALPHA_PASS
