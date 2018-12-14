@@ -2871,11 +2871,24 @@ impl<'a, T> Drop for TextureUploader<'a, T> {
 impl<'a, T> TextureUploader<'a, T> {
     pub fn upload(
         &mut self,
-        rect: DeviceIntRect,
+        mut rect: DeviceIntRect,
         layer_index: i32,
         stride: Option<i32>,
         data: &[T],
     ) -> usize {
+        // Textures dimensions may have been clamped by the hardware. Crop the
+        // upload region to match.
+        let cropped = rect.intersection(
+            &DeviceIntRect::new(DeviceIntPoint::zero(), self.target.texture.get_dimensions())
+        );
+        if cfg!(debug_assertions) && cropped.map_or(true, |r| r != rect) {
+            warn!("Cropping texture upload {:?} to {:?}", rect, cropped);
+        }
+        rect = match cropped {
+            None => return 0,
+            Some(r) => r,
+        };
+
         let bytes_pp = self.target.texture.format.bytes_per_pixel();
         let upload_size = match stride {
             Some(stride) => ((rect.size.height - 1) * stride + rect.size.width * bytes_pp) as usize,
