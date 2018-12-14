@@ -713,11 +713,6 @@ pub enum YuvFormat {
     PlanarYCbCr = 1,
     InterleavedYCbCr = 2,
 }
-pub const YUV_FORMATS: [YuvFormat; 3] = [
-    YuvFormat::NV12,
-    YuvFormat::PlanarYCbCr,
-    YuvFormat::InterleavedYCbCr,
-];
 
 impl YuvFormat {
     pub fn get_plane_num(&self) -> usize {
@@ -725,14 +720,6 @@ impl YuvFormat {
             YuvFormat::NV12 => 2,
             YuvFormat::PlanarYCbCr => 3,
             YuvFormat::InterleavedYCbCr => 1,
-        }
-    }
-
-    pub fn get_feature_string(&self) -> &'static str {
-        match *self {
-            YuvFormat::NV12 => "YUV_NV12",
-            YuvFormat::PlanarYCbCr => "YUV_PLANAR",
-            YuvFormat::InterleavedYCbCr => "YUV_INTERLEAVED",
         }
     }
 }

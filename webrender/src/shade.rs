@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{YUV_FORMATS, YuvFormat};
 use batch::{BatchKey, BatchKind, BrushBatchKind};
 use device::{Device, Program, ShaderError};
 use euclid::{Transform3D};
@@ -632,7 +631,7 @@ impl Shaders {
 
         // All yuv_image configuration.
         let mut yuv_features = Vec::new();
-        let yuv_shader_num = IMAGE_BUFFER_KINDS.len() * YUV_FORMATS.len();
+        let yuv_shader_num = IMAGE_BUFFER_KINDS.len();
         let mut brush_yuv_image = Vec::new();
         // PrimitiveShader is not clonable. Use push() to initialize the vec.
         for _ in 0 .. yuv_shader_num {
@@ -640,30 +639,23 @@ impl Shaders {
         }
         for image_buffer_kind in &IMAGE_BUFFER_KINDS {
             if image_buffer_kind.has_platform_support(&gl_type) {
-                for format_kind in &YUV_FORMATS {
-                    let feature_string = image_buffer_kind.get_feature_string();
-                    if feature_string != "" {
-                        yuv_features.push(feature_string);
-                    }
-                    let feature_string = format_kind.get_feature_string();
-                    if feature_string != "" {
-                        yuv_features.push(feature_string);
-                    }
-
-                    let shader = BrushShader::new(
-                        "brush_yuv_image",
-                        device,
-                        &yuv_features,
-                        options.precache_flags,
-                        false,
-                    )?;
-                    let index = Self::get_yuv_shader_index(
-                        *image_buffer_kind,
-                        *format_kind,
-                    );
-                    brush_yuv_image[index] = Some(shader);
-                    yuv_features.clear();
+                let feature_string = image_buffer_kind.get_feature_string();
+                if feature_string != "" {
+                    yuv_features.push(feature_string);
                 }
+
+                let shader = BrushShader::new(
+                    "brush_yuv_image",
+                    device,
+                    &yuv_features,
+                    options.precache_flags,
+                    false,
+                )?;
+                let index = Self::get_yuv_shader_index(
+                    *image_buffer_kind,
+                );
+                brush_yuv_image[index] = Some(shader);
+                yuv_features.clear();
             }
         }
 
@@ -723,11 +715,8 @@ impl Shaders {
         })
     }
 
-    fn get_yuv_shader_index(
-        buffer_kind: ImageBufferKind,
-        format: YuvFormat,
-    ) -> usize {
-        ((buffer_kind as usize) * YUV_FORMATS.len() + (format as usize))
+    fn get_yuv_shader_index(buffer_kind: ImageBufferKind) -> usize {
+        (buffer_kind as usize)
     }
 
     pub fn get(&mut self, key: &BatchKey, debug_flags: DebugFlags) -> &mut LazilyCompiledShader {
@@ -757,9 +746,9 @@ impl Shaders {
                     BrushBatchKind::LinearGradient => {
                         &mut self.brush_linear_gradient
                     }
-                    BrushBatchKind::YuvImage(image_buffer_kind, format, ..) => {
+                    BrushBatchKind::YuvImage(image_buffer_kind, ..) => {
                         let shader_index =
-                            Self::get_yuv_shader_index(image_buffer_kind, format);
+                            Self::get_yuv_shader_index(image_buffer_kind);
                         self.brush_yuv_image[shader_index]
                             .as_mut()
                             .expect("Unsupported YUV shader kind")

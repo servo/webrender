@@ -14,29 +14,22 @@
 #define YUV_COLOR_SPACE_REC601 0
 #define YUV_COLOR_SPACE_REC709 1
 
+#define YUV_FORMAT_NV12 0
+#define YUV_FORMAT_PLANAR 1
+#define YUV_FORMAT_INTERLEAVED 2
+
 #ifdef WR_FEATURE_ALPHA_PASS
 varying vec2 vLocalPos;
 #endif
 
-#if defined (WR_FEATURE_YUV_PLANAR)
-    varying vec3 vUv_Y;
-    flat varying vec4 vUvBounds_Y;
+varying vec3 vUv_Y;
+flat varying vec4 vUvBounds_Y;
 
-    varying vec3 vUv_U;
-    flat varying vec4 vUvBounds_U;
+varying vec3 vUv_U;
+flat varying vec4 vUvBounds_U;
 
-    varying vec3 vUv_V;
-    flat varying vec4 vUvBounds_V;
-#elif defined (WR_FEATURE_YUV_NV12)
-    varying vec3 vUv_Y;
-    flat varying vec4 vUvBounds_Y;
-
-    varying vec3 vUv_UV;
-    flat varying vec4 vUvBounds_UV;
-#elif defined (WR_FEATURE_YUV_INTERLEAVED)
-    varying vec3 vUv_YUV;
-    flat varying vec4 vUvBounds_YUV;
-#endif
+varying vec3 vUv_V;
+flat varying vec4 vUvBounds_V;
 
 #ifdef WR_FEATURE_TEXTURE_RECT
     #define TEX_SIZE(sampler) vec2(1.0)
@@ -46,6 +39,7 @@ varying vec2 vLocalPos;
 
 flat varying float vCoefficient;
 flat varying mat3 vYuvColorMatrix;
+flat varying int vFormat;
 
 #ifdef WR_VERTEX_SHADER
 // The constants added to the Y, U and V components are applied in the fragment shader.
@@ -103,11 +97,12 @@ void write_uv_rect(
 struct YuvPrimitive {
     float coefficient;
     int color_space;
+    int yuv_format;
 };
 
 YuvPrimitive fetch_yuv_primitive(int address) {
     vec4 data = fetch_from_gpu_cache_1(address);
-    return YuvPrimitive(data.x, int(data.y));
+    return YuvPrimitive(data.x, int(data.y), int(data.z));
 }
 
 void brush_vs(
@@ -131,21 +126,22 @@ void brush_vs(
     } else {
       vYuvColorMatrix = YuvColorMatrixRec709;
     }
+    vFormat = prim.yuv_format;
 
 #ifdef WR_FEATURE_ALPHA_PASS
     vLocalPos = vi.local_pos;
 #endif
 
-#if defined (WR_FEATURE_YUV_PLANAR)
-    write_uv_rect(user_data.x, f, TEX_SIZE(sColor0), vUv_Y, vUvBounds_Y);
-    write_uv_rect(user_data.y, f, TEX_SIZE(sColor1), vUv_U, vUvBounds_U);
-    write_uv_rect(user_data.z, f, TEX_SIZE(sColor2), vUv_V, vUvBounds_V);
-#elif defined (WR_FEATURE_YUV_NV12)
-    write_uv_rect(user_data.x, f, TEX_SIZE(sColor0), vUv_Y, vUvBounds_Y);
-    write_uv_rect(user_data.y, f, TEX_SIZE(sColor1), vUv_UV, vUvBounds_UV);
-#elif defined (WR_FEATURE_YUV_INTERLEAVED)
-    write_uv_rect(user_data.x, f, TEX_SIZE(sColor0), vUv_YUV, vUvBounds_YUV);
-#endif //WR_FEATURE_YUV_*
+    if (vFormat == YUV_FORMAT_PLANAR) {
+        write_uv_rect(user_data.x, f, TEX_SIZE(sColor0), vUv_Y, vUvBounds_Y);
+        write_uv_rect(user_data.y, f, TEX_SIZE(sColor1), vUv_U, vUvBounds_U);
+        write_uv_rect(user_data.z, f, TEX_SIZE(sColor2), vUv_V, vUvBounds_V);
+    } else if (vFormat == YUV_FORMAT_NV12) {
+        write_uv_rect(user_data.x, f, TEX_SIZE(sColor0), vUv_Y, vUvBounds_Y);
+        write_uv_rect(user_data.y, f, TEX_SIZE(sColor1), vUv_U, vUvBounds_U);
+    } else if (vFormat == YUV_FORMAT_INTERLEAVED) {
+        write_uv_rect(user_data.x, f, TEX_SIZE(sColor0), vUv_Y, vUvBounds_Y);
+    }
 }
 #endif
 
@@ -154,28 +150,28 @@ void brush_vs(
 Fragment brush_fs() {
     vec3 yuv_value;
 
-#if defined (WR_FEATURE_YUV_PLANAR)
-    // The yuv_planar format should have this third texture coordinate.
-    vec2 uv_y = clamp(vUv_Y.xy, vUvBounds_Y.xy, vUvBounds_Y.zw);
-    vec2 uv_u = clamp(vUv_U.xy, vUvBounds_U.xy, vUvBounds_U.zw);
-    vec2 uv_v = clamp(vUv_V.xy, vUvBounds_V.xy, vUvBounds_V.zw);
-    yuv_value.x = TEX_SAMPLE(sColor0, vec3(uv_y, vUv_Y.z)).r;
-    yuv_value.y = TEX_SAMPLE(sColor1, vec3(uv_u, vUv_U.z)).r;
-    yuv_value.z = TEX_SAMPLE(sColor2, vec3(uv_v, vUv_V.z)).r;
-#elif defined (WR_FEATURE_YUV_NV12)
-    vec2 uv_y = clamp(vUv_Y.xy, vUvBounds_Y.xy, vUvBounds_Y.zw);
-    vec2 uv_uv = clamp(vUv_UV.xy, vUvBounds_UV.xy, vUvBounds_UV.zw);
-    yuv_value.x = TEX_SAMPLE(sColor0, vec3(uv_y, vUv_Y.z)).r;
-    yuv_value.yz = TEX_SAMPLE(sColor1, vec3(uv_uv, vUv_UV.z)).rg;
-#elif defined (WR_FEATURE_YUV_INTERLEAVED)
-    // "The Y, Cb and Cr color channels within the 422 data are mapped into
-    // the existing green, blue and red color channels."
-    // https://www.khronos.org/registry/OpenGL/extensions/APPLE/APPLE_rgb_422.txt
-    vec2 uv_y = clamp(vUv_YUV.xy, vUvBounds_YUV.xy, vUvBounds_YUV.zw);
-    yuv_value = TEX_SAMPLE(sColor0, vec3(uv_y, vUv_YUV.z)).gbr;
-#else
-    yuv_value = vec3(0.0);
-#endif
+    if (vFormat == YUV_FORMAT_PLANAR) {
+        // The yuv_planar format should have this third texture coordinate.
+        vec2 uv_y = clamp(vUv_Y.xy, vUvBounds_Y.xy, vUvBounds_Y.zw);
+        vec2 uv_u = clamp(vUv_U.xy, vUvBounds_U.xy, vUvBounds_U.zw);
+        vec2 uv_v = clamp(vUv_V.xy, vUvBounds_V.xy, vUvBounds_V.zw);
+        yuv_value.x = TEX_SAMPLE(sColor0, vec3(uv_y, vUv_Y.z)).r;
+        yuv_value.y = TEX_SAMPLE(sColor1, vec3(uv_u, vUv_U.z)).r;
+        yuv_value.z = TEX_SAMPLE(sColor2, vec3(uv_v, vUv_V.z)).r;
+    } else if (vFormat == YUV_FORMAT_NV12) {
+        vec2 uv_y = clamp(vUv_Y.xy, vUvBounds_Y.xy, vUvBounds_Y.zw);
+        vec2 uv_uv = clamp(vUv_U.xy, vUvBounds_U.xy, vUvBounds_U.zw);
+        yuv_value.x = TEX_SAMPLE(sColor0, vec3(uv_y, vUv_Y.z)).r;
+        yuv_value.yz = TEX_SAMPLE(sColor1, vec3(uv_uv, vUv_U.z)).rg;
+    } else if (vFormat == YUV_FORMAT_INTERLEAVED) {
+        // "The Y, Cb and Cr color channels within the 422 data are mapped into
+        // the existing green, blue and red color channels."
+        // https://www.khronos.org/registry/OpenGL/extensions/APPLE/APPLE_rgb_422.txt
+        vec2 uv_y = clamp(vUv_Y.xy, vUvBounds_Y.xy, vUvBounds_Y.zw);
+        yuv_value = TEX_SAMPLE(sColor0, vec3(uv_y, vUv_Y.z)).gbr;
+    } else {
+        yuv_value = vec3(0.0);
+    }
 
     // See the YuvColorMatrix definition for an explanation of where the constants come from.
     vec3 rgb = vYuvColorMatrix * (yuv_value * vCoefficient - vec3(0.06275, 0.50196, 0.50196));
