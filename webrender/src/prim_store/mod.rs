@@ -26,7 +26,7 @@ use gpu_types::BrushFlags;
 use image::{self, Repetition};
 use intern;
 use picture::{PictureCompositeMode, PicturePrimitive, PictureUpdateState, TileCacheUpdateState};
-use picture::{ClusterRange, PrimitiveList, SurfaceIndex, SurfaceInfo, RetainedTiles};
+use picture::{ClusterRange, PrimitiveList, SurfaceIndex, SurfaceInfo, RetainedTiles, RasterConfig};
 use prim_store::gradient::{LinearGradientDataHandle, RadialGradientDataHandle};
 use prim_store::text_run::{TextRunDataHandle, TextRunPrimitive};
 #[cfg(debug_assertions)]
@@ -2194,7 +2194,12 @@ impl PrimitiveStore {
     ) {
         let children = {
             let pic = &mut self.pictures[pic_index.0];
-            if let Some(PictureCompositeMode::TileCache { .. }) = pic.requested_composite_mode {
+            // Only update the tile cache if we ended up selecting tile caching for the
+            // composite mode of this picture. In some cases, even if the requested
+            // composite mode was tile caching, WR may choose not to draw this picture
+            // with tile cache enabled. For now, this is only in the case of very large
+            // picture rects, but in future we may do it for performance reasons too.
+            if let Some(RasterConfig { composite_mode: PictureCompositeMode::TileCache { .. }, .. }) = pic.raster_config {
                 debug_assert!(state.tile_cache.is_none());
                 let mut tile_cache = pic.tile_cache.take().unwrap();
 
@@ -2246,7 +2251,7 @@ impl PrimitiveStore {
         }
 
         let pic = &mut self.pictures[pic_index.0];
-        if let Some(PictureCompositeMode::TileCache { .. }) = pic.requested_composite_mode {
+        if let Some(RasterConfig { composite_mode: PictureCompositeMode::TileCache { .. }, .. }) = pic.raster_config {
             let mut tile_cache = state.tile_cache.take().unwrap().0;
 
             // Build the dirty region(s) for this tile cache.
