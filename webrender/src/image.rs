@@ -396,6 +396,12 @@ fn tiles_1d(
     device_tile_size: i32,
     layout_tiling_origin: f32,
 ) -> TileIteratorExtent {
+    // A few sanity checks.
+    debug_assert!(layout_tile_size > 0.0);
+    debug_assert!(layout_visible_range.end >= layout_visible_range.start);
+    debug_assert!(device_image_range.end > device_image_range.start);
+    debug_assert!(device_tile_size > 0);
+
     // Sizes of the boundary tiles in pixels.
     let first_tile_device_size = first_tile_size_1d(&device_image_range, device_tile_size);
     let last_tile_device_size = last_tile_size_1d(&device_image_range, device_tile_size);
@@ -438,7 +444,9 @@ fn tiles_1d(
     }
 }
 
-/// Compute the tile offsets of teh first and last tiles in an arbitrary dimmension.
+/// Compute the tile offsets of the first and last tiles in an arbitrary dimmension.
+///
+/// ```ignore
 ///
 ///        0
 ///        :
@@ -450,6 +458,7 @@ fn tiles_1d(
 ///  +------------------------+  image_range
 ///        +---+  regular_tile_size
 ///
+/// ```
 fn first_and_last_tile_1d(
     image_range: &Range<i32>,
     regular_tile_size: i32,
@@ -479,19 +488,19 @@ fn first_tile_size_1d(
     regular_tile_size: i32,
 ) -> i32 {
     // We have to account for how the modulo operation behaves for negative values.
-    let image_size = image_range.end - image_range.start;
+    let image_size = i32::abs(image_range.end - image_range.start);
     match image_range.start % regular_tile_size {
         //             .      #------+------+      .
         //             .      #//////|      |      .
         0 => i32::min(regular_tile_size, image_size),
         //   (zero) -> 0      .   #--+------+      .
         //             .      .   #//|      |      .
-        // modulo(m):          ~~~
+        // modulo(m):          ~~>
         m if m > 0 => regular_tile_size - m,
         //             .      .   #--+------+      0 <- (zero)
         //             .      .   #//|      |      .
-        // modulo(m):             ~~~
-        m => m,
+        // modulo(m):             <~~
+        m => -m,
     }
 }
 
@@ -504,18 +513,18 @@ fn last_tile_size_1d(
     regular_tile_size: i32,
 ) -> i32 {
     // We have to account for how the modulo operation behaves for negative values.
-    let image_size = image_range.end - image_range.start;
+    let image_size = i32::abs(image_range.end - image_range.start);
     match image_range.end % regular_tile_size {
         //                    +------+------#      .
         // tiles:      .      |      |//////#      .
         0 => i32::min(regular_tile_size, image_size),
         //             .      +------+--#   .      0 <- (zero)
         //             .      |      |//#   .      .
-        // modulo (m):                   ~~~
-        m if m < 0 => regular_tile_size - m,
+        // modulo (m):                   <~~
+        m if m < 0 => regular_tile_size + m,
         //   (zero) -> 0      +------+--#   .      .
         //             .      |      |//#   .      .
-        // modulo (m):                ~~~
+        // modulo (m):                ~~>
         m => m,
     }
 }
@@ -533,7 +542,7 @@ pub fn compute_tile_size(
     let (y_first, y_last) = first_and_last_tile_1d(&img_range_y, regular_tile_size);
 
     // Most tiles are going to have base_size as width and height,
-    // except for tiles around the edges that are shrunk to fit the mage data
+    // except for tiles around the edges that are shrunk to fit the image data
     // (See decompose_tiled_image in frame.rs).
     let actual_width = match tile.x as i32 {
         x if x == x_first => first_tile_size_1d(&img_range_x, regular_tile_size),
@@ -649,5 +658,111 @@ mod tests {
               },
         );
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_tiles_1d() {
+        // Exactly one full tile at positive offset.
+        let result = tiles_1d(64.0, -10000.0..10000.0, 0..64, 64, 0.0);
+        assert_eq!(result.tile_range.start, 0);
+        assert_eq!(result.tile_range.end, 1);
+        assert_eq!(result.first_tile_layout_size, 64.0);
+        assert_eq!(result.last_tile_layout_size, 64.0);
+
+        // Exactly one full tile at negative offset.
+        let result = tiles_1d(64.0, -10000.0..10000.0, -64..0, 64, 0.0);
+        assert_eq!(result.tile_range.start, -1);
+        assert_eq!(result.tile_range.end, 0);
+        assert_eq!(result.first_tile_layout_size, 64.0);
+        assert_eq!(result.last_tile_layout_size, 64.0);
+
+        // Two full tiles at negative and positive offsets.
+        let result = tiles_1d(64.0, -10000.0..10000.0, -64..64, 64, 0.0);
+        assert_eq!(result.tile_range.start, -1);
+        assert_eq!(result.tile_range.end, 1);
+        assert_eq!(result.first_tile_layout_size, 64.0);
+        assert_eq!(result.last_tile_layout_size, 64.0);
+
+        // One partial tile at positve offset, non-zero origin, culled out.
+        let result = tiles_1d(64.0, -100.0..10.0, 64..310, 64, 0.0);
+        assert_eq!(result.tile_range.start, result.tile_range.end);
+
+        // Two tiles at negative and positive offsets, one of which is culled out.
+        // The remaining tile is partially culled but it should still generate a full tile.
+        let result = tiles_1d(64.0, 10.0..10000.0, -64..64, 64, 0.0);
+        assert_eq!(result.tile_range.start, 0);
+        assert_eq!(result.tile_range.end, 1);
+        assert_eq!(result.first_tile_layout_size, 64.0);
+        assert_eq!(result.last_tile_layout_size, 64.0);
+        let result = tiles_1d(64.0, -10000.0..-10.0, -64..64, 64, 0.0);
+        assert_eq!(result.tile_range.start, -1);
+        assert_eq!(result.tile_range.end, 0);
+        assert_eq!(result.first_tile_layout_size, 64.0);
+        assert_eq!(result.last_tile_layout_size, 64.0);
+
+        // Stretched tile in layout space device tile size is 64 and layout tile size is 128.
+        // So the resulting tile sizes in layout space should be multiplied by two.
+        let result = tiles_1d(128.0, -10000.0..10000.0, -64..32, 64, 0.0);
+        assert_eq!(result.tile_range.start, -1);
+        assert_eq!(result.tile_range.end, 1);
+        assert_eq!(result.first_tile_layout_size, 128.0);
+        assert_eq!(result.last_tile_layout_size, 64.0);
+    }
+
+    #[test]
+    fn test_first_last_tile_size_1d() {
+        assert_eq!(first_tile_size_1d(&(0..10), 64), 10);
+        assert_eq!(first_tile_size_1d(&(-20..0), 64), 20);
+
+        assert_eq!(last_tile_size_1d(&(0..10), 64), 10);
+        assert_eq!(last_tile_size_1d(&(-20..0), 64), 20);
+    }
+
+    #[test]
+    #[ignore]
+    fn failing_doubly_partial_tiles() {
+        // The following tests fail because none of the sides of the tile align with the tile grid.
+        // This can only happen only when we have a single non-aligned partial tile and no regular
+        // tiles.
+        //
+        // The problem is that we are trying to get the following (hatched value):
+        //
+        //        +------+  <-- (regular tile size)
+        // 
+        // .      . #--# .      .
+        //          #//#
+        // .      . #--# .      .
+        //        . .  . .
+        // however, first_tile_size_1d computes this:
+        //        . .  . .
+        // .      . #----+      .
+        //          #////|
+        // .      . #----+      .
+        //        . .  . .
+        // and last_tile_size_1d computes that: 
+        //        . .  . .
+        // .      +----# .      .
+        //        |////#
+        // .      +----# .      .
+        //
+        // So what we really want is an intersection of the two.
+        // I'm not convinced that we need to support this in practice because for very small blobs
+        // we migh have a partial tile but the top-left corner should always be at (0, 0) which means
+        // the tile can't be partial on both sides at the same time.
+        //
+        // That said it'd be nice to handle this, just to be on the safe side.
+        assert_eq!(first_tile_size_1d(&(300..310), 64), 10);
+        assert_eq!(first_tile_size_1d(&(-20..-10), 64), 10);
+
+        assert_eq!(last_tile_size_1d(&(300..310), 64), 10);
+        assert_eq!(last_tile_size_1d(&(-20..-10), 64), 10);
+
+
+        // One partial tile at positve offset, non-zero origin.
+        let result = tiles_1d(64.0, -10000.0..10000.0, 300..310, 64, 0.0);
+        assert_eq!(result.tile_range.start, 4);
+        assert_eq!(result.tile_range.end, 5);
+        assert_eq!(result.first_tile_layout_size, 10.0);
+        assert_eq!(result.last_tile_layout_size, 10.0);
     }
 }
