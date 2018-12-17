@@ -860,7 +860,7 @@ impl TileCache {
             // We only care about clip nodes that have transforms that are children
             // of the surface, since clips that are positioned by parents will be
             // handled by the clip collector when these tiles are composited.
-            if clip_chain_node.spatial_node_index > surface_spatial_node_index {
+            if clip_chain_node.spatial_node_index >= surface_spatial_node_index {
                 clip_chain_spatial_nodes.push(clip_chain_node.spatial_node_index);
                 clip_chain_uids.push(clip_chain_node.handle.uid());
             }
