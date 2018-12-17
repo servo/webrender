@@ -809,7 +809,7 @@ impl TileCache {
                 }
             }
             PrimitiveInstanceKind::Image { data_handle, image_instance_index, .. } => {
-                let image_data = &resources.image_data_store[data_handle];
+                let image_data = &resources.image_data_store[data_handle].kind;
                 let image_instance = &image_instances[image_instance_index];
                 let opacity_binding_index = image_instance.opacity_binding_index;
 
@@ -825,7 +825,7 @@ impl TileCache {
                 image_keys.push(image_data.key);
             }
             PrimitiveInstanceKind::YuvImage { data_handle, .. } => {
-                let yuv_image_data = &resources.yuv_image_data_store[data_handle];
+                let yuv_image_data = &resources.yuv_image_data_store[data_handle].kind;
                 image_keys.extend_from_slice(&yuv_image_data.yuv_key);
             }
             PrimitiveInstanceKind::TextRun { .. } |

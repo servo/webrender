@@ -1523,7 +1523,7 @@ impl AlphaBatchBuilder {
                 );
             }
             PrimitiveInstanceKind::YuvImage { data_handle, segment_instance_index, .. } => {
-                let yuv_image_data = &ctx.resources.yuv_image_data_store[data_handle];
+                let yuv_image_data = &ctx.resources.yuv_image_data_store[data_handle].kind;
                 let mut textures = BatchTextures::no_texture();
                 let mut uv_rect_addresses = [0; 3];
 
@@ -1631,7 +1631,8 @@ impl AlphaBatchBuilder {
                 );
             }
             PrimitiveInstanceKind::Image { data_handle, image_instance_index, .. } => {
-                let image_data = &ctx.resources.image_data_store[data_handle];
+                let image_data = &ctx.resources.image_data_store[data_handle].kind;
+                let common_data = &ctx.resources.image_data_store[data_handle].common;
                 let image_instance = &ctx.prim_store.images[image_instance_index];
                 let opacity_binding = ctx.prim_store.get_opacity_binding(image_instance.opacity_binding_index);
                 let specified_blend_mode = match image_data.alpha_type {
@@ -1671,7 +1672,7 @@ impl AlphaBatchBuilder {
                     let textures = BatchTextures::color(cache_item.texture_id);
 
                     let opacity = PrimitiveOpacity::from_alpha(opacity_binding);
-                    let opacity = opacity.combine(image_data.opacity);
+                    let opacity = opacity.combine(common_data.opacity);
 
                     let non_segmented_blend_mode = if !opacity.is_opaque ||
                         prim_instance.clip_task_index != ClipTaskIndex::INVALID ||
@@ -1695,7 +1696,7 @@ impl AlphaBatchBuilder {
 
                     debug_assert!(image_instance.segment_instance_index != SegmentInstanceIndex::INVALID);
                     let (prim_cache_address, segments) = if image_instance.segment_instance_index == SegmentInstanceIndex::UNUSED {
-                        (gpu_cache.get_address(&image_data.gpu_cache_handle), None)
+                        (gpu_cache.get_address(&common_data.gpu_cache_handle), None)
                     } else {
                         let segment_instance = &ctx.scratch.segment_instances[image_instance.segment_instance_index];
                         let segments = Some(&ctx.scratch.segments[segment_instance.segments_range]);
@@ -2266,11 +2267,12 @@ impl PrimitiveInstance {
     ) -> bool {
         let image_key = match self.kind {
             PrimitiveInstanceKind::Image { data_handle, .. } => {
-                let image_data = &resources.image_data_store[data_handle];
+                let image_data = &resources.image_data_store[data_handle].kind;
                 image_data.key
             }
             PrimitiveInstanceKind::YuvImage { data_handle, .. } => {
-                let yuv_image_data = &resources.yuv_image_data_store[data_handle];
+                let yuv_image_data =
+                    &resources.yuv_image_data_store[data_handle].kind;
                 yuv_image_data.yuv_key[0]
             }
             PrimitiveInstanceKind::Picture { .. } |

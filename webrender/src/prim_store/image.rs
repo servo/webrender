@@ -15,15 +15,15 @@ use intern::{DataStore, Handle, Internable, Interner, InternDebug, UpdateList};
 use picture::SurfaceIndex;
 use prim_store::{
     EdgeAaSegmentMask, OpacityBindingIndex, PrimitiveInstanceKind,
-    PrimitiveOpacity, PrimitiveSceneData, PrimKeyCommonData,
-    PrimTemplateCommonData, PrimitiveStore, SegmentInstanceIndex, SizeKey
+    PrimitiveOpacity, PrimitiveSceneData, PrimKey, PrimKeyCommonData,
+    PrimTemplate, PrimTemplateCommonData, PrimitiveStore, SegmentInstanceIndex,
+    SizeKey
 };
 use render_task::{
     BlitSource, RenderTask, RenderTaskCacheEntryHandle, RenderTaskCacheKey,
     RenderTaskCacheKeyKind
 };
 use resource_cache::ImageRequest;
-use std::ops::{Deref, DerefMut};
 use util::pack_as_float;
 
 #[derive(Debug)]
@@ -69,8 +69,7 @@ pub struct ImageInstance {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct ImageKey {
-    pub common: PrimKeyCommonData,
+pub struct Image {
     pub key: ApiImageKey,
     pub stretch_size: SizeKey,
     pub tile_spacing: SizeKey,
@@ -79,6 +78,8 @@ pub struct ImageKey {
     pub image_rendering: ImageRendering,
     pub alpha_type: AlphaType,
 }
+
+pub type ImageKey = PrimKey<Image>;
 
 impl ImageKey {
     pub fn new(
@@ -94,13 +95,7 @@ impl ImageKey {
                 prim_size: prim_size.into(),
                 prim_relative_clip_rect: prim_relative_clip_rect.into(),
             },
-            key: image.key,
-            color: image.color.into(),
-            stretch_size: image.stretch_size.into(),
-            tile_spacing: image.tile_spacing.into(),
-            sub_rect: image.sub_rect,
-            image_rendering: image.image_rendering,
-            alpha_type: image.alpha_type,
+            kind: image,
         }
     }
 }
@@ -147,8 +142,7 @@ pub enum ImageSource {
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct ImageTemplate {
-    pub common: PrimTemplateCommonData,
+pub struct ImageData {
     pub key: ApiImageKey,
     pub stretch_size: LayoutSize,
     pub tile_spacing: LayoutSize,
@@ -159,59 +153,22 @@ pub struct ImageTemplate {
     pub alpha_type: AlphaType,
 }
 
-impl From<ImageKey> for ImageTemplate {
-    fn from(item: ImageKey) -> Self {
-        let common = PrimTemplateCommonData::with_key_common(item.common);
-        let color = item.color.into();
-        let stretch_size = item.stretch_size.into();
-        let tile_spacing = item.tile_spacing.into();
-
-        ImageTemplate {
-            common,
-            key: item.key,
-            color,
-            stretch_size,
-            tile_spacing,
+impl From<Image> for ImageData {
+    fn from(image: Image) -> Self {
+        ImageData {
+            key: image.key,
+            color: image.color.into(),
+            stretch_size: image.stretch_size.into(),
+            tile_spacing: image.tile_spacing.into(),
             source: ImageSource::Default,
-            sub_rect: item.sub_rect,
-            image_rendering: item.image_rendering,
-            alpha_type: item.alpha_type,
+            sub_rect: image.sub_rect,
+            image_rendering: image.image_rendering,
+            alpha_type: image.alpha_type,
         }
     }
 }
 
-impl Deref for ImageTemplate {
-    type Target = PrimTemplateCommonData;
-    fn deref(&self) -> &Self::Target {
-        &self.common
-    }
-}
-
-impl DerefMut for ImageTemplate {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.common
-    }
-}
-
-fn write_image_gpu_blocks(
-    request: &mut GpuDataRequest,
-    color: ColorF,
-    stretch_size: LayoutSize,
-    tile_spacing: LayoutSize,
-) {
-    // Images are drawn as a white color, modulated by the total
-    // opacity coming from any collapsed property bindings.
-    request.push(color.premultiplied());
-    request.push(PremultipliedColorF::WHITE);
-    request.push([
-        stretch_size.width + tile_spacing.width,
-        stretch_size.height + tile_spacing.height,
-        0.0,
-        0.0,
-    ]);
-}
-
-impl ImageTemplate {
+impl ImageData {
     /// Update the GPU cache for a given primitive template. This may be called multiple
     /// times per frame, by each primitive reference that refers to this interned
     /// template. The initial request call to the GPU cache ensures that work is only
@@ -224,21 +181,14 @@ impl ImageTemplate {
         //           allowing render task caching to assign to surfaces implicitly
         //           during pass allocation.
         surface_index: SurfaceIndex,
+        common: &mut PrimTemplateCommonData,
         frame_state: &mut FrameBuildingState,
     ) {
-        if let Some(mut request) =
-            frame_state.gpu_cache.request(&mut self.common.gpu_cache_handle) {
-                write_image_gpu_blocks(
-                    &mut request,
-                    self.color,
-                    self.stretch_size,
-                    self.tile_spacing
-                );
+        if let Some(mut request) = frame_state.gpu_cache.request(&mut common.gpu_cache_handle) {
+            self.write_prim_gpu_blocks(&mut request);
+        }
 
-                // write_segment_gpu_blocks
-            }
-
-        self.opacity = {
+        common.opacity = {
             let image_properties = frame_state
                 .resource_cache
                 .get_image_properties(self.key);
@@ -372,12 +322,29 @@ impl ImageTemplate {
     }
 
     pub fn write_prim_gpu_blocks(&self, request: &mut GpuDataRequest) {
-        write_image_gpu_blocks(
-            request,
-            self.color,
-            self.stretch_size,
-            self.tile_spacing
-        );
+        // Images are drawn as a white color, modulated by the total
+        // opacity coming from any collapsed property bindings.
+        request.push(self.color.premultiplied());
+        request.push(PremultipliedColorF::WHITE);
+        request.push([
+            self.stretch_size.width + self.tile_spacing.width,
+            self.stretch_size.height + self.tile_spacing.height,
+            0.0,
+            0.0,
+        ]);
+    }
+}
+
+pub type ImageTemplate = PrimTemplate<ImageData>;
+
+impl From<ImageKey> for ImageTemplate {
+    fn from(image: ImageKey) -> Self {
+        let common = PrimTemplateCommonData::with_key_common(image.common);
+
+        ImageTemplate {
+            common,
+            kind: image.kind.into(),
+        }
     }
 }
 
@@ -390,16 +357,6 @@ pub type ImageDataStore = DataStore<ImageKey, ImageTemplate, ImageDataMarker>;
 pub type ImageDataHandle = Handle<ImageDataMarker>;
 pub type ImageDataUpdateList = UpdateList<ImageKey>;
 pub type ImageDataInterner = Interner<ImageKey, PrimitiveSceneData, ImageDataMarker>;
-
-pub struct Image {
-    pub key: ApiImageKey,
-    pub stretch_size: SizeKey,
-    pub tile_spacing: SizeKey,
-    pub color: ColorU,
-    pub sub_rect: Option<DeviceIntRect>,
-    pub image_rendering: ImageRendering,
-    pub alpha_type: AlphaType,
-}
 
 impl Internable for Image {
     type Marker = ImageDataMarker;
@@ -447,14 +404,15 @@ impl IsVisible for Image {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct YuvImageKey {
-    pub common: PrimKeyCommonData,
+pub struct YuvImage {
     pub color_depth: ColorDepth,
     pub yuv_key: [ApiImageKey; 3],
     pub format: YuvFormat,
     pub color_space: YuvColorSpace,
     pub image_rendering: ImageRendering,
 }
+
+pub type YuvImageKey = PrimKey<YuvImage>;
 
 impl YuvImageKey {
     pub fn new(
@@ -470,11 +428,7 @@ impl YuvImageKey {
                 prim_size: prim_size.into(),
                 prim_relative_clip_rect: prim_relative_clip_rect.into(),
             },
-            color_depth: yuv_image.color_depth,
-            yuv_key: yuv_image.yuv_key,
-            format: yuv_image.format,
-            color_space: yuv_image.color_space,
-            image_rendering: yuv_image.image_rendering,
+            kind: yuv_image,
         }
     }
 }
@@ -498,8 +452,7 @@ impl AsInstanceKind<YuvImageDataHandle> for YuvImageKey {
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct YuvImageTemplate {
-    pub common: PrimTemplateCommonData,
+pub struct YuvImageData {
     pub color_depth: ColorDepth,
     pub yuv_key: [ApiImageKey; 3],
     pub format: YuvFormat,
@@ -507,68 +460,31 @@ pub struct YuvImageTemplate {
     pub image_rendering: ImageRendering,
 }
 
-impl From<YuvImageKey> for YuvImageTemplate {
-    fn from(item: YuvImageKey) -> Self {
-        let common = PrimTemplateCommonData::with_key_common(item.common);
-
-        YuvImageTemplate {
-            common,
-            color_depth: item.color_depth,
-            yuv_key: item.yuv_key,
-            format: item.format,
-            color_space: item.color_space,
-            image_rendering: item.image_rendering,
+impl From<YuvImage> for YuvImageData {
+    fn from(image: YuvImage) -> Self {
+        YuvImageData {
+            color_depth: image.color_depth,
+            yuv_key: image.yuv_key,
+            format: image.format,
+            color_space: image.color_space,
+            image_rendering: image.image_rendering,
         }
     }
 }
 
-impl Deref for YuvImageTemplate {
-    type Target = PrimTemplateCommonData;
-    fn deref(&self) -> &Self::Target {
-        &self.common
-    }
-}
-
-impl DerefMut for YuvImageTemplate {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.common
-    }
-}
-
-fn write_yuv_image_gpu_blocks(
-    request: &mut GpuDataRequest,
-    color_depth: ColorDepth,
-    format: YuvFormat,
-    color_space: YuvColorSpace,
-) {
-    request.push([
-        color_depth.rescaling_factor(),
-        pack_as_float(color_space as u32),
-        pack_as_float(format as u32),
-        0.0
-    ]);
-}
-
-impl YuvImageTemplate {
+impl YuvImageData {
     /// Update the GPU cache for a given primitive template. This may be called multiple
     /// times per frame, by each primitive reference that refers to this interned
     /// template. The initial request call to the GPU cache ensures that work is only
     /// done if the cache entry is invalid (due to first use or eviction).
     pub fn update(
         &mut self,
+        common: &mut PrimTemplateCommonData,
         frame_state: &mut FrameBuildingState,
     ) {
-        if let Some(mut request) =
-            frame_state.gpu_cache.request(&mut self.common.gpu_cache_handle) {
-                // write_prim_gpu_blocks
-                write_yuv_image_gpu_blocks(
-                    &mut request,
-                    self.color_depth,
-                    self.format,
-                    self.color_space
-                );
-                // write_segment_gpu_blocks
-            }
+        if let Some(mut request) = frame_state.gpu_cache.request(&mut common.gpu_cache_handle) {
+            self.write_prim_gpu_blocks(&mut request);
+        };
 
         let channel_num = self.format.get_plane_num();
         debug_assert!(channel_num <= 3);
@@ -583,16 +499,29 @@ impl YuvImageTemplate {
             );
         }
 
-        self.opacity = PrimitiveOpacity::translucent();
+        common.opacity = PrimitiveOpacity::translucent();
     }
 
     pub fn write_prim_gpu_blocks(&self, request: &mut GpuDataRequest) {
-        write_yuv_image_gpu_blocks(
-            request,
-            self.color_depth,
-            self.format,
-            self.color_space,
-        );
+        request.push([
+            self.color_depth.rescaling_factor(),
+            pack_as_float(self.color_space as u32),
+            pack_as_float(self.format as u32),
+            0.0
+        ]);
+    }
+}
+
+pub type YuvImageTemplate = PrimTemplate<YuvImageData>;
+
+impl From<YuvImageKey> for YuvImageTemplate {
+    fn from(image: YuvImageKey) -> Self {
+        let common = PrimTemplateCommonData::with_key_common(image.common);
+
+        YuvImageTemplate {
+            common,
+            kind: image.kind.into(),
+        }
     }
 }
 
@@ -605,14 +534,6 @@ pub type YuvImageDataStore = DataStore<YuvImageKey, YuvImageTemplate, YuvImageDa
 pub type YuvImageDataHandle = Handle<YuvImageDataMarker>;
 pub type YuvImageDataUpdateList = UpdateList<YuvImageKey>;
 pub type YuvImageDataInterner = Interner<YuvImageKey, PrimitiveSceneData, YuvImageDataMarker>;
-
-pub struct YuvImage {
-    pub color_depth: ColorDepth,
-    pub yuv_key: [ApiImageKey; 3],
-    pub format: YuvFormat,
-    pub color_space: YuvColorSpace,
-    pub image_rendering: ImageRendering,
-}
 
 impl Internable for YuvImage {
     type Marker = YuvImageDataMarker;
