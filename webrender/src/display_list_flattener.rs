@@ -22,14 +22,15 @@ use image::simplify_repeated_primitive;
 use intern::{Handle, Internable, InternDebug};
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PrimitiveList};
-use prim_store::{PrimitiveInstance, PrimitiveKeyKind, PictureCompositeKey};
-use prim_store::{PrimitiveKey, PrimitiveSceneData, PrimitiveInstanceKind, NinePatchDescriptor};
-use prim_store::{PrimitiveStore, PrimitiveStoreStats};
-use prim_store::{ScrollNodeAndClipChain, PictureIndex, register_prim_chase_id, get_line_decoration_sizes};
+use prim_store::{PrimitiveInstance, PrimitiveKeyKind, PrimitiveSceneData};
+use prim_store::{PrimitiveInstanceKind, NinePatchDescriptor, PrimitiveStore};
+use prim_store::{PrimitiveStoreStats, ScrollNodeAndClipChain, PictureIndex};
+use prim_store::{register_prim_chase_id, get_line_decoration_sizes};
 use prim_store::borders::{ImageBorder, NormalBorderPrim};
 use prim_store::gradient::{GradientStopKey, LinearGradient, RadialGradient, RadialGradientParams};
 use prim_store::image::{Image, YuvImage};
 use prim_store::line_dec::{LineDecoration, LineDecorationCacheKey};
+use prim_store::picture::{Picture, PictureCompositeKey, PictureKey};
 use prim_store::text_run::TextRun;
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
@@ -329,18 +330,18 @@ impl<'a> DisplayListFlattener<'a> {
 
         // Now, create a picture with tile caching enabled that will hold all
         // of the primitives selected as belonging to the main scroll root.
-        let prim_key = PrimitiveKey::new(
+        let pic_key = PictureKey::new(
             true,
             LayoutSize::zero(),
             LayoutRect::max_rect(),
-            PrimitiveKeyKind::Picture {
+            Picture {
                 composite_mode_key: PictureCompositeKey::Identity,
             },
         );
 
-        let primitive_data_handle = self.resources
-            .prim_interner
-            .intern(&prim_key, || {
+        let pic_data_handle = self.resources
+            .picture_interner
+            .intern(&pic_key, || {
                 PrimitiveSceneData {
                     prim_relative_clip_rect: LayoutRect::max_rect(),
                     prim_size: LayoutSize::zero(),
@@ -365,7 +366,7 @@ impl<'a> DisplayListFlattener<'a> {
         let instance = PrimitiveInstance::new(
             LayoutPoint::zero(),
             PrimitiveInstanceKind::Picture {
-                data_handle: primitive_data_handle,
+                data_handle: pic_data_handle,
                 pic_index: PictureIndex(pic_index)
             },
             ClipChainId::NONE,
@@ -1873,18 +1874,16 @@ impl<'a> DisplayListFlattener<'a> {
                             ))
                         );
 
-                        let shadow_prim_key = PrimitiveKey::new(
+                        let shadow_pic_key = PictureKey::new(
                             true,
                             LayoutSize::zero(),
                             LayoutRect::max_rect(),
-                            PrimitiveKeyKind::Picture {
-                                composite_mode_key,
-                            },
+                            Picture { composite_mode_key },
                         );
 
                         let shadow_prim_data_handle = self.resources
-                            .prim_interner
-                            .intern(&shadow_prim_key, || {
+                            .picture_interner
+                            .intern(&shadow_pic_key, || {
                                 PrimitiveSceneData {
                                     prim_relative_clip_rect: LayoutRect::max_rect(),
                                     prim_size: LayoutSize::zero(),
@@ -2734,18 +2733,16 @@ fn create_prim_instance(
     spatial_node_index: SpatialNodeIndex,
     resources: &mut DocumentResources,
 ) -> PrimitiveInstance {
-    let prim_key = PrimitiveKey::new(
+    let pic_key = PictureKey::new(
         is_backface_visible,
         LayoutSize::zero(),
         LayoutRect::max_rect(),
-        PrimitiveKeyKind::Picture {
-            composite_mode_key,
-        },
+        Picture { composite_mode_key },
     );
 
     let data_handle = resources
-        .prim_interner
-        .intern(&prim_key, || {
+        .picture_interner
+        .intern(&pic_key, || {
             PrimitiveSceneData {
                 prim_relative_clip_rect: LayoutRect::max_rect(),
                 prim_size: LayoutSize::zero(),

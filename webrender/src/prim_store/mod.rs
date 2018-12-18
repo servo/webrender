@@ -4,13 +4,12 @@
 
 use api::{BorderRadius, ClipMode, ColorF, PictureRect, ColorU, LayoutVector2D};
 use api::{DeviceIntRect, DevicePixelScale, DeviceRect};
-use api::{FilterOp, ImageRendering, TileOffset, RepeatMode, MixBlendMode};
-use api::{LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize, PropertyBindingId};
+use api::{FilterOp, ImageRendering, TileOffset, RepeatMode};
+use api::{LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize};
 use api::{PremultipliedColorF, PropertyBinding, Shadow};
 use api::{WorldPixel, BoxShadowClipMode, WorldRect, LayoutToWorldScale};
 use api::{PicturePixel, RasterPixel, LineStyle, LineOrientation, AuHelpers};
 use api::LayoutPrimitiveInfo;
-use app_units::Au;
 use border::{get_max_scale_for_border, build_border_instances};
 use border::BorderSegmentCacheKey;
 use clip::{ClipStore};
@@ -31,6 +30,7 @@ use prim_store::borders::{ImageBorderDataHandle, NormalBorderDataHandle};
 use prim_store::gradient::{LinearGradientDataHandle, RadialGradientDataHandle};
 use prim_store::image::{ImageDataHandle, ImageInstance, VisibleImageTile, YuvImageDataHandle};
 use prim_store::line_dec::LineDecorationDataHandle;
+use prim_store::picture::PictureDataHandle;
 use prim_store::text_run::{TextRunDataHandle, TextRunPrimitive};
 #[cfg(debug_assertions)]
 use render_backend::{FrameId};
@@ -53,6 +53,7 @@ pub mod borders;
 pub mod gradient;
 pub mod image;
 pub mod line_dec;
+pub mod picture;
 pub mod text_run;
 
 /// Counter for unique primitive IDs for debug tracing.
@@ -348,116 +349,6 @@ pub struct PrimitiveSceneData {
     pub is_backface_visible: bool,
 }
 
-/// Represents a hashable description of how a picture primitive
-/// will be composited into its parent.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, PartialEq, Hash, Eq)]
-pub enum PictureCompositeKey {
-    // No visual compositing effect
-    Identity,
-
-    // FilterOp
-    Blur(Au),
-    Brightness(Au),
-    Contrast(Au),
-    Grayscale(Au),
-    HueRotate(Au),
-    Invert(Au),
-    Opacity(Au),
-    OpacityBinding(PropertyBindingId, Au),
-    Saturate(Au),
-    Sepia(Au),
-    DropShadow(VectorKey, Au, ColorU),
-    ColorMatrix([Au; 20]),
-    SrgbToLinear,
-    LinearToSrgb,
-
-    // MixBlendMode
-    Multiply,
-    Screen,
-    Overlay,
-    Darken,
-    Lighten,
-    ColorDodge,
-    ColorBurn,
-    HardLight,
-    SoftLight,
-    Difference,
-    Exclusion,
-    Hue,
-    Saturation,
-    Color,
-    Luminosity,
-}
-
-impl From<Option<PictureCompositeMode>> for PictureCompositeKey {
-    fn from(mode: Option<PictureCompositeMode>) -> Self {
-        match mode {
-            Some(PictureCompositeMode::MixBlend(mode)) => {
-                match mode {
-                    MixBlendMode::Normal => PictureCompositeKey::Identity,
-                    MixBlendMode::Multiply => PictureCompositeKey::Multiply,
-                    MixBlendMode::Screen => PictureCompositeKey::Screen,
-                    MixBlendMode::Overlay => PictureCompositeKey::Overlay,
-                    MixBlendMode::Darken => PictureCompositeKey::Darken,
-                    MixBlendMode::Lighten => PictureCompositeKey::Lighten,
-                    MixBlendMode::ColorDodge => PictureCompositeKey::ColorDodge,
-                    MixBlendMode::ColorBurn => PictureCompositeKey::ColorBurn,
-                    MixBlendMode::HardLight => PictureCompositeKey::HardLight,
-                    MixBlendMode::SoftLight => PictureCompositeKey::SoftLight,
-                    MixBlendMode::Difference => PictureCompositeKey::Difference,
-                    MixBlendMode::Exclusion => PictureCompositeKey::Exclusion,
-                    MixBlendMode::Hue => PictureCompositeKey::Hue,
-                    MixBlendMode::Saturation => PictureCompositeKey::Saturation,
-                    MixBlendMode::Color => PictureCompositeKey::Color,
-                    MixBlendMode::Luminosity => PictureCompositeKey::Luminosity,
-                }
-            }
-            Some(PictureCompositeMode::Filter(op)) => {
-                match op {
-                    FilterOp::Blur(value) => PictureCompositeKey::Blur(Au::from_f32_px(value)),
-                    FilterOp::Brightness(value) => PictureCompositeKey::Brightness(Au::from_f32_px(value)),
-                    FilterOp::Contrast(value) => PictureCompositeKey::Contrast(Au::from_f32_px(value)),
-                    FilterOp::Grayscale(value) => PictureCompositeKey::Grayscale(Au::from_f32_px(value)),
-                    FilterOp::HueRotate(value) => PictureCompositeKey::HueRotate(Au::from_f32_px(value)),
-                    FilterOp::Invert(value) => PictureCompositeKey::Invert(Au::from_f32_px(value)),
-                    FilterOp::Saturate(value) => PictureCompositeKey::Saturate(Au::from_f32_px(value)),
-                    FilterOp::Sepia(value) => PictureCompositeKey::Sepia(Au::from_f32_px(value)),
-                    FilterOp::SrgbToLinear => PictureCompositeKey::SrgbToLinear,
-                    FilterOp::LinearToSrgb => PictureCompositeKey::LinearToSrgb,
-                    FilterOp::Identity => PictureCompositeKey::Identity,
-                    FilterOp::DropShadow(offset, radius, color) => {
-                        PictureCompositeKey::DropShadow(offset.into(), Au::from_f32_px(radius), color.into())
-                    }
-                    FilterOp::Opacity(binding, _) => {
-                        match binding {
-                            PropertyBinding::Value(value) => {
-                                PictureCompositeKey::Opacity(Au::from_f32_px(value))
-                            }
-                            PropertyBinding::Binding(key, default) => {
-                                PictureCompositeKey::OpacityBinding(key.id, Au::from_f32_px(default))
-                            }
-                        }
-                    }
-                    FilterOp::ColorMatrix(values) => {
-                        let mut quantized_values: [Au; 20] = [Au(0); 20];
-                        for (value, result) in values.iter().zip(quantized_values.iter_mut()) {
-                            *result = Au::from_f32_px(*value);
-                        }
-                        PictureCompositeKey::ColorMatrix(quantized_values)
-                    }
-                }
-            }
-            Some(PictureCompositeMode::Blit) |
-            Some(PictureCompositeMode::TileCache { .. }) |
-            None => {
-                PictureCompositeKey::Identity
-            }
-        }
-    }
-}
-
 /// Information specific to a primitive type that
 /// uniquely identifies a primitive template by key.
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -468,9 +359,6 @@ pub enum PrimitiveKeyKind {
     Clear,
     Rectangle {
         color: ColorU,
-    },
-    Picture {
-        composite_mode_key: PictureCompositeKey,
     },
 }
 
@@ -757,11 +645,6 @@ impl AsInstanceKind<PrimitiveDataHandle> for PrimitiveKey {
                     segment_instance_index: SegmentInstanceIndex::INVALID,
                 }
             }
-            PrimitiveKeyKind::Picture { .. } => {
-                // Should never be hit as this method should not be
-                // called for pictures.
-                unreachable!();
-            }
         }
     }
 }
@@ -775,9 +658,6 @@ pub enum PrimitiveTemplateKind {
         color: ColorF,
     },
     Clear,
-    Picture {
-
-    },
 }
 
 /// Construct the primitive template data from a primitive key. This
@@ -786,11 +666,6 @@ pub enum PrimitiveTemplateKind {
 impl PrimitiveKeyKind {
     fn into_template(self) -> PrimitiveTemplateKind {
         match self {
-            PrimitiveKeyKind::Picture { .. } => {
-                PrimitiveTemplateKind::Picture {
-
-                }
-            }
             PrimitiveKeyKind::Clear => {
                 PrimitiveTemplateKind::Clear
             }
@@ -879,7 +754,6 @@ impl PrimitiveTemplateKind {
             PrimitiveTemplateKind::Rectangle { ref color, .. } => {
                 request.push(color.premultiplied());
             }
-            PrimitiveTemplateKind::Picture { .. } => {}
         }
     }
 }
@@ -903,9 +777,6 @@ impl PrimitiveTemplate {
             }
             PrimitiveTemplateKind::Rectangle { ref color, .. } => {
                 PrimitiveOpacity::from_alpha(color.a)
-            }
-            PrimitiveTemplateKind::Picture { .. } => {
-                PrimitiveOpacity::translucent()
             }
         };
     }
@@ -1349,8 +1220,7 @@ impl IsVisible for PrimitiveKeyKind {
     //           primitive types to use this.
     fn is_visible(&self) -> bool {
         match *self {
-            PrimitiveKeyKind::Clear |
-            PrimitiveKeyKind::Picture { .. } => {
+            PrimitiveKeyKind::Clear => {
                 true
             }
             PrimitiveKeyKind::Rectangle { ref color, .. } => {
@@ -1374,7 +1244,6 @@ impl CreateShadow for PrimitiveKeyKind {
                     color: shadow.color.into(),
                 }
             }
-            PrimitiveKeyKind::Picture { .. } |
             PrimitiveKeyKind::Clear => {
                 panic!("bug: this prim is not supported in shadow contexts");
             }
@@ -1392,7 +1261,7 @@ pub enum PrimitiveInstanceKind {
     /// Direct reference to a Picture
     Picture {
         /// Handle to the common interned data for this primitive.
-        data_handle: PrimitiveDataHandle,
+        data_handle: PictureDataHandle,
         pic_index: PictureIndex,
     },
     /// A run of glyphs, with associated font parameters.
@@ -1542,7 +1411,6 @@ impl PrimitiveInstance {
 
     pub fn uid(&self) -> intern::ItemUid {
         match &self.kind {
-            PrimitiveInstanceKind::Picture { data_handle, .. } |
             PrimitiveInstanceKind::Clear { data_handle, .. } |
             PrimitiveInstanceKind::Rectangle { data_handle, .. } => {
                 data_handle.uid()
@@ -1560,6 +1428,9 @@ impl PrimitiveInstance {
                 data_handle.uid()
             }
             PrimitiveInstanceKind::NormalBorder { data_handle, .. } => {
+                data_handle.uid()
+            }
+            PrimitiveInstanceKind::Picture { data_handle, .. } => {
                 data_handle.uid()
             }
             PrimitiveInstanceKind::RadialGradient { data_handle, .. } => {
@@ -3466,6 +3337,6 @@ fn test_struct_sizes() {
     assert_eq!(mem::size_of::<PrimitiveInstanceKind>(), 40, "PrimitiveInstanceKind size changed");
     assert_eq!(mem::size_of::<PrimitiveTemplate>(), 80, "PrimitiveTemplate size changed");
     assert_eq!(mem::size_of::<PrimitiveTemplateKind>(), 20, "PrimitiveTemplateKind size changed");
-    assert_eq!(mem::size_of::<PrimitiveKey>(), 116, "PrimitiveKey size changed");
-    assert_eq!(mem::size_of::<PrimitiveKeyKind>(), 88, "PrimitiveKeyKind size changed");
+    assert_eq!(mem::size_of::<PrimitiveKey>(), 36, "PrimitiveKey size changed");
+    assert_eq!(mem::size_of::<PrimitiveKeyKind>(), 5, "PrimitiveKeyKind size changed");
 }

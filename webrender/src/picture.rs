@@ -1392,7 +1392,6 @@ impl PrimitiveList {
             };
 
             let prim_data = match prim_instance.kind {
-                PrimitiveInstanceKind::Picture { data_handle, .. } |
                 PrimitiveInstanceKind::Rectangle { data_handle, .. } |
                 PrimitiveInstanceKind::Clear { data_handle, .. } => {
                     &resources.prim_interner[data_handle]
@@ -1411,6 +1410,9 @@ impl PrimitiveList {
                 }
                 PrimitiveInstanceKind::NormalBorder { data_handle, .. } => {
                     &resources.normal_border_interner[data_handle]
+                }
+                PrimitiveInstanceKind::Picture { data_handle, .. } => {
+                    &resources.picture_interner[data_handle]
                 }
                 PrimitiveInstanceKind::RadialGradient { data_handle, ..} => {
                     &resources.radial_grad_interner[data_handle]

@@ -31,6 +31,7 @@ use prim_store::image::{
 use prim_store::line_dec::{
     LineDecoration, LineDecorationDataInterner, LineDecorationDataUpdateList
 };
+use prim_store::picture::{PictureDataInterner, Picture, PictureDataUpdateList};
 use prim_store::text_run::{TextRunDataInterner, TextRun, TextRunDataUpdateList};
 use resource_cache::{BlobImageRasterizerEpoch, FontInstanceMap};
 use render_backend::DocumentView;
@@ -51,6 +52,7 @@ pub struct DocumentResourceUpdates {
     pub line_decoration_updates: LineDecorationDataUpdateList,
     pub linear_grad_updates: LinearGradientDataUpdateList,
     pub normal_border_updates: NormalBorderDataUpdateList,
+    pub picture_updates: PictureDataUpdateList,
     pub radial_grad_updates: RadialGradientDataUpdateList,
     pub text_run_updates: TextRunDataUpdateList,
     pub yuv_image_updates: YuvImageDataUpdateList,
@@ -206,6 +208,7 @@ pub struct DocumentResources {
     pub line_decoration_interner: LineDecorationDataInterner,
     pub linear_grad_interner: LinearGradientDataInterner,
     pub normal_border_interner: NormalBorderDataInterner,
+    pub picture_interner: PictureDataInterner,
     pub radial_grad_interner: RadialGradientDataInterner,
     pub text_run_interner: TextRunDataInterner,
     pub yuv_image_interner: YuvImageDataInterner,
@@ -237,6 +240,7 @@ impl_internet_mut! {
     LineDecoration: line_decoration_interner,
     LinearGradient: linear_grad_interner,
     NormalBorderPrim: normal_border_interner,
+    Picture: picture_interner,
     PrimitiveKeyKind: prim_interner,
     RadialGradient: radial_grad_interner,
     TextRun: text_run_interner,
@@ -438,6 +442,11 @@ impl SceneBuilder {
                     .normal_border_interner
                     .end_frame_and_get_pending_updates();
 
+                let picture_updates = item
+                    .doc_resources
+                    .picture_interner
+                    .end_frame_and_get_pending_updates();
+
                 let radial_grad_updates = item
                     .doc_resources
                     .radial_grad_interner
@@ -462,6 +471,7 @@ impl SceneBuilder {
                         line_decoration_updates,
                         linear_grad_updates,
                         normal_border_updates,
+                        picture_updates,
                         radial_grad_updates,
                         text_run_updates,
                         yuv_image_updates,
@@ -598,6 +608,11 @@ impl SceneBuilder {
                     .normal_border_interner
                     .end_frame_and_get_pending_updates();
 
+                let picture_updates = doc
+                    .resources
+                    .picture_interner
+                    .end_frame_and_get_pending_updates();
+
                 let radial_grad_updates = doc
                     .resources
                     .radial_grad_interner
@@ -622,6 +637,7 @@ impl SceneBuilder {
                         line_decoration_updates,
                         linear_grad_updates,
                         normal_border_updates,
+                        picture_updates,
                         radial_grad_updates,
                         text_run_updates,
                         yuv_image_updates,
