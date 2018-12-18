@@ -1031,10 +1031,6 @@ impl RenderBackend {
                         // We don't want to forward this message to the renderer.
                         return true;
                     }
-                    DebugCommand::EnableGpuCacheDebug(enable) => {
-                        self.gpu_cache.set_debug(enable);
-                        ResultMsg::DebugCommand(option)
-                    }
                     DebugCommand::FetchDocuments => {
                         let json = self.get_docs_for_debugger();
                         ResultMsg::DebugOutput(DebugOutput::FetchDocuments(json))
@@ -1107,6 +1103,7 @@ impl RenderBackend {
                     }
                     DebugCommand::SetFlags(flags) => {
                         self.resource_cache.set_debug_flags(flags);
+                        self.gpu_cache.set_debug_flags(flags);
                         ResultMsg::DebugCommand(option)
                     }
                     _ => ResultMsg::DebugCommand(option),

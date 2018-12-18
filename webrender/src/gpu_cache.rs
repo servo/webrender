@@ -24,7 +24,7 @@
 //! address in the GPU cache of a given resource slot
 //! for this frame.
 
-use api::{PremultipliedColorF, TexelRect};
+use api::{DebugFlags, PremultipliedColorF, TexelRect};
 use api::{VoidPtrToSizeFn};
 use euclid::TypedRect;
 use profiler::GpuCacheProfileCounters;
@@ -541,9 +541,8 @@ pub struct GpuCache {
     /// Number of blocks requested this frame that don't
     /// need to be re-uploaded.
     saved_block_count: usize,
-    /// True if the Renderer expects to receive the metadata
-    /// about GPU blocks with on each update.
-    in_debug: bool,
+    /// The current debug flags for the system.
+    debug_flags: DebugFlags,
 }
 
 impl GpuCache {
@@ -552,7 +551,7 @@ impl GpuCache {
             frame_id: FrameId::INVALID,
             texture: Texture::new(),
             saved_block_count: 0,
-            in_debug: false,
+            debug_flags: DebugFlags::empty(),
         }
     }
 
@@ -653,7 +652,7 @@ impl GpuCache {
         GpuCacheUpdateList {
             frame_id: self.frame_id,
             height: self.texture.height,
-            debug_chunks: if self.in_debug {
+            debug_chunks: if self.debug_flags.contains(DebugFlags::GPU_CACHE_DBG) {
                 self.texture.updates
                     .iter()
                     .map(|update| match *update {
@@ -673,9 +672,9 @@ impl GpuCache {
         }
     }
 
-    /// Enable GPU block debugging.
-    pub fn set_debug(&mut self, enable: bool) {
-        self.in_debug = enable;
+    /// Sets the current debug flags for the system.
+    pub fn set_debug_flags(&mut self, flags: DebugFlags) {
+        self.debug_flags = flags;
     }
 
     /// Get the actual GPU address in the texture for a given slot ID.
