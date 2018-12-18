@@ -234,7 +234,6 @@ pub enum GpuCacheUpdate {
 
 pub struct GpuDebugChunk {
     pub address: GpuCacheAddress,
-    pub fresh: bool,
     pub tag: u8,
     pub size: u16,
 }
@@ -656,9 +655,8 @@ impl GpuCache {
                 self.texture.updates
                     .iter()
                     .map(|update| match *update {
-                        GpuCacheUpdate::Copy { address, block_index, block_count } => GpuDebugChunk {
+                        GpuCacheUpdate::Copy { address, block_index: _, block_count } => GpuDebugChunk {
                             address,
-                            fresh: self.frame_id == self.texture.blocks[block_index].last_access_time,
                             tag: 0, //TODO
                             size: block_count.min(0xFFFF) as u16,
                         }
