@@ -93,6 +93,7 @@ mod gpu_glyph_renderer;
 mod gpu_types;
 mod hit_test;
 mod image;
+mod index_vec;
 mod intern;
 mod internal_types;
 mod picture;
