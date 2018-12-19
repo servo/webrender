@@ -7,6 +7,7 @@ use api::{LayoutPrimitiveInfo, LayoutRect, PipelineId, VoidPtrToSizeFn, WorldPoi
 use clip::{ClipDataStore, ClipNode, ClipItem, ClipStore};
 use clip::{rounded_rectangle_contains_point};
 use clip_scroll_tree::{SpatialNodeIndex, ClipScrollTree};
+use index_vec::IndexVec;
 use internal_types::FastHashMap;
 use prim_store::ScrollNodeAndClipChain;
 use std::os::raw::c_void;
@@ -123,7 +124,7 @@ impl HitTestRegion {
 
 pub struct HitTester {
     runs: Vec<HitTestingRun>,
-    spatial_nodes: Vec<HitTestSpatialNode>,
+    spatial_nodes: IndexVec<SpatialNodeIndex, HitTestSpatialNode>,
     clip_chains: Vec<HitTestClipChainNode>,
     pipeline_root_nodes: FastHashMap<PipelineId, SpatialNodeIndex>,
 }
@@ -137,7 +138,7 @@ impl HitTester {
     ) -> HitTester {
         let mut hit_tester = HitTester {
             runs: runs.clone(),
-            spatial_nodes: Vec::new(),
+            spatial_nodes: IndexVec::new(),
             clip_chains: Vec::new(),
             pipeline_root_nodes: FastHashMap::default(),
         };
@@ -158,9 +159,7 @@ impl HitTester {
         self.spatial_nodes.clear();
         self.clip_chains.clear();
 
-        for (index, node) in clip_scroll_tree.spatial_nodes.iter().enumerate() {
-            let index = SpatialNodeIndex(index);
-
+        for (index, node) in clip_scroll_tree.spatial_nodes.iter_enumerated() {
             // If we haven't already seen a node for this pipeline, record this one as the root
             // node.
             self.pipeline_root_nodes.entry(node.pipeline_id).or_insert(index);
@@ -237,7 +236,7 @@ impl HitTester {
 
         let node = &self.clip_chains[clip_chain_node_id.0 as usize].region;
         let transform = self
-            .spatial_nodes[spatial_node_index.0]
+            .spatial_nodes[spatial_node_index]
             .world_viewport_transform;
         let transformed_point = match transform
             .inverse()
@@ -264,7 +263,7 @@ impl HitTester {
 
         for &HitTestingRun(ref items, ref clip_and_scroll) in self.runs.iter().rev() {
             let spatial_node_index = clip_and_scroll.spatial_node_index;
-            let scroll_node = &self.spatial_nodes[spatial_node_index.0];
+            let scroll_node = &self.spatial_nodes[spatial_node_index];
             let transform = scroll_node.world_content_transform;
             let point_in_layer = match transform
                 .inverse()
@@ -301,7 +300,7 @@ impl HitTester {
         let mut result = HitTestResult::default();
         for &HitTestingRun(ref items, ref clip_and_scroll) in self.runs.iter().rev() {
             let spatial_node_index = clip_and_scroll.spatial_node_index;
-            let scroll_node = &self.spatial_nodes[spatial_node_index.0];
+            let scroll_node = &self.spatial_nodes[spatial_node_index];
             let pipeline_id = scroll_node.pipeline_id;
             match (test.pipeline_id, pipeline_id) {
                 (Some(id), node_id) if node_id != id => continue,
@@ -343,7 +342,7 @@ impl HitTester {
                 // the pipeline of the hit item. If we cannot get a transformed point, we are
                 // in a situation with an uninvertible transformation so we should just skip this
                 // result.
-                let root_node = &self.spatial_nodes[self.pipeline_root_nodes[&pipeline_id].0];
+                let root_node = &self.spatial_nodes[self.pipeline_root_nodes[&pipeline_id]];
                 let point_in_viewport = match root_node.world_viewport_transform
                     .inverse()
                     .and_then(|inverted| inverted.transform_point2d(&point))
@@ -369,7 +368,7 @@ impl HitTester {
     }
 
     pub fn get_pipeline_root(&self, pipeline_id: PipelineId) -> &HitTestSpatialNode {
-        &self.spatial_nodes[self.pipeline_root_nodes[&pipeline_id].0]
+        &self.spatial_nodes[self.pipeline_root_nodes[&pipeline_id]]
     }
 
     // Reports the CPU heap usage of this HitTester struct.

@@ -6,6 +6,7 @@ use api::{ExternalScrollId, LayoutPoint, LayoutRect, LayoutVector2D};
 use api::{PipelineId, ScrollClamping, ScrollNodeState, ScrollLocation};
 use api::{TransformStyle, LayoutSize, LayoutTransform, PropertyBinding, ScrollSensitivity, WorldPoint};
 use gpu_types::TransformPalette;
+use index_vec::{Idx, IndexVec};
 use internal_types::{FastHashMap, FastHashSet};
 use print_tree::{PrintTree, PrintTreePrinter};
 use scene::SceneProperties;
@@ -44,7 +45,20 @@ impl CoordinateSystem {
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct SpatialNodeIndex(pub usize);
+pub struct SpatialNodeIndex(pub u32);
+
+impl Idx for SpatialNodeIndex {
+    fn new(value: usize) -> Self {
+        assert!(value < u32::max_value() as usize);
+        SpatialNodeIndex(value as u32)
+    }
+
+    fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+unsafe impl Send for SpatialNodeIndex {}
 
 pub const ROOT_SPATIAL_NODE_INDEX: SpatialNodeIndex = SpatialNodeIndex(0);
 const TOPMOST_SCROLL_NODE_INDEX: SpatialNodeIndex = SpatialNodeIndex(1);
@@ -55,10 +69,11 @@ impl CoordinateSystemId {
     }
 }
 
+#[derive(Default)]
 pub struct ClipScrollTree {
     /// Nodes which determine the positions (offsets and transforms) for primitives
     /// and clips.
-    pub spatial_nodes: Vec<SpatialNode>,
+    pub spatial_nodes: IndexVec<SpatialNodeIndex, SpatialNode>,
 
     /// A list of transforms that establish new coordinate systems.
     /// Spatial nodes only establish a new coordinate system when
@@ -98,16 +113,6 @@ pub struct TransformUpdateState {
 }
 
 impl ClipScrollTree {
-    pub fn new() -> Self {
-        ClipScrollTree {
-            spatial_nodes: Vec::new(),
-            coord_systems: Vec::new(),
-            pending_scroll_offsets: FastHashMap::default(),
-            pipelines_to_discard: FastHashSet::default(),
-            nodes_to_update: Vec::new(),
-        }
-    }
-
     /// Calculate the relative transform from `ref_node_index`
     /// to `target_node_index`. It's assumed that `ref_node_index`
     /// is a parent of `target_node_index`. This method will
@@ -117,8 +122,8 @@ impl ClipScrollTree {
         from_node_index: SpatialNodeIndex,
         to_node_index: SpatialNodeIndex,
     ) -> Option<LayoutTransform> {
-        let from_node = &self.spatial_nodes[from_node_index.0];
-        let to_node = &self.spatial_nodes[to_node_index.0];
+        let from_node = &self.spatial_nodes[from_node_index];
+        let to_node = &self.spatial_nodes[to_node_index];
 
         let (child, parent, inverse) = if from_node_index.0 > to_node_index.0 {
             (from_node, to_node, false)
@@ -230,7 +235,7 @@ impl ClipScrollTree {
             None => return self.topmost_scroll_node_index(),
         };
 
-        let node = &self.spatial_nodes[index.0];
+        let node = &self.spatial_nodes[index];
         match node.node_type {
             SpatialNodeType::ScrollFrame(state) if state.sensitive_to_input_events() => index,
             _ => self.find_nearest_scrolling_ancestor(node.parent)
@@ -246,7 +251,7 @@ impl ClipScrollTree {
             return false;
         }
         let node_index = self.find_nearest_scrolling_ancestor(node_index);
-        self.spatial_nodes[node_index.0].scroll(scroll_location)
+        self.spatial_nodes[node_index].scroll(scroll_location)
     }
 
     pub fn update_tree(
@@ -280,7 +285,7 @@ impl ClipScrollTree {
         self.nodes_to_update.push((root_node_index, state));
 
         while let Some((node_index, mut state)) = self.nodes_to_update.pop() {
-            let node = match self.spatial_nodes.get_mut(node_index.0) {
+            let node = match self.spatial_nodes.get_mut(node_index) {
                 Some(node) => node,
                 None => continue,
             };
@@ -375,11 +380,11 @@ impl ClipScrollTree {
     }
 
     pub fn add_spatial_node(&mut self, node: SpatialNode) -> SpatialNodeIndex {
-        let index = SpatialNodeIndex(self.spatial_nodes.len());
+        let index = SpatialNodeIndex::new(self.spatial_nodes.len());
 
         // When the parent node is None this means we are adding the root.
         if let Some(parent_index) = node.parent {
-            self.spatial_nodes[parent_index.0].add_child(index);
+            self.spatial_nodes[parent_index].add_child(index);
         }
 
         self.spatial_nodes.push(node);
@@ -395,7 +400,7 @@ impl ClipScrollTree {
         index: SpatialNodeIndex,
         pt: &mut T,
     ) {
-        let node = &self.spatial_nodes[index.0];
+        let node = &self.spatial_nodes[index];
         match node.node_type {
             SpatialNodeType::StickyFrame(ref sticky_frame_info) => {
                 pt.new_level(format!("StickyFrame"));
@@ -450,7 +455,7 @@ impl ClipScrollTree {
         let mut current = spatial_node_index;
 
         while current != ROOT_SPATIAL_NODE_INDEX {
-            let node = &self.spatial_nodes[current.0];
+            let node = &self.spatial_nodes[current];
 
             match node.node_type {
                 SpatialNodeType::ReferenceFrame(ref info) => {
@@ -532,7 +537,7 @@ fn test_pt(
 fn test_cst_simple_translation() {
     // Basic translations only
 
-    let mut cst = ClipScrollTree::new();
+    let mut cst = ClipScrollTree::default();
 
     let root = add_reference_frame(
         &mut cst,
@@ -577,7 +582,7 @@ fn test_cst_simple_translation() {
 fn test_cst_simple_scale() {
     // Basic scale only
 
-    let mut cst = ClipScrollTree::new();
+    let mut cst = ClipScrollTree::default();
 
     let root = add_reference_frame(
         &mut cst,
@@ -624,7 +629,7 @@ fn test_cst_simple_scale() {
 fn test_cst_scale_translation() {
     // Scale + translation
 
-    let mut cst = ClipScrollTree::new();
+    let mut cst = ClipScrollTree::default();
 
     let root = add_reference_frame(
         &mut cst,
@@ -684,7 +689,7 @@ fn test_cst_translation_rotate() {
     // Rotation + translation
     use euclid::Angle;
 
-    let mut cst = ClipScrollTree::new();
+    let mut cst = ClipScrollTree::default();
 
     let root = add_reference_frame(
         &mut cst,

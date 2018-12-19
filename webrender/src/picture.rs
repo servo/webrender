@@ -12,6 +12,7 @@ use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, ClipScrollTree, SpatialNodeIndex
 use device::TextureFilter;
 use euclid::{TypedScale, vec3, TypedRect, TypedPoint2D, TypedSize2D};
 use euclid::approxeq::ApproxEq;
+use index_vec::IndexVec;
 use intern::ItemUid;
 use internal_types::{FastHashMap, PlaneSplitter};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PictureContext};
@@ -183,7 +184,7 @@ impl Tile {
         spatial_node_index: SpatialNodeIndex,
         surface_spatial_node_index: SpatialNodeIndex,
         clip_scroll_tree: &ClipScrollTree,
-        global_transforms: &mut [GlobalTransformInfo],
+        global_transforms: &mut IndexVec<SpatialNodeIndex, GlobalTransformInfo>
     ) {
         // If the primitive is positioned by the same spatial
         // node as the surface, we don't care about it since
@@ -352,7 +353,7 @@ pub struct TileCache {
     pub tile_rect: TileRect,
     /// List of transform keys - used to check if transforms
     /// have changed.
-    pub transforms: Vec<GlobalTransformInfo>,
+    pub transforms: IndexVec<SpatialNodeIndex, GlobalTransformInfo>,
     /// List of opacity bindings, with some extra information
     /// about whether they changed since last frame.
     pub opacity_bindings: FastHashMap<PropertyBindingId, OpacityBindingInfo>,
@@ -387,7 +388,7 @@ impl TileCache {
             old_tiles: FastHashMap::default(),
             tile_rect: TileRect::zero(),
             local_tile_size: LayoutSize::zero(),
-            transforms: Vec::new(),
+            transforms: IndexVec::new(),
             opacity_bindings: FastHashMap::default(),
             needs_update: true,
             dirty_region: None,
@@ -463,14 +464,14 @@ impl TileCache {
         // TODO(gw): We could be smarter here and only rebuild for the primitives
         //           which are affected by transforms that have changed.
         if self.transforms.len() == frame_context.clip_scroll_tree.spatial_nodes.len() {
-            for (i, transform) in self.transforms.iter_mut().enumerate() {
+            for (i, transform) in self.transforms.iter_enumerated_mut() {
                 // If this relative transform was used on the previous frame,
                 // update it and store whether it changed for use during
                 // tile invalidation later.
                 if let Some(ref mut current) = transform.current {
                     let mapping: CoordinateSpaceMapping<LayoutPixel, PicturePixel> = CoordinateSpaceMapping::new(
                         surface_spatial_node_index,
-                        SpatialNodeIndex(i),
+                        i,
                         frame_context.clip_scroll_tree,
                     ).expect("todo: handle invalid mappings");
 
@@ -2107,7 +2108,7 @@ impl PicturePrimitive {
             // No point including this cluster if it can't be transformed
             let spatial_node = &frame_context
                 .clip_scroll_tree
-                .spatial_nodes[cluster.spatial_node_index.0];
+                .spatial_nodes[cluster.spatial_node_index];
             if !spatial_node.invertible {
                 continue;
             }
@@ -2843,12 +2844,12 @@ fn create_raster_mappers(
 // since last frame. If that relative transform hasn't been calculated, then
 // do that now and store it for later use.
 fn get_global_transform_changed(
-    global_transforms: &mut [GlobalTransformInfo],
+    global_transforms: &mut IndexVec<SpatialNodeIndex, GlobalTransformInfo>,
     spatial_node_index: SpatialNodeIndex,
     clip_scroll_tree: &ClipScrollTree,
     surface_spatial_node_index: SpatialNodeIndex,
 ) -> bool {
-    let transform = &mut global_transforms[spatial_node_index.0];
+    let transform = &mut global_transforms[spatial_node_index];
 
     if transform.current.is_none() {
         let mapping: CoordinateSpaceMapping<LayoutPixel, PicturePixel> = CoordinateSpaceMapping::new(

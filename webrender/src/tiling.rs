@@ -7,13 +7,14 @@ use api::{DocumentLayer, FilterOp, ImageFormat};
 use api::{MixBlendMode, PipelineId, DeviceRect, LayoutSize};
 use batch::{AlphaBatchBuilder, AlphaBatchContainer, ClipBatcher, resolve_image};
 use clip::ClipStore;
-use clip_scroll_tree::{ClipScrollTree};
+use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use device::{Texture};
 #[cfg(feature = "pathfinder")]
 use euclid::{TypedPoint2D, TypedVector2D};
 use gpu_cache::{GpuCache};
 use gpu_types::{BorderInstance, BlurDirection, BlurInstance, PrimitiveHeaders, ScalingInstance};
 use gpu_types::{TransformData, TransformPalette, ZBufferIdGenerator};
+use index_vec::IndexVec;
 use internal_types::{CacheTextureId, FastHashMap, SavedTargetIndex, TextureSource};
 #[cfg(feature = "pathfinder")]
 use pathfinder_partitioner::mesh::Mesh;
@@ -1096,7 +1097,7 @@ pub struct Frame {
     #[cfg_attr(any(feature = "capture", feature = "replay"), serde(default = "FrameProfileCounters::new", skip))]
     pub profile_counters: FrameProfileCounters,
 
-    pub transform_palette: Vec<TransformData>,
+    pub transform_palette: IndexVec<SpatialNodeIndex, TransformData>,
     pub render_tasks: RenderTaskTree,
     pub prim_headers: PrimitiveHeaders,
 

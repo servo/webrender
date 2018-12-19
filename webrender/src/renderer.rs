@@ -4020,7 +4020,7 @@ impl Renderer {
 
         self.transforms_texture.update(
             &mut self.device,
-            &mut frame.transform_palette,
+            &mut frame.transform_palette.raw,
         );
         self.device.bind_texture(
             TextureSampler::TransformPalette,

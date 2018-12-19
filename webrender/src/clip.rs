@@ -1372,8 +1372,8 @@ fn add_clip_node_to_current_chain(
     clip_scroll_tree: &ClipScrollTree,
 ) -> bool {
     let clip_node = &clip_data_store[handle];
-    let clip_spatial_node = &clip_scroll_tree.spatial_nodes[clip_spatial_node_index.0];
-    let ref_spatial_node = &clip_scroll_tree.spatial_nodes[spatial_node_index.0];
+    let clip_spatial_node = &clip_scroll_tree.spatial_nodes[clip_spatial_node_index];
+    let ref_spatial_node = &clip_scroll_tree.spatial_nodes[spatial_node_index];
 
     // Determine the most efficient way to convert between coordinate
     // systems of the primitive and clip node.

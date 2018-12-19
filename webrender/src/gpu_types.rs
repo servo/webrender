@@ -9,6 +9,7 @@ use api::{
 };
 use clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
 use gpu_cache::{GpuCacheAddress, GpuDataRequest};
+use index_vec::{IndexVec, Idx};
 use internal_types::FastHashMap;
 use prim_store::EdgeAaSegmentMask;
 use render_task::RenderTaskAddress;
@@ -432,24 +433,17 @@ struct RelativeTransformKey {
 //           the future, the transform palette will support
 //           specifying a coordinate system that the transform
 //           should be relative to.
+#[derive(Default)]
 pub struct TransformPalette {
-    pub transforms: Vec<TransformData>,
-    metadata: Vec<TransformMetadata>,
-    map: FastHashMap<RelativeTransformKey, usize>,
+    pub transforms: IndexVec<SpatialNodeIndex, TransformData>,
+    metadata: IndexVec<SpatialNodeIndex, TransformMetadata>,
+    map: FastHashMap<RelativeTransformKey, SpatialNodeIndex>,
 }
 
 impl TransformPalette {
-    pub fn new() -> Self {
-        TransformPalette {
-            transforms: Vec::new(),
-            metadata: Vec::new(),
-            map: FastHashMap::default(),
-        }
-    }
-
     pub fn allocate(&mut self, count: usize) {
-        self.transforms = vec![TransformData::invalid(); count];
-        self.metadata = vec![TransformMetadata::invalid(); count];
+        self.transforms = IndexVec::from_elem_n(TransformData::invalid(), count);
+        self.metadata = IndexVec::from_elem_n(TransformMetadata::invalid(), count);
     }
 
     pub fn set_world_transform(
@@ -472,11 +466,11 @@ impl TransformPalette {
         from_index: SpatialNodeIndex,
         to_index: SpatialNodeIndex,
         clip_scroll_tree: &ClipScrollTree,
-    ) -> usize {
+    ) -> SpatialNodeIndex {
         if to_index == ROOT_SPATIAL_NODE_INDEX {
-            from_index.0
+            from_index
         } else if from_index == to_index {
-            0
+            SpatialNodeIndex::new(0)
         } else {
             let key = RelativeTransformKey {
                 from_index,
@@ -511,7 +505,7 @@ impl TransformPalette {
         &self,
         index: SpatialNodeIndex,
     ) -> LayoutToWorldTransform {
-        self.transforms[index.0]
+        self.transforms[index]
             .transform
             .with_destination::<WorldPixel>()
     }
@@ -520,7 +514,7 @@ impl TransformPalette {
         &self,
         index: SpatialNodeIndex,
     ) -> WorldToLayoutTransform {
-        self.transforms[index.0]
+        self.transforms[index]
             .inv_transform
             .with_source::<WorldPixel>()
     }
@@ -542,7 +536,7 @@ impl TransformPalette {
         );
         let transform_kind = self.metadata[index].transform_kind as u32;
         TransformPaletteId(
-            (index as u32) |
+            (index.0) |
             (transform_kind << 24)
         )
     }
@@ -619,12 +613,12 @@ impl ImageSource {
 // Set the local -> world transform for a given spatial
 // node in the transform palette.
 fn register_transform(
-    metadatas: &mut Vec<TransformMetadata>,
-    transforms: &mut Vec<TransformData>,
+    metadatas: &mut IndexVec<SpatialNodeIndex, TransformMetadata>,
+    transforms: &mut IndexVec<SpatialNodeIndex, TransformData>,
     from_index: SpatialNodeIndex,
     to_index: SpatialNodeIndex,
     transform: LayoutToPictureTransform,
-) -> usize {
+) -> SpatialNodeIndex {
     // TODO(gw): This shouldn't ever happen - should be eliminated before
     //           we get an uninvertible transform here. But maybe do
     //           some investigation on if this ever happens?
@@ -645,14 +639,13 @@ fn register_transform(
     };
 
     if to_index == ROOT_SPATIAL_NODE_INDEX {
-        let index = from_index.0 as usize;
-        metadatas[index] = metadata;
-        transforms[index] = data;
-        index
+        metadatas[from_index] = metadata;
+        transforms[from_index] = data;
+        from_index
     } else {
-        let index = transforms.len();
-        metadatas.push(metadata);
-        transforms.push(data);
+        let index = metadatas.push(metadata);
+        let _index2 = transforms.push(data);
+        assert!(index == _index2);
         index
     }
 }

@@ -390,7 +390,7 @@ impl SceneBuilder {
             let mut doc_resource_updates = None;
 
             if item.scene.has_root_pipeline() {
-                let mut clip_scroll_tree = ClipScrollTree::new();
+                let mut clip_scroll_tree = ClipScrollTree::default();
                 let mut new_scene = Scene::new();
 
                 let frame_builder = DisplayListFlattener::create_frame_builder(
@@ -554,7 +554,7 @@ impl SceneBuilder {
         let mut doc_resource_updates = None;
         if scene.has_root_pipeline() {
             if let Some(request) = txn.request_scene_build.take() {
-                let mut clip_scroll_tree = ClipScrollTree::new();
+                let mut clip_scroll_tree = ClipScrollTree::default();
                 let mut new_scene = Scene::new();
 
                 let frame_builder = DisplayListFlattener::create_frame_builder(

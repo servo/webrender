@@ -390,7 +390,7 @@ impl<'a> DisplayListFlattener<'a> {
         let mut node_index = spatial_node_index;
 
         while node_index != ROOT_SPATIAL_NODE_INDEX {
-            let node = &self.clip_scroll_tree.spatial_nodes[node_index.0];
+            let node = &self.clip_scroll_tree.spatial_nodes[node_index];
             match node.node_type {
                 SpatialNodeType::ReferenceFrame(..) |
                 SpatialNodeType::StickyFrame(..) => {

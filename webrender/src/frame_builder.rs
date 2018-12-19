@@ -401,7 +401,7 @@ impl FrameBuilder {
         resource_cache.begin_frame(stamp);
         gpu_cache.begin_frame(stamp.frame_id());
 
-        let mut transform_palette = TransformPalette::new();
+        let mut transform_palette = TransformPalette::default();
         clip_scroll_tree.update_tree(
             pan,
             scene_properties,

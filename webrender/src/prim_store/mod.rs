@@ -152,8 +152,8 @@ impl<F, T> CoordinateSpaceMapping<F, T> {
         clip_scroll_tree: &ClipScrollTree,
     ) -> Option<Self> {
         let spatial_nodes = &clip_scroll_tree.spatial_nodes;
-        let ref_spatial_node = &spatial_nodes[ref_spatial_node_index.0];
-        let target_spatial_node = &spatial_nodes[target_node_index.0];
+        let ref_spatial_node = &spatial_nodes[ref_spatial_node_index];
+        let target_spatial_node = &spatial_nodes[target_node_index];
 
         if ref_spatial_node_index == target_node_index {
             Some(CoordinateSpaceMapping::Local)
@@ -2217,7 +2217,7 @@ impl PrimitiveStore {
 
             let spatial_node = &frame_context
                 .clip_scroll_tree
-                .spatial_nodes[prim_instance.spatial_node_index.0];
+                .spatial_nodes[prim_instance.spatial_node_index];
 
             // TODO(gw): Although constructing these is cheap, they are often
             //           the same for many consecutive primitives, so it may
@@ -3336,7 +3336,7 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<PrimitiveInstance>(), 120, "PrimitiveInstance size changed");
+    assert_eq!(mem::size_of::<PrimitiveInstance>(), 112, "PrimitiveInstance size changed");
     assert_eq!(mem::size_of::<PrimitiveInstanceKind>(), 40, "PrimitiveInstanceKind size changed");
     assert_eq!(mem::size_of::<PrimitiveTemplate>(), 80, "PrimitiveTemplate size changed");
     assert_eq!(mem::size_of::<PrimitiveTemplateKind>(), 20, "PrimitiveTemplateKind size changed");
