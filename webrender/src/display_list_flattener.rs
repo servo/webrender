@@ -423,7 +423,6 @@ impl<'a> DisplayListFlattener<'a> {
         frame_size: &LayoutSize,
     ) {
         let pipeline_id = pipeline.pipeline_id;
-        self.id_to_index_mapper.add_clip_chain(ClipId::root(pipeline_id), ClipChainId::NONE, 0);
 
         self.push_stacking_context(
             pipeline_id,
@@ -645,7 +644,7 @@ impl<'a> DisplayListFlattener<'a> {
         };
 
         let clip_chain_index = self.add_clip_node(
-            info.clip_id,
+            ClipId::root(iframe_pipeline_id),
             item.space_and_clip_info(),
             ClipRegion::create_for_clip_node_with_local_clip(
                 item.clip_rect(),
@@ -695,10 +694,10 @@ impl<'a> DisplayListFlattener<'a> {
         let space_and_clip = item.space_and_clip_info();
         let clip_and_scroll = ScrollNodeAndClipChain::new(
             self.id_to_index_mapper.get_spatial_node_index(space_and_clip.spatial_id),
-            if space_and_clip.clip_id.is_valid() && !space_and_clip.clip_id.is_root() {
+            if space_and_clip.clip_id.is_valid() {
                 self.id_to_index_mapper.get_clip_chain_id(space_and_clip.clip_id)
             } else {
-                ClipChainId::NONE
+                ClipChainId::INVALID
             },
         );
         let prim_info = item.get_layout_primitive_info(&reference_frame_relative_offset);
@@ -830,6 +829,16 @@ impl<'a> DisplayListFlattener<'a> {
                 );
             }
             SpecificDisplayItem::PushStackingContext(ref info) => {
+                // Special handling of clip ids here: for Stacking Context it means
+                // forcing the intermediate surface and applying the clips on top.
+                // We only do this if the `ClipId` is non-root, otherwise we assume
+                // all the items to inherit the clips anyway.
+                let mut clip_and_scroll = clip_and_scroll;
+                if space_and_clip.clip_id.is_root() {
+                    debug_assert_eq!(space_and_clip.clip_id, ClipId::root(pipeline_id));
+                    clip_and_scroll.clip_chain_id = ClipChainId::NONE;
+                }
+
                 let mut subtraversal = item.sub_iter();
                 self.flatten_stacking_context(
                     &mut subtraversal,
@@ -1592,6 +1601,8 @@ impl<'a> DisplayListFlattener<'a> {
             register_prim_chase_id(id);
         }
 
+        self.id_to_index_mapper.add_clip_chain(ClipId::root(pipeline_id), ClipChainId::NONE, 0);
+
         let spatial_node_index = self.push_reference_frame(
             SpatialId::root_reference_frame(pipeline_id),
             None,
@@ -1627,11 +1638,7 @@ impl<'a> DisplayListFlattener<'a> {
         // and the positioning node associated with those clip sources.
 
         // Map from parent ClipId to existing clip-chain.
-        let mut parent_clip_chain_index = if space_and_clip.clip_id.is_root() {
-            ClipChainId::NONE
-        } else {
-            self.id_to_index_mapper.get_clip_chain_id(space_and_clip.clip_id)
-        };
+        let mut parent_clip_chain_index = self.id_to_index_mapper.get_clip_chain_id(space_and_clip.clip_id);
         // Map the ClipId for the positioning node to a spatial node index.
         let spatial_node = self.id_to_index_mapper.get_spatial_node_index(space_and_clip.spatial_id);
 

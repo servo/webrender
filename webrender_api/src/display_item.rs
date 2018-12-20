@@ -642,7 +642,6 @@ impl FilterOp {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct IframeDisplayItem {
-    pub clip_id: ClipId,
     pub pipeline_id: PipelineId,
     pub ignore_missing_pipeline: bool,
 }

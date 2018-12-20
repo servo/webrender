@@ -1455,16 +1455,13 @@ impl DisplayListBuilder {
         layout: &LayoutPrimitiveInfo,
         space_and_clip: &SpaceAndClipInfo,
         pipeline_id: PipelineId,
-        ignore_missing_pipeline: bool,
-    ) -> ClipId {
-        let id = self.generate_clip_index();
+        ignore_missing_pipeline: bool
+    ) {
         let item = SpecificDisplayItem::Iframe(IframeDisplayItem {
-            clip_id: id,
             pipeline_id,
             ignore_missing_pipeline,
         });
         self.push_item(&item, layout, space_and_clip);
-        id
     }
 
     pub fn push_shadow(
