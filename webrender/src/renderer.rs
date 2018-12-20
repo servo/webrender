@@ -1577,8 +1577,17 @@ pub struct Renderer {
     /// copy the WR output to.
     output_image_handler: Option<Box<OutputImageHandler>>,
 
-    /// Optional function pointer for memory reporting.
+    /// Optional function pointer for measuring memory used by a given
+    /// heap-allocated pointer.
     size_of_op: Option<VoidPtrToSizeFn>,
+
+    /// Optional function pointer for measuring memory used by a given
+    /// heap-allocated region of memory. Unlike the above, pointers passed
+    /// to this function do not need to point to the start of the allocation,
+    /// and can be anywhere in the allocated region. This is useful for measuring
+    /// structures like hashmaps that don't expose pointers to the start of the
+    /// allocation, but do expose pointers to elements within the allocation.
+    _enclosing_size_of_op: Option<VoidPtrToSizeFn>,
 
     // Currently allocated FBOs for output frames.
     output_targets: FastHashMap<u32, FrameOutput>,
@@ -1870,6 +1879,7 @@ impl Renderer {
             });
         let sampler = options.sampler;
         let size_of_op = options.size_of_op;
+        let enclosing_size_of_op = options.enclosing_size_of_op;
         let namespace_alloc_by_client = options.namespace_alloc_by_client;
 
         let blob_image_handler = options.blob_image_handler.take();
@@ -1885,7 +1895,10 @@ impl Renderer {
         let (scene_builder, scene_tx, scene_rx) = SceneBuilder::new(
             config,
             api_tx.clone(),
-            scene_builder_hooks);
+            scene_builder_hooks,
+            size_of_op,
+            enclosing_size_of_op,
+        );
         thread::Builder::new().name(scene_thread_name.clone()).spawn(move || {
             register_thread_with_profiler(scene_thread_name.clone());
             if let Some(ref thread_listener) = *thread_listener_for_scene_builder {
@@ -2018,6 +2031,7 @@ impl Renderer {
             external_image_handler: None,
             output_image_handler: None,
             size_of_op: options.size_of_op,
+            _enclosing_size_of_op: options.enclosing_size_of_op,
             output_targets: FastHashMap::default(),
             cpu_profiles: VecDeque::new(),
             gpu_profiles: VecDeque::new(),
@@ -2370,33 +2384,6 @@ impl Renderer {
 
     fn handle_debug_command(&mut self, command: DebugCommand) {
         match command {
-            DebugCommand::EnableProfiler(enable) => {
-                self.set_debug_flag(DebugFlags::PROFILER_DBG, enable);
-            }
-            DebugCommand::EnableTextureCacheDebug(enable) => {
-                self.set_debug_flag(DebugFlags::TEXTURE_CACHE_DBG, enable);
-            }
-            DebugCommand::EnableRenderTargetDebug(enable) => {
-                self.set_debug_flag(DebugFlags::RENDER_TARGET_DBG, enable);
-            }
-            DebugCommand::EnableGpuCacheDebug(enable) => {
-                self.set_debug_flag(DebugFlags::GPU_CACHE_DBG, enable);
-            }
-            DebugCommand::EnableGpuTimeQueries(enable) => {
-                self.set_debug_flag(DebugFlags::GPU_TIME_QUERIES, enable);
-            }
-            DebugCommand::EnableGpuSampleQueries(enable) => {
-                self.set_debug_flag(DebugFlags::GPU_SAMPLE_QUERIES, enable);
-            }
-            DebugCommand::EnableNewFrameIndicator(enable) => {
-                self.set_debug_flag(DebugFlags::NEW_FRAME_INDICATOR, enable);
-            }
-            DebugCommand::EnableNewSceneIndicator(enable) => {
-                self.set_debug_flag(DebugFlags::NEW_SCENE_INDICATOR, enable);
-            }
-            DebugCommand::EnableShowOverdraw(enable) => {
-                self.set_debug_flag(DebugFlags::SHOW_OVERDRAW, enable);
-            }
             DebugCommand::EnableDualSourceBlending(_) => {
                 panic!("Should be handled by render backend");
             }
@@ -4243,18 +4230,6 @@ impl Renderer {
         self.debug_flags = flags;
     }
 
-    pub fn set_debug_flag(&mut self, flag: DebugFlags, enabled: bool) {
-        let mut new_flags = self.debug_flags;
-        new_flags.set(flag, enabled);
-        self.set_debug_flags(new_flags);
-    }
-
-    pub fn toggle_debug_flags(&mut self, toggle: DebugFlags) {
-        let mut new_flags = self.debug_flags;
-        new_flags.toggle(toggle);
-        self.set_debug_flags(new_flags);
-    }
-
     pub fn save_cpu_profile(&self, filename: &str) {
         write_profile(filename);
     }
@@ -4773,6 +4748,7 @@ pub struct RendererOptions {
     pub recorder: Option<Box<ApiRecordingReceiver>>,
     pub thread_listener: Option<Box<ThreadListener + Send + Sync>>,
     pub size_of_op: Option<VoidPtrToSizeFn>,
+    pub enclosing_size_of_op: Option<VoidPtrToSizeFn>,
     pub cached_programs: Option<Rc<ProgramCache>>,
     pub debug_flags: DebugFlags,
     pub renderer_id: Option<u64>,
@@ -4810,6 +4786,7 @@ impl Default for RendererOptions {
             recorder: None,
             thread_listener: None,
             size_of_op: None,
+            enclosing_size_of_op: None,
             renderer_id: None,
             cached_programs: None,
             disable_dual_source_blending: false,
