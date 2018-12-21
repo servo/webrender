@@ -1298,7 +1298,8 @@ impl DisplayListBuilder {
     pub fn push_stacking_context(
         &mut self,
         layout: &LayoutPrimitiveInfo,
-        space_and_clip: &SpaceAndClipInfo,
+        spatial_id: SpatialId,
+        clip_id: Option<ClipId>,
         transform_style: TransformStyle,
         mix_blend_mode: MixBlendMode,
         filters: &[FilterOp],
@@ -1308,11 +1309,15 @@ impl DisplayListBuilder {
             stacking_context: StackingContext {
                 transform_style,
                 mix_blend_mode,
+                clip_id,
                 raster_space,
             },
         });
 
-        self.push_item(&item, layout, space_and_clip);
+        self.push_item(&item, layout, &SpaceAndClipInfo {
+            spatial_id,
+            clip_id: ClipId::invalid(),
+        });
         self.push_iter(filters);
     }
 

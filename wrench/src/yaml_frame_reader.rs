@@ -1753,17 +1753,14 @@ impl YamlFrameReader {
         }
 
         let filters = yaml["filters"].as_vec_filter_op().unwrap_or(vec![]);
-        let root_clip_id = ClipId::root(dl.pipeline_id);
 
         info.rect = bounds;
         info.clip_rect = bounds;
 
         dl.push_stacking_context(
             &info,
-            &SpaceAndClipInfo {
-                spatial_id: *self.spatial_id_stack.last().unwrap(),
-                clip_id: clip_node_id.unwrap_or(root_clip_id),
-            },
+            *self.spatial_id_stack.last().unwrap(),
+            clip_node_id,
             transform_style,
             mix_blend_mode,
             &filters,

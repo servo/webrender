@@ -430,7 +430,8 @@ impl<'a> DisplayListFlattener<'a> {
             TransformStyle::Flat,
             true,
             true,
-            &ScrollNodeAndClipChain::new(ROOT_SPATIAL_NODE_INDEX, ClipChainId::NONE),
+            ROOT_SPATIAL_NODE_INDEX,
+            ClipChainId::NONE,
             RasterSpace::Screen,
         );
 
@@ -587,9 +588,9 @@ impl<'a> DisplayListFlattener<'a> {
         traversal: &mut BuiltDisplayListIter<'a>,
         pipeline_id: PipelineId,
         stacking_context: &StackingContext,
+        spatial_node_index: SpatialNodeIndex,
         origin: LayoutPoint,
         filters: ItemRange<FilterOp>,
-        clip_and_scroll: &ScrollNodeAndClipChain,
         reference_frame_relative_offset: &LayoutVector2D,
         is_backface_visible: bool,
     ) {
@@ -608,13 +609,19 @@ impl<'a> DisplayListFlattener<'a> {
             )
         };
 
+        let clip_chain_id = match stacking_context.clip_id {
+            Some(clip_id) => self.id_to_index_mapper.get_clip_chain_id(clip_id),
+            None => ClipChainId::NONE,
+        };
+
         self.push_stacking_context(
             pipeline_id,
             composition_operations,
             stacking_context.transform_style,
             is_backface_visible,
             false,
-            clip_and_scroll,
+            spatial_node_index,
+            clip_chain_id,
             stacking_context.raster_space,
         );
 
@@ -829,24 +836,14 @@ impl<'a> DisplayListFlattener<'a> {
                 );
             }
             SpecificDisplayItem::PushStackingContext(ref info) => {
-                // Special handling of clip ids here: for Stacking Context it means
-                // forcing the intermediate surface and applying the clips on top.
-                // We only do this if the `ClipId` is non-root, otherwise we assume
-                // all the items to inherit the clips anyway.
-                let mut clip_and_scroll = clip_and_scroll;
-                if space_and_clip.clip_id.is_root() {
-                    debug_assert_eq!(space_and_clip.clip_id, ClipId::root(pipeline_id));
-                    clip_and_scroll.clip_chain_id = ClipChainId::NONE;
-                }
-
                 let mut subtraversal = item.sub_iter();
                 self.flatten_stacking_context(
                     &mut subtraversal,
                     pipeline_id,
                     &info.stacking_context,
+                    clip_and_scroll.spatial_node_index,
                     item.rect().origin,
                     item.filters(),
-                    &clip_and_scroll,
                     &reference_frame_relative_offset,
                     prim_info.is_backface_visible,
                 );
@@ -1208,7 +1205,8 @@ impl<'a> DisplayListFlattener<'a> {
         transform_style: TransformStyle,
         is_backface_visible: bool,
         is_pipeline_root: bool,
-        clip_and_scroll: &ScrollNodeAndClipChain,
+        spatial_node_index: SpatialNodeIndex,
+        clip_chain_id: ClipChainId,
         requested_raster_space: RasterSpace,
     ) {
         // Check if this stacking context is the root of a pipeline, and the caller
@@ -1277,7 +1275,7 @@ impl<'a> DisplayListFlattener<'a> {
         // has a clip node. In the future, we may decide during
         // prepare step to skip the intermediate surface if the
         // clip node doesn't affect the stacking context rect.
-        let should_isolate = clip_and_scroll.clip_chain_id != ClipChainId::NONE;
+        let should_isolate = clip_chain_id != ClipChainId::NONE;
 
         // Push the SC onto the stack, so we know how to handle things in
         // pop_stacking_context.
@@ -1286,8 +1284,8 @@ impl<'a> DisplayListFlattener<'a> {
             pipeline_id,
             is_backface_visible,
             requested_raster_space,
-            spatial_node_index: clip_and_scroll.spatial_node_index,
-            clip_chain_id: clip_and_scroll.clip_chain_id,
+            spatial_node_index,
+            clip_chain_id,
             frame_output_pipeline_id,
             composite_ops,
             should_isolate,

@@ -40,7 +40,8 @@ impl Example for App {
         let info = LayoutPrimitiveInfo::new(sub_bounds);
         sub_builder.push_stacking_context(
             &info,
-            &space_and_clip,
+            space_and_clip.spatial_id,
+            None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
             &[],
@@ -73,7 +74,8 @@ impl Example for App {
         let info = LayoutPrimitiveInfo::new(sub_bounds);
         builder.push_stacking_context(
             &info,
-            &space_and_clip,
+            space_and_clip.spatial_id,
+            None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
             &[],

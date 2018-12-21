@@ -35,7 +35,8 @@ impl Example for App {
 
         builder.push_stacking_context(
             &info,
-            &space_and_clip,
+            space_and_clip.spatial_id,
+            None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
             &[],

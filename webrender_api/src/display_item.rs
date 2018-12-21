@@ -541,6 +541,7 @@ pub struct PushStackingContextDisplayItem {
 pub struct StackingContext {
     pub transform_style: TransformStyle,
     pub mix_blend_mode: MixBlendMode,
+    pub clip_id: Option<ClipId>,
     pub raster_space: RasterSpace,
 } // IMPLICIT: filters: Vec<FilterOp>
 

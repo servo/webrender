@@ -55,20 +55,20 @@ impl App {
             None,
         );
 
-        let space_and_clip = SpaceAndClipInfo {
-            spatial_id,
-            clip_id: ClipId::root(pipeline_id),
-        };
-
         builder.push_stacking_context(
             &LayoutPrimitiveInfo::new(LayoutRect::zero()),
-            &space_and_clip,
+            spatial_id,
+            None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
             &filters,
             RasterSpace::Screen,
         );
 
+        let space_and_clip = SpaceAndClipInfo {
+            spatial_id,
+            clip_id: ClipId::root(pipeline_id),
+        };
         let clip_bounds = LayoutRect::new(LayoutPoint::zero(), bounds.size);
         let complex_clip = ComplexClipRegion {
             rect: clip_bounds,

@@ -224,7 +224,8 @@ impl Example for App {
 
         builder.push_stacking_context(
             &api::LayoutPrimitiveInfo::new(bounds),
-            &space_and_clip,
+            space_and_clip.spatial_id,
+            None,
             api::TransformStyle::Flat,
             api::MixBlendMode::Normal,
             &[],

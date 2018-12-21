@@ -196,7 +196,8 @@ impl Example for App {
 
         builder.push_stacking_context(
             &info,
-            &root_space_and_clip,
+            root_space_and_clip.spatial_id,
+            None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
             &[],

@@ -36,7 +36,8 @@ impl Example for App {
         let root_space_and_clip = SpaceAndClipInfo::root_scroll(pipeline_id);
         builder.push_stacking_context(
             &info,
-            &root_space_and_clip,
+            root_space_and_clip.spatial_id,
+            None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
             &[],
@@ -49,7 +50,8 @@ impl Example for App {
             let scrollbox = (0, 0).to(300, 400);
             builder.push_stacking_context(
                 &LayoutPrimitiveInfo::new((10, 10).by(0, 0)),
-                &root_space_and_clip,
+                root_space_and_clip.spatial_id,
+                None,
                 TransformStyle::Flat,
                 MixBlendMode::Normal,
                 &[],

@@ -114,7 +114,8 @@ impl Example for App {
 
             builder.push_stacking_context(
                 &LayoutPrimitiveInfo::new(doc.content_rect),
-                &space_and_clip,
+                space_and_clip.spatial_id,
+                None,
                 TransformStyle::Flat,
                 MixBlendMode::Normal,
                 &[],
