@@ -435,6 +435,10 @@ impl FrameBuilder {
                                                        &mut render_tasks,
                                                        texture_cache_profile);
 
+        // TODO(emilio): Now that cached render tasks know how to create these
+        // extra passes, are the special render passes needed? i.e., does
+        // anything depend on the alpha -> color ordering? If not, seems we
+        // could just ditch them.
         let mut passes = vec![
             special_render_passes.alpha_glyph_pass,
             special_render_passes.color_glyph_pass,
