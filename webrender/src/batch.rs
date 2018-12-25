@@ -1015,8 +1015,8 @@ impl AlphaBatchBuilder {
                                 //           setting a scissor rect for the dirty rect above.
                                 let tile_zid = z_generator.next();
 
-                                for i in &tile_cache.tiles_to_draw {
-                                    let tile = &tile_cache.tiles[*i as usize];
+                                for tile_index in &tile_cache.tiles_to_draw {
+                                    let tile = &tile_cache.tiles[tile_index.0];
 
                                     // Get the local rect of the tile.
                                     let tile_rect = tile.local_rect;
