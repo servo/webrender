@@ -73,6 +73,7 @@ pub struct TileCoordinate;
 // Geometry types for tile coordinates.
 pub type TileOffset = TypedPoint2D<i32, TileCoordinate>;
 pub type TileSize = TypedSize2D<i32, TileCoordinate>;
+pub struct TileIndex(pub usize);
 
 /// The size in device pixels of a cached tile. The currently chosen
 /// size is arbitrary. We should do some profiling to find the best
@@ -218,7 +219,7 @@ pub struct TileCache {
     /// A helper struct to map local rects into world coords.
     map_local_to_world: SpaceMapper<LayoutPixel, WorldPixel>,
     /// A list of tiles to draw during batching.
-    pub tiles_to_draw: Vec<usize>,
+    pub tiles_to_draw: Vec<TileIndex>,
     /// List of transform keys - used to check if transforms
     /// have changed.
     transforms: Vec<GlobalTransformInfo>,
@@ -485,10 +486,7 @@ impl TileCache {
                         px / frame_context.device_pixel_scale.0,
                         py / frame_context.device_pixel_scale.0,
                     ),
-                    WorldSize::new(
-                        TILE_SIZE_WIDTH as f32 / frame_context.device_pixel_scale.0,
-                        TILE_SIZE_HEIGHT as f32 / frame_context.device_pixel_scale.0,
-                    ),
+                    self.world_tile_size,
                 );
 
                 tile.local_rect = world_mapper
@@ -512,7 +510,7 @@ impl TileCache {
         // Do tile invalidation for any dependencies that we know now.
         for tile in &mut self.tiles {
             // Invalidate the tile if any images have changed
-            for image_key in &tile.descriptor.image_keys.items {
+            for image_key in tile.descriptor.image_keys.items() {
                 if resource_cache.is_image_dirty(*image_key) {
                     tile.is_valid = false;
                     break;
@@ -520,7 +518,7 @@ impl TileCache {
             }
 
             // Invalidate the tile if any opacity bindings changed.
-            for id in &tile.descriptor.opacity_bindings.items {
+            for id in tile.descriptor.opacity_bindings.items() {
                 let changed = match self.opacity_bindings.get(id) {
                     Some(info) => info.changed,
                     None => true,
@@ -539,6 +537,7 @@ impl TileCache {
         }
     }
 
+    /// Update the dependencies for each tile for a given primitive instance.
     pub fn update_prim_dependencies(
         &mut self,
         prim_instance: &PrimitiveInstance,
@@ -824,7 +823,7 @@ impl TileCache {
                 // on screen. However, if there are no primitives there is
                 // no need to draw it.
                 if !tile.descriptor.prims.is_empty() {
-                    self.tiles_to_draw.push(i);
+                    self.tiles_to_draw.push(TileIndex(i));
                 }
             } else {
                 // Add the tile rect to the dirty rect.

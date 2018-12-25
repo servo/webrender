@@ -893,7 +893,7 @@ pub fn recycle_vec<T>(vec: &mut Vec<T>) {
 #[derive(Debug)]
 pub struct ComparableVec<T> {
     /// The items to be stored and compared
-    pub items: Vec<T>,
+    items: Vec<T>,
     /// The current index to add the next item to
     current_index: usize,
     /// The previous length of the array
@@ -913,9 +913,15 @@ impl<T> ComparableVec<T> where T: PartialEq + Clone + fmt::Debug {
         }
     }
 
+    /// Retrieve a reference to the current items array
+    pub fn items(&self) -> &[T] {
+        &self.items[.. self.current_index]
+    }
+
     /// Clear the contents of the vec, ready for adding new items.
     pub fn reset(&mut self) {
-        self.prev_len = self.items.len();
+        self.items.truncate(self.current_index);
+        self.prev_len = self.current_index;
         self.current_index = 0;
         self.is_same = true;
     }
@@ -968,6 +974,6 @@ impl<T> ComparableVec<T> where T: PartialEq + Clone + fmt::Debug {
 
     /// Return true if the contents of the vec are the same as the previous time.
     pub fn is_valid(&self) -> bool {
-        self.is_same && self.prev_len == self.items.len()
+        self.is_same && self.prev_len == self.current_index
     }
 }

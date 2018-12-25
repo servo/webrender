@@ -1602,6 +1602,8 @@ pub struct Renderer {
     /// Notification requests to be fulfilled after rendering.
     notifications: Vec<NotificationRequest>,
 
+    framebuffer_size: Option<DeviceIntSize>,
+
     #[cfg(feature = "capture")]
     read_fbo: FBOId,
     #[cfg(feature = "replay")]
@@ -2048,6 +2050,7 @@ impl Renderer {
             #[cfg(feature = "replay")]
             owned_external_images: FastHashMap::default(),
             notifications: Vec::new(),
+            framebuffer_size: None,
         };
 
         renderer.set_debug_flags(options.debug_flags);
@@ -2116,7 +2119,8 @@ impl Renderer {
                             // (in order to update the texture cache), issue
                             // a render just to off-screen targets.
                             if self.active_documents[pos].1.frame.must_be_drawn() {
-                                self.render_impl(None).ok();
+                                let framebuffer_size = self.framebuffer_size;
+                                self.render_impl(framebuffer_size).ok();
                             }
                             self.active_documents[pos].1 = doc;
                         }
@@ -2483,6 +2487,8 @@ impl Renderer {
         &mut self,
         framebuffer_size: DeviceIntSize,
     ) -> Result<RendererStats, Vec<RendererError>> {
+        self.framebuffer_size = Some(framebuffer_size);
+
         let result = self.render_impl(Some(framebuffer_size));
 
         drain_filter(

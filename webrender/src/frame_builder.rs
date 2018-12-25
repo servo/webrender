@@ -26,7 +26,7 @@ use segment::SegmentBuilder;
 use spatial_node::SpatialNode;
 use std::{f32, mem};
 use std::sync::Arc;
-use tiling::{Frame, RenderPass, RenderPassKind, RenderTargetContext};
+use tiling::{Frame, RenderPass, RenderPassKind, RenderTargetContext, RenderTarget};
 
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -487,9 +487,14 @@ impl FrameBuilder {
                 &mut z_generator,
             );
 
-            if let RenderPassKind::OffScreen { ref texture_cache, ref color, .. } = pass.kind {
-                has_texture_cache_tasks |= !texture_cache.is_empty();
-                has_texture_cache_tasks |= color.must_be_drawn();
+            match pass.kind {
+                RenderPassKind::MainFramebuffer(ref color) => {
+                    has_texture_cache_tasks |= color.must_be_drawn();
+                }
+                RenderPassKind::OffScreen { ref texture_cache, ref color, .. } => {
+                    has_texture_cache_tasks |= !texture_cache.is_empty();
+                    has_texture_cache_tasks |= color.must_be_drawn();
+                }
             }
         }
 

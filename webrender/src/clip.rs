@@ -1384,20 +1384,17 @@ impl ClipNodeCollector {
         );
 
         for clip_chain_id in &self.clips {
-            let node = clip_store.get_clip_chain(*clip_chain_id);
-            let clip_node = &clip_data_store[node.handle];
+            let clip_chain_node = clip_store.get_clip_chain(*clip_chain_id);
+            let clip_node = &clip_data_store[clip_chain_node.handle];
 
-            if let Some(local_rect) = clip_node.item.get_local_clip_rect(node.local_pos) {
+            if let Some(local_rect) = clip_node.item.get_local_clip_rect(clip_chain_node.local_pos) {
                 map_local_to_world.set_target_spatial_node(
-                    node.spatial_node_index,
+                    clip_chain_node.spatial_node_index,
                     clip_scroll_tree,
                 );
 
                 if let Some(world_rect) = map_local_to_world.map(&local_rect) {
-                    clip_rect = match clip_rect.intersection(&world_rect) {
-                        Some(rect) => rect,
-                        None => return None,
-                    };
+                    clip_rect = clip_rect.intersection(&world_rect)?;
                 }
             }
         }
