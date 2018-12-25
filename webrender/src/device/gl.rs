@@ -184,22 +184,23 @@ fn get_shader_version(gl: &gl::Gl) -> &'static str {
 
 // Get a shader string by name, from the built in resources or
 // an override path, if supplied.
-fn get_shader_source(shader_name: &str, base_path: Option<&PathBuf>) -> Option<Cow<'static, str>> {
+fn get_shader_source(shader_name: &str, base_path: Option<&PathBuf>) -> Cow<'static, str> {
     if let Some(ref base) = base_path {
         let shader_path = base.join(&format!("{}.glsl", shader_name));
         if shader_path.exists() {
             let mut source = String::new();
             File::open(&shader_path)
-                .unwrap()
+                .expect("Shader not found")
                 .read_to_string(&mut source)
                 .unwrap();
-            return Some(Cow::Owned(source));
+            return Cow::Owned(source);
         }
     }
 
-    shader_source::SHADERS
+    let src = shader_source::SHADERS
         .get(shader_name)
-        .map(|s| Cow::Borrowed(*s))
+        .expect("Shader not found");
+    Cow::Borrowed(*src)
 }
 
 // Parse a shader string for imports. Imports are recursively processed, and
@@ -211,9 +212,8 @@ fn parse_shader_source<F: FnMut(&str)>(source: Cow<'static, str>, base_path: Opt
 
             // For each import, get the source, and recurse.
             for import in imports {
-                if let Some(include) = get_shader_source(import, base_path) {
-                    parse_shader_source(include, base_path, output);
-                }
+                let include = get_shader_source(import, base_path);
+                parse_shader_source(include, base_path, output);
             }
         } else {
             output(line);
@@ -279,9 +279,8 @@ fn do_build_shader_string<F: FnMut(&str)>(
 
     // Parse the main .glsl file, including any imports
     // and append them to the list of sources.
-    if let Some(shared_source) = get_shader_source(base_filename, override_path) {
-        parse_shader_source(shared_source, override_path, &mut output);
-    }
+    let shared_source = get_shader_source(base_filename, override_path);
+    parse_shader_source(shared_source, override_path, &mut output);
 }
 
 pub trait FileWatcherHandler: Send {
