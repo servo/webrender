@@ -19,8 +19,6 @@ use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::cmp;
 use std::collections::hash_map::Entry;
-use std::fs::File;
-use std::io::Read;
 use std::marker::PhantomData;
 use std::mem;
 use std::os::raw::c_void;
@@ -32,6 +30,8 @@ use std::slice;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
 use std::thread;
+use webrender_build::shader::ProgramSourceDigest;
+use webrender_build::shader::{parse_shader_source, shader_source_from_file};
 
 /// Sequence number for frames, as tracked by the device layer.
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
@@ -82,7 +82,6 @@ const SHADER_VERSION_GLES: &str = "#version 300 es\n";
 
 const SHADER_KIND_VERTEX: &str = "#define WR_VERTEX_SHADER\n";
 const SHADER_KIND_FRAGMENT: &str = "#define WR_FRAGMENT_SHADER\n";
-const SHADER_IMPORT: &str = "#include ";
 
 pub struct TextureSlot(pub usize);
 
@@ -187,38 +186,13 @@ fn get_shader_version(gl: &gl::Gl) -> &'static str {
 fn get_shader_source(shader_name: &str, base_path: Option<&PathBuf>) -> Cow<'static, str> {
     if let Some(ref base) = base_path {
         let shader_path = base.join(&format!("{}.glsl", shader_name));
-        if shader_path.exists() {
-            let mut source = String::new();
-            File::open(&shader_path)
-                .expect("Shader not found")
-                .read_to_string(&mut source)
-                .unwrap();
-            return Cow::Owned(source);
-        }
-    }
-
-    let src = shader_source::SHADERS
-        .get(shader_name)
-        .expect("Shader not found");
-    Cow::Borrowed(*src)
-}
-
-// Parse a shader string for imports. Imports are recursively processed, and
-// prepended to the output stream.
-fn parse_shader_source<F: FnMut(&str)>(source: Cow<'static, str>, base_path: Option<&PathBuf>, output: &mut F) {
-    for line in source.lines() {
-        if line.starts_with(SHADER_IMPORT) {
-            let imports = line[SHADER_IMPORT.len() ..].split(',');
-
-            // For each import, get the source, and recurse.
-            for import in imports {
-                let include = get_shader_source(import, base_path);
-                parse_shader_source(include, base_path, output);
-            }
-        } else {
-            output(line);
-            output("\n");
-        }
+        Cow::Owned(shader_source_from_file(&shader_path))
+    } else {
+        Cow::Borrowed(
+            shader_source::SHADERS
+            .get(shader_name)
+            .expect("Shader not found")
+        )
     }
 }
 
@@ -280,7 +254,7 @@ fn do_build_shader_string<F: FnMut(&str)>(
     // Parse the main .glsl file, including any imports
     // and append them to the list of sources.
     let shared_source = get_shader_source(base_filename, override_path);
-    parse_shader_source(shared_source, override_path, &mut output);
+    parse_shader_source(shared_source, &|f| get_shader_source(f, override_path), &mut output);
 }
 
 pub trait FileWatcherHandler: Send {
@@ -690,19 +664,6 @@ pub struct VBOId(gl::GLuint);
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 struct IBOId(gl::GLuint);
 
-#[derive(PartialEq, Eq, Hash, Debug, Clone, Default)]
-#[cfg_attr(feature = "serialize_program", derive(Deserialize, Serialize))]
-pub struct ProgramSourceDigest([u8; 32]);
-
-impl ::std::fmt::Display for ProgramSourceDigest {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        for byte in self.0.iter() {
-            f.write_fmt(format_args!("{:02x}", byte))?;
-        }
-        Ok(())
-    }
-}
-
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct ProgramSourceInfo {
     base_filename: &'static str,
@@ -745,13 +706,10 @@ impl ProgramSourceInfo {
         );
 
         // Finish.
-        let mut digest = ProgramSourceDigest::default();
-        digest.0.copy_from_slice(hasher.result().as_slice());
-
         ProgramSourceInfo {
             base_filename,
             features,
-            digest,
+            digest: hasher.into(),
         }
     }
 
