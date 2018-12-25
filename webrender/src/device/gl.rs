@@ -192,6 +192,7 @@ fn get_shader_source(shader_name: &str, base_path: Option<&PathBuf>) -> Cow<'sta
             shader_source::SHADERS
             .get(shader_name)
             .expect("Shader not found")
+            .source
         )
     }
 }

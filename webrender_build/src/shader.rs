@@ -7,7 +7,7 @@
 //! This module is used during precompilation (build.rs) and regular compilation,
 //! so it has minimal dependencies.
 
-use sha2::{Digest, Sha256};
+pub use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use std::fs::File;
 use std::io::Read;
