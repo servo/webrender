@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use super::super::shader_source;
+use super::super::shader_source::SHADERS;
 use api::{ColorF, ImageFormat, MemoryReport};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::TextureTarget;
@@ -189,7 +189,7 @@ fn get_shader_source(shader_name: &str, base_path: Option<&PathBuf>) -> Cow<'sta
         Cow::Owned(shader_source_from_file(&shader_path))
     } else {
         Cow::Borrowed(
-            shader_source::SHADERS
+            SHADERS
             .get(shader_name)
             .expect("Shader not found")
             .source
@@ -239,6 +239,19 @@ fn do_build_shader_string<F: FnMut(&str)>(
     override_path: Option<&PathBuf>,
     mut output: F,
 ) {
+    build_shader_prefix_string(gl_version_string, features, kind, base_filename, &mut output);
+    build_shader_main_string(base_filename, override_path, &mut output);
+}
+
+/// Walks the prefix section of the shader string, which manages the various
+/// defines for features etc.
+fn build_shader_prefix_string<F: FnMut(&str)>(
+    gl_version_string: &str,
+    features: &str,
+    kind: &str,
+    base_filename: &str,
+    output: &mut F,
+) {
     // GLSL requires that the version number comes first.
     output(gl_version_string);
 
@@ -251,11 +264,16 @@ fn do_build_shader_string<F: FnMut(&str)>(
 
     // Add any defines that were passed by the caller.
     output(features);
+}
 
-    // Parse the main .glsl file, including any imports
-    // and append them to the list of sources.
+/// Walks the main .glsl file, including any imports.
+fn build_shader_main_string<F: FnMut(&str)>(
+    base_filename: &str,
+    override_path: Option<&PathBuf>,
+    output: &mut F,
+) {
     let shared_source = get_shader_source(base_filename, override_path);
-    parse_shader_source(shared_source, &|f| get_shader_source(f, override_path), &mut output);
+    parse_shader_source(shared_source, &|f| get_shader_source(f, override_path), output);
 }
 
 pub trait FileWatcherHandler: Send {
@@ -675,7 +693,7 @@ pub struct ProgramSourceInfo {
 impl ProgramSourceInfo {
     fn new(
         device: &Device,
-        base_filename: &'static str,
+        name: &'static str,
         features: String,
     ) -> Self {
         // Compute the digest. Assuming the device has a `ProgramCache`, this
@@ -683,32 +701,47 @@ impl ProgramSourceInfo {
         // we compute the hash by walking the static strings in the same order
         // as we would when concatenating the source, to avoid heap-allocating
         // in the common case.
+        //
+        // Note that we cheat a bit to make the hashing more efficient. First,
+        // the only difference between the vertex and fragment shader is a
+        // single deterministic define, so we don't need to hash both. Second,
+        // we precompute the digest of the expanded source file at build time,
+        // and then just hash that digest here.
 
-        // Construct the hasher.
+        // Setup.
         let mut hasher = Sha256::new();
+        let version_str = get_shader_version(&*device.gl());
+        let override_path = device.resource_override_path.as_ref();
+        let source_and_digest = SHADERS.get(&name).expect("Shader not found");
 
         // Hash the renderer name.
         hasher.input(device.renderer_name.as_bytes());
 
-        // Hash the vertex shader.
-        device.build_shader_string(
+        // Hash the prefix string.
+        build_shader_prefix_string(
+            version_str,
             &features,
-            SHADER_KIND_VERTEX,
-            &base_filename,
-            |s| hasher.input(s.as_bytes()),
+            &"DUMMY",
+            &name,
+            &mut |s| hasher.input(s.as_bytes()),
         );
 
-        // Hash the fragment shader.
-        device.build_shader_string(
-            &features,
-            SHADER_KIND_FRAGMENT,
-            base_filename,
-            |s| hasher.input(s.as_bytes()),
-        );
+        // Hash the shader file contents. We use a precomputed digest, and
+        // verify it in debug builds.
+        if override_path.is_some() || cfg!(debug_assertions) {
+            let mut h = Sha256::new();
+            build_shader_main_string(&name, override_path, &mut |s| h.input(s.as_bytes()));
+            let d: ProgramSourceDigest = h.into();
+            let digest = format!("{}", d);
+            debug_assert!(override_path.is_some() || digest == source_and_digest.digest);
+            hasher.input(digest.as_bytes());
+        } else {
+            hasher.input(source_and_digest.digest.as_bytes());
+        };
 
         // Finish.
         ProgramSourceInfo {
-            base_filename,
+            base_filename: name,
             features,
             digest: hasher.into(),
         }
