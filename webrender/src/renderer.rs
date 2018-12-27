@@ -49,7 +49,7 @@ use gleam::gl;
 use glyph_rasterizer::{GlyphFormat, GlyphRasterizer};
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 #[cfg(feature = "debug_renderer")]
-use gpu_cache::GpuDebugChunk;
+use gpu_cache::{GpuCacheDebugChunk, GpuCacheDebugCmd};
 #[cfg(feature = "pathfinder")]
 use gpu_glyph_renderer::GpuGlyphRenderer;
 use gpu_types::ScalingInstance;
@@ -1553,8 +1553,12 @@ pub struct Renderer {
     transforms_texture: VertexDataTexture,
     render_task_texture: VertexDataTexture,
     gpu_cache_texture: GpuCacheTexture,
+
+    /// When the GPU cache debugger is enabled, we keep track of the live blocks
+    /// in the GPU cache so that we can use them for the debug display. This
+    /// member stores those live blocks, indexed by row.
     #[cfg(feature = "debug_renderer")]
-    gpu_cache_debug_chunks: Vec<GpuDebugChunk>,
+    gpu_cache_debug_chunks: Vec<Vec<GpuCacheDebugChunk>>,
 
     gpu_cache_frame_id: FrameId,
     gpu_cache_overflow: bool,
@@ -1852,9 +1856,7 @@ impl Renderer {
         };
 
         let device_pixel_ratio = options.device_pixel_ratio;
-        // First set the flags to default and later call set_debug_flags to ensure any
-        // potential transition when enabling a flag is run.
-        let debug_flags = DebugFlags::default();
+        let debug_flags = options.debug_flags;
         let payload_rx_for_backend = payload_rx.to_mpsc_receiver();
         let recorder = options.recorder;
         let thread_listener = Arc::new(options.thread_listener);
@@ -1974,6 +1976,7 @@ impl Renderer {
                 recorder,
                 sampler,
                 size_of_op,
+                debug_flags,
                 namespace_alloc_by_client,
             );
             backend.run(backend_profile_counters);
@@ -1999,7 +2002,7 @@ impl Renderer {
             shaders,
             #[cfg(feature = "debug_renderer")]
             debug: LazyInitializedDebugRenderer::new(),
-            debug_flags,
+            debug_flags: DebugFlags::empty(),
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
             resource_upload_time: 0,
@@ -2055,7 +2058,9 @@ impl Renderer {
             framebuffer_size: None,
         };
 
-        renderer.set_debug_flags(options.debug_flags);
+        // We initially set the flags to default and then now call set_debug_flags
+        // to ensure any potential transition when enabling a flag is run.
+        renderer.set_debug_flags(debug_flags);
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
         Ok((renderer, sender))
@@ -2146,7 +2151,23 @@ impl Renderer {
                 ResultMsg::UpdateGpuCache(mut list) => {
                     #[cfg(feature = "debug_renderer")]
                     {
-                        self.gpu_cache_debug_chunks = mem::replace(&mut list.debug_chunks, Vec::new());
+                        for cmd in mem::replace(&mut list.debug_commands, Vec::new()) {
+                            match cmd {
+                                GpuCacheDebugCmd::Alloc(chunk) => {
+                                    let row = chunk.address.v as usize;
+                                    if row >= self.gpu_cache_debug_chunks.len() {
+                                        self.gpu_cache_debug_chunks.resize(row + 1, Vec::new());
+                                    }
+                                    self.gpu_cache_debug_chunks[row].push(chunk);
+                                },
+                                GpuCacheDebugCmd::Free(address) => {
+                                    let chunks = &mut self.gpu_cache_debug_chunks[address.v as usize];
+                                    let pos = chunks.iter()
+                                        .position(|x| x.address == address).unwrap();
+                                    chunks.remove(pos);
+                                },
+                            }
+                        }
                     }
                     self.pending_gpu_cache_updates.push(list);
                 }
@@ -2752,7 +2773,7 @@ impl Renderer {
                 height: gpu_cache_height,
                 blocks: vec![[1f32; 4].into()],
                 updates: Vec::new(),
-                debug_chunks: Vec::new(),
+                debug_commands: Vec::new(),
             });
         }
 
@@ -3874,7 +3895,7 @@ impl Renderer {
             height: self.gpu_cache_texture.get_height(),
             blocks: Vec::new(),
             updates: Vec::new(),
-            debug_chunks: Vec::new(),
+            debug_commands: Vec::new(),
         };
 
         for deferred_resolve in deferred_resolves {
@@ -4462,21 +4483,21 @@ impl Renderer {
         };
 
         let (x_off, y_off) = (30f32, 30f32);
-        //let x_end = framebuffer_size.width as f32 - x_off;
-        let y_end = framebuffer_size.height as f32 - y_off;
+        let height = self.gpu_cache_texture.texture
+            .as_ref().map_or(0, |t| t.get_dimensions().height)
+            .min(framebuffer_size.height - (y_off as i32) * 2) as usize;
         debug_renderer.add_quad(
             x_off,
             y_off,
             x_off + MAX_VERTEX_TEXTURE_WIDTH as f32,
-            y_end,
+            y_off + height as f32,
             ColorU::new(80, 80, 80, 80),
             ColorU::new(80, 80, 80, 80),
         );
 
-        for chunk in &self.gpu_cache_debug_chunks {
-            let color = match chunk.tag {
-                _ => ColorU::new(250, 0, 0, 200),
-            };
+        let upper = self.gpu_cache_debug_chunks.len().min(height);
+        for chunk in self.gpu_cache_debug_chunks[0..upper].iter().flatten() {
+            let color = ColorU::new(250, 0, 0, 200);
             debug_renderer.add_quad(
                 x_off + chunk.address.u as f32,
                 y_off + chunk.address.v as f32,

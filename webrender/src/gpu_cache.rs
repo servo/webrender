@@ -132,7 +132,7 @@ impl GpuCacheHandle {
 // A unique address in the GPU cache. These are uploaded
 // as part of the primitive instances, to allow the vertex
 // shader to fetch the specific data.
-#[derive(Copy, Debug, Clone)]
+#[derive(Copy, Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GpuCacheAddress {
@@ -233,10 +233,19 @@ pub enum GpuCacheUpdate {
     },
 }
 
-pub struct GpuDebugChunk {
+/// Command to inform the debug display in the renderer when chunks are allocated
+/// or freed.
+pub enum GpuCacheDebugCmd {
+    /// Describes an allocated chunk.
+    Alloc(GpuCacheDebugChunk),
+    /// Describes a freed chunk.
+    Free(GpuCacheAddress),
+}
+
+#[derive(Clone)]
+pub struct GpuCacheDebugChunk {
     pub address: GpuCacheAddress,
-    pub tag: u8,
-    pub size: u16,
+    pub size: usize,
 }
 
 #[must_use]
@@ -255,7 +264,7 @@ pub struct GpuCacheUpdateList {
     pub blocks: Vec<GpuBlockData>,
     /// Whole state GPU block metadata for debugging.
     #[cfg_attr(feature = "serde", serde(skip))]
-    pub debug_chunks: Vec<GpuDebugChunk>,
+    pub debug_commands: Vec<GpuCacheDebugCmd>,
 }
 
 // Holds the free lists of fixed size blocks. Mostly
@@ -339,10 +348,16 @@ struct Texture {
     updates: Vec<GpuCacheUpdate>,
     // Profile stats
     allocated_block_count: usize,
+    // List of debug commands to be sent to the renderer when the GPU cache
+    // debug display is enabled.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    debug_commands: Vec<GpuCacheDebugCmd>,
+    // The current debug flags for the system.
+    debug_flags: DebugFlags,
 }
 
 impl Texture {
-    fn new(epoch: Epoch) -> Self {
+    fn new(epoch: Epoch, debug_flags: DebugFlags) -> Self {
         Texture {
             height: GPU_CACHE_INITIAL_HEIGHT,
             epoch,
@@ -353,6 +368,8 @@ impl Texture {
             updates: Vec::new(),
             occupied_list_head: None,
             allocated_block_count: 0,
+            debug_commands: Vec::new(),
+            debug_flags,
         }
     }
 
@@ -430,6 +447,18 @@ impl Texture {
             });
         }
 
+        // If we're using the debug display, communicate the allocation to the
+        // renderer thread. Note that we do this regardless of whether or not
+        // pending_block_index is None (if it is, the renderer thread will fill
+        // in the data via a deferred resolve, but the block is still considered
+        // allocated).
+        if self.debug_flags.contains(DebugFlags::GPU_CACHE_DBG) {
+            self.debug_commands.push(GpuCacheDebugCmd::Alloc(GpuCacheDebugChunk {
+                address: block.address,
+                size: block_count,
+            }));
+        }
+
         CacheLocation {
             block_index: free_block_index,
             block_epoch: block.epoch,
@@ -472,6 +501,11 @@ impl Texture {
                     *free_list = Some(index);
 
                     self.allocated_block_count -= row.block_count_per_item;
+
+                    if self.debug_flags.contains(DebugFlags::GPU_CACHE_DBG) {
+                        let cmd = GpuCacheDebugCmd::Free(block.address);
+                        self.debug_commands.push(cmd);
+                    }
                 };
 
                 (next_block, should_unlink)
@@ -557,12 +591,13 @@ pub struct GpuCache {
 impl GpuCache {
     pub fn new() -> Self {
         let epoch = Epoch(0);
+        let debug_flags = DebugFlags::empty();
         GpuCache {
             frame_id: FrameId::INVALID,
-            texture: Texture::new(epoch),
+            texture: Texture::new(epoch, debug_flags),
             cache_epoch: epoch,
             saved_block_count: 0,
-            debug_flags: DebugFlags::empty(),
+            debug_flags,
         }
     }
 
@@ -571,7 +606,7 @@ impl GpuCache {
     pub fn clear(&mut self) {
         assert!(self.texture.updates.is_empty(), "Clearing with pending updates");
         self.cache_epoch.next();
-        self.texture = Texture::new(self.cache_epoch);
+        self.texture = Texture::new(self.cache_epoch, self.debug_flags);
         self.saved_block_count = 0;
     }
 
@@ -674,20 +709,7 @@ impl GpuCache {
         GpuCacheUpdateList {
             frame_id: self.frame_id,
             height: self.texture.height,
-            debug_chunks: if self.debug_flags.contains(DebugFlags::GPU_CACHE_DBG) {
-                self.texture.updates
-                    .iter()
-                    .map(|update| match *update {
-                        GpuCacheUpdate::Copy { address, block_index: _, block_count } => GpuDebugChunk {
-                            address,
-                            tag: 0, //TODO
-                            size: block_count.min(0xFFFF) as u16,
-                        }
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            },
+            debug_commands: mem::replace(&mut self.texture.debug_commands, Vec::new()),
             updates: mem::replace(&mut self.texture.updates, Vec::new()),
             blocks: mem::replace(&mut self.texture.pending_blocks, Vec::new()),
         }
@@ -696,6 +718,7 @@ impl GpuCache {
     /// Sets the current debug flags for the system.
     pub fn set_debug_flags(&mut self, flags: DebugFlags) {
         self.debug_flags = flags;
+        self.texture.debug_flags = flags;
     }
 
     /// Get the actual GPU address in the texture for a given slot ID.

@@ -8,7 +8,7 @@
 //! See the comment at the top of the `renderer` module for a description of
 //! how these two pieces interact.
 
-use api::{ApiMsg, BuiltDisplayList, ClearCache, DebugCommand};
+use api::{ApiMsg, BuiltDisplayList, ClearCache, DebugCommand, DebugFlags};
 #[cfg(feature = "debugger")]
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
 use api::{DevicePixelScale, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
@@ -659,6 +659,7 @@ pub struct RenderBackend {
     recorder: Option<Box<ApiRecordingReceiver>>,
     sampler: Option<Box<AsyncPropertySampler + Send>>,
     size_of_op: Option<VoidPtrToSizeFn>,
+    debug_flags: DebugFlags,
     namespace_alloc_by_client: bool,
 }
 
@@ -677,6 +678,7 @@ impl RenderBackend {
         recorder: Option<Box<ApiRecordingReceiver>>,
         sampler: Option<Box<AsyncPropertySampler + Send>>,
         size_of_op: Option<VoidPtrToSizeFn>,
+        debug_flags: DebugFlags,
         namespace_alloc_by_client: bool,
     ) -> RenderBackend {
         RenderBackend {
@@ -696,6 +698,7 @@ impl RenderBackend {
             recorder,
             sampler,
             size_of_op,
+            debug_flags,
             namespace_alloc_by_client,
         }
     }
@@ -1106,6 +1109,22 @@ impl RenderBackend {
                     DebugCommand::SetFlags(flags) => {
                         self.resource_cache.set_debug_flags(flags);
                         self.gpu_cache.set_debug_flags(flags);
+
+                        // If we're toggling on the GPU cache debug display, we
+                        // need to blow away the cache. This is because we only
+                        // send allocation/free notifications to the renderer
+                        // thread when the debug display is enabled, and thus
+                        // enabling it when the cache is partially populated will
+                        // give the renderer an incomplete view of the world.
+                        // And since we might as well drop all the debugging state
+                        // from the renderer when we disable the debug display,
+                        // we just clear the cache on toggle.
+                        let changed = self.debug_flags ^ flags;
+                        if changed.contains(DebugFlags::GPU_CACHE_DBG) {
+                            self.clear_gpu_cache();
+                        }
+                        self.debug_flags = flags;
+
                         ResultMsg::DebugCommand(option)
                     }
                     _ => ResultMsg::DebugCommand(option),
