@@ -1057,16 +1057,6 @@ enum GpuCacheBus {
     },
 }
 
-impl GpuCacheBus {
-    /// Returns true if this bus uses a render target for a texture.
-    fn uses_render_target(&self) -> bool {
-        match *self {
-            GpuCacheBus::Scatter { .. } => true,
-            GpuCacheBus::PixelBuffer { .. } => false,
-        }
-    }
-}
-
 /// The device-specific representation of the cache texture in gpu_cache.rs
 struct GpuCacheTexture {
     texture: Option<Texture>,
@@ -1077,38 +1067,22 @@ impl GpuCacheTexture {
 
     /// Ensures that we have an appropriately-sized texture. Returns true if a
     /// new texture was created.
-    fn ensure_texture(&mut self, device: &mut Device, height: i32) -> bool {
+    fn ensure_texture(&mut self, device: &mut Device, height: i32) {
         // If we already have a texture that works, we're done.
         if self.texture.as_ref().map_or(false, |t| t.get_dimensions().height >= height) {
-            if GPU_CACHE_RESIZE_TEST && self.bus.uses_render_target() {
+            if GPU_CACHE_RESIZE_TEST {
                 // Special debug mode - resize the texture even though it's fine.
             } else {
-                return false;
+                return;
             }
         }
 
-        // Compute a few parameters for the new texture. We round the height up to
-        // a multiple of 256 to avoid many small resizes.
-        let new_height = (height + 255) & !255;
-        let new_size = DeviceIntSize::new(MAX_VERTEX_TEXTURE_WIDTH as _, new_height);
-        let rt_info = if self.bus.uses_render_target() {
-            Some(RenderTargetInfo { has_depth: false })
-        } else {
-            None
-        };
-
-        // Take the old texture, if any, and deinitialize it unless we're going
-        // to blit it's contents to the new one.
-        let mut blit_source = None;
-        if let Some(t) = self.texture.take() {
-            if rt_info.is_some() {
-                blit_source = Some(t);
-            } else {
-                device.delete_texture(t);
-            }
-        }
+        // Take the old texture, if any.
+        let blit_source = self.texture.take();
 
         // Create the new texture.
+        let new_size = DeviceIntSize::new(MAX_VERTEX_TEXTURE_WIDTH as _, height);
+        let rt_info = Some(RenderTargetInfo { has_depth: false });
         let mut texture = device.create_texture(
             TextureTarget::Default,
             ImageFormat::RGBAF32,
@@ -1126,7 +1100,6 @@ impl GpuCacheTexture {
         }
 
         self.texture = Some(texture);
-        true
     }
 
     fn new(device: &mut Device, use_scatter: bool) -> Result<Self, RendererError> {
@@ -1193,18 +1166,9 @@ impl GpuCacheTexture {
         total_block_count: usize,
         max_height: i32,
     ) {
-        let allocated_new_texture = self.ensure_texture(device, max_height);
+        self.ensure_texture(device, max_height);
         match self.bus {
-            GpuCacheBus::PixelBuffer { ref mut rows, .. } => {
-                if allocated_new_texture {
-                    // If we had to resize the texture, just mark all rows
-                    // as dirty so they will be uploaded to the texture
-                    // during the next flush.
-                    for row in rows.iter_mut() {
-                        row.is_dirty = true;
-                    }
-                }
-            }
+            GpuCacheBus::PixelBuffer { .. } => {},
             GpuCacheBus::Scatter {
                 ref mut buf_position,
                 ref mut buf_value,
