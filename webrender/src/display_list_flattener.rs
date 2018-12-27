@@ -654,6 +654,7 @@ impl<'a> DisplayListFlattener<'a> {
         reference_frame_relative_offset: &LayoutVector2D,
     ) {
         let iframe_pipeline_id = info.pipeline_id;
+
         let pipeline = match self.scene.pipelines.get(&iframe_pipeline_id) {
             Some(pipeline) => pipeline,
             None => {
@@ -663,7 +664,7 @@ impl<'a> DisplayListFlattener<'a> {
         };
 
         let clip_chain_index = self.add_clip_node(
-            info.clip_id,
+            ClipId::root_reference_frame(iframe_pipeline_id),
             clip_and_scroll_ids,
             ClipRegion::create_for_clip_node_with_local_clip(
                 item.clip_rect(),
@@ -676,7 +677,7 @@ impl<'a> DisplayListFlattener<'a> {
         let origin = *reference_frame_relative_offset + bounds.origin.to_vector();
         self.push_reference_frame(
             ClipId::root_reference_frame(iframe_pipeline_id),
-            Some(info.clip_id),
+            Some(clip_and_scroll_ids.scroll_node_id),
             None,
             iframe_pipeline_id,
             TransformStyle::Flat,
@@ -872,7 +873,7 @@ impl<'a> DisplayListFlattener<'a> {
                     &item,
                     info,
                     &clip_and_scroll_ids,
-                    &reference_frame_relative_offset
+                    &reference_frame_relative_offset,
                 );
             }
             SpecificDisplayItem::Clip(ref info) => {
@@ -1662,8 +1663,12 @@ impl<'a> DisplayListFlattener<'a> {
         let spatial_node = self.id_to_index_mapper.get_spatial_node_index(parent.scroll_node_id);
 
         // Add a mapping for this ClipId in case it's referenced as a positioning node.
-        self.id_to_index_mapper
-            .map_spatial_node(new_node_id, spatial_node);
+        if !new_node_id.is_root_reference_frame() {
+            // root reference frames are specifically handled by iframes
+            //TODO: this is to be removed with the ClipID API rewrite
+            self.id_to_index_mapper
+                .map_spatial_node(new_node_id, spatial_node);
+        }
 
         let mut clip_count = 0;
 

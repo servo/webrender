@@ -1514,7 +1514,6 @@ impl DisplayListBuilder {
         ignore_missing_pipeline: bool
     ) {
         let item = SpecificDisplayItem::Iframe(IframeDisplayItem {
-            clip_id: self.generate_clip_index(),
             pipeline_id,
             ignore_missing_pipeline,
         });
