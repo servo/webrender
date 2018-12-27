@@ -55,7 +55,8 @@ impl Epoch {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct CacheLocation {
     block_index: BlockIndex,
-    epoch: Epoch,
+    block_epoch: Epoch,
+    cache_epoch: Epoch,
 }
 
 /// A single texel in RGBAF32 texture - 16 bytes.
@@ -316,6 +317,9 @@ impl FreeBlockLists {
 struct Texture {
     // Current texture height
     height: i32,
+    // Generation of this texture. This is used to reject handles generated
+    // before the most recent call to GpuCache::clear(), which mints a new texture.
+    epoch: Epoch,
     // All blocks that have been created for this texture
     blocks: Vec<Block>,
     // Metadata about each allocated row.
@@ -338,9 +342,10 @@ struct Texture {
 }
 
 impl Texture {
-    fn new() -> Self {
+    fn new(epoch: Epoch) -> Self {
         Texture {
             height: GPU_CACHE_INITIAL_HEIGHT,
+            epoch,
             blocks: Vec::new(),
             rows: Vec::new(),
             free_lists: FreeBlockLists::new(),
@@ -427,7 +432,8 @@ impl Texture {
 
         CacheLocation {
             block_index: free_block_index,
-            epoch: block.epoch,
+            block_epoch: block.epoch,
+            cache_epoch: self.epoch,
         }
     }
 
@@ -537,6 +543,10 @@ pub struct GpuCache {
     frame_id: FrameId,
     /// CPU-side texture allocator.
     texture: Texture,
+    /// Sequence number to track when we've clear the texture by throwing the old
+    /// one away, and thus when old handles are no longer valid regardless of the
+    /// per-block epoch.
+    cache_epoch: Epoch,
     /// Number of blocks requested this frame that don't
     /// need to be re-uploaded.
     saved_block_count: usize,
@@ -546,12 +556,23 @@ pub struct GpuCache {
 
 impl GpuCache {
     pub fn new() -> Self {
+        let epoch = Epoch(0);
         GpuCache {
             frame_id: FrameId::INVALID,
-            texture: Texture::new(),
+            texture: Texture::new(epoch),
+            cache_epoch: epoch,
             saved_block_count: 0,
             debug_flags: DebugFlags::empty(),
         }
+    }
+
+    /// Drops everything in the GPU cache. Paired by the caller with a message
+    /// to the renderer thread telling it to do the same.
+    pub fn clear(&mut self) {
+        assert!(self.texture.updates.is_empty(), "Clearing with pending updates");
+        self.cache_epoch.next();
+        self.texture = Texture::new(self.cache_epoch);
+        self.saved_block_count = 0;
     }
 
     /// Begin a new frame.
@@ -569,7 +590,7 @@ impl GpuCache {
         if let Some(ref location) = handle.location {
             let block = &mut self.texture.blocks[location.block_index.0];
             // don't invalidate blocks that are already re-assigned
-            if block.epoch == location.epoch {
+            if block.epoch == location.block_epoch {
                 block.epoch.next();
             }
         }
@@ -581,15 +602,17 @@ impl GpuCache {
         let mut max_block_count = MAX_VERTEX_TEXTURE_WIDTH;
         // Check if the allocation for this handle is still valid.
         if let Some(ref location) = handle.location {
-            let block = &mut self.texture.blocks[location.block_index.0];
-            max_block_count = self.texture.rows[block.address.v as usize].block_count_per_item;
-            if block.epoch == location.epoch {
-                if block.last_access_time != self.frame_id {
-                    // Mark last access time to avoid evicting this block.
-                    block.last_access_time = self.frame_id;
-                    self.saved_block_count += max_block_count;
+            if location.cache_epoch == self.cache_epoch {
+                let block = &mut self.texture.blocks[location.block_index.0];
+                max_block_count = self.texture.rows[block.address.v as usize].block_count_per_item;
+                if block.epoch == location.block_epoch {
+                    if block.last_access_time != self.frame_id {
+                        // Mark last access time to avoid evicting this block.
+                        block.last_access_time = self.frame_id;
+                        self.saved_block_count += max_block_count;
+                    }
+                    return None;
                 }
-                return None;
             }
         }
 
@@ -682,7 +705,7 @@ impl GpuCache {
     pub fn get_address(&self, id: &GpuCacheHandle) -> GpuCacheAddress {
         let location = id.location.expect("handle not requested or allocated!");
         let block = &self.texture.blocks[location.block_index.0];
-        debug_assert_eq!(block.epoch, location.epoch);
+        debug_assert_eq!(block.epoch, location.block_epoch);
         debug_assert_eq!(block.last_access_time, self.frame_id);
         block.address
     }

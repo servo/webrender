@@ -1005,6 +1005,8 @@ impl RenderBackend {
                 // recently used resources.
                 self.resource_cache.clear(ClearCache::all());
 
+                self.clear_gpu_cache();
+
                 let pending_update = self.resource_cache.pending_updates();
                 let msg = ResultMsg::UpdateResources {
                     updates: pending_update,
@@ -1519,6 +1521,13 @@ impl RenderBackend {
         // will add its report to this one and send the result back to the original
         // thread waiting on the request.
         self.scene_tx.send(SceneBuilderRequest::ReportMemory(report, tx)).unwrap();
+    }
+
+    /// Drops everything in the GPU cache. Must not be called once gpu cache entries
+    /// for the next frame have already been requested.
+    fn clear_gpu_cache(&mut self) {
+        self.gpu_cache.clear();
+        self.result_tx.send(ResultMsg::ClearGpuCache).unwrap();
     }
 }
 

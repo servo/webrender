@@ -1515,6 +1515,7 @@ pub struct Renderer {
     pub device: Device,
     pending_texture_updates: Vec<TextureUpdateList>,
     pending_gpu_cache_updates: Vec<GpuCacheUpdateList>,
+    pending_gpu_cache_clear: bool,
     pending_shader_updates: Vec<PathBuf>,
     active_documents: Vec<(DocumentId, RenderedDocument)>,
 
@@ -1993,6 +1994,7 @@ impl Renderer {
             active_documents: Vec::new(),
             pending_texture_updates: Vec::new(),
             pending_gpu_cache_updates: Vec::new(),
+            pending_gpu_cache_clear: false,
             pending_shader_updates: Vec::new(),
             shaders,
             #[cfg(feature = "debug_renderer")]
@@ -2147,6 +2149,13 @@ impl Renderer {
                         self.gpu_cache_debug_chunks = mem::replace(&mut list.debug_chunks, Vec::new());
                     }
                     self.pending_gpu_cache_updates.push(list);
+                }
+                ResultMsg::ClearGpuCache => {
+                    #[cfg(feature = "debug_renderer")]
+                    {
+                        self.gpu_cache_debug_chunks = Vec::new();
+                    }
+                    self.pending_gpu_cache_clear = true;
                 }
                 ResultMsg::UpdateResources {
                     updates,
@@ -2789,6 +2798,15 @@ impl Renderer {
     }
 
     fn prepare_gpu_cache(&mut self, frame: &Frame) {
+        if self.pending_gpu_cache_clear {
+            let use_scatter =
+                matches!(self.gpu_cache_texture.bus, GpuCacheBus::Scatter { .. });
+            let new_cache = GpuCacheTexture::new(&mut self.device, use_scatter).unwrap();
+            let old_cache = mem::replace(&mut self.gpu_cache_texture, new_cache);
+            old_cache.deinit(&mut self.device);
+            self.pending_gpu_cache_clear = false;
+        }
+
         let deferred_update_list = self.update_deferred_resolves(&frame.deferred_resolves);
         self.pending_gpu_cache_updates.extend(deferred_update_list);
 
