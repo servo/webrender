@@ -35,9 +35,13 @@ use std::ops::Add;
 use std::os::raw::c_void;
 
 
-pub const GPU_CACHE_INITIAL_HEIGHT: i32 = 512;
+/// At the time of this writing, Firefox uses about 15 GPU cache rows on
+/// startup, and then gradually works its way up to the mid-30s with normal
+/// browsing.
+pub const GPU_CACHE_INITIAL_HEIGHT: i32 = 20;
+const NEW_ROWS_PER_RESIZE: i32 = 10;
+
 const FRAMES_BEFORE_EVICTION: usize = 10;
-const NEW_ROWS_PER_RESIZE: i32 = 512;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
