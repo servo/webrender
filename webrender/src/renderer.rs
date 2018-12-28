@@ -1017,14 +1017,21 @@ pub enum BlendMode {
     SubpixelWithBgColor,
 }
 
-// Tracks the state of each row in the GPU cache texture.
+/// Tracks the state of each row in the GPU cache texture.
 struct CacheRow {
+    /// Mirrored block data on CPU for this row. We store a copy of
+    /// the data on the CPU side to improve upload batching.
+    cpu_blocks: Box<[GpuBlockData; MAX_VERTEX_TEXTURE_WIDTH]>,
+    /// True if this row is dirty.
     is_dirty: bool,
 }
 
 impl CacheRow {
     fn new() -> Self {
-        CacheRow { is_dirty: false }
+        CacheRow {
+            cpu_blocks: Box::new([GpuBlockData::EMPTY; MAX_VERTEX_TEXTURE_WIDTH]),
+            is_dirty: false,
+        }
     }
 }
 
@@ -1036,10 +1043,8 @@ enum GpuCacheBus {
     PixelBuffer {
         /// PBO used for transfers.
         buffer: PBO,
-        /// Meta-data about the cached rows.
+        /// Per-row data.
         rows: Vec<CacheRow>,
-        /// Mirrored block data on CPU.
-        cpu_blocks: Vec<GpuBlockData>,
     },
     /// Shader-based scattering updates. Currently rendered by a set
     /// of points into the GPU texture, each carrying a `GpuBlockData`.
@@ -1129,7 +1134,6 @@ impl GpuCacheTexture {
             GpuCacheBus::PixelBuffer {
                 buffer,
                 rows: Vec::new(),
-                cpu_blocks: Vec::new(),
             }
         };
 
@@ -1186,7 +1190,7 @@ impl GpuCacheTexture {
 
     fn update(&mut self, device: &mut Device, updates: &GpuCacheUpdateList) {
         match self.bus {
-            GpuCacheBus::PixelBuffer { ref mut rows, ref mut cpu_blocks, .. } => {
+            GpuCacheBus::PixelBuffer { ref mut rows, .. } => {
                 for update in &updates.updates {
                     match *update {
                         GpuCacheUpdate::Copy {
@@ -1201,19 +1205,16 @@ impl GpuCacheTexture {
                             while rows.len() <= row {
                                 // Add a new row.
                                 rows.push(CacheRow::new());
-                                // Add enough GPU blocks for this row.
-                                cpu_blocks
-                                    .extend_from_slice(&[GpuBlockData::EMPTY; MAX_VERTEX_TEXTURE_WIDTH]);
                             }
 
                             // This row is dirty (needs to be updated in GPU texture).
                             rows[row].is_dirty = true;
 
                             // Copy the blocks from the patch array in the shadow CPU copy.
-                            let block_offset = row * MAX_VERTEX_TEXTURE_WIDTH + address.u as usize;
-                            let data = &mut cpu_blocks[block_offset .. (block_offset + block_count)];
+                            let block_offset = address.u as usize;
+                            let data = &mut rows[row].cpu_blocks;
                             for i in 0 .. block_count {
-                                data[i] = updates.blocks[block_index + i];
+                                data[block_offset + i] = updates.blocks[block_index + i];
                             }
                         }
                     }
@@ -1258,7 +1259,7 @@ impl GpuCacheTexture {
     fn flush(&mut self, device: &mut Device) -> usize {
         let texture = self.texture.as_ref().unwrap();
         match self.bus {
-            GpuCacheBus::PixelBuffer { ref buffer, ref mut rows, ref cpu_blocks } => {
+            GpuCacheBus::PixelBuffer { ref buffer, ref mut rows } => {
                 let rows_dirty = rows
                     .iter()
                     .filter(|row| row.is_dirty)
@@ -1278,15 +1279,12 @@ impl GpuCacheTexture {
                         continue;
                     }
 
-                    let block_index = row_index * MAX_VERTEX_TEXTURE_WIDTH;
-                    let cpu_blocks =
-                        &cpu_blocks[block_index .. (block_index + MAX_VERTEX_TEXTURE_WIDTH)];
                     let rect = DeviceIntRect::new(
                         DeviceIntPoint::new(0, row_index as i32),
                         DeviceIntSize::new(MAX_VERTEX_TEXTURE_WIDTH as i32, 1),
                     );
 
-                    uploader.upload(rect, 0, None, cpu_blocks);
+                    uploader.upload(rect, 0, None, &*row.cpu_blocks);
 
                     row.is_dirty = false;
                 }
@@ -4551,8 +4549,10 @@ impl Renderer {
         let mut report = MemoryReport::default();
 
         // GPU cache CPU memory.
-        if let GpuCacheBus::PixelBuffer{ref cpu_blocks, ..} = self.gpu_cache_texture.bus {
-            report.gpu_cache_cpu_mirror += self.size_of(cpu_blocks.as_ptr());
+        if let GpuCacheBus::PixelBuffer{ref rows, ..} = self.gpu_cache_texture.bus {
+            for row in rows.iter() {
+                report.gpu_cache_cpu_mirror += self.size_of(&*row.cpu_blocks as *const _);
+            }
         }
 
         // GPU cache GPU memory.
@@ -5208,7 +5208,7 @@ impl Renderer {
             );
             self.gpu_cache_texture.texture = Some(t);
             match self.gpu_cache_texture.bus {
-                GpuCacheBus::PixelBuffer { ref mut rows, ref mut cpu_blocks, .. } => {
+                GpuCacheBus::PixelBuffer { ref mut rows, .. } => {
                     let dim = self.gpu_cache_texture.texture.as_ref().unwrap().get_dimensions();
                     let blocks = unsafe {
                         slice::from_raw_parts(
@@ -5218,9 +5218,12 @@ impl Renderer {
                     };
                     // fill up the CPU cache from the contents we just loaded
                     rows.clear();
-                    cpu_blocks.clear();
                     rows.extend((0 .. dim.height).map(|_| CacheRow::new()));
-                    cpu_blocks.extend_from_slice(blocks);
+                    let chunks = blocks.chunks(MAX_VERTEX_TEXTURE_WIDTH);
+                    debug_assert_eq!(chunks.len(), rows.len());
+                    for (row, chunk) in rows.iter_mut().zip(chunks) {
+                        row.cpu_blocks.copy_from_slice(chunk);
+                    }
                 }
                 GpuCacheBus::Scatter { .. } => {}
             }
