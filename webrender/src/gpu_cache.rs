@@ -31,7 +31,7 @@ use profiler::GpuCacheProfileCounters;
 use render_backend::FrameId;
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use std::{mem, u16, u32};
-use std::num::NonZeroUsize;
+use std::num::NonZeroU32;
 use std::ops::Add;
 use std::os::raw::c_void;
 use std::time::{Duration, Instant};
@@ -232,20 +232,21 @@ impl Block {
 /// Represents the index of a Block in the block array. We only create such
 /// structs for blocks that represent the start of a chunk.
 ///
-/// Because we use Option<BlockIndex> in a lot of places, we use a NonZeroUsize
+/// Because we use Option<BlockIndex> in a lot of places, we use a NonZeroU32
 /// here and avoid ever using the index zero.
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-struct BlockIndex(NonZeroUsize);
+struct BlockIndex(NonZeroU32);
 
 impl BlockIndex {
     fn new(idx: usize) -> Self {
-        BlockIndex(NonZeroUsize::new(idx).expect("Index zero forbidden"))
+        debug_assert!(idx <= u32::MAX as usize);
+        BlockIndex(NonZeroU32::new(idx as u32).expect("Index zero forbidden"))
     }
 
     fn get(&self) -> usize {
-        self.0.get()
+        self.0.get() as usize
     }
 }
 
@@ -430,7 +431,7 @@ struct Texture {
 impl Texture {
     fn new(base_epoch: Epoch, debug_flags: DebugFlags) -> Self {
         // Pre-fill the block array with one invalid block so that we never use
-        // 0 for a BlockIndex. This lets us use NonZeroUsize for BlockIndex, which
+        // 0 for a BlockIndex. This lets us use NonZeroU32 for BlockIndex, which
         // saves memory.
         let blocks = vec![Block::INVALID];
 
@@ -838,7 +839,7 @@ impl GpuCache {
 }
 
 #[test]
-#[cfg(target_os = "linux")]
+#[cfg(target_pointer_width = "64")]
 fn test_struct_sizes() {
     use std::mem;
     // We can end up with a lot of blocks stored in the global vec, and keeping
