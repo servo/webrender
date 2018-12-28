@@ -1177,6 +1177,13 @@ impl RenderBackend {
             &mut profile_counters.resources,
         );
 
+        // If we've been above the threshold for reclaiming GPU cache memory for
+        // long enough, drop it and rebuild it. This needs to be done before any
+        // updates for this frame are made.
+        if self.gpu_cache.should_reclaim_memory() {
+            self.clear_gpu_cache();
+        }
+
         for scene_msg in transaction_msg.scene_ops.drain(..) {
             let _timer = profile_counters.total_time.timer();
             self.process_scene_msg(

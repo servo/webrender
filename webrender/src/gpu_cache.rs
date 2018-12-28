@@ -34,6 +34,7 @@ use std::{mem, u16, u32};
 use std::num::NonZeroUsize;
 use std::ops::Add;
 use std::os::raw::c_void;
+use std::time::{Duration, Instant};
 
 
 /// At the time of this writing, Firefox uses about 15 GPU cache rows on
@@ -42,7 +43,16 @@ use std::os::raw::c_void;
 pub const GPU_CACHE_INITIAL_HEIGHT: i32 = 20;
 const NEW_ROWS_PER_RESIZE: i32 = 10;
 
+/// The number of frames an entry can go unused before being evicted.
 const FRAMES_BEFORE_EVICTION: usize = 10;
+
+/// The ratio of utilized blocks to total blocks for which we start the clock
+/// on reclaiming memory.
+const RECLAIM_THRESHOLD: f32 = 0.2;
+
+/// The amount of time utilization must be below the above threshold before we
+/// blow away the cache and rebuild it.
+const RECLAIM_DELAY_S: u64 = 5;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -391,6 +401,10 @@ struct Texture {
     updates: Vec<GpuCacheUpdate>,
     // Profile stats
     allocated_block_count: usize,
+    // The stamp at which we first reached our threshold for reclaiming `GpuCache`
+    // memory, or `None` if the threshold hasn't been reached.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    reached_reclaim_threshold: Option<Instant>,
     // List of debug commands to be sent to the renderer when the GPU cache
     // debug display is enabled.
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -416,6 +430,7 @@ impl Texture {
             updates: Vec::new(),
             occupied_list_head: None,
             allocated_block_count: 0,
+            reached_reclaim_threshold: None,
             debug_commands: Vec::new(),
             debug_flags,
         }
@@ -577,6 +592,15 @@ impl Texture {
             current_block = next_block;
         }
     }
+
+    /// Returns the ratio of utilized blocks.
+    fn utilization(&self) -> f32 {
+        let total_blocks = self.rows.len() * MAX_VERTEX_TEXTURE_WIDTH;
+        debug_assert!(total_blocks > 0);
+        let ratio = self.allocated_block_count as f32 / total_blocks as f32;
+        debug_assert!(0.0 <= ratio && ratio <= 1.0, "Bad ratio: {}", ratio);
+        ratio
+    }
 }
 
 
@@ -737,7 +761,7 @@ impl GpuCache {
     /// End the frame. Return the list of updates to apply to the
     /// device specific cache texture.
     pub fn end_frame(
-        &self,
+        &mut self,
         profile_counters: &mut GpuCacheProfileCounters,
     ) -> FrameId {
         profile_counters
@@ -749,7 +773,24 @@ impl GpuCache {
         profile_counters
             .saved_blocks
             .set(self.saved_block_count);
+
+        let reached_threshold =
+            self.texture.rows.len() > (GPU_CACHE_INITIAL_HEIGHT as usize) &&
+            self.texture.utilization() < RECLAIM_THRESHOLD;
+        if reached_threshold {
+            self.texture.reached_reclaim_threshold.get_or_insert_with(Instant::now);
+        } else {
+            self.texture.reached_reclaim_threshold = None;
+        }
+
         self.frame_id
+    }
+
+    /// Returns true if utilization has been low enough for long enough that we
+    /// should blow the cache away and rebuild it.
+    pub fn should_reclaim_memory(&self) -> bool {
+        self.texture.reached_reclaim_threshold
+            .map_or(false, |t| t.elapsed() > Duration::from_secs(RECLAIM_DELAY_S))
     }
 
     /// Extract the pending updates from the cache.
