@@ -31,6 +31,7 @@ use profiler::GpuCacheProfileCounters;
 use render_backend::FrameId;
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use std::{mem, u16, u32};
+use std::num::NonZeroUsize;
 use std::ops::Add;
 use std::os::raw::c_void;
 
@@ -178,12 +179,12 @@ impl Add<usize> for GpuCacheAddress {
 struct Block {
     // The location in the cache of this block.
     address: GpuCacheAddress,
+    // The current epoch (generation) of this block.
+    epoch: Epoch,
     // Index of the next free block in the list it
     // belongs to (either a free-list or the
     // occupied list).
     next: Option<BlockIndex>,
-    // The current epoch (generation) of this block.
-    epoch: Epoch,
     // The last frame this block was referenced.
     last_access_time: FrameId,
 }
@@ -197,12 +198,35 @@ impl Block {
             epoch: Epoch(0),
         }
     }
+
+    /// Creates an invalid dummy block ID.
+    pub const INVALID: Block = Block {
+        address: GpuCacheAddress { u: 0, v: 0 },
+        epoch: Epoch(0),
+        next: None,
+        last_access_time: FrameId::INVALID,
+    };
 }
 
+/// Represents the index of a Block in the block array. We only create such
+/// structs for blocks that represent the start of a chunk.
+///
+/// Because we use Option<BlockIndex> in a lot of places, we use a NonZeroUsize
+/// here and avoid ever using the index zero.
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-struct BlockIndex(usize);
+struct BlockIndex(NonZeroUsize);
+
+impl BlockIndex {
+    fn new(idx: usize) -> Self {
+        BlockIndex(NonZeroUsize::new(idx).expect("Index zero forbidden"))
+    }
+
+    fn get(&self) -> usize {
+        self.0.get()
+    }
+}
 
 // A row in the cache texture.
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -377,10 +401,15 @@ struct Texture {
 
 impl Texture {
     fn new(epoch: Epoch, debug_flags: DebugFlags) -> Self {
+        // Pre-fill the block array with one invalid block so that we never use
+        // 0 for a BlockIndex. This lets us use NonZeroUsize for BlockIndex, which
+        // saves memory.
+        let blocks = vec![Block::INVALID];
+
         Texture {
             height: GPU_CACHE_INITIAL_HEIGHT,
             epoch,
-            blocks: Vec::new(),
+            blocks,
             rows: Vec::new(),
             free_lists: FreeBlockLists::new(),
             pending_blocks: Vec::new(),
@@ -434,7 +463,7 @@ impl Texture {
             let mut prev_block_index = None;
             for i in 0 .. items_per_row {
                 let address = GpuCacheAddress::new(i * alloc_size, row_index);
-                let block_index = BlockIndex(self.blocks.len());
+                let block_index = BlockIndex::new(self.blocks.len());
                 let block = Block::new(address, prev_block_index, frame_id);
                 self.blocks.push(block);
                 prev_block_index = Some(block_index);
@@ -447,7 +476,7 @@ impl Texture {
         // available in the appropriate free-list. Pull a block from the
         // head of the list.
         let free_block_index = free_list.take().unwrap();
-        let block = &mut self.blocks[free_block_index.0 as usize];
+        let block = &mut self.blocks[free_block_index.get()];
         *free_list = block.next;
 
         // Add the block to the occupied linked list.
@@ -496,7 +525,7 @@ impl Texture {
 
         while let Some(index) = current_block {
             let (next_block, should_unlink) = {
-                let block = &mut self.blocks[index.0 as usize];
+                let block = &mut self.blocks[index.get()];
 
                 let next_block = block.next;
                 let mut should_unlink = false;
@@ -535,7 +564,7 @@ impl Texture {
             if should_unlink {
                 match prev_block {
                     Some(prev_block) => {
-                        self.blocks[prev_block.0 as usize].next = next_block;
+                        self.blocks[prev_block.get()].next = next_block;
                     }
                     None => {
                         self.occupied_list_head = next_block;
@@ -642,7 +671,7 @@ impl GpuCache {
     // will rebuild the data and upload it to the GPU.
     pub fn invalidate(&mut self, handle: &GpuCacheHandle) {
         if let Some(ref location) = handle.location {
-            let block = &mut self.texture.blocks[location.block_index.0];
+            let block = &mut self.texture.blocks[location.block_index.get()];
             // don't invalidate blocks that are already re-assigned
             if block.epoch == location.block_epoch {
                 block.epoch.next();
@@ -657,7 +686,7 @@ impl GpuCache {
         // Check if the allocation for this handle is still valid.
         if let Some(ref location) = handle.location {
             if location.cache_epoch == self.cache_epoch {
-                let block = &mut self.texture.blocks[location.block_index.0];
+                let block = &mut self.texture.blocks[location.block_index.get()];
                 max_block_count = self.texture.rows[block.address.v as usize].block_count_per_item;
                 if block.epoch == location.block_epoch {
                     if block.last_access_time != self.frame_id {
@@ -746,7 +775,7 @@ impl GpuCache {
     /// freed or pending slot will panic!
     pub fn get_address(&self, id: &GpuCacheHandle) -> GpuCacheAddress {
         let location = id.location.expect("handle not requested or allocated!");
-        let block = &self.texture.blocks[location.block_index.0];
+        let block = &self.texture.blocks[location.block_index.get()];
         debug_assert_eq!(block.epoch, location.block_epoch);
         debug_assert_eq!(block.last_access_time, self.frame_id);
         block.address
@@ -756,4 +785,13 @@ impl GpuCache {
     pub fn malloc_size_of(&self, op: VoidPtrToSizeFn) -> usize {
         self.texture.malloc_size_of(op)
     }
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn test_struct_sizes() {
+    use std::mem;
+    // We can end up with a lot of blocks stored in the global vec, and keeping
+    // them small helps reduce memory overhead.
+    assert_eq!(mem::size_of::<Block>(), 24, "Block size changed");
 }
