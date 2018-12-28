@@ -284,7 +284,10 @@ struct FreeBlockLists {
     free_list_32: Option<BlockIndex>,
     free_list_64: Option<BlockIndex>,
     free_list_128: Option<BlockIndex>,
-    free_list_large: Option<BlockIndex>,
+    free_list_256: Option<BlockIndex>,
+    free_list_341: Option<BlockIndex>,
+    free_list_512: Option<BlockIndex>,
+    free_list_1024: Option<BlockIndex>,
 }
 
 impl FreeBlockLists {
@@ -298,7 +301,10 @@ impl FreeBlockLists {
             free_list_32: None,
             free_list_64: None,
             free_list_128: None,
-            free_list_large: None,
+            free_list_256: None,
+            free_list_341: None,
+            free_list_512: None,
+            free_list_1024: None,
         }
     }
 
@@ -306,8 +312,14 @@ impl FreeBlockLists {
         &mut self,
         block_count: usize,
     ) -> (usize, &mut Option<BlockIndex>) {
-        // Find the appropriate free list to use
-        // based on the block size.
+        // Find the appropriate free list to use based on the block size.
+        //
+        // Note that we cheat a bit with the 341 bucket, since it's not quite
+        // a divisor of 1024, because purecss-francine allocates many 260-block
+        // chunks, and there's no reason we shouldn't pack these three to a row.
+        // This means the allocation statistics will under-report by one block
+        // for each row using 341-block buckets, which is fine.
+        debug_assert_eq!(MAX_VERTEX_TEXTURE_WIDTH, 1024, "Need to update bucketing");
         match block_count {
             0 => panic!("Can't allocate zero sized blocks!"),
             1 => (1, &mut self.free_list_1),
@@ -318,7 +330,10 @@ impl FreeBlockLists {
             17...32 => (32, &mut self.free_list_32),
             33...64 => (64, &mut self.free_list_64),
             65...128 => (128, &mut self.free_list_128),
-            129...MAX_VERTEX_TEXTURE_WIDTH => (MAX_VERTEX_TEXTURE_WIDTH, &mut self.free_list_large),
+            129...256 => (256, &mut self.free_list_256),
+            257...341 => (341, &mut self.free_list_341),
+            342...512 => (512, &mut self.free_list_512),
+            513...1024 => (1024, &mut self.free_list_1024),
             _ => panic!("Can't allocate > MAX_VERTEX_TEXTURE_WIDTH per resource!"),
         }
     }
