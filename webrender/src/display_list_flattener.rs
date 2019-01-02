@@ -1030,12 +1030,6 @@ impl<'a> DisplayListFlattener<'a> {
                     .clip_interner
                     .intern(&item, || {
                         ClipItemSceneData {
-                            // The only type of clip items that exist in the per-primitive
-                            // clip items are box shadows, and they don't contribute a
-                            // local clip rect, so just provide max_rect here. In the future,
-                            // we intend to make box shadows a primitive effect, in which
-                            // case the entire clip_items API on primitives can be removed.
-                            clip_rect: LayoutRect::max_rect(),
                         }
                     });
 
@@ -1693,7 +1687,6 @@ impl<'a> DisplayListFlattener<'a> {
             .clip_interner
             .intern(&ClipItemKey::rectangle(clip_region.main.size, ClipMode::Clip), || {
                 ClipItemSceneData {
-                    clip_rect: clip_region.main,
                 }
             });
 
@@ -1713,7 +1706,6 @@ impl<'a> DisplayListFlattener<'a> {
                 .clip_interner
                 .intern(&ClipItemKey::image_mask(image_mask), || {
                     ClipItemSceneData {
-                        clip_rect: image_mask.get_local_clip_rect().unwrap_or(LayoutRect::max_rect()),
                     }
                 });
 
@@ -1734,7 +1726,6 @@ impl<'a> DisplayListFlattener<'a> {
                 .clip_interner
                 .intern(&ClipItemKey::rounded_rect(region.rect.size, region.radii, region.mode), || {
                     ClipItemSceneData {
-                        clip_rect: region.get_local_clip_rect().unwrap_or(LayoutRect::max_rect()),
                     }
                 });
 
