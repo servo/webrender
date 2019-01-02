@@ -13,7 +13,7 @@ use api::{PropertyBinding, ReferenceFrame, ScrollFrameDisplayItem, ScrollSensiti
 use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
 use api::{ClipMode, TransformStyle, YuvColorSpace, YuvData};
 use app_units::Au;
-use clip::{ClipChainId, ClipRegion, ClipItemKey, ClipStore, ClipItemSceneData};
+use clip::{ClipChainId, ClipRegion, ClipItemKey, ClipStore};
 use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, ClipScrollTree, SpatialNodeIndex};
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
 use glyph_rasterizer::FontInstance;
@@ -1028,10 +1028,7 @@ impl<'a> DisplayListFlattener<'a> {
                 // in the clip chain node.
                 let handle = self.resources
                     .clip_interner
-                    .intern(&item, || {
-                        ClipItemSceneData {
-                        }
-                    });
+                    .intern(&item, || ());
 
                 clip_chain_id = self.clip_store
                                     .add_clip_chain_node(
@@ -1685,10 +1682,7 @@ impl<'a> DisplayListFlattener<'a> {
         let handle = self
             .resources
             .clip_interner
-            .intern(&ClipItemKey::rectangle(clip_region.main.size, ClipMode::Clip), || {
-                ClipItemSceneData {
-                }
-            });
+            .intern(&ClipItemKey::rectangle(clip_region.main.size, ClipMode::Clip), || ());
 
         parent_clip_chain_index = self
             .clip_store
@@ -1704,10 +1698,7 @@ impl<'a> DisplayListFlattener<'a> {
             let handle = self
                 .resources
                 .clip_interner
-                .intern(&ClipItemKey::image_mask(image_mask), || {
-                    ClipItemSceneData {
-                    }
-                });
+                .intern(&ClipItemKey::image_mask(image_mask), || ());
 
             parent_clip_chain_index = self
                 .clip_store
@@ -1724,10 +1715,7 @@ impl<'a> DisplayListFlattener<'a> {
             let handle = self
                 .resources
                 .clip_interner
-                .intern(&ClipItemKey::rounded_rect(region.rect.size, region.radii, region.mode), || {
-                    ClipItemSceneData {
-                    }
-                });
+                .intern(&ClipItemKey::rounded_rect(region.rect.size, region.radii, region.mode), || ());
 
             parent_clip_chain_index = self
                 .clip_store
