@@ -6,7 +6,7 @@ use api::{BorderRadius, ClipMode, ComplexClipRegion, DeviceIntRect, DevicePixelS
 use api::{ImageRendering, LayoutRect, LayoutSize, LayoutPoint, LayoutVector2D};
 use api::{BoxShadowClipMode, LayoutToWorldScale, PicturePixel, WorldPixel};
 use api::{PictureRect, LayoutPixel, WorldPoint, WorldSize, WorldRect, LayoutToWorldTransform};
-use api::{VoidPtrToSizeFn, ImageKey};
+use api::{VoidPtrToSizeFn, ImageKey, BlobImageKey};
 use app_units::Au;
 use border::{ensure_no_corner_overlap, BorderRadiusAu};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowClipSource, BoxShadowCacheKey};
@@ -303,21 +303,28 @@ impl ClipNodeInfo {
                         clipped_rect.intersection(&mask_rect).unwrap()
                     };
 
+                    let mut device_image_rect = DeviceIntRect::from_size(props.descriptor.size);
+                    if props.is_blob {
+                        let visible_area = resource_cache
+                            .get_blob_visible_area(BlobImageKey(image));
+
+                        if let Some(area) = visible_area {
+                            device_image_rect = *area;
+                        }
+                    }
+
                     let repetitions = image::repetitions(
                         &mask_rect,
                         &visible_rect,
                         size,
                     );
 
-                    // TODO: As a followup, if the image is a tiled blob, the device_image_rect below
-                    // will be set to the blob's visible area.
-                    let device_image_rect = DeviceIntRect::from_size(props.descriptor.size);
-
                     for Repetition { origin, .. } in repetitions {
                         let layout_image_rect = LayoutRect {
                             origin,
                             size,
                         };
+
                         let tiles = image::tiles(
                             &layout_image_rect,
                             &visible_rect,

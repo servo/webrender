@@ -144,6 +144,7 @@ pub struct ImageProperties {
     pub descriptor: ImageDescriptor,
     pub external_image: Option<ExternalImageData>,
     pub tiling: Option<TileSize>,
+    pub is_blob: bool,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -437,7 +438,10 @@ pub struct ResourceCache {
 
     blob_image_handler: Option<Box<BlobImageHandler>>,
     rasterized_blob_images: FastHashMap<BlobImageKey, RasterizedBlob>,
+    // pre-scene-building state.
     blob_image_templates: FastHashMap<BlobImageKey, BlobImageTemplate>,
+    // post-scene-building state, accessed during frame building.
+    blob_visible_areas: FastHashMap<BlobImageKey, DeviceIntRect>,
 
     /// If while building a frame we encounter blobs that we didn't already
     /// rasterize, add them to this list and rasterize them synchronously.
@@ -478,6 +482,7 @@ impl ResourceCache {
             blob_image_handler,
             rasterized_blob_images: FastHashMap::default(),
             blob_image_templates: FastHashMap::default(),
+            blob_visible_areas: FastHashMap::default(),
             missing_blob_images: Vec::new(),
             blob_image_rasterizer: None,
             blob_image_rasterizer_produced_epoch: BlobImageRasterizerEpoch(0),
@@ -577,6 +582,7 @@ impl ResourceCache {
                 }
                 ResourceUpdate::SetBlobImageVisibleArea(key, area) => {
                     self.discard_tiles_outside_visible_area(key, &area);
+                    self.blob_visible_areas.insert(key, area);
                 }
                 ResourceUpdate::AddFont(_) |
                 ResourceUpdate::AddFontInstance(_) => {
@@ -702,6 +708,10 @@ impl ResourceCache {
                 }
             }
         }
+    }
+
+    pub fn get_blob_visible_area(&self, key: BlobImageKey) -> Option<&DeviceIntRect> {
+        self.blob_visible_areas.get(&key)
     }
 
     pub fn add_font_template(&mut self, font_key: FontKey, template: FontTemplate) {
@@ -917,6 +927,7 @@ impl ResourceCache {
                 self.blob_image_handler.as_mut().unwrap().delete(blob_key);
                 self.deleted_blob_keys.back_mut().unwrap().push(blob_key);
                 self.blob_image_templates.remove(&blob_key);
+                self.blob_visible_areas.remove(&blob_key);
                 self.rasterized_blob_images.remove(&blob_key);
             },
             None => {
@@ -1491,6 +1502,7 @@ impl ResourceCache {
                 descriptor: image_template.descriptor,
                 external_image,
                 tiling: image_template.tiling,
+                is_blob: image_template.data.is_blob(),
             }
         })
     }

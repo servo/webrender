@@ -4,7 +4,7 @@
 
 use api::{BorderRadius, ClipMode, ColorF, PictureRect, ColorU, LayoutVector2D};
 use api::{DeviceIntRect, DevicePixelScale, DeviceRect};
-use api::{FilterOp, ImageRendering, TileOffset, RepeatMode};
+use api::{FilterOp, ImageRendering, TileOffset, RepeatMode, BlobImageKey};
 use api::{LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize};
 use api::{PremultipliedColorF, PropertyBinding, Shadow};
 use api::{WorldPixel, BoxShadowClipMode, WorldRect, LayoutToWorldScale};
@@ -2466,9 +2466,17 @@ impl PrimitiveStore {
 
                 if let Some(image_properties) = image_properties {
                     if let Some(tile_size) = image_properties.tiling {
-                        // TODO: As a followup, if the image is a tiled blob, the device_image_rect below
-                        // will be set to the blob's visible area.
-                        let device_image_rect = DeviceIntRect::from_size(image_properties.descriptor.size);
+
+                        let mut device_image_rect = DeviceIntRect::from_size(image_properties.descriptor.size);
+                        if image_properties.is_blob {
+                            let visible_area = frame_state.resource_cache
+                                .get_blob_visible_area(BlobImageKey(image_data.key));
+
+                            if let Some(area) = visible_area {
+                                device_image_rect = *area;
+                            }
+                        }
+
 
                         // Tighten the clip rect because decomposing the repeated image can
                         // produce primitives that are partially covering the original image
