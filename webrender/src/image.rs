@@ -236,7 +236,7 @@ impl Iterator for TileIterator {
 pub fn tiles(
     prim_rect: &LayoutRect,
     visible_rect: &LayoutRect,
-    device_image_size: &DeviceIntSize,
+    image_rect: &DeviceIntRect,
     device_tile_size: i32,
 ) -> TileIterator {
     // The image resource is tiled. We have to generate an image primitive
@@ -290,23 +290,13 @@ pub fn tiles(
         }
     };
 
-    // TODO: these values hold for regular images but not necessarily for blobs.
-    // the latters can have image bounds with negative values (the blob image's
-    // visible area provided by gecko).
-    //
-    // Likewise, the alyout space tiling origin (layout position of tile offset
-    // (0, 0)) for blobs can be different from the top-left corner of the primitive
-    // rect.
-    //
-    // This info needs to be patched through.
-    let layout_tiling_origin = prim_rect.origin;
-    let device_image_range_x = 0..device_image_size.width;
-    let device_image_range_y = 0..device_image_size.height;
+    let device_image_range_x = image_rect.min_x()..image_rect.max_x();
+    let device_image_range_y = image_rect.min_y()..image_rect.max_y();
 
     // Size of regular tiles in layout space.
     let layout_tile_size = LayoutSize::new(
-        device_tile_size as f32 / device_image_size.width as f32 * prim_rect.size.width,
-        device_tile_size as f32 / device_image_size.height as f32 * prim_rect.size.height,
+        device_tile_size as f32 / image_rect.size.width as f32 * prim_rect.size.width,
+        device_tile_size as f32 / image_rect.size.height as f32 * prim_rect.size.height,
     );
 
     // The decomposition logic is exactly the same on each axis so we reduce
@@ -315,17 +305,17 @@ pub fn tiles(
     let x_extent = tiles_1d(
         layout_tile_size.width,
         visible_rect.min_x()..visible_rect.max_x(),
+        prim_rect.min_x(),
         device_image_range_x,
         device_tile_size,
-        layout_tiling_origin.x,
     );
 
     let y_extent = tiles_1d(
         layout_tile_size.height,
         visible_rect.min_y()..visible_rect.max_y(),
+        prim_rect.min_y(),
         device_image_range_y,
         device_tile_size,
-        layout_tiling_origin.y,
     );
 
     let mut row_flags = EdgeAaSegmentMask::TOP;
@@ -392,9 +382,9 @@ pub fn tiles(
 fn tiles_1d(
     layout_tile_size: f32,
     layout_visible_range: Range<f32>,
+    layout_prim_start: f32,
     device_image_range: Range<i32>,
     device_tile_size: i32,
-    layout_tiling_origin: f32,
 ) -> TileIteratorExtent {
     // A few sanity checks.
     debug_assert!(layout_tile_size > 0.0);
@@ -409,6 +399,11 @@ fn tiles_1d(
     // Offsets of first and last tiles of this row/column (in number of tiles) without
     // taking culling into account.
     let (first_image_tile, last_image_tile) = first_and_last_tile_1d(&device_image_range, device_tile_size);
+
+    // Layout offset of tile (0, 0) with respect to the top-left corner of the display item.
+    let layout_offset = device_image_range.start as f32 * layout_tile_size / device_tile_size as f32;
+    // Position in layout space of tile (0, 0).
+    let layout_tiling_origin = layout_prim_start - layout_offset;
 
     // The visible tiles (because of culling).
     //
@@ -602,14 +597,14 @@ pub fn for_each_tile_in_range(
 mod tests {
     use super::*;
     use std::collections::HashSet;
-    use api::{LayoutRect, DeviceIntSize};
-    use euclid::{rect, size2};
+    use api::LayoutRect;
+    use euclid::rect;
 
     // this checks some additional invariants
     fn checked_for_each_tile(
         prim_rect: &LayoutRect,
         visible_rect: &LayoutRect,
-        device_image_size: &DeviceIntSize,
+        device_image_rect: &DeviceIntRect,
         device_tile_size: i32,
         callback: &mut FnMut(&LayoutRect, TileOffset, EdgeAaSegmentMask),
     ) {
@@ -618,7 +613,7 @@ mod tests {
         for tile in tiles(
             prim_rect,
             visible_rect,
-            device_image_size,
+            device_image_rect,
             device_tile_size,
         ) {
             // make sure we don't get sent duplicate tiles
@@ -637,7 +632,7 @@ mod tests {
         let mut count = 0;
         checked_for_each_tile(&rect(0., 0., 1000., 1000.),
             &rect(75., 75., 400., 400.),
-            &size2(400, 400),
+            &rect(0, 0, 400, 400),
             36,
             &mut |_tile_rect, _tile_offset, _tile_flags| {
                 count += 1;
@@ -651,7 +646,7 @@ mod tests {
         let mut count = 0;
         checked_for_each_tile(&rect(0., 0., 74., 74.),
               &rect(75., 75., 400., 400.),
-              &size2(400, 400),
+              &rect(0, 0, 400, 400),
               36,
               &mut |_tile_rect, _tile_offset, _tile_flags| {
                 count += 1;
@@ -663,38 +658,38 @@ mod tests {
     #[test]
     fn test_tiles_1d() {
         // Exactly one full tile at positive offset.
-        let result = tiles_1d(64.0, -10000.0..10000.0, 0..64, 64, 0.0);
+        let result = tiles_1d(64.0, -10000.0..10000.0, 0.0, 0..64, 64);
         assert_eq!(result.tile_range.start, 0);
         assert_eq!(result.tile_range.end, 1);
         assert_eq!(result.first_tile_layout_size, 64.0);
         assert_eq!(result.last_tile_layout_size, 64.0);
 
         // Exactly one full tile at negative offset.
-        let result = tiles_1d(64.0, -10000.0..10000.0, -64..0, 64, 0.0);
+        let result = tiles_1d(64.0, -10000.0..10000.0, -64.0, -64..0, 64);
         assert_eq!(result.tile_range.start, -1);
         assert_eq!(result.tile_range.end, 0);
         assert_eq!(result.first_tile_layout_size, 64.0);
         assert_eq!(result.last_tile_layout_size, 64.0);
 
         // Two full tiles at negative and positive offsets.
-        let result = tiles_1d(64.0, -10000.0..10000.0, -64..64, 64, 0.0);
+        let result = tiles_1d(64.0, -10000.0..10000.0, -64.0, -64..64, 64);
         assert_eq!(result.tile_range.start, -1);
         assert_eq!(result.tile_range.end, 1);
         assert_eq!(result.first_tile_layout_size, 64.0);
         assert_eq!(result.last_tile_layout_size, 64.0);
 
         // One partial tile at positve offset, non-zero origin, culled out.
-        let result = tiles_1d(64.0, -100.0..10.0, 64..310, 64, 0.0);
+        let result = tiles_1d(64.0, -100.0..10.0, 64.0, 64..310, 64);
         assert_eq!(result.tile_range.start, result.tile_range.end);
 
         // Two tiles at negative and positive offsets, one of which is culled out.
         // The remaining tile is partially culled but it should still generate a full tile.
-        let result = tiles_1d(64.0, 10.0..10000.0, -64..64, 64, 0.0);
+        let result = tiles_1d(64.0, 10.0..10000.0, -64.0, -64..64, 64);
         assert_eq!(result.tile_range.start, 0);
         assert_eq!(result.tile_range.end, 1);
         assert_eq!(result.first_tile_layout_size, 64.0);
         assert_eq!(result.last_tile_layout_size, 64.0);
-        let result = tiles_1d(64.0, -10000.0..-10.0, -64..64, 64, 0.0);
+        let result = tiles_1d(64.0, -10000.0..-10.0, -64.0, -64..64, 64);
         assert_eq!(result.tile_range.start, -1);
         assert_eq!(result.tile_range.end, 0);
         assert_eq!(result.first_tile_layout_size, 64.0);
@@ -702,7 +697,7 @@ mod tests {
 
         // Stretched tile in layout space device tile size is 64 and layout tile size is 128.
         // So the resulting tile sizes in layout space should be multiplied by two.
-        let result = tiles_1d(128.0, -10000.0..10000.0, -64..32, 64, 0.0);
+        let result = tiles_1d(128.0, -10000.0..10000.0, -64.0, -64..32, 64);
         assert_eq!(result.tile_range.start, -1);
         assert_eq!(result.tile_range.end, 1);
         assert_eq!(result.first_tile_layout_size, 128.0);
@@ -759,7 +754,7 @@ mod tests {
 
 
         // One partial tile at positve offset, non-zero origin.
-        let result = tiles_1d(64.0, -10000.0..10000.0, 300..310, 64, 0.0);
+        let result = tiles_1d(64.0, -10000.0..10000.0, 0.0, 300..310, 64);
         assert_eq!(result.tile_range.start, 4);
         assert_eq!(result.tile_range.end, 5);
         assert_eq!(result.first_tile_layout_size, 10.0);
