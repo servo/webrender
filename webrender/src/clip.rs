@@ -79,10 +79,10 @@ use util::{extract_inner_rect_safe, project_rect, ScaleOffset};
 
  ClipChainInstance - A ClipChain that has been built for a specific primitive + positioning node.
 
-    When given a clip chain ID, and a local primitive rect + spatial node, the clip module
+    When given a clip chain ID, and a local primitive rect and its spatial node, the clip module
     creates a clip chain instance. This is a struct with various pieces of useful information
-    (such as a local clip rect and affected local bounding rect). It also contains a (index, count)
-    range specifier into an index buffer of the ClipNode structures that are actually relevant
+    (such as a local clip rect). It also contains a (index, count)
+    range specifier into an index buffer of the ClipNodeInstance structures that are actually relevant
     for this clip chain instance. The index buffer structure allows a single array to be used for
     all of the clip-chain instances built in a single frame. Each entry in the index buffer
     also stores some flags relevant to the clip node in this positioning context.
@@ -90,8 +90,8 @@ use util::{extract_inner_rect_safe, project_rect, ScaleOffset};
     +----------------------+
     | ClipChainInstance    |
     +----------------------+
-    | local_clip_rect      |
-    | local_bounding_rect  |________________________________________________________________________
+    | ...                  |
+    | local_clip_rect      |________________________________________________________________________
     | clips_range          |_______________                                                        |
     +----------------------+              |                                                        |
                                           |                                                        |
@@ -99,6 +99,7 @@ use util::{extract_inner_rect_safe, project_rect, ScaleOffset};
     | ClipNodeInstance | ClipNodeInstance | ClipNodeInstance | ClipNodeInstance | ClipNodeInstance |
     +------------------+------------------+------------------+------------------+------------------+
     | flags            | flags            | flags            | flags            | flags            |
+    | ...              | ...              | ...              | ...              | ...              |
     +------------------+------------------+------------------+------------------+------------------+
 
  */
