@@ -55,15 +55,15 @@ use util::{extract_inner_rect_safe, project_rect, ScaleOffset};
                0                        1                       2
 
        +----------------+    |                                              |
-       | ClipItemRange  |____|                                              |
+       | ClipNodeRange  |____|                                              |
        |    index: 1    |                                                   |
        |    count: 2    |___________________________________________________|
        +----------------+
 
- ClipItemRange - A clip item range identifies a range of clip nodes. It is stored
-                 as an (index, count).
+ ClipNodeRange - A clip item range identifies a range of clip nodes instances.
+                 It is stored as an (index, count).
 
- ClipChain - A clip chain node contains a range of ClipNodes (a ClipItemRange)
+ ClipChain - A clip chain node contains a range of ClipNodes (a ClipNodeRange)
              and a parent link to an optional ClipChain. Both legacy hierchical clip
              chains and user defined API clip chains use the same data structure.
              ClipChainId is an index into an array, or ClipChainId::NONE for no parent.
@@ -71,7 +71,7 @@ use util::{extract_inner_rect_safe, project_rect, ScaleOffset};
     +----------------+    ____+----------------+    ____+----------------+    ____+----------------+
     | ClipChain      |   |    | ClipChain      |   |    | ClipChain      |   |    | ClipChain      |
     +----------------+   |    +----------------+   |    +----------------+   |    +----------------+
-    | ClipItemRange  |   |    | ClipItemRange  |   |    | ClipItemRange  |   |    | ClipItemRange  |
+    | ClipNodeRange  |   |    | ClipNodeRange  |   |    | ClipNodeRange  |   |    | ClipNodeRange  |
     | Parent Id      |___|    | Parent Id      |___|    | Parent Id      |___|    | Parent Id      |
     +----------------+        +----------------+        +----------------+        +----------------+
 
