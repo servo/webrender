@@ -458,20 +458,16 @@ impl TileCache {
             .map(&pic_rect)
             .expect("bug: unable to map picture rect to world");
 
-        // TODO(gw): Inflate the world rect a bit, to ensure that we keep tiles in
-        //           the cache for a while after they disappear off-screen.
+        // If the bounding rect of the picture to cache doesn't intersect with
+        // the visible world rect at all, just take the screen world rect as
+        // a reference for the area to create tiles for. This allows existing
+        // tiles to be retained in case they are still valid if / when they
+        // get scrolled back onto the screen.
+
         let needed_world_rect = frame_context
             .screen_world_rect
-            .intersection(&pic_world_rect);
-
-        let needed_world_rect = match needed_world_rect {
-            Some(rect) => rect,
-            None => {
-                // TODO(gw): Should we explicitly drop any existing cache handles here?
-                self.tiles.clear();
-                return;
-            }
-        };
+            .intersection(&pic_world_rect)
+            .unwrap_or(frame_context.screen_world_rect);
 
         // Get a reference point that serves as an origin that all tiles we create
         // must be aligned to. This ensures that tiles get reused correctly between
@@ -493,7 +489,7 @@ impl TileCache {
         let pic_device_rect = pic_world_rect * frame_context.device_pixel_scale;
         let needed_device_rect = pic_device_rect
             .intersection(&device_world_rect)
-            .expect("todo: handle clipped device rect");
+            .unwrap_or(device_world_rect);
 
         // Expand the needed device rect vertically by a small number of tiles. This
         // ensures that as tiles are scrolled in/out of view, they are retained for
