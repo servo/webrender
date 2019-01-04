@@ -107,6 +107,9 @@ if use_rr():
     dbg_cmd = ['rr', 'record']
 elif use_gdb():
     dbg_cmd = [debugger(), '--args']
+elif debugger():
+    print("Unknown debugger: " + debugger())
+    sys.exit(1)
 
 # TODO(gw): We have an occasional accuracy issue or bug (could be WR or OSMesa)
 #           where the output of a previous test that uses intermediate targets can
