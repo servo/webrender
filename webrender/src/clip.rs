@@ -36,13 +36,21 @@ use util::{extract_inner_rect_safe, project_rect, ScaleOffset};
  ClipItem - A single clip item (e.g. a rounded rect, or a box shadow).
             These are an exposed API type, stored inline in a ClipNode.
 
- ClipNode - A ClipItem with attached positioning information (a spatial node index).
-            Stored as a contiguous array of nodes within the ClipStore.
+ ClipNode - A ClipItem with an attached GPU handle. The GPU handle is populated
+            when a ClipNodeInstance is built from this node (which happens while
+            preparing primitives for render).
 
+ ClipNodeInstance - A ClipNode with attached positioning information (a spatial
+                    node index). This is stored as a contiguous array of nodes
+                    within the ClipStore.
+
+    +-----------------------+-----------------------+-----------------------+
+    | ClipNodeInstance      | ClipNodeInstance      | ClipNodeInstance      |
     +-----------------------+-----------------------+-----------------------+
     | ClipItem              | ClipItem              | ClipItem              |
     | Spatial Node Index    | Spatial Node Index    | Spatial Node Index    |
     | GPU cache handle      | GPU cache handle      | GPU cache handle      |
+    | ...                   | ...                   | ...                   |
     +-----------------------+-----------------------+-----------------------+
                0                        1                       2
 
