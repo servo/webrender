@@ -63,17 +63,19 @@ use util::{extract_inner_rect_safe, project_rect, ScaleOffset};
  ClipNodeRange - A clip item range identifies a range of clip nodes instances.
                  It is stored as an (index, count).
 
- ClipChain - A clip chain node contains a range of ClipNodes (a ClipNodeRange)
-             and a parent link to an optional ClipChain. Both legacy hierchical clip
-             chains and user defined API clip chains use the same data structure.
-             ClipChainId is an index into an array, or ClipChainId::NONE for no parent.
+ ClipChainNode - A clip chain node contains a handle to an interned clip item,
+                 positioning information (from where the clip was defined), and
+                 an optional parent link to another ClipChainNode. ClipChainId
+                 is an index into an array, or ClipChainId::NONE for no parent.
 
-    +----------------+    ____+----------------+    ____+----------------+    ____+----------------+
-    | ClipChain      |   |    | ClipChain      |   |    | ClipChain      |   |    | ClipChain      |
-    +----------------+   |    +----------------+   |    +----------------+   |    +----------------+
-    | ClipNodeRange  |   |    | ClipNodeRange  |   |    | ClipNodeRange  |   |    | ClipNodeRange  |
-    | Parent Id      |___|    | Parent Id      |___|    | Parent Id      |___|    | Parent Id      |
-    +----------------+        +----------------+        +----------------+        +----------------+
+    +----------------+    ____+----------------+    ____+----------------+   /---> ClipChainId::NONE
+    | ClipChainNode  |   |    | ClipChainNode  |   |    | ClipChainNode  |   |
+    +----------------+   |    +----------------+   |    +----------------+   |
+    | ClipDataHandle |   |    | ClipDataHandle |   |    | ClipDataHandle |   |
+    | Spatial index  |   |    | Spatial index  |   |    | Spatial index  |   |
+    | Parent Id      |___|    | Parent Id      |___|    | Parent Id      |___|
+    | ...            |        | ...            |        | ...            |
+    +----------------+        +----------------+        +----------------+
 
  ClipChainInstance - A ClipChain that has been built for a specific primitive + positioning node.
 
