@@ -89,7 +89,6 @@ use util::{extract_inner_rect_safe, project_rect, ScaleOffset};
     | ClipNodeInstance | ClipNodeInstance | ClipNodeInstance | ClipNodeInstance | ClipNodeInstance |
     +------------------+------------------+------------------+------------------+------------------+
     | flags            | flags            | flags            | flags            | flags            |
-    | ClipNodeIndex    | ClipNodeIndex    | ClipNodeIndex    | ClipNodeIndex    | ClipNodeIndex    |
     +------------------+------------------+------------------+------------------+------------------+
 
  */
@@ -205,12 +204,6 @@ pub struct ClipChainNode {
     pub spatial_node_index: SpatialNodeIndex,
     pub parent_clip_chain_id: ClipChainId,
 }
-
-// An index into the clip_nodes array.
-#[derive(Clone, Copy, Debug, PartialEq, Hash, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct ClipNodeIndex(pub u32);
 
 // When a clip node is found to be valid for a
 // clip chain instance, it's stored in an index
