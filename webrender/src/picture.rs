@@ -1000,7 +1000,7 @@ impl TileCache {
                 }
             } else {
                 // Add the tile rect to the dirty rect.
-                dirty_world_rect = dirty_world_rect.union(&tile.world_rect);
+                dirty_world_rect = dirty_world_rect.union(&visible_rect);
 
                 // Ensure that this texture is allocated.
                 resource_cache.texture_cache.update(
