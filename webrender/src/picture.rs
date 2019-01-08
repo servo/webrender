@@ -181,11 +181,20 @@ pub struct PrimitiveDescriptor {
     /// Uniquely identifies the content of the primitive template.
     prim_uid: ItemUid,
     /// The origin in local space of this primitive.
-    origin: LayoutPoint,
+    origin: WorldPoint,
     /// The first clip in the clip_uids array of clips that affect this tile.
     first_clip: u16,
     /// The number of clips that affect this primitive instance.
     clip_count: u16,
+}
+
+/// Defines the region of a primitive that exists on a tile.
+#[derive(Debug)]
+pub struct PrimitiveRegion {
+    /// The (prim relative) portion of on this tile.
+    prim_region: WorldRect,
+    /// Location within the tile.
+    tile_offset: WorldPoint,
 }
 
 /// Uniquely describes the content of this tile, in a way that can be
@@ -214,10 +223,10 @@ pub struct TileDescriptor {
     opacity_bindings: ComparableVec<OpacityBinding>,
 
     /// List of the required valid rectangles for each primitive.
-    needed_rects: Vec<WorldRect>,
+    needed_regions: Vec<PrimitiveRegion>,
 
     /// List of the currently valid rectangles for each primitive.
-    current_rects: Vec<WorldRect>,
+    current_regions: Vec<PrimitiveRegion>,
 
     /// List of the (quantized) transforms that we care about
     /// tracking for this tile.
@@ -232,8 +241,8 @@ impl TileDescriptor {
             clip_vertices: ComparableVec::new(),
             opacity_bindings: ComparableVec::new(),
             image_keys: ComparableVec::new(),
-            needed_rects: Vec::new(),
-            current_rects: Vec::new(),
+            needed_regions: Vec::new(),
+            current_regions: Vec::new(),
             transforms: ComparableVec::new(),
         }
     }
@@ -246,12 +255,12 @@ impl TileDescriptor {
         self.clip_vertices.reset();
         self.opacity_bindings.reset();
         self.image_keys.reset();
-        self.needed_rects.clear();
+        self.needed_regions.clear();
         self.transforms.reset();
     }
 
     /// Check if the dependencies of this tile are valid.
-    fn is_valid(&self) -> bool {
+    fn is_valid(&self, tile_bounding_rect: &WorldRect) -> bool {
         // For a tile to be valid, it needs to ensure that the currently valid
         // rect of each primitive encloses the required valid rect.
         // TODO(gw): This is only needed for tiles that are partially rendered
@@ -260,9 +269,29 @@ impl TileDescriptor {
         // TODO(gw): For partial tiles that *do* need this test, we can probably
         //           make it faster again by caching and checking the relative
         //           transforms of primitives on this tile.
-        let rects_valid = if self.needed_rects.len() == self.current_rects.len() {
-            for (needed, current) in self.needed_rects.iter().zip(self.current_rects.iter()) {
-                if !current.contains_rect(needed) {
+        let rects_valid = if self.needed_regions.len() == self.current_regions.len() {
+            for (needed, current) in self.needed_regions.iter().zip(self.current_regions.iter()) {
+                let needed_region = needed
+                    .prim_region
+                    .translate(&needed.tile_offset.to_vector())
+                    .intersection(tile_bounding_rect);
+
+                let needed_rect = match needed_region {
+                    Some(rect) => rect,
+                    None => continue,
+                };
+
+                let current_region = current
+                    .prim_region
+                    .translate(&current.tile_offset.to_vector())
+                    .intersection(tile_bounding_rect);
+
+                let current_rect = match current_region {
+                    Some(rect) => rect,
+                    None => return false,
+                };
+
+                if needed_rect != current_rect {
                     return false;
                 }
             }
@@ -870,16 +899,6 @@ impl TileCache {
                 let index = (y * self.tile_count.width + x) as usize;
                 let tile = &mut self.tiles[index];
 
-                // TODO(gw): For now, we need to always build the dependencies each
-                //           frame, so can't early exit here. In future, we should
-                //           support retaining the tile descriptor from when the
-                //           tile goes off-screen, which will mean we can then
-                //           compare against that next time it becomes visible.
-                let visible_rect = match tile.visible_rect {
-                    Some(visible_rect) => visible_rect,
-                    None => WorldRect::zero(),
-                };
-
                 // Work out the needed rect for the primitive on this tile.
                 // TODO(gw): We should be able to remove this for any tile that is not
                 //           a partially clipped tile, which would be a significant
@@ -889,14 +908,12 @@ impl TileCache {
                 // Ensure that even if it's currently clipped out of this tile,
                 // we still insert a rect of zero size, so that the tile descriptor's
                 // needed rects array matches.
-                let needed_rect = world_clip_rect
-                    .intersection(&visible_rect)
-                    .map(|rect| {
-                        rect.translate(&-tile.world_rect.origin.to_vector())
-                    })
-                    .unwrap_or(WorldRect::zero());
+                let prim_region = world_clip_rect.translate(&-world_rect.origin.to_vector());
 
-                tile.descriptor.needed_rects.push(needed_rect);
+                tile.descriptor.needed_regions.push(PrimitiveRegion {
+                    prim_region,
+                    tile_offset: world_rect.origin - tile.world_rect.origin.to_vector(),
+                });
 
                 // Mark if the tile is cacheable at all.
                 tile.is_valid &= is_cacheable;
@@ -910,7 +927,7 @@ impl TileCache {
                 // Update the tile descriptor, used for tile comparison during scene swaps.
                 tile.descriptor.prims.push(PrimitiveDescriptor {
                     prim_uid: prim_instance.uid(),
-                    origin: prim_instance.prim_origin,
+                    origin: world_rect.origin - tile.world_rect.origin.to_vector(),
                     first_clip: tile.descriptor.clip_uids.len() as u16,
                     clip_count: clip_chain_uids.len() as u16,
                 });
@@ -998,7 +1015,11 @@ impl TileCache {
             };
 
             // Check the content of the tile is the same
-            tile.is_valid &= tile.descriptor.is_valid();
+            let tile_bounding_rect = match visible_rect.intersection(&self.world_bounding_rect) {
+                Some(rect) => rect.translate(&-tile.world_rect.origin.to_vector()),
+                None => continue,
+            };
+            tile.is_valid &= tile.descriptor.is_valid(&tile_bounding_rect);
 
             // Decide how to handle this tile when drawing this frame.
             if tile.is_valid {
@@ -1044,8 +1065,8 @@ impl TileCache {
 
                 // We can consider this tile valid now.
                 tile.is_valid = true;
-                tile.descriptor.current_rects = mem::replace(
-                    &mut tile.descriptor.needed_rects,
+                tile.descriptor.current_regions = mem::replace(
+                    &mut tile.descriptor.needed_regions,
                     Vec::new(),
                 );
             }
