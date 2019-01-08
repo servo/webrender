@@ -16,7 +16,7 @@ cfg_if! {
         use glyph_rasterizer::NativeFontHandleWrapper;
     } else if #[cfg(not(feature = "pathfinder"))] {
         use api::FontInstancePlatformOptions;
-        use glyph_rasterizer::{GlyphFormat, GlyphRasterResult, RasterizedGlyph};
+        use glyph_rasterizer::{GlyphFormat, GlyphRasterError, GlyphRasterResult, RasterizedGlyph};
         use gamma_lut::GammaLut;
     }
 }
@@ -355,10 +355,7 @@ impl FontContext {
         } else {
             None
         };
-        let (_, _, bounds) = match self.create_glyph_analysis(font, key, size, transform, bitmaps) {
-            Err(_) => return None,
-            Ok(info) => info,
-        };
+        let (_, _, bounds) = self.create_glyph_analysis(font, key, size, transform, bitmaps).ok()?;
 
         let width = (bounds.right - bounds.left) as i32;
         let height = (bounds.bottom - bounds.top) as i32;
@@ -489,23 +486,17 @@ impl FontContext {
             None
         };
 
-        let (analysis, texture_type, bounds) = match self.create_glyph_analysis(font, key, size, transform, bitmaps) {
-            Err(_) => return GlyphRasterResult::LoadFailed,
-            Ok(info) => info,
-        };
-
+        let (analysis, texture_type, bounds) = self.create_glyph_analysis(font, key, size, transform, bitmaps)
+                                                   .or(Err(GlyphRasterError::LoadFailed))?;
         let width = (bounds.right - bounds.left) as i32;
         let height = (bounds.bottom - bounds.top) as i32;
         // Alpha texture bounds can sometimes return an empty rect
         // Such as for spaces
         if width == 0 || height == 0 {
-            return GlyphRasterResult::LoadFailed;
+            return Err(GlyphRasterError::LoadFailed);
         }
 
-        let pixels = match analysis.create_alpha_texture(texture_type, bounds) {
-            Err(_) => return GlyphRasterResult::LoadFailed,
-            Ok(pixels) => pixels,
-        };
+        let pixels = analysis.create_alpha_texture(texture_type, bounds).or(Err(GlyphRasterError::LoadFailed))?;
         let mut bgra_pixels = self.convert_to_bgra(&pixels, texture_type, font.render_mode, bitmaps);
 
         // These are the default values we use in Gecko.
@@ -541,7 +532,7 @@ impl FontContext {
             font.get_glyph_format()
         };
 
-        GlyphRasterResult::Bitmap(RasterizedGlyph {
+        Ok(RasterizedGlyph {
             left: bounds.left as f32,
             top: -bounds.top as f32,
             width,
