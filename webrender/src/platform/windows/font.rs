@@ -253,7 +253,7 @@ impl FontContext {
         size: f32,
         transform: Option<dwrote::DWRITE_MATRIX>,
         bitmaps: bool,
-    ) -> (dwrote::GlyphRunAnalysis, dwrote::DWRITE_TEXTURE_TYPE, dwrote::RECT) {
+    ) -> Result<(dwrote::GlyphRunAnalysis, dwrote::DWRITE_TEXTURE_TYPE, dwrote::RECT), dwrote::HRESULT> {
         let face = self.get_font_face(font);
         let glyph = key.index() as u16;
         let advance = 0.0f32;
@@ -290,9 +290,9 @@ impl FontContext {
             dwrite_measure_mode,
             0.0,
             0.0,
-        );
+        )?;
         let texture_type = dwrite_texture_type(font.render_mode);
-        let bounds = analysis.get_alpha_texture_bounds(texture_type);
+        let bounds = analysis.get_alpha_texture_bounds(texture_type)?;
         // If the bounds are empty, then we might not be able to render the glyph with cleartype.
         // Try again with aliased rendering to check if that works instead.
         if font.render_mode != FontRenderMode::Mono &&
@@ -305,13 +305,13 @@ impl FontContext {
                 dwrite_measure_mode,
                 0.0,
                 0.0,
-            );
-            let bounds2 = analysis2.get_alpha_texture_bounds(dwrote::DWRITE_TEXTURE_ALIASED_1x1);
+            )?;
+            let bounds2 = analysis2.get_alpha_texture_bounds(dwrote::DWRITE_TEXTURE_ALIASED_1x1)?;
             if bounds2.left != bounds2.right && bounds2.top != bounds2.bottom {
-                return (analysis2, dwrote::DWRITE_TEXTURE_ALIASED_1x1, bounds2);
+                return Ok((analysis2, dwrote::DWRITE_TEXTURE_ALIASED_1x1, bounds2));
             }
         }
-        (analysis, texture_type, bounds)
+        Ok((analysis, texture_type, bounds))
     }
 
     pub fn get_glyph_index(&mut self, font_key: FontKey, ch: char) -> Option<u32> {
@@ -355,7 +355,10 @@ impl FontContext {
         } else {
             None
         };
-        let (_, _, bounds) = self.create_glyph_analysis(font, key, size, transform, bitmaps);
+        let (_, _, bounds) = match self.create_glyph_analysis(font, key, size, transform, bitmaps) {
+            Err(_) => return None,
+            Ok(info) => info,
+        };
 
         let width = (bounds.right - bounds.left) as i32;
         let height = (bounds.bottom - bounds.top) as i32;
@@ -486,7 +489,10 @@ impl FontContext {
             None
         };
 
-        let (analysis, texture_type, bounds) = self.create_glyph_analysis(font, key, size, transform, bitmaps);
+        let (analysis, texture_type, bounds) = match self.create_glyph_analysis(font, key, size, transform, bitmaps) {
+            Err(_) => return GlyphRasterResult::LoadFailed,
+            Ok(info) => info,
+        };
 
         let width = (bounds.right - bounds.left) as i32;
         let height = (bounds.bottom - bounds.top) as i32;
@@ -496,7 +502,10 @@ impl FontContext {
             return GlyphRasterResult::LoadFailed;
         }
 
-        let pixels = analysis.create_alpha_texture(texture_type, bounds);
+        let pixels = match analysis.create_alpha_texture(texture_type, bounds) {
+            Err(_) => return GlyphRasterResult::LoadFailed,
+            Ok(pixels) => pixels,
+        };
         let mut bgra_pixels = self.convert_to_bgra(&pixels, texture_type, font.render_mode, bitmaps);
 
         // These are the default values we use in Gecko.
