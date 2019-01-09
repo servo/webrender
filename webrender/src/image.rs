@@ -175,23 +175,18 @@ pub struct TileIterator {
     y: TileIteratorExtent,
     regular_tile_size: LayoutSize,
     local_origin: LayoutPoint,
-    row_flags: EdgeAaSegmentMask,
 }
 
 impl Iterator for TileIterator {
     type Item = Tile;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_tile.x == self.x.tile_range.end {
+        if self.current_tile.x >= self.x.tile_range.end {
             self.current_tile.y += 1;
             if self.current_tile.y >= self.y.tile_range.end {
                 return None;
             }
             self.current_tile.x = self.x.tile_range.start;
-            self.row_flags = EdgeAaSegmentMask::empty();
-            if self.current_tile.y == self.y.tile_range.end - 1 {
-                self.row_flags |= EdgeAaSegmentMask::BOTTOM;
-            }
         }
 
         let tile_offset = self.current_tile;
@@ -204,7 +199,7 @@ impl Iterator for TileIterator {
             size: self.regular_tile_size,
         };
 
-        let mut edge_flags = self.row_flags;
+        let mut edge_flags = EdgeAaSegmentMask::empty();
 
         if tile_offset.x == self.x.tile_range.start {
             edge_flags |= EdgeAaSegmentMask::LEFT;
@@ -223,9 +218,13 @@ impl Iterator for TileIterator {
             // If the first tile is a partial tile, its origin isn't aligned with the tile grid,
             // we account for that here.
             segment_rect.origin.y += self.regular_tile_size.height - self.y.first_tile_layout_size;
-        } else if tile_offset.y == self.y.tile_range.end - 1 {
-            segment_rect.size.height = self.y.last_tile_layout_size;
+            edge_flags |= EdgeAaSegmentMask::TOP;
         }
+        if tile_offset.y == self.y.tile_range.end - 1 {
+            segment_rect.size.height = self.y.last_tile_layout_size;
+            edge_flags |= EdgeAaSegmentMask::BOTTOM;
+        }
+
         assert!(tile_offset.y < self.y.tile_range.end);
         let tile = Tile {
             rect: segment_rect,
@@ -289,7 +288,6 @@ pub fn tiles(
                     first_tile_layout_size: 0.0,
                     last_tile_layout_size: 0.0,
                 },
-                row_flags: EdgeAaSegmentMask::empty(),
                 regular_tile_size: LayoutSize::zero(),
                 local_origin: LayoutPoint::zero(),
             }
@@ -309,10 +307,15 @@ pub fn tiles(
     let device_image_range_x = 0..device_image_size.width;
     let device_image_range_y = 0..device_image_size.height;
 
+    // Some of the tile iteration logic expects the regular tile size to be
+    // inferior or equal to the image size, take care of that here.
+    let x_device_tile_size = i32::min(device_tile_size, device_image_size.width);
+    let y_device_tile_size = i32::min(device_tile_size, device_image_size.height);
+
     // Size of regular tiles in layout space.
     let layout_tile_size = LayoutSize::new(
-        device_tile_size as f32 / device_image_size.width as f32 * prim_rect.size.width,
-        device_tile_size as f32 / device_image_size.height as f32 * prim_rect.size.height,
+        x_device_tile_size as f32 / device_image_size.width as f32 * prim_rect.size.width,
+        y_device_tile_size as f32 / device_image_size.height as f32 * prim_rect.size.height,
     );
 
     // The decomposition logic is exactly the same on each axis so we reduce
@@ -322,7 +325,7 @@ pub fn tiles(
         layout_tile_size.width,
         visible_rect.min_x()..visible_rect.max_x(),
         device_image_range_x,
-        device_tile_size,
+        x_device_tile_size,
         layout_tiling_origin.x,
     );
 
@@ -330,15 +333,9 @@ pub fn tiles(
         layout_tile_size.height,
         visible_rect.min_y()..visible_rect.max_y(),
         device_image_range_y,
-        device_tile_size,
+        y_device_tile_size,
         layout_tiling_origin.y,
     );
-
-    let mut row_flags = EdgeAaSegmentMask::TOP;
-    if y_extent.tile_range.end == y_extent.tile_range.start + 1 {
-        // Single row of tiles (both top and bottom edge).
-        row_flags |= EdgeAaSegmentMask::BOTTOM;
-    }
 
     TileIterator {
         current_tile: point2(
@@ -347,7 +344,6 @@ pub fn tiles(
         ),
         x: x_extent,
         y: y_extent,
-        row_flags,
         regular_tile_size: layout_tile_size,
         local_origin: prim_rect.origin,
     }
@@ -374,21 +370,21 @@ fn tiles_1d(
     let first_tile_device_size = first_tile_size_1d(&device_image_range, device_tile_size);
     let last_tile_device_size = last_tile_size_1d(&device_image_range, device_tile_size);
 
-    // Offsets of first and last tiles of this row/column (in number of tiles) without
+    // [start..end[ Range of tiles of this row/column (in number of tiles) without
     // taking culling into account.
-    let (first_image_tile, last_image_tile) = first_and_last_tile_1d(&device_image_range, device_tile_size);
+    let image_tiles = tile_range_1d(&device_image_range, device_tile_size);
 
-    // The visible tiles (because of culling).
-    let first_visible_tile = f32::floor((layout_visible_range.start - layout_tiling_origin) / layout_tile_size) as i32;
-    let last_visible_tile = f32::floor((layout_visible_range.end - layout_tiling_origin) / layout_tile_size) as i32;
+    // [start..end[ Range of the visible tiles (because of culling).
+    let visible_tiles_start = f32::floor((layout_visible_range.start - layout_tiling_origin) / layout_tile_size) as i32;
+    let visible_tiles_end = f32::ceil((layout_visible_range.end - layout_tiling_origin) / layout_tile_size) as i32;
 
     // Combine the above two to get the tiles in the image that are visible this frame.
 
-    let first_tile = i32::max(first_image_tile, first_visible_tile);
-    let last_tile = i32::min(last_image_tile, last_visible_tile);
+    let tiles_start = i32::max(image_tiles.start, visible_tiles_start);
+    let tiles_end = i32::min(image_tiles.end, visible_tiles_end);
 
     // The size in layout space of the boundary tiles.
-    let first_tile_layout_size = if first_tile == first_image_tile {
+    let first_tile_layout_size = if tiles_start == image_tiles.start {
         first_tile_device_size as f32 * layout_tile_size / device_tile_size as f32
     } else {
         // boundary tile was culled out, so the new first tile is a regularly sized tile.
@@ -396,52 +392,53 @@ fn tiles_1d(
     };
 
     // Same here.
-    let last_tile_layout_size = if last_tile == last_image_tile {
+    let last_tile_layout_size = if tiles_end == image_tiles.end {
         last_tile_device_size as f32 * layout_tile_size / device_tile_size as f32
     } else {
         layout_tile_size
     };
 
     TileIteratorExtent {
-        tile_range: first_tile..(last_tile + 1),
+        tile_range: tiles_start..tiles_end,
         first_tile_layout_size,
         last_tile_layout_size,
     }
 }
 
-/// Compute the tile offsets of the first and last tiles in an arbitrary dimension.
+/// Compute the range of tiles (in number of tiles) that intersect the provided
+/// image range (in pixels) in an arbitrary dimension.
 ///
 /// ```ignore
 ///
-///        0
-///        :
-///  #-+---+---+---+---+---+--#
-///  # |   |   |   |   |   |  #
-///  #-+---+---+---+---+---+--#
-///  ^     :               ^
+///         0
+///         :
+///   #-+---+---+---+---+---+--#
+///   # |   |   |   |   |   |  #
+///   #-+---+---+---+---+---+--#
+/// ^       :                   ^
 ///
 ///  +------------------------+  image_range
 ///        +---+  regular_tile_size
 ///
 /// ```
-fn first_and_last_tile_1d(
+fn tile_range_1d(
     image_range: &Range<i32>,
     regular_tile_size: i32,
-) -> (i32, i32) {
+) -> Range<i32> {
     // Integer division truncates towards zero so with negative values if the first/last
     // tile isn't a full tile we can get offset by one which we account for here.
 
-    let mut first_image_tile = image_range.start / regular_tile_size;
+    let mut start = image_range.start / regular_tile_size;
     if image_range.start % regular_tile_size != 0 && image_range.start < 0 {
-        first_image_tile -= 1;
+        start -= 1;
     }
 
-    let mut last_image_tile = image_range.end / regular_tile_size;
-    if image_range.end % regular_tile_size == 0 || image_range.end < 0 {
-        last_image_tile -= 1;
+    let mut end = image_range.end / regular_tile_size;
+    if image_range.end % regular_tile_size != 0 {
+        end += 1;
     }
 
-    (first_image_tile, last_image_tile)
+    start..end
 }
 
 // Sizes of the first boundary tile in pixels.
@@ -507,32 +504,33 @@ pub fn compute_tile_size(
     tile: TileOffset,
 ) -> DeviceIntSize {
     let regular_tile_size = regular_tile_size as i32;
-    let img_range_x = image_rect.min_x()..image_rect.max_x();
-    let img_range_y = image_rect.min_y()..image_rect.max_y();
-    let (x_first, x_last) = first_and_last_tile_1d(&img_range_x, regular_tile_size);
-    let (y_first, y_last) = first_and_last_tile_1d(&img_range_y, regular_tile_size);
-
-    // Most tiles are going to have base_size as width and height,
-    // except for tiles around the edges that are shrunk to fit the image data
-    // (See decompose_tiled_image in frame.rs).
-    let actual_width = match tile.x as i32 {
-        x if x == x_first => first_tile_size_1d(&img_range_x, regular_tile_size),
-        x if x == x_last => last_tile_size_1d(&img_range_x, regular_tile_size),
-        _ => regular_tile_size,
-    };
-
-    let actual_height = match tile.y as i32 {
-        y if y == y_first => first_tile_size_1d(&img_range_y, regular_tile_size),
-        y if y == y_last => last_tile_size_1d(&img_range_y, regular_tile_size),
-        _ => regular_tile_size,
-    };
-
-    assert!(actual_width > 0);
-    assert!(actual_height > 0);
-
-    size2(actual_width, actual_height)
+    size2(
+        compute_tile_size_1d(image_rect.min_x()..image_rect.max_x(), regular_tile_size, tile.x as i32),
+        compute_tile_size_1d(image_rect.min_y()..image_rect.max_y(), regular_tile_size, tile.y as i32),
+    )
 }
 
+fn compute_tile_size_1d(
+    img_range: Range<i32>,
+    regular_tile_size: i32,
+    tile_offset: i32,
+) -> i32 {
+    let tile_range = tile_range_1d(&img_range, regular_tile_size);
+
+    // Most tiles are going to have base_size as width and height,
+    // except for tiles around the edges that are shrunk to fit the image data.
+    let actual_size = if tile_offset == tile_range.start {
+        first_tile_size_1d(&img_range, regular_tile_size)
+    } else if tile_offset == tile_range.end - 1 {
+        last_tile_size_1d(&img_range, regular_tile_size)
+    } else {
+        regular_tile_size
+    };
+
+    assert!(actual_size > 0);
+
+    actual_size
+}
 
 pub fn compute_tile_range(
     visible_area: &DeviceIntRect,
