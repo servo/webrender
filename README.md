@@ -1,6 +1,8 @@
 # WebRender
 GPU renderer for the Web content, used by Servo.
 
+The canonical repository for this code is mozilla-central!
+
 ## Update as a Dependency
 After updating shaders in WebRender, go to servo and:
 
