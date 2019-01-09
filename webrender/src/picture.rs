@@ -80,6 +80,7 @@ pub struct TileIndex(pub usize);
 /// size for real world pages.
 pub const TILE_SIZE_WIDTH: i32 = 1024;
 pub const TILE_SIZE_HEIGHT: i32 = 256;
+const FRAMES_BEFORE_CACHING: usize = 2;
 
 #[derive(Debug)]
 pub struct GlobalTransformInfo {
@@ -203,7 +204,7 @@ impl Tile {
 pub struct PrimitiveDescriptor {
     /// Uniquely identifies the content of the primitive template.
     prim_uid: ItemUid,
-    /// The origin in local space of this primitive.
+    /// The origin in world space of this primitive.
     origin: WorldPoint,
     /// The first clip in the clip_uids array of clips that affect this tile.
     first_clip: u16,
@@ -1067,7 +1068,7 @@ impl TileCache {
                 // Only cache tiles that have had the same content for at least two
                 // frames. This skips caching on pages / benchmarks that are changing
                 // every frame, which is wasteful.
-                if tile.same_frames > 2 {
+                if tile.same_frames > FRAMES_BEFORE_CACHING {
                     // Ensure that this texture is allocated.
                     resource_cache.texture_cache.update(
                         &mut tile.handle,
