@@ -63,6 +63,7 @@ TextRun fetch_text_run(int address) {
 
 VertexInfo write_text_vertex(RectWithSize local_clip_rect,
                              float z,
+                             int raster_space,
                              Transform transform,
                              PictureTask task,
                              vec2 text_offset,
@@ -76,7 +77,7 @@ VertexInfo write_text_vertex(RectWithSize local_clip_rect,
 #ifdef WR_FEATURE_GLYPH_TRANSFORM
     bool remove_subpx_offset = true;
 #else
-    bool remove_subpx_offset = transform.is_axis_aligned;
+    bool remove_subpx_offset = transform.is_axis_aligned && raster_space == RASTER_SCREEN;
 #endif
     // Compute the snapping offset only if the scroll node transform is axis-aligned.
     if (remove_subpx_offset) {
@@ -214,6 +215,7 @@ void main(void) {
 
     VertexInfo vi = write_text_vertex(ph.local_clip_rect,
                                       ph.z,
+                                      ph.user_data.x,
                                       transform,
                                       task,
                                       text.offset,

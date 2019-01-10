@@ -5,7 +5,7 @@
 use api::{
     DevicePoint, DeviceSize, DeviceRect, LayoutRect, LayoutToWorldTransform, LayoutTransform,
     PremultipliedColorF, LayoutToPictureTransform, PictureToLayoutTransform, PicturePixel,
-    WorldPixel, WorldToLayoutTransform, LayoutPoint,
+    WorldPixel, WorldToLayoutTransform, LayoutPoint, RasterSpace,
 };
 use clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
 use gpu_cache::{GpuCacheAddress, GpuDataRequest};
@@ -57,6 +57,15 @@ impl ZBufferIdGenerator {
 pub enum RasterizationSpace {
     Local = 0,
     Screen = 1,
+}
+
+impl From<RasterSpace> for RasterizationSpace {
+    fn from(raster_space: RasterSpace) -> Self {
+        match raster_space {
+            RasterSpace::Local(..) => RasterizationSpace::Local,
+            RasterSpace::Screen => RasterizationSpace::Screen,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]

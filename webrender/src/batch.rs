@@ -550,6 +550,7 @@ impl AlphaBatchBuilder {
         // Add each run in this picture to the batch.
         for prim_instance in &pic.prim_list.prim_instances {
             self.add_prim_to_batch(
+                pic,
                 prim_instance,
                 ctx,
                 gpu_cache,
@@ -571,6 +572,7 @@ impl AlphaBatchBuilder {
     // in that picture are being drawn into the same target.
     fn add_prim_to_batch(
         &mut self,
+        cur_pic: &PicturePrimitive,
         prim_instance: &PrimitiveInstance,
         ctx: &RenderTargetContext,
         gpu_cache: &mut GpuCache,
@@ -829,7 +831,8 @@ impl AlphaBatchBuilder {
                             }
                         };
 
-                        let prim_header_index = prim_headers.push(&prim_header, z_id, [0; 3]);
+                        let raster_space = RasterizationSpace::from(cur_pic.requested_raster_space);
+                        let prim_header_index = prim_headers.push(&prim_header, z_id, [raster_space as i32, 0, 0]);
                         let key = BatchKey::new(kind, blend_mode, textures);
                         let base_instance = GlyphInstance::new(
                             prim_header_index,
