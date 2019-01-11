@@ -2484,8 +2484,7 @@ impl Renderer {
 
     /// Renders the current frame.
     ///
-    /// A Frame is supplied by calling [`generate_frame()`][genframe].
-    /// [genframe]: ../../webrender_api/struct.DocumentApi.html#method.generate_frame
+    /// A Frame is supplied by calling [`generate_frame()`][webrender_api::Transaction::generate_frame].
     pub fn render(
         &mut self,
         framebuffer_size: DeviceIntSize,
