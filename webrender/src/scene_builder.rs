@@ -5,7 +5,7 @@
 use api::{AsyncBlobImageRasterizer, BlobImageRequest, BlobImageParams, BlobImageResult};
 use api::{DocumentId, PipelineId, ApiMsg, FrameMsg, ResourceUpdate, ExternalEvent, Epoch};
 use api::{BuiltDisplayList, ColorF, LayoutSize, NotificationRequest, Checkpoint, IdNamespace};
-use api::{MemoryReport, VoidPtrToSizeFn};
+use api::{MemoryReport};
 use api::channel::MsgSender;
 #[cfg(feature = "capture")]
 use capture::CaptureConfig;
@@ -15,6 +15,7 @@ use clip_scroll_tree::ClipScrollTree;
 use display_list_flattener::DisplayListFlattener;
 use intern::{Internable, Interner};
 use internal_types::{FastHashMap, FastHashSet};
+use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use prim_store::{PrimitiveDataInterner, PrimitiveDataUpdateList, PrimitiveKeyKind};
 use prim_store::PrimitiveStoreStats;
 use prim_store::borders::{
@@ -193,44 +194,39 @@ pub enum SceneSwapResult {
     Aborted,
 }
 
-// This struct contains all items that can be shared between
-// display lists. We want to intern and share the same clips,
-// primitives and other things between display lists so that:
-// - GPU cache handles remain valid, reducing GPU cache updates.
-// - Comparison of primitives and pictures between two
-//   display lists is (a) fast (b) done during scene building.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Default)]
-pub struct DocumentResources {
-    pub clip_interner: ClipDataInterner,
-    pub prim_interner: PrimitiveDataInterner,
-    pub image_interner: ImageDataInterner,
-    pub image_border_interner: ImageBorderDataInterner,
-    pub line_decoration_interner: LineDecorationDataInterner,
-    pub linear_grad_interner: LinearGradientDataInterner,
-    pub normal_border_interner: NormalBorderDataInterner,
-    pub picture_interner: PictureDataInterner,
-    pub radial_grad_interner: RadialGradientDataInterner,
-    pub text_run_interner: TextRunDataInterner,
-    pub yuv_image_interner: YuvImageDataInterner,
-}
+macro_rules! declare_document_resources {
+    ( $( { $interner_ident: ident, $interner_type: ty, $x: ident, $y: ty } )+ ) => {
+        /// This struct contains all items that can be shared between
+        /// display lists. We want to intern and share the same clips,
+        /// primitives and other things between display lists so that:
+        /// - GPU cache handles remain valid, reducing GPU cache updates.
+        /// - Comparison of primitives and pictures between two
+        ///   display lists is (a) fast (b) done during scene building.
+        #[cfg_attr(feature = "capture", derive(Serialize))]
+        #[cfg_attr(feature = "replay", derive(Deserialize))]
+        #[derive(Default)]
+        pub struct DocumentResources {
+            $(
+                pub $interner_ident: $interner_type,
+            )+
+        }
 
-impl DocumentResources {
-    /// Reports CPU heap memory used by the interners.
-    fn report_memory(
-        &self,
-        op: VoidPtrToSizeFn,
-        eop: VoidPtrToSizeFn,
-        r: &mut MemoryReport,
-    ) {
-        r.interners += self.clip_interner.malloc_size_of(op, eop);
-        r.interners += self.prim_interner.malloc_size_of(op, eop);
-        r.interners += self.linear_grad_interner.malloc_size_of(op, eop);
-        r.interners += self.radial_grad_interner.malloc_size_of(op, eop);
-        r.interners += self.text_run_interner.malloc_size_of(op, eop);
+        impl DocumentResources {
+            /// Reports CPU heap memory used by the interners.
+            fn report_memory(
+                &self,
+                ops: &mut MallocSizeOfOps,
+                r: &mut MemoryReport,
+            ) {
+                $(
+                    r.interning.$interner_ident += self.$interner_ident.size_of(ops);
+                )+
+            }
+        }
     }
 }
+
+enumerate_interners!(declare_document_resources);
 
 // Access to `DocumentResources` interners by `Internable`
 pub trait InternerMut<I: Internable>
@@ -293,8 +289,7 @@ pub struct SceneBuilder {
     config: FrameBuilderConfig,
     hooks: Option<Box<SceneBuilderHooks + Send>>,
     simulate_slow_ms: u32,
-    size_of_op: Option<VoidPtrToSizeFn>,
-    enclosing_size_of_op: Option<VoidPtrToSizeFn>,
+    size_of_ops: Option<MallocSizeOfOps>,
 }
 
 impl SceneBuilder {
@@ -302,8 +297,7 @@ impl SceneBuilder {
         config: FrameBuilderConfig,
         api_tx: MsgSender<ApiMsg>,
         hooks: Option<Box<SceneBuilderHooks + Send>>,
-        size_of_op: Option<VoidPtrToSizeFn>,
-        enclosing_size_of_op: Option<VoidPtrToSizeFn>,
+        size_of_ops: Option<MallocSizeOfOps>,
     ) -> (Self, Sender<SceneBuilderRequest>, Receiver<SceneBuilderResult>) {
         let (in_tx, in_rx) = channel();
         let (out_tx, out_rx) = channel();
@@ -315,8 +309,7 @@ impl SceneBuilder {
                 api_tx,
                 config,
                 hooks,
-                size_of_op,
-                enclosing_size_of_op,
+                size_of_ops,
                 simulate_slow_ms: 0,
             },
             in_tx,
@@ -763,12 +756,11 @@ impl SceneBuilder {
     }
 
     /// Reports CPU heap memory used by the SceneBuilder.
-    fn report_memory(&self) -> MemoryReport {
-        let op = self.size_of_op.unwrap();
-        let eop = self.enclosing_size_of_op.unwrap();
+    fn report_memory(&mut self) -> MemoryReport {
+        let ops = self.size_of_ops.as_mut().unwrap();
         let mut report = MemoryReport::default();
         for doc in self.documents.values() {
-            doc.resources.report_memory(op, eop, &mut report);
+            doc.resources.report_memory(ops, &mut report);
         }
 
         report
