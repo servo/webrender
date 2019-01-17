@@ -21,7 +21,7 @@ use hit_test::{HitTestingItem, HitTestingRun};
 use image::simplify_repeated_primitive;
 use intern::{Handle, Internable, InternDebug};
 use internal_types::{FastHashMap, FastHashSet};
-use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PrimitiveList};
+use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PrimitiveList, TileCache};
 use prim_store::{PrimitiveInstance, PrimitiveKeyKind, PrimitiveSceneData};
 use prim_store::{PrimitiveInstanceKind, NinePatchDescriptor, PrimitiveStore};
 use prim_store::{PrimitiveStoreStats, ScrollNodeAndClipChain, PictureIndex};
@@ -39,6 +39,7 @@ use scene_builder::{DocumentResources, InternerMut};
 use spatial_node::{StickyFrameInfo, ScrollFrameKind, SpatialNodeType};
 use std::{f32, mem, usize};
 use std::collections::vec_deque::VecDeque;
+use std::sync::Arc;
 use tiling::{CompositeOps};
 use util::{MaxRect, VecHelper};
 
@@ -333,7 +334,6 @@ impl<'a> DisplayListFlattener<'a> {
         let pic_key = PictureKey::new(
             true,
             LayoutSize::zero(),
-            LayoutRect::max_rect(),
             Picture {
                 composite_mode_key: PictureCompositeKey::Identity,
             },
@@ -343,11 +343,17 @@ impl<'a> DisplayListFlattener<'a> {
             .picture_interner
             .intern(&pic_key, || {
                 PrimitiveSceneData {
-                    prim_relative_clip_rect: LayoutRect::max_rect(),
                     prim_size: LayoutSize::zero(),
                     is_backface_visible: true,
                 }
             }
+        );
+
+        let tile_cache = TileCache::new(
+            main_scroll_root,
+            &prim_list.prim_instances,
+            *self.pipeline_clip_chain_stack.last().unwrap(),
+            &self.prim_store.pictures,
         );
 
         let pic_index = self.prim_store.pictures.alloc().init(PicturePrimitive::new_image(
@@ -361,10 +367,12 @@ impl<'a> DisplayListFlattener<'a> {
             main_scroll_root,
             LayoutRect::max_rect(),
             &self.clip_store,
+            Some(tile_cache),
         ));
 
         let instance = PrimitiveInstance::new(
             LayoutPoint::zero(),
+            LayoutRect::max_rect(),
             PrimitiveInstanceKind::Picture {
                 data_handle: pic_data_handle,
                 pic_index: PictureIndex(pic_index)
@@ -558,7 +566,7 @@ impl<'a> DisplayListFlattener<'a> {
         // This is useful when calculating scroll extents for the
         // SpatialNode::scroll(..) API as well as for properly setting sticky
         // positioning offsets.
-        let frame_rect = clip_region.main.translate(reference_frame_relative_offset);
+        let frame_rect = clip_region.main;
         let content_size = item.rect().size;
 
         self.add_clip_node(info.clip_id, item.space_and_clip_info(), clip_region);
@@ -1053,20 +1061,14 @@ impl<'a> DisplayListFlattener<'a> {
         P::Source: AsInstanceKind<Handle<P::Marker>> + InternDebug,
         DocumentResources: InternerMut<P>,
     {
-        let offset = info.rect.origin.to_vector();
-        let prim_relative_clip_rect = info.clip_rect
-            .translate(&-offset)
-            .into();
-
         // Build a primitive key.
-        let prim_key = prim.build_key(info, prim_relative_clip_rect);
+        let prim_key = prim.build_key(info);
 
         let interner = self.resources.interner_mut();
         let prim_data_handle =
             interner
             .intern(&prim_key, || {
                 PrimitiveSceneData {
-                    prim_relative_clip_rect,
                     prim_size: info.rect.size,
                     is_backface_visible: info.is_backface_visible,
                 }
@@ -1077,6 +1079,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         PrimitiveInstance::new(
             info.rect.origin,
+            info.clip_rect,
             instance_kind,
             clip_chain_id,
             spatial_node_index,
@@ -1388,6 +1391,7 @@ impl<'a> DisplayListFlattener<'a> {
                 stacking_context.spatial_node_index,
                 max_clip,
                 &self.clip_store,
+                None,
             ))
         );
 
@@ -1434,6 +1438,7 @@ impl<'a> DisplayListFlattener<'a> {
                     stacking_context.spatial_node_index,
                     max_clip,
                     &self.clip_store,
+                    None,
                 ))
             );
 
@@ -1468,6 +1473,7 @@ impl<'a> DisplayListFlattener<'a> {
                     stacking_context.spatial_node_index,
                     max_clip,
                     &self.clip_store,
+                    None,
                 ))
             );
 
@@ -1510,6 +1516,7 @@ impl<'a> DisplayListFlattener<'a> {
                     stacking_context.spatial_node_index,
                     max_clip,
                     &self.clip_store,
+                    None,
                 ))
             );
 
@@ -1845,13 +1852,13 @@ impl<'a> DisplayListFlattener<'a> {
                                 pending_shadow.clip_and_scroll.spatial_node_index,
                                 max_clip,
                                 &self.clip_store,
+                                None,
                             ))
                         );
 
                         let shadow_pic_key = PictureKey::new(
                             true,
                             LayoutSize::zero(),
-                            LayoutRect::max_rect(),
                             Picture { composite_mode_key },
                         );
 
@@ -1859,7 +1866,6 @@ impl<'a> DisplayListFlattener<'a> {
                             .picture_interner
                             .intern(&shadow_pic_key, || {
                                 PrimitiveSceneData {
-                                    prim_relative_clip_rect: LayoutRect::max_rect(),
                                     prim_size: LayoutSize::zero(),
                                     is_backface_visible: true,
                                 }
@@ -1868,6 +1874,7 @@ impl<'a> DisplayListFlattener<'a> {
 
                         let shadow_prim_instance = PrimitiveInstance::new(
                             LayoutPoint::zero(),
+                            LayoutRect::max_rect(),
                             PrimitiveInstanceKind::Picture {
                                 data_handle: shadow_prim_data_handle,
                                 pic_index: shadow_pic_index
@@ -2357,7 +2364,7 @@ impl<'a> DisplayListFlattener<'a> {
                 .collect();
 
             TextRun {
-                glyphs,
+                glyphs: Arc::new(glyphs),
                 font,
                 offset,
                 shadow: false,
@@ -2617,6 +2624,7 @@ impl FlattenedStackingContext {
                 self.spatial_node_index,
                 LayoutRect::max_rect(),
                 clip_store,
+                None,
             ))
         );
 
@@ -2699,7 +2707,6 @@ fn create_prim_instance(
     let pic_key = PictureKey::new(
         is_backface_visible,
         LayoutSize::zero(),
-        LayoutRect::max_rect(),
         Picture { composite_mode_key },
     );
 
@@ -2707,7 +2714,6 @@ fn create_prim_instance(
         .picture_interner
         .intern(&pic_key, || {
             PrimitiveSceneData {
-                prim_relative_clip_rect: LayoutRect::max_rect(),
                 prim_size: LayoutSize::zero(),
                 is_backface_visible,
             }
@@ -2716,6 +2722,7 @@ fn create_prim_instance(
 
     PrimitiveInstance::new(
         LayoutPoint::zero(),
+        LayoutRect::max_rect(),
         PrimitiveInstanceKind::Picture {
             data_handle,
             pic_index,
