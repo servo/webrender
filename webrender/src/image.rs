@@ -349,9 +349,9 @@ pub fn tiles(
     }
 }
 
-/// Decompose tiles along an arbitray axis.
+/// Decompose tiles along an arbitrary axis.
 ///
-/// This does most of the heavy lifing needed for `tiles` but in a single dimension for
+/// This does most of the heavy lifting needed for `tiles` but in a single dimension for
 /// the sake of simplicity since the problem is independent on the x and y axes.
 fn tiles_1d(
     layout_tile_size: f32,
@@ -652,7 +652,7 @@ mod tests {
         assert_eq!(result.first_tile_layout_size, 64.0);
         assert_eq!(result.last_tile_layout_size, 64.0);
 
-        // One partial tile at positve offset, non-zero origin, culled out.
+        // One partial tile at positive offset, non-zero origin, culled out.
         let result = tiles_1d(64.0, -100.0..10.0, 64..310, 64, 0.0);
         assert_eq!(result.tile_range.start, result.tile_range.end);
 
@@ -676,6 +676,28 @@ mod tests {
         assert_eq!(result.tile_range.end, 1);
         assert_eq!(result.first_tile_layout_size, 128.0);
         assert_eq!(result.last_tile_layout_size, 64.0);
+
+        // Two visible tiles (the rest is culled out).
+        let result = tiles_1d(10.0, 0.0..20.0, 0..64, 64, 0.0);
+        assert_eq!(result.tile_range.start, 0);
+        assert_eq!(result.tile_range.end, 1);
+        assert_eq!(result.first_tile_layout_size, 10.0);
+        assert_eq!(result.last_tile_layout_size, 10.0);
+
+        // Two visible tiles at negative layout offsets (the rest is culled out).
+        let result = tiles_1d(10.0, -20.0..0.0, 0..64, 64, -20.0);
+        assert_eq!(result.tile_range.start, 0);
+        assert_eq!(result.tile_range.end, 1);
+        assert_eq!(result.first_tile_layout_size, 10.0);
+        assert_eq!(result.last_tile_layout_size, 10.0);
+    }
+
+    #[test]
+    fn test_tile_range_1d() {
+        assert_eq!(tile_range_1d(&(0..256), 256), 0..1);
+        assert_eq!(tile_range_1d(&(0..257), 256), 0..2);
+        assert_eq!(tile_range_1d(&(-1..257), 256), -1..2);
+        assert_eq!(tile_range_1d(&(-256..256), 256), -1..1);
     }
 
     #[test]
