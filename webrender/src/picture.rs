@@ -1299,7 +1299,7 @@ impl TileCache {
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         frame_context: &FrameVisibilityContext,
-        _scratch: &mut PrimitiveScratchBuffer,
+        scratch: &mut PrimitiveScratchBuffer,
     ) -> LayoutRect {
         self.dirty_region.clear();
         self.pending_blits.clear();
@@ -1400,30 +1400,38 @@ impl TileCache {
                 self.tiles_to_draw.push(TileIndex(i));
 
                 if frame_context.debug_flags.contains(DebugFlags::PICTURE_CACHING_DBG) {
-                    let tile_device_rect = tile.world_rect * frame_context.device_pixel_scale;
-                    let mut label_pos = tile_device_rect.origin + DeviceVector2D::new(20.0, 30.0);
-                    _scratch.push_debug_rect(
-                        tile_device_rect,
-                        debug_colors::GREEN,
-                    );
-                    _scratch.push_debug_string(
-                        label_pos,
-                        debug_colors::RED,
-                        format!("{:?} {:?} {:?}", tile.id, tile.handle, tile.world_rect),
-                    );
-                    label_pos.y += 20.0;
-                    _scratch.push_debug_string(
-                        label_pos,
-                        debug_colors::RED,
-                        format!("same: {} frames", tile.same_frames),
-                    );
+                    if let Some(world_rect) = tile.world_rect.intersection(&self.world_bounding_rect) {
+                        let tile_device_rect = world_rect * frame_context.device_pixel_scale;
+                        let mut label_offset = DeviceVector2D::new(20.0, 30.0);
+                        scratch.push_debug_rect(
+                            tile_device_rect,
+                            debug_colors::GREEN,
+                        );
+                        if tile_device_rect.size.height >= label_offset.y {
+                            scratch.push_debug_string(
+                                tile_device_rect.origin + label_offset,
+                                debug_colors::RED,
+                                format!("{:?} {:?} {:?}", tile.id, tile.handle, tile.world_rect),
+                            );
+                        }
+                        label_offset.y += 20.0;
+                        if tile_device_rect.size.height >= label_offset.y {
+                            scratch.push_debug_string(
+                                tile_device_rect.origin + label_offset,
+                                debug_colors::RED,
+                                format!("same: {} frames", tile.same_frames),
+                            );
+                        }
+                    }
                 }
             } else {
                 if frame_context.debug_flags.contains(DebugFlags::PICTURE_CACHING_DBG) {
-                    _scratch.push_debug_rect(
-                        visible_rect * frame_context.device_pixel_scale,
-                        debug_colors::RED,
-                    );
+                    if let Some(world_rect) = visible_rect.intersection(&self.world_bounding_rect) {
+                        scratch.push_debug_rect(
+                            world_rect * frame_context.device_pixel_scale,
+                            debug_colors::RED,
+                        );
+                    }
                 }
 
                 // Only cache tiles that have had the same content for at least two
@@ -1901,6 +1909,21 @@ impl PrimitiveList {
     }
 }
 
+/// Defines configuration options for a given picture primitive.
+pub struct PictureOptions {
+    /// If true, WR should inflate the bounding rect of primitives when
+    /// using a filter effect that requires inflation.
+    pub inflate_if_required: bool,
+}
+
+impl Default for PictureOptions {
+    fn default() -> Self {
+        PictureOptions {
+            inflate_if_required: true,
+        }
+    }
+}
+
 pub struct PicturePrimitive {
     /// List of primitives, and associated info for this picture.
     pub prim_list: PrimitiveList,
@@ -1958,6 +1981,9 @@ pub struct PicturePrimitive {
 
     /// If Some(..) the tile cache that is associated with this picture.
     pub tile_cache: Option<TileCache>,
+
+    /// The config options for this picture.
+    options: PictureOptions,
 }
 
 impl PicturePrimitive {
@@ -2033,6 +2059,10 @@ impl PicturePrimitive {
         }
     }
 
+    // TODO(gw): We have the PictureOptions struct available. We
+    //           should move some of the parameter list in this
+    //           method to be part of the PictureOptions, and
+    //           avoid adding new parameters here.
     pub fn new_image(
         requested_composite_mode: Option<PictureCompositeMode>,
         context_3d: Picture3DContext<OrderedPictureChild>,
@@ -2045,6 +2075,7 @@ impl PicturePrimitive {
         local_clip_rect: LayoutRect,
         clip_store: &ClipStore,
         tile_cache: Option<TileCache>,
+        options: PictureOptions,
     ) -> Self {
         // For now, only create a cache descriptor for blur filters (which
         // includes text shadows). We can incrementally expand this to
@@ -2086,6 +2117,7 @@ impl PicturePrimitive {
             local_clip_rect,
             gpu_location: GpuCacheHandle::new(),
             tile_cache,
+            options,
         }
     }
 
@@ -2391,9 +2423,15 @@ impl PicturePrimitive {
 
             let inflation_factor = match composite_mode {
                 PictureCompositeMode::Filter(FilterOp::Blur(blur_radius)) => {
-                    // The amount of extra space needed for primitives inside
-                    // this picture to ensure the visibility check is correct.
-                    BLUR_SAMPLE_SCALE * blur_radius
+                    // Only inflate if the caller hasn't already inflated
+                    // the bounding rects for this filter.
+                    if self.options.inflate_if_required {
+                        // The amount of extra space needed for primitives inside
+                        // this picture to ensure the visibility check is correct.
+                        BLUR_SAMPLE_SCALE * blur_radius
+                    } else {
+                        0.0
+                    }
                 }
                 _ => {
                     0.0
@@ -2527,7 +2565,9 @@ impl PicturePrimitive {
 
         // Inflate the local bounding rect if required by the filter effect.
         let inflation_size = match self.raster_config {
-            Some(RasterConfig { composite_mode: PictureCompositeMode::Filter(FilterOp::Blur(blur_radius)), .. }) |
+            Some(RasterConfig { surface_index, composite_mode: PictureCompositeMode::Filter(FilterOp::Blur(_)), .. }) => {
+                Some(state.surfaces[surface_index.0].inflation_factor)
+            }
             Some(RasterConfig { composite_mode: PictureCompositeMode::Filter(FilterOp::DropShadow(_, blur_radius, _)), .. }) => {
                 Some((blur_radius * BLUR_SAMPLE_SCALE).ceil())
             }
@@ -2662,7 +2702,8 @@ impl PicturePrimitive {
             }
             PictureCompositeMode::Filter(FilterOp::Blur(blur_radius)) => {
                 let blur_std_deviation = blur_radius * frame_context.device_pixel_scale.0;
-                let blur_range = (blur_std_deviation * BLUR_SAMPLE_SCALE).ceil() as i32;
+                let inflation_factor = surfaces[raster_config.surface_index.0].inflation_factor;
+                let inflation_factor = (inflation_factor * frame_context.device_pixel_scale.0).ceil() as i32;
 
                 // The clipped field is the part of the picture that is visible
                 // on screen. The unclipped field is the screen-space rect of
@@ -2673,7 +2714,7 @@ impl PicturePrimitive {
                 // then intersect with the total screen rect, to minimize the
                 // allocation size.
                 let device_rect = clipped
-                    .inflate(blur_range, blur_range)
+                    .inflate(inflation_factor, inflation_factor)
                     .intersection(&unclipped.to_i32())
                     .unwrap();
 
