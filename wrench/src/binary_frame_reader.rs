@@ -204,7 +204,7 @@ impl WrenchThing for BinaryFrameReader {
                         wrench.api.send_message(msg);
                     },
                     Item::Data(buf) => {
-                        wrench.api.send_payload(&buf);
+                        wrench.api.send(&buf);
                     }
                 }
             }
