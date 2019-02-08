@@ -21,7 +21,8 @@ use hit_test::{HitTestingItem, HitTestingRun};
 use image::simplify_repeated_primitive;
 use intern::{Handle, Internable, InternDebug};
 use internal_types::{FastHashMap, FastHashSet};
-use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PictureOptions, PrimitiveList, TileCache};
+use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PictureOptions};
+use picture::{BlitReason, PrimitiveList, TileCache};
 use prim_store::{PrimitiveInstance, PrimitiveKeyKind, PrimitiveSceneData};
 use prim_store::{PrimitiveInstanceKind, NinePatchDescriptor, PrimitiveStore};
 use prim_store::{PrimitiveStoreStats, ScrollNodeAndClipChain, PictureIndex};
@@ -1282,7 +1283,11 @@ impl<'a> DisplayListFlattener<'a> {
         // has a clip node. In the future, we may decide during
         // prepare step to skip the intermediate surface if the
         // clip node doesn't affect the stacking context rect.
-        let should_isolate = clip_chain_id != ClipChainId::NONE;
+        let blit_reason = if clip_chain_id == ClipChainId::NONE {
+            BlitReason::empty()
+        } else {
+            BlitReason::CLIP
+        };
 
         // Push the SC onto the stack, so we know how to handle things in
         // pop_stacking_context.
@@ -1295,7 +1300,7 @@ impl<'a> DisplayListFlattener<'a> {
             clip_chain_id,
             frame_output_pipeline_id,
             composite_ops,
-            should_isolate,
+            blit_reason,
             transform_style,
             context_3d,
             create_tile_cache,
@@ -1314,22 +1319,26 @@ impl<'a> DisplayListFlattener<'a> {
         // (b) It's useful for the initial version of picture caching in gecko, by enabling
         //     is to just look for interesting scroll roots on the root stacking context,
         //     without having to consider cuts at stacking context boundaries.
-        if let Some(parent_sc) = self.sc_stack.last_mut() {
-            if stacking_context.is_redundant(
-                parent_sc,
-                self.clip_scroll_tree,
-            ) {
-                // If the parent context primitives list is empty, it's faster
-                // to assign the storage of the popped context instead of paying
-                // the copying cost for extend.
-                if parent_sc.primitives.is_empty() {
-                    parent_sc.primitives = stacking_context.primitives;
-                } else {
-                    parent_sc.primitives.extend(stacking_context.primitives);
+        let parent_is_empty = match self.sc_stack.last_mut() {
+            Some(parent_sc) => {
+                if stacking_context.is_redundant(
+                    parent_sc,
+                    self.clip_scroll_tree,
+                ) {
+                    // If the parent context primitives list is empty, it's faster
+                    // to assign the storage of the popped context instead of paying
+                    // the copying cost for extend.
+                    if parent_sc.primitives.is_empty() {
+                        parent_sc.primitives = stacking_context.primitives;
+                    } else {
+                        parent_sc.primitives.extend(stacking_context.primitives);
+                    }
+                    return;
                 }
-                return;
-            }
-        }
+                parent_sc.primitives.is_empty()
+            },
+            None => true,
+        };
 
         if stacking_context.create_tile_cache {
             self.setup_picture_caching(
@@ -1355,18 +1364,18 @@ impl<'a> DisplayListFlattener<'a> {
             //           completely when that is not the case.
             Picture3DContext::In { ancestor_index, .. } => (
                 Picture3DContext::In { root_data: None, ancestor_index },
-                Some(PictureCompositeMode::Blit),
+                Some(PictureCompositeMode::Blit(BlitReason::PRESERVE3D | stacking_context.blit_reason)),
                 None,
             ),
             Picture3DContext::Out => (
                 Picture3DContext::Out,
-                if stacking_context.should_isolate {
-                    // Add a dummy composite filter if the SC has to be isolated.
-                    Some(PictureCompositeMode::Blit)
-                } else {
+                if stacking_context.blit_reason.is_empty() {
                     // By default, this picture will be collapsed into
                     // the owning target.
                     None
+                } else {
+                    // Add a dummy composite filter if the SC has to be isolated.
+                    Some(PictureCompositeMode::Blit(stacking_context.blit_reason))
                 },
                 stacking_context.frame_output_pipeline_id
             ),
@@ -1410,8 +1419,6 @@ impl<'a> DisplayListFlattener<'a> {
             println!("\tis a leaf primitive for a stacking context");
         }
 
-        let mut clip_chain = Some(stacking_context.clip_chain_id);
-
         // If establishing a 3d context, the `cur_instance` represents
         // a picture with all the *trailing* immediate children elements.
         // We append this to the preserve-3D picture set and make a container picture of them.
@@ -1441,16 +1448,6 @@ impl<'a> DisplayListFlattener<'a> {
                     PictureOptions::default(),
                 ))
             );
-
-            // If this is going to be the last picture for the stacking context,
-            // then put the clip onto the leaf picture, since this one uses
-            // PictureCompositeKey::Identity and won't have a surface to be
-            // clipped.
-            if stacking_context.composite_ops.filters.is_empty() &&
-               stacking_context.composite_ops.mix_blend_mode.is_none() {
-                cur_instance.clip_chain_id = clip_chain.take().unwrap();
-            }
-
 
             cur_instance = create_prim_instance(
                 current_pic_index,
@@ -1506,8 +1503,19 @@ impl<'a> DisplayListFlattener<'a> {
             self.prim_store.optimize_picture_if_possible(current_pic_index);
         }
 
-        // Same for mix-blend-mode.
-        if let Some(mix_blend_mode) = stacking_context.composite_ops.mix_blend_mode {
+        // Same for mix-blend-mode, except we can skip if this primitive is the first in the parent
+        // stacking context.
+        // From https://drafts.fxtf.org/compositing-1/#generalformula, the formula for blending is:
+        // Cs = (1 - ab) x Cs + ab x Blend(Cb, Cs)
+        // where
+        // Cs = Source color
+        // ab = Backdrop alpha
+        // Cb = Backdrop color
+        //
+        // If we're the first primitive within a stacking context, then we can guarantee that the
+        // backdrop alpha will be 0, and then the blend equation collapses to just
+        // Cs = Cs, and the blend mode isn't taken into account at all.
+        let has_mix_blend = if let (Some(mix_blend_mode), false) = (stacking_context.composite_ops.mix_blend_mode, parent_is_empty) {
             let composite_mode = Some(PictureCompositeMode::MixBlend(mix_blend_mode));
 
             let blend_pic_index = PictureIndex(self.prim_store.pictures
@@ -1543,15 +1551,14 @@ impl<'a> DisplayListFlattener<'a> {
             if cur_instance.is_chased() {
                 println!("\tis a mix-blend picture for a stacking context with {:?}", mix_blend_mode);
             }
-        }
+            true
+        } else {
+            false
+        };
 
         // Set the stacking context clip on the outermost picture in the chain,
         // unless we already set it on the leaf picture.
-        cur_instance.clip_chain_id = clip_chain.unwrap_or(ClipChainId::NONE);
-
-        let has_mix_blend_on_secondary_framebuffer =
-            stacking_context.composite_ops.mix_blend_mode.is_some() &&
-            self.sc_stack.len() > 2;
+        cur_instance.clip_chain_id = stacking_context.clip_chain_id;
 
         // The primitive instance for the remainder of flat children of this SC
         // if it's a part of 3D hierarchy but not the root of it.
@@ -1562,13 +1569,12 @@ impl<'a> DisplayListFlattener<'a> {
             }
             // Regular parenting path
             Some(ref mut parent_sc) => {
-                // If we have a mix-blend-mode, and we aren't the primary framebuffer,
-                // the stacking context needs to be isolated to blend correctly as per
-                // the CSS spec.
+                // If we have a mix-blend-mode, the stacking context needs to be isolated
+                // to blend correctly as per the CSS spec.
                 // If not already isolated for some other reason,
                 // make this picture as isolated.
-                if has_mix_blend_on_secondary_framebuffer {
-                    parent_sc.should_isolate = true;
+                if has_mix_blend {
+                    parent_sc.blit_reason |= BlitReason::ISOLATE;
                 }
                 parent_sc.primitives.push(cur_instance);
                 None
@@ -2601,9 +2607,9 @@ struct FlattenedStackingContext {
     /// stacking context.
     composite_ops: CompositeOps,
 
-    /// If true, this stacking context should be
-    /// isolated by forcing an off-screen surface.
-    should_isolate: bool,
+    /// Bitfield of reasons this stacking context needs to
+    /// be an offscreen surface.
+    blit_reason: BlitReason,
 
     /// Pipeline this stacking context belongs to.
     pipeline_id: PipelineId,
@@ -2636,7 +2642,14 @@ impl FlattenedStackingContext {
         }
 
         // If there are filters / mix-blend-mode
-        if !self.composite_ops.is_empty() {
+        if !self.composite_ops.filters.is_empty() {
+            return false;
+        }
+
+        // We can skip mix-blend modes if they are the first primitive in a stacking context,
+        // see pop_stacking_context for a full explanation.
+        if !self.composite_ops.mix_blend_mode.is_none() &&
+           !parent.primitives.is_empty() {
             return false;
         }
 
@@ -2656,7 +2669,7 @@ impl FlattenedStackingContext {
         }
 
         // If need to isolate in surface due to clipping / mix-blend-mode
-        if self.should_isolate {
+        if !self.blit_reason.is_empty() {
             return false;
         }
 
@@ -2695,7 +2708,7 @@ impl FlattenedStackingContext {
         let pic_index = PictureIndex(prim_store.pictures
             .alloc()
             .init(PicturePrimitive::new_image(
-                Some(PictureCompositeMode::Blit),
+                Some(PictureCompositeMode::Blit(BlitReason::PRESERVE3D)),
                 flat_items_context_3d,
                 self.pipeline_id,
                 None,
