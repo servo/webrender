@@ -5,6 +5,8 @@
 extern crate env_logger;
 extern crate euclid;
 
+use std::sync::{Arc, Mutex};
+
 use gleam::gl;
 use glutin::{self, GlContext};
 use std::env;
@@ -164,12 +166,12 @@ pub fn main_wrapper<E: Example>(
             .get_inner_size()
             .unwrap()
             .to_physical(device_pixel_ratio as f64);
-        DeviceIntSize::new(size.width as i32, size.height as i32)
+        Arc::new(Mutex::new(DeviceIntSize::new(size.width as i32, size.height as i32)))
     };
     let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
     let (mut renderer, sender) = webrender::Renderer::new(gl.clone(), notifier, opts, None).unwrap();
     let api = sender.create_api();
-    let document_id = api.add_document(framebuffer_size, 0);
+    let document_id = api.add_document(framebuffer_size.lock().unwrap().clone(), 0);
 
     let (external, output) = example.get_image_handlers(&*gl);
 
@@ -183,7 +185,7 @@ pub fn main_wrapper<E: Example>(
 
     let epoch = Epoch(0);
     let pipeline_id = PipelineId(0, 0);
-    let layout_size = framebuffer_size.to_f32() / euclid::TypedScale::new(device_pixel_ratio);
+    let layout_size = framebuffer_size.lock().unwrap().to_f32() / euclid::TypedScale::new(device_pixel_ratio);
     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
     let mut txn = Transaction::new();
 
@@ -191,7 +193,7 @@ pub fn main_wrapper<E: Example>(
         &api,
         &mut builder,
         &mut txn,
-        framebuffer_size,
+        framebuffer_size.lock().unwrap().clone(),
         pipeline_id,
         document_id,
     );
@@ -218,6 +220,15 @@ pub fn main_wrapper<E: Example>(
                 ..
             } => return winit::ControlFlow::Break,
             winit::Event::WindowEvent {
+                event: winit::WindowEvent::Resized(size),
+                ..
+            } => {
+                let size = size
+                .to_physical(device_pixel_ratio as f64);
+                window.resize(size);
+                *framebuffer_size.lock().unwrap() = DeviceIntSize::new(size.width as i32, size.height as i32)
+            },
+            winit::Event::WindowEvent {
                 event: winit::WindowEvent::KeyboardInput {
                     input: winit::KeyboardInput {
                         state: winit::ElementState::Pressed,
@@ -242,13 +253,13 @@ pub fn main_wrapper<E: Example>(
                 ),
                 winit::VirtualKeyCode::G => debug_flags.toggle(DebugFlags::GPU_CACHE_DBG),
                 winit::VirtualKeyCode::Key1 => txn.set_window_parameters(
-                    framebuffer_size,
-                    DeviceIntRect::new(DeviceIntPoint::zero(), framebuffer_size),
+                    framebuffer_size.lock().unwrap().clone(),
+                    DeviceIntRect::new(DeviceIntPoint::zero(), framebuffer_size.lock().unwrap().clone()),
                     1.0
                 ),
                 winit::VirtualKeyCode::Key2 => txn.set_window_parameters(
-                    framebuffer_size,
-                    DeviceIntRect::new(DeviceIntPoint::zero(), framebuffer_size),
+                    framebuffer_size.lock().unwrap().clone(),
+                    DeviceIntRect::new(DeviceIntPoint::zero(), framebuffer_size.lock().unwrap().clone()),
                     2.0
                 ),
                 winit::VirtualKeyCode::M => api.notify_memory_pressure(),
@@ -290,7 +301,7 @@ pub fn main_wrapper<E: Example>(
                 &api,
                 &mut builder,
                 &mut txn,
-                framebuffer_size,
+                framebuffer_size.lock().unwrap().clone(),
                 pipeline_id,
                 document_id,
             );
@@ -306,7 +317,7 @@ pub fn main_wrapper<E: Example>(
         api.send_transaction(document_id, txn);
 
         renderer.update();
-        renderer.render(framebuffer_size).unwrap();
+        renderer.render(framebuffer_size.lock().unwrap().clone()).unwrap();
         let _ = renderer.flush_pipeline_info();
         example.draw_custom(&*gl);
         window.swap_buffers().ok();
