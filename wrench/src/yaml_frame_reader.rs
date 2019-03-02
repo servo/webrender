@@ -1505,7 +1505,7 @@ impl YamlFrameReader {
             .expect("scroll frame must have a bounds");
         let content_size = yaml["content-size"].as_size().unwrap_or(clip_rect.size);
         let content_rect = LayoutRect::new(clip_rect.origin, content_size);
-        let external_scroll_offset = yaml["external-scroll-offset"].as_point().unwrap_or(LayoutPoint::zero());
+        let external_scroll_offset = yaml["external-scroll-offset"].as_vector().unwrap_or(LayoutVector2D::zero());
 
         let numeric_id = yaml["id"].as_i64().map(|id| id as u64);
 
@@ -1825,6 +1825,7 @@ impl YamlFrameReader {
         }
 
         let filters = yaml["filters"].as_vec_filter_op().unwrap_or(vec![]);
+        let filter_datas = yaml["filter-datas"].as_vec_filter_data().unwrap_or(vec![]);
 
         info.rect = bounds;
         info.clip_rect = bounds;
@@ -1836,6 +1837,7 @@ impl YamlFrameReader {
             transform_style,
             mix_blend_mode,
             &filters,
+            &filter_datas,
             raster_space,
             cache_tiles,
         );

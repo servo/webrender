@@ -2,9 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, BorderStyle, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale};
-use api::{DocumentLayer, FilterOp, ImageFormat, DevicePoint};
-use api::{MixBlendMode, PipelineId, DeviceRect, LayoutSize, WorldRect};
+use api::{ColorF, BorderStyle, MixBlendMode, PipelineId};
+use api::{DocumentLayer, FilterData, FilterOp, ImageFormat};
+use api::units::*;
 use batch::{AlphaBatchBuilder, AlphaBatchContainer, ClipBatcher, resolve_image};
 use clip::ClipStore;
 use clip_scroll_tree::{ClipScrollTree};
@@ -1105,21 +1105,25 @@ impl RenderPass {
 pub struct CompositeOps {
     // Requires only a single texture as input (e.g. most filters)
     pub filters: Vec<FilterOp>,
+    pub filter_datas: Vec<FilterData>,
 
     // Requires two source textures (e.g. mix-blend-mode)
     pub mix_blend_mode: Option<MixBlendMode>,
 }
 
 impl CompositeOps {
-    pub fn new(filters: Vec<FilterOp>, mix_blend_mode: Option<MixBlendMode>) -> Self {
+    pub fn new(filters: Vec<FilterOp>,
+               filter_datas: Vec<FilterData>,
+               mix_blend_mode: Option<MixBlendMode>) -> Self {
         CompositeOps {
             filters,
+            filter_datas,
             mix_blend_mode,
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.filters.is_empty() && self.mix_blend_mode.is_none()
+        self.filters.is_empty() && self.filter_datas.is_empty() && self.mix_blend_mode.is_none()
     }
 }
 
@@ -1128,9 +1132,10 @@ impl CompositeOps {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct Frame {
-    //TODO: share the fields with DocumentView struct
-    pub window_size: DeviceIntSize,
-    pub inner_rect: DeviceIntRect,
+    /// The origin on content produced by the render tasks.
+    pub content_origin: DeviceIntPoint,
+    /// The rectangle to show the frame in, on screen.
+    pub framebuffer_rect: FramebufferIntRect,
     pub background_color: Option<ColorF>,
     pub layer: DocumentLayer,
     pub passes: Vec<RenderPass>,
