@@ -2194,7 +2194,7 @@ pub struct PicturePrimitive {
     // An optional cache handle for storing extra data
     // in the GPU cache, depending on the type of
     // picture.
-    pub extra_gpu_data_handle: GpuCacheHandle,
+    pub extra_gpu_data_handles: Vec<GpuCacheHandle>,
 
     /// The spatial node index of this picture when it is
     /// composited into the parent picture.
@@ -2330,7 +2330,7 @@ impl PicturePrimitive {
             raster_config: None,
             context_3d,
             frame_output_pipeline_id,
-            extra_gpu_data_handle: GpuCacheHandle::new(),
+            extra_gpu_data_handles: Vec::new(),
             apply_local_clip_rect,
             is_backface_visible,
             pipeline_id,
@@ -2841,8 +2841,14 @@ impl PicturePrimitive {
             //           stretch size from the segment rect in the shaders, we can
             //           remove this invalidation here completely.
             if self.local_rect != surface_rect {
-                if let PictureCompositeMode::Filter(FilterOp::DropShadow(..)) = raster_config.composite_mode {
-                    gpu_cache.invalidate(&self.extra_gpu_data_handle);
+                match raster_config.composite_mode {
+                    PictureCompositeMode::Filter(FilterOp::DropShadow(..))
+                    | PictureCompositeMode::Filter(FilterOp::DropShadowStack(..)) => {
+                        for handle in &self.extra_gpu_data_handles {
+                            gpu_cache.invalidate(handle);
+                        }
+                    }
+                    _ => {}
                 }
                 // Invalidate any segments built for this picture, since the local
                 // rect has changed.
@@ -3073,7 +3079,11 @@ impl PicturePrimitive {
                 let render_task_id = frame_state.render_tasks.add(blur_render_task);
                 frame_state.surfaces[surface_index.0].tasks.push(render_task_id);
 
-                if let Some(mut request) = frame_state.gpu_cache.request(&mut self.extra_gpu_data_handle) {
+                if self.extra_gpu_data_handles.is_empty() {
+                    self.extra_gpu_data_handles.push(GpuCacheHandle::new());
+                }
+
+                if let Some(mut request) = frame_state.gpu_cache.request(&mut self.extra_gpu_data_handles[0]) {
                     // TODO(gw): This is very hacky code below! It stores an extra
                     //           brush primitive below for the special case of a
                     //           drop-shadow where we need a different local
@@ -3136,7 +3146,10 @@ impl PicturePrimitive {
             }
             PictureCompositeMode::Filter(ref filter) => {
                 if let FilterOp::ColorMatrix(m) = *filter {
-                    if let Some(mut request) = frame_state.gpu_cache.request(&mut self.extra_gpu_data_handle) {
+                    if self.extra_gpu_data_handles.is_empty() {
+                        self.extra_gpu_data_handles.push(GpuCacheHandle::new());
+                    }
+                    if let Some(mut request) = frame_state.gpu_cache.request(&mut self.extra_gpu_data_handles[0]) {
                         for i in 0..5 {
                             request.push([m[i*4], m[i*4+1], m[i*4+2], m[i*4+3]]);
                         }

@@ -1339,7 +1339,7 @@ impl AlphaBatchBuilder {
                                             .as_int();
 
                                         // Get the GPU cache address of the extra data handle.
-                                        let shadow_prim_address = gpu_cache.get_address(&picture.extra_gpu_data_handle);
+                                        let shadow_prim_address = gpu_cache.get_address(&picture.extra_gpu_data_handles[0]);
 
                                         let z_id_shadow = z_id;
                                         let z_id_content = z_generator.next();
@@ -1440,7 +1440,7 @@ impl AlphaBatchBuilder {
                                                 unreachable!();
                                             }
                                             FilterOp::ColorMatrix(_) => {
-                                                picture.extra_gpu_data_handle.as_int(gpu_cache)
+                                                picture.extra_gpu_data_handles[0].as_int(gpu_cache)
                                             }
                                             FilterOp::ComponentTransfer => unreachable!(),
                                         };
