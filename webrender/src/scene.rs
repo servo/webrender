@@ -224,6 +224,7 @@ impl FilterOpHelpers for FilterOp {
             FilterOp::Saturate(..) |
             FilterOp::Sepia(..) |
             FilterOp::DropShadow(..) |
+            FilterOp::DropShadowStack(..) |
             FilterOp::ColorMatrix(..) |
             FilterOp::SrgbToLinear |
             FilterOp::LinearToSrgb |
@@ -246,6 +247,7 @@ impl FilterOpHelpers for FilterOp {
             FilterOp::Opacity(_, amount) => amount >= 1.0,
             FilterOp::Saturate(amount) => amount == 1.0,
             FilterOp::Sepia(amount) => amount == 0.0,
+            FilterOp::DropShadowStack(..) => { unimplemented!() } // TODO(nical)
             FilterOp::DropShadow(offset, blur, _) => {
                 offset.x == 0.0 && offset.y == 0.0 && blur == 0.0
             },

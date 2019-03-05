@@ -98,6 +98,7 @@ impl From<Option<PictureCompositeMode>> for PictureCompositeKey {
                     FilterOp::SrgbToLinear => PictureCompositeKey::SrgbToLinear,
                     FilterOp::LinearToSrgb => PictureCompositeKey::LinearToSrgb,
                     FilterOp::Identity => PictureCompositeKey::Identity,
+                    FilterOp::DropShadowStack(..) => { unimplemented!() } // TODO(nical)
                     FilterOp::DropShadow(offset, radius, color) => {
                         PictureCompositeKey::DropShadow(offset.into(), Au::from_f32_px(radius), color.into())
                     }

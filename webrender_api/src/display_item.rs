@@ -713,6 +713,7 @@ pub enum FilterOp {
     Saturate(f32),
     Sepia(f32),
     DropShadow(LayoutVector2D, f32, ColorF),
+    DropShadowStack(Vec<(LayoutVector2D, f32, ColorF)>),
     ColorMatrix([f32; 20]),
     SrgbToLinear,
     LinearToSrgb,
