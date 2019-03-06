@@ -1342,7 +1342,6 @@ impl AlphaBatchBuilder {
                                             // Get the GPU cache address of the extra data handle.
                                             let shadow_prim_address = gpu_cache.get_address(shadow_gpu_data);
 
-                                            // TODO: per-shadow offset
                                             let shadow_rect = prim_header.local_rect.translate(&shadow.offset);
 
                                             let shadow_prim_header = PrimitiveHeader {
