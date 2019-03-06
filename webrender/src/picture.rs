@@ -28,7 +28,7 @@ use prim_store::{OpacityBindingStorage, ImageInstanceStorage, OpacityBindingInde
 use print_tree::PrintTreePrinter;
 use render_backend::DataStores;
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle, TileBlit};
-use render_task::{RenderTaskId, RenderTaskLocation};
+use render_task::{RenderTaskId, RenderTaskLocation, BlurTaskCache};
 use resource_cache::ResourceCache;
 use scene::{FilterOpHelpers, SceneProperties};
 use scene_builder::Interners;
@@ -2821,8 +2821,16 @@ impl PicturePrimitive {
                 // This inflaction factor is to be applied to the surface itsefl.
                 let inflation_size = match raster_config.composite_mode {
                     PictureCompositeMode::Filter(FilterOp::Blur(_)) => surface.inflation_factor,
-                    PictureCompositeMode::Filter(FilterOp::DropShadow(shadow)) =>
-                        (shadow.blur_radius * BLUR_SAMPLE_SCALE).ceil(),
+                    PictureCompositeMode::Filter(FilterOp::DropShadow(shadow)) => {
+                        (shadow.blur_radius * BLUR_SAMPLE_SCALE).ceil()
+                    }
+                    PictureCompositeMode::Filter(FilterOp::DropShadowStack(ref shadows)) => {
+                        let mut max = 0.0;
+                        for shadow in shadows {
+                            max = f32::max(max, shadow.blur_radius * BLUR_SAMPLE_SCALE);
+                        }
+                        max.ceil()
+                    }
                     _ => 0.0,
                 };
                 surface.rect = surface.rect.inflate(inflation_size, inflation_size);
@@ -3009,15 +3017,14 @@ impl PicturePrimitive {
 
                 let picture_task_id = frame_state.render_tasks.add(picture_task);
 
-                let blur_render_task = RenderTask::new_blur(
+                let render_task_id = RenderTask::new_blur(
                     blur_std_deviation,
                     picture_task_id,
                     frame_state.render_tasks,
                     RenderTargetKind::Color,
                     ClearMode::Transparent,
+                    None,
                 );
-
-                let render_task_id = frame_state.render_tasks.add(blur_render_task);
 
                 frame_state.surfaces[surface_index.0].tasks.push(render_task_id);
 
@@ -3066,18 +3073,18 @@ impl PicturePrimitive {
 
                 let picture_task_id = frame_state.render_tasks.add(picture_task);
 
-                let blur_render_task = RenderTask::new_blur(
+                self.secondary_render_task_id = Some(picture_task_id);
+
+                let blur_render_task_id = RenderTask::new_blur(
                     rounded_std_dev,
                     picture_task_id,
                     frame_state.render_tasks,
                     RenderTargetKind::Color,
                     ClearMode::Transparent,
+                    None,
                 );
 
-                self.secondary_render_task_id = Some(picture_task_id);
-
-                let render_task_id = frame_state.render_tasks.add(blur_render_task);
-                frame_state.surfaces[surface_index.0].tasks.push(render_task_id);
+                frame_state.surfaces[surface_index.0].tasks.push(blur_render_task_id);
 
                 if self.extra_gpu_data_handles.is_empty() {
                     self.extra_gpu_data_handles.push(GpuCacheHandle::new());
@@ -3111,7 +3118,93 @@ impl PicturePrimitive {
                     request.push([0.0, 0.0, 0.0, 0.0]);
                 }
 
-                PictureSurface::RenderTask(render_task_id)
+                PictureSurface::RenderTask(blur_render_task_id)
+            }
+            PictureCompositeMode::Filter(FilterOp::DropShadowStack(ref shadows)) => {
+                let mut max_std_deviation = 0.0;
+                for shadow in shadows {
+                    // TODO(nical) presumably we should compute the clipped rect for each shadow
+                    // and compute the union of them to determine what we need to rasterize and blur?
+                    max_std_deviation = f32::max(max_std_deviation, shadow.blur_radius * device_pixel_scale.0);
+                }
+
+                max_std_deviation = max_std_deviation.round();
+                let max_blur_range = (max_std_deviation * BLUR_SAMPLE_SCALE).ceil() as i32;
+                let mut device_rect = clipped.inflate(max_blur_range, max_blur_range)
+                        .intersection(&unclipped.to_i32())
+                        .unwrap();
+                device_rect.size = RenderTask::adjusted_blur_source_size(
+                    device_rect.size,
+                    DeviceSize::new(max_std_deviation, max_std_deviation),
+                );
+
+                let uv_rect_kind = calculate_uv_rect_kind(
+                    &pic_rect,
+                    &transform,
+                    &device_rect,
+                    device_pixel_scale,
+                    true,
+                );
+
+                let mut picture_task = RenderTask::new_picture(
+                    RenderTaskLocation::Dynamic(None, device_rect.size),
+                    unclipped.size,
+                    pic_index,
+                    device_rect.origin,
+                    child_tasks,
+                    uv_rect_kind,
+                    pic_context.raster_spatial_node_index,
+                    device_pixel_scale,
+                );
+                picture_task.mark_for_saving();
+
+                let picture_task_id = frame_state.render_tasks.add(picture_task);
+
+                self.secondary_render_task_id = Some(picture_task_id);
+
+                let mut blur_tasks = BlurTaskCache::default();
+
+                self.extra_gpu_data_handles.resize(shadows.len(), GpuCacheHandle::new());
+
+                let mut blur_render_task_id = picture_task_id;
+                for (shadow, extra_handle) in shadows.iter().zip(self.extra_gpu_data_handles.iter_mut()) {
+                    let std_dev = f32::round(shadow.blur_radius * device_pixel_scale.0);
+                    let blur_render_task_id = RenderTask::new_blur(
+                        DeviceSize::new(std_dev, std_dev),
+                        picture_task_id,
+                        frame_state.render_tasks,
+                        RenderTargetKind::Color,
+                        ClearMode::Transparent,
+                        Some(&mut blur_tasks),
+                    );
+
+                    frame_state.surfaces[surface_index.0].tasks.push(blur_render_task_id);
+
+                    if let Some(mut request) = frame_state.gpu_cache.request(extra_handle) {
+                        // Basic brush primitive header is (see end of prepare_prim_for_render_inner in prim_store.rs)
+                        //  [brush specific data]
+                        //  [segment_rect, segment data]
+                        let shadow_rect = self.local_rect.translate(&shadow.offset);
+
+                        // ImageBrush colors
+                        request.push(shadow.color.premultiplied());
+                        request.push(PremultipliedColorF::WHITE);
+                        request.push([
+                            self.local_rect.size.width,
+                            self.local_rect.size.height,
+                            0.0,
+                            0.0,
+                        ]);
+
+                        // segment rect / extra data
+                        request.push(shadow_rect);
+                        request.push([0.0, 0.0, 0.0, 0.0]);
+                    }
+
+                }
+
+                // TODO(nical) this should to be the blur's task id but we have several blurs now
+                PictureSurface::RenderTask(blur_render_task_id)
             }
             PictureCompositeMode::MixBlend(..) if !frame_context.fb_config.gpu_supports_advanced_blend => {
                 let uv_rect_kind = calculate_uv_rect_kind(
