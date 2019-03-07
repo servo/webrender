@@ -238,6 +238,15 @@ fn write_reference_frame(
     usize_node(parent, "id", clip_id_mapper.add_spatial_id(reference_frame.id));
 }
 
+fn shadow_parameters(shadow: &Shadow) -> String {
+    format!(
+        "[{},{}],{},[{}]",
+        shadow.offset.x, shadow.offset.y,
+        shadow.blur_radius,
+        color_to_string(shadow.color)
+    )
+}
+
 fn write_stacking_context(
     parent: &mut Table,
     sc: &StackingContext,
@@ -280,13 +289,23 @@ fn write_stacking_context(
             FilterOp::Saturate(x) => { filters.push(Yaml::String(format!("saturate({})", x))) }
             FilterOp::Sepia(x) => { filters.push(Yaml::String(format!("sepia({})", x))) }
             FilterOp::DropShadow(shadow) => {
-                filters.push(Yaml::String(format!("drop-shadow([{},{}],{},[{}])",
-                                                  shadow.offset.x, shadow.offset.y,
-                                                  shadow.blur_radius,
-                                                  color_to_string(shadow.color))))
+                filters.push(Yaml::String(format!(
+                    "drop-shadow({})",
+                    shadow_parameters(&shadow)
+                )))
             }
-            FilterOp::DropShadowStack(_shadows) => {
-                unimplemented!() // TODO(nical
+            FilterOp::DropShadowStack(shadows) => {
+                let mut s = "drop-shadow-stack([".to_string();
+                let mut first = true;
+                for shadow in shadows {
+                    s += &format!(
+                        "{}[{}]",
+                        if first { "" } else { ", " },
+                        shadow_parameters(&shadow),
+                    );
+                }
+                s += "])";
+                filters.push(Yaml::String(s));
             }
             FilterOp::ColorMatrix(matrix) => {
                 filters.push(Yaml::String(format!("color-matrix({:?})", matrix)))
