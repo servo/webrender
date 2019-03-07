@@ -247,7 +247,14 @@ impl FilterOpHelpers for FilterOp {
             FilterOp::Opacity(_, amount) => amount >= 1.0,
             FilterOp::Saturate(amount) => amount == 1.0,
             FilterOp::Sepia(amount) => amount == 0.0,
-            FilterOp::DropShadowStack(..) => { unimplemented!() } // TODO(nical)
+            FilterOp::DropShadowStack(ref shadows) => {
+                for shadow in shadows {
+                    if shadow.offset.x != 0.0 || shadow.offset.y != 0.0 || shadow.blur_radius != 0.0 {
+                        return false;
+                    }
+                }
+                return true;
+            }
             FilterOp::DropShadow(shadow) => {
                 shadow.offset.x == 0.0 && shadow.offset.y == 0.0 && shadow.blur_radius == 0.0
             },
