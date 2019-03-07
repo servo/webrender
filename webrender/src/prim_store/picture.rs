@@ -39,6 +39,7 @@ pub enum PictureCompositeKey {
     Saturate(Au),
     Sepia(Au),
     DropShadow(VectorKey, Au, ColorU),
+    DropShadowStack(Vec<(VectorKey, Au, ColorU)>),
     ColorMatrix([Au; 20]),
     SrgbToLinear,
     LinearToSrgb,
@@ -98,7 +99,13 @@ impl From<Option<PictureCompositeMode>> for PictureCompositeKey {
                     FilterOp::SrgbToLinear => PictureCompositeKey::SrgbToLinear,
                     FilterOp::LinearToSrgb => PictureCompositeKey::LinearToSrgb,
                     FilterOp::Identity => PictureCompositeKey::Identity,
-                    FilterOp::DropShadowStack(..) => { unimplemented!() } // TODO(nical)
+                    FilterOp::DropShadowStack(ref shadows) => {
+                        PictureCompositeKey::DropShadowStack(
+                            shadows.iter().map(|shadow| {
+                                (shadow.offset.into(), Au::from_f32_px(shadow.blur_radius), shadow.color.into())
+                            }).collect()
+                        )
+                    }
                     FilterOp::DropShadow(shadow) => {
                         PictureCompositeKey::DropShadow(shadow.offset.into(), Au::from_f32_px(shadow.blur_radius), shadow.color.into())
                     }
