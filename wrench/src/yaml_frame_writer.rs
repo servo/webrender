@@ -285,8 +285,20 @@ fn write_stacking_context(
                                                   shadow.blur_radius,
                                                   color_to_string(shadow.color))))
             }
-            FilterOp::DropShadowStack(_shadows) => {
-                unimplemented!() // TODO(nical
+            FilterOp::DropShadowStack(shadows) => {
+                let mut s = "drop-shadow-stack([".to_string();
+                let mut first = true;
+                for shadow in shadows {
+                    s += &format!(
+                        "{}[[{},{}],{},[{}]]",
+                        if first { "" } else { ", " },
+                        shadow.offset.x, shadow.offset.y,
+                        shadow.blur_radius,
+                        color_to_string(shadow.color)
+                    );
+                }
+                s += "])";
+                filters.push(Yaml::String(s));
             }
             FilterOp::ColorMatrix(matrix) => {
                 filters.push(Yaml::String(format!("color-matrix({:?})", matrix)))
