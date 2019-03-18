@@ -2876,10 +2876,20 @@ impl PicturePrimitive {
 
             // Drop shadows draw both a content and shadow rect, so need to expand the local
             // rect of any surfaces to be composited in parent surfaces correctly.
-            if let PictureCompositeMode::Filter(FilterOp::DropShadow(shadow)) = raster_config.composite_mode {
-                let content_rect = surface_rect;
-                let shadow_rect = surface_rect.translate(&shadow.offset);
-                surface_rect = content_rect.union(&shadow_rect);
+            match raster_config.composite_mode {
+                PictureCompositeMode::Filter(FilterOp::DropShadow(shadow)) => {
+                    let content_rect = surface_rect;
+                    let shadow_rect = surface_rect.translate(&shadow.offset);
+                    surface_rect = content_rect.union(&shadow_rect);
+                }
+                PictureCompositeMode::Filter(FilterOp::DropShadowStack(ref shadows)) => {
+                    for shadow in shadows {
+                        let content_rect = surface_rect;
+                        let shadow_rect = surface_rect.translate(&shadow.offset);
+                        surface_rect = content_rect.union(&shadow_rect);
+                    }
+                }
+                _ => {}
             }
 
             // Propagate up to parent surface, now that we know this surface's static rect
@@ -3169,7 +3179,7 @@ impl PicturePrimitive {
                 let mut blur_render_task_id = picture_task_id;
                 for (shadow, extra_handle) in shadows.iter().zip(self.extra_gpu_data_handles.iter_mut()) {
                     let std_dev = f32::round(shadow.blur_radius * device_pixel_scale.0);
-                    let blur_render_task_id = RenderTask::new_blur(
+                    blur_render_task_id = RenderTask::new_blur(
                         DeviceSize::new(std_dev, std_dev),
                         picture_task_id,
                         frame_state.render_tasks,
