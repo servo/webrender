@@ -164,6 +164,26 @@ pub struct PrimitiveInstanceData {
     data: [i32; 4],
 }
 
+/// Vertex format for resolve style operations with pixel local storage.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct ResolveInstanceData {
+    rect: [f32; 4],
+}
+
+impl ResolveInstanceData {
+    pub fn new(rect: DeviceIntRect) -> Self {
+        ResolveInstanceData {
+            rect: [
+                rect.origin.x as f32,
+                rect.origin.y as f32,
+                rect.size.width as f32,
+                rect.size.height as f32,
+            ],
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -193,7 +213,7 @@ impl PrimitiveHeaders {
         &mut self,
         prim_header: &PrimitiveHeader,
         z: ZBufferId,
-        user_data: [i32; 3],
+        user_data: [i32; 4],
     ) -> PrimitiveHeaderIndex {
         debug_assert_eq!(self.headers_int.len(), self.headers_float.len());
         let id = self.headers_float.len();
@@ -207,7 +227,6 @@ impl PrimitiveHeaders {
             z,
             task_address: prim_header.task_address,
             specific_prim_address: prim_header.specific_prim_address.as_int(),
-            clip_task_address: prim_header.clip_task_address,
             transform_id: prim_header.transform_id,
             user_data,
         });
@@ -224,7 +243,6 @@ pub struct PrimitiveHeader {
     pub local_clip_rect: LayoutRect,
     pub task_address: RenderTaskAddress,
     pub specific_prim_address: GpuCacheAddress,
-    pub clip_task_address: RenderTaskAddress,
     pub transform_id: TransformPaletteId,
 }
 
@@ -248,9 +266,8 @@ pub struct PrimitiveHeaderI {
     pub z: ZBufferId,
     pub task_address: RenderTaskAddress,
     pub specific_prim_address: i32,
-    pub clip_task_address: RenderTaskAddress,
     pub transform_id: TransformPaletteId,
-    pub user_data: [i32; 3],
+    pub user_data: [i32; 4],
 }
 
 pub struct GlyphInstance {
