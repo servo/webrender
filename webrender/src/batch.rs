@@ -1299,7 +1299,7 @@ impl AlphaBatchBuilder {
                                         );
                                     }
                                     FilterOp::DropShadowStack(..) => { unimplemented!() } // TODO(nical)
-                                    FilterOp::DropShadow(offset, ..) => {
+                                    FilterOp::DropShadow(shadow) => {
                                         // Draw an instance of the shadow first, following by the content.
 
                                         // Both the shadow and the content get drawn as a brush image.
@@ -1351,7 +1351,7 @@ impl AlphaBatchBuilder {
                                             0,
                                         ]);
 
-                                        let shadow_rect = prim_header.local_rect.translate(&offset);
+                                        let shadow_rect = prim_header.local_rect.translate(&shadow.offset);
 
                                         let shadow_prim_header = PrimitiveHeader {
                                             local_rect: shadow_rect,

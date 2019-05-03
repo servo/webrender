@@ -248,8 +248,8 @@ impl FilterOpHelpers for FilterOp {
             FilterOp::Saturate(amount) => amount == 1.0,
             FilterOp::Sepia(amount) => amount == 0.0,
             FilterOp::DropShadowStack(..) => { unimplemented!() } // TODO(nical)
-            FilterOp::DropShadow(offset, blur, _) => {
-                offset.x == 0.0 && offset.y == 0.0 && blur == 0.0
+            FilterOp::DropShadow(shadow) => {
+                shadow.offset.x == 0.0 && shadow.offset.y == 0.0 && shadow.blur_radius == 0.0
             },
             FilterOp::ColorMatrix(matrix) => {
                 matrix == [1.0, 0.0, 0.0, 0.0,

@@ -279,11 +279,14 @@ fn write_stacking_context(
             }
             FilterOp::Saturate(x) => { filters.push(Yaml::String(format!("saturate({})", x))) }
             FilterOp::Sepia(x) => { filters.push(Yaml::String(format!("sepia({})", x))) }
-            FilterOp::DropShadow(offset, blur, color) => {
+            FilterOp::DropShadow(shadow) => {
                 filters.push(Yaml::String(format!("drop-shadow([{},{}],{},[{}])",
-                                                  offset.x, offset.y,
-                                                  blur,
-                                                  color_to_string(color))))
+                                                  shadow.offset.x, shadow.offset.y,
+                                                  shadow.blur_radius,
+                                                  color_to_string(shadow.color))))
+            }
+            FilterOp::DropShadowStack(_shadows) => {
+                unimplemented!() // TODO(nical
             }
             FilterOp::ColorMatrix(matrix) => {
                 filters.push(Yaml::String(format!("color-matrix({:?})", matrix)))

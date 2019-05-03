@@ -1279,7 +1279,7 @@ impl<'a> DisplayListFlattener<'a> {
                     apply_pipeline_clip
                 );
 
-                self.push_shadow(info.shadow, clip_and_scroll);
+                self.push_shadow(info.shadow, clip_and_scroll, info.should_inflate);
             }
             DisplayItem::PopAllShadows => {
                 self.pop_all_shadows();
@@ -2097,12 +2097,14 @@ impl<'a> DisplayListFlattener<'a> {
         &mut self,
         shadow: Shadow,
         clip_and_scroll: ScrollNodeAndClipChain,
+        should_inflate: bool,
     ) {
         // Store this shadow in the pending list, for processing
         // during pop_all_shadows.
         self.pending_shadow_items.push_back(ShadowItem::Shadow(PendingShadow {
             shadow,
             clip_and_scroll,
+            should_inflate,
         }));
     }
 
@@ -2209,7 +2211,7 @@ impl<'a> DisplayListFlattener<'a> {
                         // Pass through configuration information about whether WR should
                         // do the bounding rect inflation for text shadows.
                         let options = PictureOptions {
-                            inflate_if_required: pending_shadow.shadow.should_inflate,
+                            inflate_if_required: pending_shadow.should_inflate,
                         };
 
                         // Create the primitive to draw the shadow picture into the scene.
@@ -2311,16 +2313,16 @@ impl<'a> DisplayListFlattener<'a> {
         // Offset the local rect and clip rect by the shadow offset.
         let mut info = pending_primitive.info.clone();
         info.rect = info.rect.translate(&pending_shadow.shadow.offset);
-        info.clip_rect = info.clip_rect.translate(&pending_shadow.shadow.offset);
+        info.clip_rect = info.clip_rect.translate(
+            &pending_shadow.shadow.offset
+        );
 
         // Construct and add a primitive for the given shadow.
         let shadow_prim_instance = self.create_primitive(
             &info,
             pending_primitive.clip_and_scroll.clip_chain_id,
             pending_primitive.clip_and_scroll.spatial_node_index,
-            pending_primitive.prim.create_shadow(
-                &pending_shadow.shadow,
-            ),
+            pending_primitive.prim.create_shadow(&pending_shadow.shadow),
         );
 
         // Add the new primitive to the shadow picture.
@@ -3030,6 +3032,7 @@ pub struct PendingPrimitive<T> {
 /// shadows, and handled at once during pop_all_shadows.
 pub struct PendingShadow {
     shadow: Shadow,
+    should_inflate: bool,
     clip_and_scroll: ScrollNodeAndClipChain,
 }
 

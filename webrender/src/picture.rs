@@ -2821,8 +2821,8 @@ impl PicturePrimitive {
                 // This inflaction factor is to be applied to the surface itsefl.
                 let inflation_size = match raster_config.composite_mode {
                     PictureCompositeMode::Filter(FilterOp::Blur(_)) => surface.inflation_factor,
-                    PictureCompositeMode::Filter(FilterOp::DropShadow(_, blur_radius, _)) =>
-                        (blur_radius * BLUR_SAMPLE_SCALE).ceil(),
+                    PictureCompositeMode::Filter(FilterOp::DropShadow(shadow)) =>
+                        (shadow.blur_radius * BLUR_SAMPLE_SCALE).ceil(),
                     _ => 0.0,
                 };
                 surface.rect = surface.rect.inflate(inflation_size, inflation_size);
@@ -2868,9 +2868,9 @@ impl PicturePrimitive {
 
             // Drop shadows draw both a content and shadow rect, so need to expand the local
             // rect of any surfaces to be composited in parent surfaces correctly.
-            if let PictureCompositeMode::Filter(FilterOp::DropShadow(offset, ..)) = raster_config.composite_mode {
+            if let PictureCompositeMode::Filter(FilterOp::DropShadow(shadow)) = raster_config.composite_mode {
                 let content_rect = surface_rect;
-                let shadow_rect = surface_rect.translate(&offset);
+                let shadow_rect = surface_rect.translate(&shadow.offset);
                 surface_rect = content_rect.union(&shadow_rect);
             }
 
@@ -3023,8 +3023,8 @@ impl PicturePrimitive {
 
                 PictureSurface::RenderTask(render_task_id)
             }
-            PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, color)) => {
-                let blur_std_deviation = blur_radius * device_pixel_scale.0;
+            PictureCompositeMode::Filter(FilterOp::DropShadow(shadow)) => {
+                let blur_std_deviation = shadow.blur_radius * device_pixel_scale.0;
                 let blur_range = (blur_std_deviation * BLUR_SAMPLE_SCALE).ceil() as i32;
                 let rounded_std_dev = blur_std_deviation.round();
                 let rounded_std_dev = DeviceSize::new(rounded_std_dev, rounded_std_dev);
@@ -3094,10 +3094,10 @@ impl PicturePrimitive {
                     // Basic brush primitive header is (see end of prepare_prim_for_render_inner in prim_store.rs)
                     //  [brush specific data]
                     //  [segment_rect, segment data]
-                    let shadow_rect = self.local_rect.translate(&offset);
+                    let shadow_rect = self.local_rect.translate(&shadow.offset);
 
                     // ImageBrush colors
-                    request.push(color.premultiplied());
+                    request.push(shadow.color.premultiplied());
                     request.push(PremultipliedColorF::WHITE);
                     request.push([
                         self.local_rect.size.width,
