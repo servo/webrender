@@ -617,6 +617,7 @@ impl AlphaBatchBuilder {
         let transform_kind = transform_id.transform_kind();
         let prim_info = &ctx.scratch.prim_info[prim_instance.visibility_info.0 as usize];
         let bounding_rect = &prim_info.clip_chain.pic_clip_rect;
+
         let z_id = z_generator.next();
 
         let prim_common_data = &ctx.data_stores.as_common_data(&prim_instance);
@@ -1298,7 +1299,109 @@ impl AlphaBatchBuilder {
                                             PrimitiveInstanceData::from(instance),
                                         );
                                     }
-                                    FilterOp::DropShadowStack(..) => { unimplemented!() } // TODO(nical)
+                                    FilterOp::DropShadowStack(shadows) => {
+                                        // Draw an instance per shadow first, following by the content.
+
+                                        // The shadows and the content get drawn as a brush image.
+                                        let kind = BatchKind::Brush(
+                                            BrushBatchKind::Image(ImageBufferKind::Texture2DArray),
+                                        );
+
+                                        // Gets the saved render task ID of the content, which is
+                                        // deeper in the render task tree than the direct child.
+                                        let secondary_id = picture.secondary_render_task_id.expect("no secondary!?");
+                                        let saved_index = render_tasks[secondary_id].saved_index.expect("no saved index!?");
+                                        debug_assert_ne!(saved_index, SavedTargetIndex::PENDING);
+
+                                        // Build BatchTextures for shadow/content
+                                        let shadow_textures = BatchTextures::render_target_cache();
+                                        let content_textures = BatchTextures {
+                                            colors: [
+                                                TextureSource::RenderTaskCache(saved_index),
+                                                TextureSource::Invalid,
+                                                TextureSource::Invalid,
+                                            ],
+                                        };
+
+                                        // Build batch keys for shadow/content
+                                        let shadow_key = BatchKey::new(kind, non_segmented_blend_mode, shadow_textures);
+                                        let content_key = BatchKey::new(kind, non_segmented_blend_mode, content_textures);
+
+                                        // Retrieve the UV rect addresses for shadow/content.
+                                        let cache_task_id = surface
+                                            .expect("bug: surface must be allocated by now")
+                                            .resolve_render_task_id();
+                                        let shadow_uv_rect_address = render_tasks[cache_task_id]
+                                            .get_texture_address(gpu_cache)
+                                            .as_int();
+                                        let content_uv_rect_address = render_tasks[secondary_id]
+                                            .get_texture_address(gpu_cache)
+                                            .as_int();
+
+                                        let mut z_id = z_id;
+                                        for (shadow, shadow_gpu_data) in shadows.iter().zip(picture.extra_gpu_data_handles.iter()) {
+                                            // Get the GPU cache address of the extra data handle.
+                                            let shadow_prim_address = gpu_cache.get_address(shadow_gpu_data);
+
+                                            // TODO: per-shadow offset
+                                            let shadow_rect = prim_header.local_rect.translate(&shadow.offset);
+
+                                            let shadow_prim_header = PrimitiveHeader {
+                                                local_rect: shadow_rect,
+                                                specific_prim_address: shadow_prim_address,
+                                                ..prim_header
+                                            };
+
+                                            let shadow_prim_header_index = prim_headers.push(&shadow_prim_header, z_id, [
+                                                ShaderColorMode::Alpha as i32 | ((AlphaType::PremultipliedAlpha as i32) << 16),
+                                                RasterizationSpace::Screen as i32,
+                                                get_shader_opacity(1.0),
+                                                0,
+                                            ]);
+
+                                            let shadow_instance = BrushInstance {
+                                                prim_header_index: shadow_prim_header_index,
+                                                clip_task_address,
+                                                segment_index: INVALID_SEGMENT_INDEX,
+                                                edge_flags: EdgeAaSegmentMask::empty(),
+                                                brush_flags,
+                                                user_data: shadow_uv_rect_address,
+                                            };
+
+                                            self.current_batch_list().push_single_instance(
+                                                shadow_key,
+                                                bounding_rect,
+                                                z_id,
+                                                PrimitiveInstanceData::from(shadow_instance),
+                                            );
+
+                                            z_id = z_generator.next();
+                                        }
+                                        let z_id_content = z_id;
+
+                                        let content_prim_header_index = prim_headers.push(&prim_header, z_id_content, [
+                                            ShaderColorMode::Image as i32 | ((AlphaType::PremultipliedAlpha as i32) << 16),
+                                            RasterizationSpace::Screen as i32,
+                                            get_shader_opacity(1.0),
+                                            0,
+                                        ]);
+
+                                        let content_instance = BrushInstance {
+                                            prim_header_index: content_prim_header_index,
+                                            clip_task_address,
+                                            segment_index: INVALID_SEGMENT_INDEX,
+                                            edge_flags: EdgeAaSegmentMask::empty(),
+                                            brush_flags,
+                                            user_data: content_uv_rect_address,
+                                        };
+
+                                        self.current_batch_list().push_single_instance(
+                                            content_key,
+                                            bounding_rect,
+                                            z_id_content,
+                                            PrimitiveInstanceData::from(content_instance),
+                                        );
+                                    }
                                     FilterOp::DropShadow(shadow) => {
                                         // Draw an instance of the shadow first, following by the content.
 
