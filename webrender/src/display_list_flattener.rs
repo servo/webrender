@@ -19,7 +19,7 @@ use glyph_rasterizer::FontInstance;
 use hit_test::{HitTestingItem, HitTestingScene};
 use image::simplify_repeated_primitive;
 use intern::Interner;
-use internal_types::{FastHashMap, FastHashSet, LayoutPrimitiveInfo};
+use internal_types::{FastHashMap, FastHashSet, LayoutPrimitiveInfo, Filter};
 use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PictureOptions};
 use picture::{BlitReason, PrimitiveList, TileCache};
 use prim_store::{PrimitiveInstance, PrimitiveSceneData};
@@ -1759,7 +1759,7 @@ impl<'a> DisplayListFlattener<'a> {
             let filter = filter.sanitize();
 
             let composite_mode = Some(match filter {
-                FilterOp::ComponentTransfer => {
+                Filter::ComponentTransfer => {
                     let filter_data =
                         &stacking_context.composite_ops.filter_datas[current_filter_data_index];
                     let filter_data = filter_data.sanitize();
@@ -2203,7 +2203,7 @@ impl<'a> DisplayListFlattener<'a> {
                         // blur radius is 0, the code in Picture::prepare_for_render will
                         // detect this and mark the picture to be drawn directly into the
                         // parent picture, which avoids an intermediate surface and blur.
-                        let blur_filter = FilterOp::Blur(std_deviation).sanitize();
+                        let blur_filter = Filter::Blur(std_deviation).sanitize();
                         let composite_mode = PictureCompositeMode::Filter(blur_filter);
                         let composite_mode_key = Some(composite_mode.clone()).into();
                         let is_backface_visible = true; //TODO: double check this

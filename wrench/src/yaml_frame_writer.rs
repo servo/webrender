@@ -294,19 +294,6 @@ fn write_stacking_context(
                     shadow_parameters(&shadow)
                 )))
             }
-            FilterOp::DropShadowStack(shadows) => {
-                let mut s = "drop-shadow-stack([".to_string();
-                let mut first = true;
-                for shadow in shadows {
-                    s += &format!(
-                        "{}[{}]",
-                        if first { "" } else { ", " },
-                        shadow_parameters(&shadow),
-                    );
-                }
-                s += "])";
-                filters.push(Yaml::String(s));
-            }
             FilterOp::ColorMatrix(matrix) => {
                 filters.push(Yaml::String(format!("color-matrix({:?})", matrix)))
             }

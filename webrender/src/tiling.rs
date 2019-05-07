@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{ColorF, BorderStyle, MixBlendMode, PipelineId, PremultipliedColorF};
-use api::{DocumentLayer, FilterData, FilterOp, ImageFormat, LineOrientation};
+use api::{DocumentLayer, FilterData, ImageFormat, LineOrientation};
 use api::units::*;
 #[cfg(feature = "pathfinder")]
 use api::FontRenderMode;
@@ -18,7 +18,7 @@ use frame_builder::FrameGlobalResources;
 use gpu_cache::{GpuCache};
 use gpu_types::{BorderInstance, BlurDirection, BlurInstance, PrimitiveHeaders, ScalingInstance};
 use gpu_types::{TransformData, TransformPalette, ZBufferIdGenerator};
-use internal_types::{CacheTextureId, FastHashMap, SavedTargetIndex, TextureSource};
+use internal_types::{CacheTextureId, FastHashMap, SavedTargetIndex, TextureSource, Filter};
 #[cfg(feature = "pathfinder")]
 use pathfinder_partitioner::mesh::Mesh;
 use picture::{RecordedDirtyRegion, SurfaceInfo};
@@ -1148,7 +1148,7 @@ impl RenderPass {
 #[derive(Debug, Clone, Default)]
 pub struct CompositeOps {
     // Requires only a single texture as input (e.g. most filters)
-    pub filters: Vec<FilterOp>,
+    pub filters: Vec<Filter>,
     pub filter_datas: Vec<FilterData>,
 
     // Requires two source textures (e.g. mix-blend-mode)
@@ -1156,7 +1156,7 @@ pub struct CompositeOps {
 }
 
 impl CompositeOps {
-    pub fn new(filters: Vec<FilterOp>,
+    pub fn new(filters: Vec<Filter>,
                filter_datas: Vec<FilterData>,
                mix_blend_mode: Option<MixBlendMode>) -> Self {
         CompositeOps {

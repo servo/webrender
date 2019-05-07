@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, ClipMode, ExternalImageType, FilterOp, ImageRendering};
+use api::{AlphaType, ClipMode, ExternalImageType, ImageRendering};
 use api::{YuvColorSpace, YuvFormat, ColorDepth, PremultipliedColorF, RasterSpace};
 use api::units::*;
 use clip::{ClipDataStore, ClipNodeFlags, ClipNodeRange, ClipItem, ClipStore, ClipNodeInstance};
@@ -13,7 +13,7 @@ use gpu_types::{BrushFlags, BrushInstance, PrimitiveHeaders, ZBufferId, ZBufferI
 use gpu_types::{ClipMaskInstance, SplitCompositeInstance, SnapOffsets};
 use gpu_types::{PrimitiveInstanceData, RasterizationSpace, GlyphInstance};
 use gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex, TransformPaletteId, TransformPalette};
-use internal_types::{FastHashMap, SavedTargetIndex, TextureSource};
+use internal_types::{FastHashMap, SavedTargetIndex, TextureSource, Filter};
 use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PictureSurface};
 use prim_store::{DeferredResolve, EdgeAaSegmentMask, PrimitiveInstanceKind, PrimitiveVisibilityIndex};
 use prim_store::{VisibleGradientTile, PrimitiveInstance, PrimitiveOpacity, SegmentInstanceIndex};
@@ -24,7 +24,6 @@ use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskTree, TileBlit};
 use renderer::{BlendMode, ImageBufferKind, ShaderColorMode};
 use renderer::{BLOCKS_PER_UV_RECT, MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{CacheItem, GlyphFetchResult, ImageRequest, ResourceCache, ImageProperties};
-use scene::FilterOpHelpers;
 use smallvec::SmallVec;
 use std::{f32, i32, usize};
 use tiling::{RenderTargetContext};
@@ -1260,7 +1259,7 @@ impl AlphaBatchBuilder {
                             PictureCompositeMode::Filter(ref filter) => {
                                 assert!(filter.is_visible());
                                 match filter {
-                                    FilterOp::Blur(..) => {
+                                    Filter::Blur(..) => {
                                         let kind = BatchKind::Brush(
                                             BrushBatchKind::Image(ImageBufferKind::Texture2DArray)
                                         );
@@ -1299,7 +1298,7 @@ impl AlphaBatchBuilder {
                                             PrimitiveInstanceData::from(instance),
                                         );
                                     }
-                                    FilterOp::DropShadowStack(shadows) => {
+                                    Filter::DropShadowStack(shadows) => {
                                         // Draw an instance per shadow first, following by the content.
 
                                         // The shadows and the content get drawn as a brush image.
@@ -1398,7 +1397,7 @@ impl AlphaBatchBuilder {
                                             PrimitiveInstanceData::from(content_instance),
                                         );
                                     }
-                                    FilterOp::DropShadow(shadow) => {
+                                    Filter::DropShadow(shadow) => {
                                         // Draw an instance of the shadow first, following by the content.
 
                                         // Both the shadow and the content get drawn as a brush image.
@@ -1499,49 +1498,49 @@ impl AlphaBatchBuilder {
                                     }
                                     _ => {
                                         let filter_mode = match filter {
-                                            FilterOp::Identity => 1, // matches `Contrast(1)`
-                                            FilterOp::Blur(..) => 0,
-                                            FilterOp::Contrast(..) => 1,
-                                            FilterOp::Grayscale(..) => 2,
-                                            FilterOp::HueRotate(..) => 3,
-                                            FilterOp::Invert(..) => 4,
-                                            FilterOp::Saturate(..) => 5,
-                                            FilterOp::Sepia(..) => 6,
-                                            FilterOp::Brightness(..) => 7,
-                                            FilterOp::Opacity(..) => 8,
-                                            FilterOp::DropShadow(..) |
-                                            FilterOp::DropShadowStack(..) => 9,
-                                            FilterOp::ColorMatrix(..) => 10,
-                                            FilterOp::SrgbToLinear => 11,
-                                            FilterOp::LinearToSrgb => 12,
-                                            FilterOp::ComponentTransfer => unreachable!(),
+                                            Filter::Identity => 1, // matches `Contrast(1)`
+                                            Filter::Blur(..) => 0,
+                                            Filter::Contrast(..) => 1,
+                                            Filter::Grayscale(..) => 2,
+                                            Filter::HueRotate(..) => 3,
+                                            Filter::Invert(..) => 4,
+                                            Filter::Saturate(..) => 5,
+                                            Filter::Sepia(..) => 6,
+                                            Filter::Brightness(..) => 7,
+                                            Filter::Opacity(..) => 8,
+                                            Filter::DropShadow(..) |
+                                            Filter::DropShadowStack(..) => 9,
+                                            Filter::ColorMatrix(..) => 10,
+                                            Filter::SrgbToLinear => 11,
+                                            Filter::LinearToSrgb => 12,
+                                            Filter::ComponentTransfer => unreachable!(),
                                         };
 
                                         let user_data = match filter {
-                                            FilterOp::Identity => 0x10000i32, // matches `Contrast(1)`
-                                            FilterOp::Contrast(amount) |
-                                            FilterOp::Grayscale(amount) |
-                                            FilterOp::Invert(amount) |
-                                            FilterOp::Saturate(amount) |
-                                            FilterOp::Sepia(amount) |
-                                            FilterOp::Brightness(amount) |
-                                            FilterOp::Opacity(_, amount) => {
+                                            Filter::Identity => 0x10000i32, // matches `Contrast(1)`
+                                            Filter::Contrast(amount) |
+                                            Filter::Grayscale(amount) |
+                                            Filter::Invert(amount) |
+                                            Filter::Saturate(amount) |
+                                            Filter::Sepia(amount) |
+                                            Filter::Brightness(amount) |
+                                            Filter::Opacity(_, amount) => {
                                                 (amount * 65536.0) as i32
                                             }
-                                            FilterOp::SrgbToLinear | FilterOp::LinearToSrgb => 0,
-                                            FilterOp::HueRotate(angle) => {
+                                            Filter::SrgbToLinear | Filter::LinearToSrgb => 0,
+                                            Filter::HueRotate(angle) => {
                                                 (0.01745329251 * angle * 65536.0) as i32
                                             }
                                             // Go through different paths
-                                            FilterOp::Blur(..) |
-                                            FilterOp::DropShadowStack(..) |
-                                            FilterOp::DropShadow(..) => {
+                                            Filter::Blur(..) |
+                                            Filter::DropShadowStack(..) |
+                                            Filter::DropShadow(..) => {
                                                 unreachable!();
                                             }
-                                            FilterOp::ColorMatrix(_) => {
+                                            Filter::ColorMatrix(_) => {
                                                 picture.extra_gpu_data_handles[0].as_int(gpu_cache)
                                             }
-                                            FilterOp::ComponentTransfer => unreachable!(),
+                                            Filter::ComponentTransfer => unreachable!(),
                                         };
 
                                         let (uv_rect_address, textures) = surface

@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadius, ClipMode, ColorF};
-use api::{FilterOp, ImageRendering, RepeatMode};
+use api::{ImageRendering, RepeatMode};
 use api::{PremultipliedColorF, PropertyBinding, Shadow, GradientStop};
 use api::{BoxShadowClipMode, LineStyle, LineOrientation};
 use api::{PrimitiveKeyKind, RasterSpace};
@@ -52,7 +52,7 @@ use texture_cache::TEXTURE_REGION_DIMENSIONS;
 use util::{ScaleOffset, MatrixHelpers, MaxRect, Recycler, TransformedRectKind};
 use util::{pack_as_float, project_rect, raster_rect_to_device_pixels};
 use util::{scale_factors, clamp_to_scale_factor};
-use internal_types::LayoutPrimitiveInfo;
+use internal_types::{LayoutPrimitiveInfo, Filter};
 use smallvec::SmallVec;
 
 pub mod borders;
@@ -2262,7 +2262,7 @@ impl PrimitiveStore {
     ) {
         // Only handle opacity filters for now.
         let binding = match self.pictures[pic_index.0].requested_composite_mode {
-            Some(PictureCompositeMode::Filter(FilterOp::Opacity(binding, _))) => {
+            Some(PictureCompositeMode::Filter(Filter::Opacity(binding, _))) => {
                 binding
             }
             _ => {
