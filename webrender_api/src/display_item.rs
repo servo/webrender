@@ -713,32 +713,10 @@ pub enum FilterOp {
     Saturate(f32),
     Sepia(f32),
     DropShadow(Shadow),
-    DropShadowStack(Vec<Shadow>),
     ColorMatrix([f32; 20]),
     SrgbToLinear,
     LinearToSrgb,
     ComponentTransfer,
-}
-
-impl FilterOp {
-    /// Ensure that the parameters for a filter operation
-    /// are sensible.
-    pub fn sanitize(&self) -> FilterOp {
-        match self {
-            FilterOp::Blur(radius) => {
-                let radius = radius.min(MAX_BLUR_RADIUS);
-                FilterOp::Blur(radius)
-            }
-            FilterOp::DropShadow(shadow) => {
-                FilterOp::DropShadow(Shadow {
-                    offset: shadow.offset,
-                    blur_radius: shadow.blur_radius.min(MAX_BLUR_RADIUS),
-                    color: shadow.color
-                })
-            }
-            filter => filter.clone(),
-        }
-    }
 }
 
 #[repr(u8)]

@@ -607,21 +607,6 @@ impl YamlHelper for Yaml {
                         color: yaml["color"].as_colorf().unwrap()
                     }))
                 }
-                ("drop-shadow-stack", ref args, _) => {
-                    let mut shadows = Vec::new();
-                    let mut yaml_doc = YamlLoader::load_from_str(&args[0]).expect("Failed to parse drop-shadow-stack");
-                    let yaml = yaml_doc.pop().unwrap();
-                    let yaml_shadows = yaml.into_vec().expect("Failed to parse shadow stack arguments");
-                    for yaml_shadow in &yaml_shadows {
-                        shadows.push(Shadow {
-                            offset: yaml_shadow[0].as_vector().unwrap(),
-                            blur_radius: yaml_shadow[1].as_f32().unwrap(),
-                            color: yaml_shadow[2].as_colorf().unwrap(),
-                        });
-                    }
-
-                    Some(FilterOp::DropShadowStack(shadows))
-                }
                 ("color-matrix", ref args, _) if args.len() == 20 => {
                     let m: Vec<f32> = args.iter().map(|f| f.parse().unwrap()).collect();
                     let mut matrix: [f32; 20] = [0.0; 20];

@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{FilterOp, MixBlendMode, PipelineId, PremultipliedColorF};
+use api::{MixBlendMode, PipelineId, PremultipliedColorF};
 use api::{PropertyBinding, PropertyBindingId};
 use api::{DebugFlags, RasterSpace, ColorF, ImageKey, ClipMode};
 use api::units::*;
@@ -16,7 +16,7 @@ use euclid::{size2, vec3, TypedPoint2D, TypedScale, TypedSize2D};
 use euclid::approxeq::ApproxEq;
 use frame_builder::{FrameVisibilityContext, FrameVisibilityState};
 use intern::ItemUid;
-use internal_types::{FastHashMap, FastHashSet, PlaneSplitter};
+use internal_types::{FastHashMap, FastHashSet, PlaneSplitter, Filter};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PictureContext};
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use gpu_types::{TransformPalette, UvRectKind};
@@ -30,7 +30,7 @@ use render_backend::DataStores;
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle, TileBlit};
 use render_task::{RenderTaskId, RenderTaskLocation, BlurTaskCache};
 use resource_cache::ResourceCache;
-use scene::{FilterOpHelpers, SceneProperties};
+use scene::SceneProperties;
 use scene_builder::Interners;
 use smallvec::SmallVec;
 use std::{mem, u16};
@@ -1125,7 +1125,7 @@ impl TileCache {
             PrimitiveInstanceKind::Picture { pic_index,.. } => {
                 // Pictures can depend on animated opacity bindings.
                 let pic = &pictures[pic_index.0];
-                if let Some(PictureCompositeMode::Filter(FilterOp::Opacity(binding, _))) = pic.requested_composite_mode {
+                if let Some(PictureCompositeMode::Filter(Filter::Opacity(binding, _))) = pic.requested_composite_mode {
                     opacity_bindings.push(binding.into());
                 }
 
@@ -1886,7 +1886,7 @@ pub enum PictureCompositeMode {
     /// Apply CSS mix-blend-mode effect.
     MixBlend(MixBlendMode),
     /// Apply a CSS filter (except component transfer).
-    Filter(FilterOp),
+    Filter(Filter),
     /// Apply a component transfer filter.
     ComponentTransferFilter(FilterDataHandle),
     /// Draw to intermediate surface, copy straight across. This
@@ -2262,7 +2262,7 @@ impl PicturePrimitive {
         match self.requested_composite_mode {
             Some(PictureCompositeMode::Filter(ref mut filter)) => {
                 match *filter {
-                    FilterOp::Opacity(ref binding, ref mut value) => {
+                    Filter::Opacity(ref binding, ref mut value) => {
                         *value = properties.resolve_float(binding);
                     }
                     _ => {}
@@ -2689,7 +2689,7 @@ impl PicturePrimitive {
 
             // This inflation factor is to be applied to all primitives within the surface.
             let inflation_factor = match composite_mode {
-                PictureCompositeMode::Filter(FilterOp::Blur(blur_radius)) => {
+                PictureCompositeMode::Filter(Filter::Blur(blur_radius)) => {
                     // Only inflate if the caller hasn't already inflated
                     // the bounding rects for this filter.
                     if self.options.inflate_if_required {
@@ -2822,11 +2822,11 @@ impl PicturePrimitive {
                 // TODO: in prepare_for_render we round before multiplying with the
                 // blur sample scale. Should we do this here as well?
                 let inflation_size = match raster_config.composite_mode {
-                    PictureCompositeMode::Filter(FilterOp::Blur(_)) => surface.inflation_factor,
-                    PictureCompositeMode::Filter(FilterOp::DropShadow(shadow)) => {
+                    PictureCompositeMode::Filter(Filter::Blur(_)) => surface.inflation_factor,
+                    PictureCompositeMode::Filter(Filter::DropShadow(shadow)) => {
                         (shadow.blur_radius * BLUR_SAMPLE_SCALE).ceil()
                     }
-                    PictureCompositeMode::Filter(FilterOp::DropShadowStack(ref shadows)) => {
+                    PictureCompositeMode::Filter(Filter::DropShadowStack(ref shadows)) => {
                         let mut max = 0.0;
                         for shadow in shadows {
                             max = f32::max(max, shadow.blur_radius * BLUR_SAMPLE_SCALE);
@@ -2852,8 +2852,8 @@ impl PicturePrimitive {
             //           remove this invalidation here completely.
             if self.local_rect != surface_rect {
                 match raster_config.composite_mode {
-                    PictureCompositeMode::Filter(FilterOp::DropShadow(..))
-                    | PictureCompositeMode::Filter(FilterOp::DropShadowStack(..)) => {
+                    PictureCompositeMode::Filter(Filter::DropShadow(..))
+                    | PictureCompositeMode::Filter(Filter::DropShadowStack(..)) => {
                         for handle in &self.extra_gpu_data_handles {
                             gpu_cache.invalidate(handle);
                         }
@@ -2879,12 +2879,12 @@ impl PicturePrimitive {
             // Drop shadows draw both a content and shadow rect, so need to expand the local
             // rect of any surfaces to be composited in parent surfaces correctly.
             match raster_config.composite_mode {
-                PictureCompositeMode::Filter(FilterOp::DropShadow(shadow)) => {
+                PictureCompositeMode::Filter(Filter::DropShadow(shadow)) => {
                     let content_rect = surface_rect;
                     let shadow_rect = surface_rect.translate(&shadow.offset);
                     surface_rect = content_rect.union(&shadow_rect);
                 }
-                PictureCompositeMode::Filter(FilterOp::DropShadowStack(ref shadows)) => {
+                PictureCompositeMode::Filter(Filter::DropShadowStack(ref shadows)) => {
                     for shadow in shadows {
                         let content_rect = surface_rect;
                         let shadow_rect = surface_rect.translate(&shadow.offset);
@@ -2978,7 +2978,7 @@ impl PicturePrimitive {
 
                 return true;
             }
-            PictureCompositeMode::Filter(FilterOp::Blur(blur_radius)) => {
+            PictureCompositeMode::Filter(Filter::Blur(blur_radius)) => {
                 let blur_std_deviation = blur_radius * device_pixel_scale.0;
                 let scale_factors = scale_factors(&transform);
                 let blur_std_deviation = DeviceSize::new(
@@ -3042,7 +3042,7 @@ impl PicturePrimitive {
 
                 PictureSurface::RenderTask(render_task_id)
             }
-            PictureCompositeMode::Filter(FilterOp::DropShadow(shadow)) => {
+            PictureCompositeMode::Filter(Filter::DropShadow(shadow)) => {
                 let blur_std_deviation = shadow.blur_radius * device_pixel_scale.0;
                 let blur_range = (blur_std_deviation * BLUR_SAMPLE_SCALE).ceil() as i32;
                 let rounded_std_dev = blur_std_deviation.round();
@@ -3132,7 +3132,7 @@ impl PicturePrimitive {
 
                 PictureSurface::RenderTask(blur_render_task_id)
             }
-            PictureCompositeMode::Filter(FilterOp::DropShadowStack(ref shadows)) => {
+            PictureCompositeMode::Filter(Filter::DropShadowStack(ref shadows)) => {
                 let mut max_std_deviation = 0.0;
                 for shadow in shadows {
                     // TODO(nical) presumably we should compute the clipped rect for each shadow
@@ -3250,7 +3250,7 @@ impl PicturePrimitive {
                 PictureSurface::RenderTask(render_task_id)
             }
             PictureCompositeMode::Filter(ref filter) => {
-                if let FilterOp::ColorMatrix(m) = *filter {
+                if let Filter::ColorMatrix(m) = *filter {
                     if self.extra_gpu_data_handles.is_empty() {
                         self.extra_gpu_data_handles.push(GpuCacheHandle::new());
                     }
