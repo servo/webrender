@@ -4,13 +4,13 @@
 
 use api::{DocumentLayer, PremultipliedColorF};
 use api::units::*;
-use clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
-use gpu_cache::{GpuCacheAddress, GpuDataRequest};
-use internal_types::FastHashMap;
-use prim_store::EdgeAaSegmentMask;
-use render_task::RenderTaskAddress;
+use crate::clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
+use crate::gpu_cache::{GpuCacheAddress, GpuDataRequest};
+use crate::internal_types::FastHashMap;
+use crate::prim_store::EdgeAaSegmentMask;
+use crate::render_task::RenderTaskAddress;
 use std::i32;
-use util::{TransformedRectKind, MatrixHelpers};
+use crate::util::{TransformedRectKind, MatrixHelpers};
 
 // Contains type that must exactly match the same structures declared in GLSL.
 
@@ -235,6 +235,7 @@ impl PrimitiveHeaders {
         self.headers_float.push(PrimitiveHeaderF {
             local_rect: prim_header.local_rect,
             local_clip_rect: prim_header.local_clip_rect,
+            snap_offsets: prim_header.snap_offsets,
         });
 
         self.headers_int.push(PrimitiveHeaderI {
@@ -255,6 +256,7 @@ impl PrimitiveHeaders {
 pub struct PrimitiveHeader {
     pub local_rect: LayoutRect,
     pub local_clip_rect: LayoutRect,
+    pub snap_offsets: SnapOffsets,
     pub task_address: RenderTaskAddress,
     pub specific_prim_address: GpuCacheAddress,
     pub transform_id: TransformPaletteId,
@@ -268,6 +270,7 @@ pub struct PrimitiveHeader {
 pub struct PrimitiveHeaderF {
     pub local_rect: LayoutRect,
     pub local_clip_rect: LayoutRect,
+    pub snap_offsets: SnapOffsets,
 }
 
 // i32 parts of a primitive header
@@ -363,8 +366,6 @@ bitflags! {
         const SEGMENT_REPEAT_Y = 0x8;
         /// The extra segment data is a texel rect.
         const SEGMENT_TEXEL_RECT = 0x10;
-        /// Snap to the primitive rect instead of the visible rect.
-        const SNAP_TO_PRIMITIVE = 0x20;
     }
 }
 
@@ -469,7 +470,7 @@ struct RelativeTransformKey {
 //           specifying a coordinate system that the transform
 //           should be relative to.
 pub struct TransformPalette {
-    pub transforms: Vec<TransformData>,
+    transforms: Vec<TransformData>,
     metadata: Vec<TransformMetadata>,
     map: FastHashMap<RelativeTransformKey, usize>,
 }
@@ -482,6 +483,10 @@ impl TransformPalette {
             metadata: Vec::new(),
             map: FastHashMap::default(),
         }
+    }
+
+    pub fn finish(self) -> Vec<TransformData> {
+        self.transforms
     }
 
     pub fn allocate(&mut self, count: usize) {
@@ -542,24 +547,6 @@ impl TransformPalette {
                     )
                 })
         }
-    }
-
-    pub fn get_world_transform(
-        &self,
-        index: SpatialNodeIndex,
-    ) -> LayoutToWorldTransform {
-        self.transforms[index.0 as usize]
-            .transform
-            .with_destination::<WorldPixel>()
-    }
-
-    pub fn get_world_inv_transform(
-        &self,
-        index: SpatialNodeIndex,
-    ) -> WorldToLayoutTransform {
-        self.transforms[index.0 as usize]
-            .inv_transform
-            .with_source::<WorldPixel>()
     }
 
     // Get a transform palette id for the given spatial node.
@@ -627,6 +614,11 @@ impl SnapOffsets {
             top_left: DeviceVector2D::zero(),
             bottom_right: DeviceVector2D::zero(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        let zero = DeviceVector2D::zero();
+        self.top_left == zero && self.bottom_right == zero
     }
 }
 

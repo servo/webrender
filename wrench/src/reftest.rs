@@ -2,13 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use {WindowWrapper, NotifierEvent};
+use crate::{WindowWrapper, NotifierEvent};
 use base64;
 use image::load as load_piston_image;
 use image::png::PNGEncoder;
 use image::{ColorType, ImageFormat};
-use parse_function::parse_function;
-use png::save_flipped;
+use crate::parse_function::parse_function;
+use crate::png::save_flipped;
 use std::cmp;
 use std::fmt::{Display, Error, Formatter};
 use std::fs::File;
@@ -18,8 +18,8 @@ use std::sync::mpsc::Receiver;
 use webrender::RenderResults;
 use webrender::api::*;
 use webrender::api::units::*;
-use wrench::{Wrench, WrenchThing};
-use yaml_frame_reader::YamlFrameReader;
+use crate::wrench::{Wrench, WrenchThing};
+use crate::yaml_frame_reader::YamlFrameReader;
 
 
 #[cfg(target_os = "windows")]
@@ -28,8 +28,14 @@ const PLATFORM: &str = "win";
 const PLATFORM: &str = "linux";
 #[cfg(target_os = "macos")]
 const PLATFORM: &str = "mac";
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "android")]
+const PLATFORM: &str = "android";
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android")))]
 const PLATFORM: &str = "other";
+#[cfg(debug)]
+const MODE: &str = "debug";
+#[cfg(not(debug))]
+const MODE: &str = "release";
 
 const OPTION_DISABLE_SUBPX: &str = "disable-subpixel";
 const OPTION_DISABLE_AA: &str = "disable-aa";
@@ -238,6 +244,14 @@ impl ReftestManifest {
                         );
 
                         break;
+                    }
+                    platform if platform.starts_with("skip_on") => {
+                        // e.g. skip_on(android,debug) will skip only when
+                        // running on a debug android build.
+                        let (_, args, _) = parse_function(platform);
+                        if args.iter().all(|arg| arg == &PLATFORM || arg == &MODE) {
+                            break;
+                        }
                     }
                     platform if platform.starts_with("platform") => {
                         let (_, args, _) = parse_function(platform);

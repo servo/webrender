@@ -7,30 +7,30 @@ use api::{DocumentLayer, FilterData, FilterOp, ImageFormat, LineOrientation};
 use api::units::*;
 #[cfg(feature = "pathfinder")]
 use api::FontRenderMode;
-use batch::{AlphaBatchBuilder, AlphaBatchContainer, ClipBatcher, resolve_image};
-use clip::ClipStore;
-use clip_scroll_tree::{ClipScrollTree};
-use debug_render::DebugItem;
-use device::{Texture};
+use crate::batch::{AlphaBatchBuilder, AlphaBatchContainer, ClipBatcher, resolve_image, BatchBuilder};
+use crate::clip::ClipStore;
+use crate::clip_scroll_tree::{ClipScrollTree};
+use crate::debug_render::DebugItem;
+use crate::device::{Texture};
 #[cfg(feature = "pathfinder")]
 use euclid::{TypedPoint2D, TypedVector2D};
-use frame_builder::FrameGlobalResources;
-use gpu_cache::{GpuCache};
-use gpu_types::{BorderInstance, BlurDirection, BlurInstance, PrimitiveHeaders, ScalingInstance};
-use gpu_types::{TransformData, TransformPalette, ZBufferIdGenerator};
-use internal_types::{CacheTextureId, FastHashMap, SavedTargetIndex, TextureSource};
+use crate::frame_builder::FrameGlobalResources;
+use crate::gpu_cache::{GpuCache};
+use crate::gpu_types::{BorderInstance, BlurDirection, BlurInstance, PrimitiveHeaders, ScalingInstance};
+use crate::gpu_types::{TransformData, TransformPalette, ZBufferIdGenerator};
+use crate::internal_types::{CacheTextureId, FastHashMap, SavedTargetIndex, TextureSource};
 #[cfg(feature = "pathfinder")]
 use pathfinder_partitioner::mesh::Mesh;
-use picture::{RecordedDirtyRegion, SurfaceInfo};
-use prim_store::gradient::GRADIENT_FP_STOPS;
-use prim_store::{PrimitiveStore, DeferredResolve, PrimitiveScratchBuffer};
-use profiler::FrameProfileCounters;
-use render_backend::{DataStores, FrameId};
-use render_task::{BlitSource, RenderTaskAddress, RenderTaskId, RenderTaskKind};
-use render_task::{BlurTask, ClearMode, GlyphTask, RenderTaskLocation, RenderTaskTree, ScalingTask};
-use resource_cache::ResourceCache;
+use crate::picture::{RecordedDirtyRegion, SurfaceInfo};
+use crate::prim_store::gradient::GRADIENT_FP_STOPS;
+use crate::prim_store::{PrimitiveStore, DeferredResolve, PrimitiveScratchBuffer};
+use crate::profiler::FrameProfileCounters;
+use crate::render_backend::{DataStores, FrameId};
+use crate::render_task::{BlitSource, RenderTaskAddress, RenderTaskId, RenderTaskKind};
+use crate::render_task::{BlurTask, ClearMode, GlyphTask, RenderTaskLocation, RenderTaskTree, ScalingTask};
+use crate::resource_cache::ResourceCache;
 use std::{cmp, usize, f32, i32, mem};
-use texture_allocator::{ArrayAllocationTracker, FreeRectSlice};
+use crate::texture_allocator::{ArrayAllocationTracker, FreeRectSlice};
 
 
 const STYLE_SOLID: i32 = ((BorderStyle::Solid as i32) << 8) | ((BorderStyle::Solid as i32) << 16);
@@ -374,6 +374,10 @@ pub struct ColorRenderTarget {
     // we can set a scissor rect and only clear to the
     // used portion of the target as an optimization.
     pub used_rect: DeviceIntRect,
+    // This is used to build batches for this render target. In future,
+    // this will be used to support splitting a single picture primitive
+    // list into multiple batch sets.
+    batch_builder: BatchBuilder,
 }
 
 impl RenderTarget for ColorRenderTarget {
@@ -392,6 +396,7 @@ impl RenderTarget for ColorRenderTarget {
             alpha_tasks: Vec::new(),
             screen_size,
             used_rect: DeviceIntRect::zero(),
+            batch_builder: BatchBuilder::new(),
         }
     }
 
@@ -425,20 +430,20 @@ impl RenderTarget for ColorRenderTarget {
 
                     let (target_rect, _) = task.get_target_rect();
 
-                    let scisor_rect = if pic_task.can_merge {
+                    let scissor_rect = if pic_task.can_merge {
                         None
                     } else {
                         Some(target_rect)
                     };
 
-                    let mut batch_builder = AlphaBatchBuilder::new(
+                    let mut alpha_batch_builder = AlphaBatchBuilder::new(
                         self.screen_size,
-                        scisor_rect,
                         ctx.break_advanced_blend_batches,
                     );
 
-                    batch_builder.add_pic_to_batch(
+                    self.batch_builder.add_pic_to_batch(
                         pic,
+                        &mut alpha_batch_builder,
                         *task_id,
                         ctx,
                         gpu_cache,
@@ -450,10 +455,11 @@ impl RenderTarget for ColorRenderTarget {
                         z_generator,
                     );
 
-                    batch_builder.build(
+                    alpha_batch_builder.build(
                         &mut self.alpha_batch_containers,
                         &mut merged_batches,
                         target_rect,
+                        scissor_rect,
                     );
                 }
                 _ => {
@@ -564,11 +570,17 @@ impl RenderTarget for ColorRenderTarget {
                             target_rect: target_rect.inner_rect(task_info.padding)
                         });
                     }
-                    BlitSource::RenderTask { .. } => {
-                        panic!("BUG: render task blit jobs to render tasks not supported");
+                    BlitSource::RenderTask { task_id } => {
+                        let (target_rect, _) = task.get_target_rect();
+                        self.blits.push(BlitJob {
+                            source: BlitJobSource::RenderTask(task_id),
+                            target_rect: target_rect.inner_rect(task_info.padding)
+                        });
                     }
                 }
             }
+            #[cfg(test)]
+            RenderTaskKind::Test(..) => {}
         }
     }
 
@@ -720,6 +732,8 @@ impl RenderTarget for AlphaRenderTarget {
                     render_tasks.get_task_address(task.children[0]),
                 );
             }
+            #[cfg(test)]
+            RenderTaskKind::Test(..) => {}
         }
     }
 
@@ -868,6 +882,8 @@ impl TextureCacheRenderTarget {
             RenderTaskKind::Scaling(..) => {
                 panic!("BUG: unexpected task kind for texture cache target");
             }
+            #[cfg(test)]
+            RenderTaskKind::Test(..) => {}
         }
     }
 

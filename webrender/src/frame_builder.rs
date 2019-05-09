@@ -5,30 +5,31 @@
 use api::{ColorF, DebugFlags, DocumentLayer, FontRenderMode, PremultipliedColorF};
 use api::{PipelineId, RasterSpace};
 use api::units::*;
-use clip::{ClipDataStore, ClipStore, ClipChainStack};
-use clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
-use display_list_flattener::{DisplayListFlattener};
-use gpu_cache::{GpuCache, GpuCacheHandle};
-use gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind, ZBufferIdGenerator};
-use hit_test::{HitTester, HitTestingScene};
+use crate::clip::{ClipDataStore, ClipStore, ClipChainStack};
+use crate::clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
+use crate::display_list_flattener::{DisplayListFlattener};
+use crate::gpu_cache::{GpuCache, GpuCacheHandle};
+use crate::gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind, ZBufferIdGenerator};
+use crate::hit_test::{HitTester, HitTestingScene};
 #[cfg(feature = "replay")]
-use hit_test::HitTestingSceneStats;
-use internal_types::{FastHashMap, PlaneSplitter};
-use picture::{PictureSurface, PictureUpdateState, SurfaceInfo, ROOT_SURFACE_INDEX, SurfaceIndex};
-use picture::{RetainedTiles, TileCache, DirtyRegion};
-use prim_store::{PrimitiveStore, SpaceMapper, PictureIndex, PrimitiveDebugId, PrimitiveScratchBuffer};
+use crate::hit_test::HitTestingSceneStats;
+use crate::internal_types::{FastHashMap, PlaneSplitter};
+use crate::picture::{PictureUpdateState, SurfaceInfo, ROOT_SURFACE_INDEX, SurfaceIndex};
+use crate::picture::{RetainedTiles, TileCache, DirtyRegion, SurfaceRenderTasks};
+use crate::prim_store::{PrimitiveStore, SpaceMapper, PictureIndex, PrimitiveDebugId, PrimitiveScratchBuffer};
 #[cfg(feature = "replay")]
-use prim_store::{PrimitiveStoreStats};
-use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
-use render_backend::{DataStores, FrameStamp};
-use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree, RenderTaskTreeCounters};
-use resource_cache::{ResourceCache};
-use scene::{ScenePipeline, SceneProperties};
-use scene_builder::DocumentStats;
-use segment::SegmentBuilder;
+use crate::prim_store::{PrimitiveStoreStats};
+use crate::profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
+use crate::render_backend::{DataStores, FrameStamp};
+use crate::render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree, RenderTaskTreeCounters};
+use crate::resource_cache::{ResourceCache};
+use crate::scene::{ScenePipeline, SceneProperties};
+use crate::scene_builder::DocumentStats;
+use crate::segment::SegmentBuilder;
 use std::{f32, mem};
 use std::sync::Arc;
-use tiling::{Frame, RenderPassKind, RenderTargetContext, RenderTarget};
+use crate::tiling::{Frame, RenderPassKind, RenderTargetContext, RenderTarget};
+use crate::util::MaxRect;
 
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -428,6 +429,27 @@ impl FrameBuilder {
             clip_chain_stack: ClipChainStack::new(),
         };
 
+        let root_render_task = RenderTask::new_picture(
+            RenderTaskLocation::Fixed(self.output_rect),
+            self.output_rect.size.to_f32(),
+            self.root_pic_index,
+            DeviceIntPoint::zero(),
+            Vec::new(),
+            UvRectKind::Rect,
+            root_spatial_node_index,
+            global_device_pixel_scale,
+        );
+
+        let root_render_task_id = frame_state.render_tasks.add(root_render_task);
+        frame_state
+            .surfaces
+            .first_mut()
+            .unwrap()
+            .render_tasks = Some(SurfaceRenderTasks {
+                root: root_render_task_id,
+                port: root_render_task_id,
+            });
+
         // Push a default dirty region which culls primitives
         // against the screen world rect, in absence of any
         // other dirty regions.
@@ -442,6 +464,7 @@ impl FrameBuilder {
             .pictures[self.root_pic_index.0]
             .take_context(
                 self.root_pic_index,
+                WorldRect::max_rect(),
                 root_spatial_node_index,
                 root_spatial_node_index,
                 ROOT_SURFACE_INDEX,
@@ -474,28 +497,7 @@ impl FrameBuilder {
 
         frame_state.pop_dirty_region();
 
-        let child_tasks = frame_state
-            .surfaces[ROOT_SURFACE_INDEX.0]
-            .take_render_tasks();
-
-        let root_render_task = RenderTask::new_picture(
-            RenderTaskLocation::Fixed(self.output_rect),
-            self.output_rect.size.to_f32(),
-            self.root_pic_index,
-            DeviceIntPoint::zero(),
-            child_tasks,
-            UvRectKind::Rect,
-            root_spatial_node_index,
-            global_device_pixel_scale,
-        );
-
-        let render_task_id = frame_state.render_tasks.add(root_render_task);
-        frame_state
-            .surfaces
-            .first_mut()
-            .unwrap()
-            .surface = Some(PictureSurface::RenderTask(render_task_id));
-        Some(render_task_id)
+        Some(root_render_task_id)
     }
 
     pub fn build(
@@ -639,7 +641,7 @@ impl FrameBuilder {
             layer,
             profile_counters,
             passes,
-            transform_palette: transform_palette.transforms,
+            transform_palette: transform_palette.finish(),
             render_tasks,
             deferred_resolves,
             gpu_cache_frame_id,
