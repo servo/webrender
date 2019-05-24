@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{ColorF, DebugFlags, DocumentLayer, FontRenderMode, PremultipliedColorF};
-use api::{PipelineId, RasterSpace};
+use api::{PipelineId};
 use api::units::*;
 use crate::clip::{ClipDataStore, ClipStore, ClipChainStack};
 use crate::clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
@@ -157,7 +157,6 @@ pub struct FrameBuildingState<'a> {
     pub segment_builder: SegmentBuilder,
     pub surfaces: &'a mut Vec<SurfaceInfo>,
     pub dirty_region_stack: Vec<DirtyRegion>,
-    pub clip_chain_stack: ClipChainStack,
 }
 
 impl<'a> FrameBuildingState<'a> {
@@ -184,7 +183,6 @@ pub struct PictureContext {
     pub apply_local_clip_rect: bool,
     pub is_passthrough: bool,
     pub is_composite: bool,
-    pub raster_space: RasterSpace,
     pub surface_spatial_node_index: SpatialNodeIndex,
     pub raster_spatial_node_index: SpatialNodeIndex,
     /// The surface that this picture will render on.
@@ -426,7 +424,6 @@ impl FrameBuilder {
             segment_builder: SegmentBuilder::new(),
             surfaces,
             dirty_region_stack: Vec::new(),
-            clip_chain_stack: ClipChainStack::new(),
         };
 
         let root_render_task = RenderTask::new_picture(

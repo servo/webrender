@@ -703,7 +703,6 @@ impl TileCache {
         prim_instances: &[PrimitiveInstance],
         root_clip_chain_id: ClipChainId,
         pictures: &[PicturePrimitive],
-        clip_scroll_tree: &ClipScrollTree,
     ) -> Self {
         // Build the list of reference primitives
         // for this picture cache.
@@ -718,7 +717,6 @@ impl TileCache {
             map_local_to_world: SpaceMapper::new(
                 ROOT_SPATIAL_NODE_INDEX,
                 WorldRect::zero(),
-                clip_scroll_tree,
             ),
             tiles_to_draw: Vec::new(),
             opacity_bindings: FastHashMap::default(),
@@ -834,7 +832,6 @@ impl TileCache {
         self.map_local_to_world = SpaceMapper::new(
             ROOT_SPATIAL_NODE_INDEX,
             frame_context.screen_world_rect,
-            frame_context.clip_scroll_tree,
         );
 
         let world_mapper = SpaceMapper::new_with_target(
@@ -1645,7 +1642,6 @@ impl<'a> PictureUpdateState<'a> {
 
         state.update(
             pic_index,
-            ClipChainId::NONE,
             picture_primitives,
             frame_context,
             gpu_cache,
@@ -1709,7 +1705,6 @@ impl<'a> PictureUpdateState<'a> {
     fn update(
         &mut self,
         pic_index: PictureIndex,
-        clip_chain_id: ClipChainId,
         picture_primitives: &mut [PicturePrimitive],
         frame_context: &FrameBuildingContext,
         gpu_cache: &mut GpuCache,
@@ -1717,16 +1712,12 @@ impl<'a> PictureUpdateState<'a> {
         clip_data_store: &ClipDataStore,
     ) {
         if let Some(prim_list) = picture_primitives[pic_index.0].pre_update(
-            clip_chain_id,
             self,
             frame_context,
-            clip_store,
-            clip_data_store,
         ) {
-            for (child_pic_index, clip_chain_id) in &prim_list.pictures {
+            for child_pic_index in &prim_list.pictures {
                 self.update(
                     *child_pic_index,
-                    *clip_chain_id,
                     picture_primitives,
                     frame_context,
                     gpu_cache,
@@ -1768,7 +1759,7 @@ impl<'a> PictureUpdateState<'a> {
             None => fallback_raster_spatial_node,
         };
 
-        for (child_pic_index, _) in &picture.prim_list.pictures {
+        for child_pic_index in &picture.prim_list.pictures {
             self.assign_raster_roots(*child_pic_index, picture_primitives, new_fallback);
         }
     }
@@ -1843,7 +1834,6 @@ impl SurfaceInfo {
         let map_local_to_surface = SpaceMapper::new(
             surface_spatial_node_index,
             pic_bounds,
-            clip_scroll_tree,
         );
 
         SurfaceInfo {
@@ -1995,7 +1985,7 @@ impl ClusterIndex {
 
 /// A list of pictures, stored by the PrimitiveList to enable a
 /// fast traversal of just the pictures.
-pub type PictureList = SmallVec<[(PictureIndex, ClipChainId); 4]>;
+pub type PictureList = SmallVec<[PictureIndex; 4]>;
 
 /// A list of primitive instances that are added to a picture
 /// This ensures we can keep a list of primitives that
@@ -2044,7 +2034,7 @@ impl PrimitiveList {
             // remove this match and embed this info directly in the primitive instance.
             let is_pic = match prim_instance.kind {
                 PrimitiveInstanceKind::Picture { pic_index, .. } => {
-                    pictures.push((pic_index, prim_instance.clip_chain_id));
+                    pictures.push(pic_index);
                     true
                 }
                 _ => {
@@ -2238,7 +2228,7 @@ impl PicturePrimitive {
         pt.add_item(format!("raster_config: {:?}", self.raster_config));
         pt.add_item(format!("requested_composite_mode: {:?}", self.requested_composite_mode));
 
-        for (index, _) in &self.prim_list.pictures {
+        for index in &self.prim_list.pictures {
             pictures[index.0].print(pictures, *index, pt);
         }
 
@@ -2350,6 +2340,28 @@ impl PicturePrimitive {
         }
     }
 
+    /// Gets the raster space to use when rendering the picture.
+    /// Usually this would be the requested raster space. However, if the
+    /// picture's spatial node or one of its ancestors is being pinch zoomed
+    /// then we round it. This prevents us rasterizing glyphs for every minor
+    /// change in zoom level, as that would be too expensive.
+    pub fn get_raster_space(&self, clip_scroll_tree: &ClipScrollTree) -> RasterSpace {
+        let spatial_node = &clip_scroll_tree.spatial_nodes[self.spatial_node_index.0 as usize];
+        if spatial_node.is_ancestor_or_self_zooming {
+            let scale_factors = clip_scroll_tree
+                .get_relative_transform(self.spatial_node_index, ROOT_SPATIAL_NODE_INDEX)
+                .scale_factors();
+
+            // Round the scale up to the nearest power of 2, but don't exceed 8.
+            let scale = scale_factors.0.max(scale_factors.1).min(8.0);
+            let rounded_up = 1 << scale.log2().ceil() as u32;
+
+            RasterSpace::Local(rounded_up as f32)
+        } else {
+            self.requested_raster_space
+        }
+    }
+
     pub fn take_context(
         &mut self,
         pic_index: PictureIndex,
@@ -2401,7 +2413,6 @@ impl PicturePrimitive {
         let map_local_to_pic = SpaceMapper::new(
             surface_spatial_node_index,
             pic_bounds,
-            frame_context.clip_scroll_tree,
         );
 
         let (map_raster_to_world, map_pic_to_raster) = create_raster_mappers(
@@ -2535,7 +2546,7 @@ impl PicturePrimitive {
                             // and compute the union of them to determine what we need to rasterize and blur?
                             max_std_deviation = f32::max(max_std_deviation, shadow.blur_radius * device_pixel_scale.0);
                         }
-        
+
                         max_std_deviation = max_std_deviation.round();
                         let max_blur_range = (max_std_deviation * BLUR_SAMPLE_SCALE).ceil() as i32;
                         let mut device_rect = clipped.inflate(max_blur_range, max_blur_range)
@@ -2545,7 +2556,7 @@ impl PicturePrimitive {
                             device_rect.size,
                             DeviceSize::new(max_std_deviation, max_std_deviation),
                         );
-        
+
                         let uv_rect_kind = calculate_uv_rect_kind(
                             &pic_rect,
                             &transform,
@@ -2553,7 +2564,7 @@ impl PicturePrimitive {
                             device_pixel_scale,
                             true,
                         );
-        
+
                         let mut picture_task = RenderTask::new_picture(
                             RenderTaskLocation::Dynamic(None, device_rect.size),
                             unclipped.size,
@@ -2564,15 +2575,15 @@ impl PicturePrimitive {
                             device_pixel_scale,
                         );
                         picture_task.mark_for_saving();
-        
+
                         let picture_task_id = frame_state.render_tasks.add(picture_task);
-        
+
                         self.secondary_render_task_id = Some(picture_task_id);
-        
+
                         let mut blur_tasks = BlurTaskCache::default();
-        
+
                         self.extra_gpu_data_handles.resize(shadows.len(), GpuCacheHandle::new());
-        
+
                         let mut blur_render_task_id = picture_task_id;
                         for shadow in shadows {
                             let std_dev = f32::round(shadow.blur_radius * device_pixel_scale.0);
@@ -2583,9 +2594,9 @@ impl PicturePrimitive {
                                 RenderTargetKind::Color,
                                 ClearMode::Transparent,
                                 Some(&mut blur_tasks),
-                            );      
+                            );
                         }
-        
+
                         // TODO(nical) the second one should to be the blur's task id but we have several blurs now
                         (blur_render_task_id, picture_task_id)
                     }
@@ -2752,7 +2763,6 @@ impl PicturePrimitive {
             apply_local_clip_rect: self.apply_local_clip_rect,
             is_composite,
             is_passthrough,
-            raster_space: self.requested_raster_space,
             raster_spatial_node_index,
             surface_spatial_node_index,
             surface_index,
@@ -2905,11 +2915,8 @@ impl PicturePrimitive {
     /// surface / raster config now though.
     fn pre_update(
         &mut self,
-        clip_chain_id: ClipChainId,
         state: &mut PictureUpdateState,
         frame_context: &FrameBuildingContext,
-        clip_store: &ClipStore,
-        clip_data_store: &ClipDataStore,
     ) -> Option<PrimitiveList> {
         // Reset raster config in case we early out below.
         self.raster_config = None;
@@ -2941,52 +2948,6 @@ impl PicturePrimitive {
         // See if this picture actually needs a surface for compositing.
         let actual_composite_mode = match self.requested_composite_mode {
             Some(PictureCompositeMode::Filter(ref filter)) if filter.is_noop() => None,
-            Some(PictureCompositeMode::Blit(reason)) if reason == BlitReason::CLIP => {
-                // If the only reason a picture has requested a surface is due to the clip
-                // chain node, we might choose to skip drawing a surface, and instead apply
-                // the clips to each individual primitive. The logic below works out which
-                // option to choose.
-
-                // Assume that we will apply clips to individual items
-                let mut apply_clip_to_picture = false;
-                let mut current_clip_chain_id = clip_chain_id;
-
-                // Walk each clip in this chain, to see whether to allocate a surface and clip
-                // that, or whether to apply clips to each primitive.
-                while current_clip_chain_id != ClipChainId::NONE {
-                    let clip_chain_node = &clip_store.clip_chain_nodes[current_clip_chain_id.0 as usize];
-                    let clip_node = &clip_data_store[clip_chain_node.handle];
-
-                    match clip_node.item {
-                        ClipItem::Rectangle(_, ClipMode::Clip) => {
-                            // Normal rectangle clips can be handled as per-item clips.
-                            // TODO(gw): In future, we might want to consider selecting
-                            //           a surface in some situations here (e.g. if the
-                            //           stacking context is in a different coord system
-                            //           from the clip, and there are enough primitives
-                            //           in the stacking context to justify a surface).
-                        }
-                        ClipItem::Rectangle(_, ClipMode::ClipOut) |
-                        ClipItem::RoundedRectangle(..) |
-                        ClipItem::Image { .. } |
-                        ClipItem::BoxShadow(..) => {
-                            // Any of these clip types will require a surface.
-                            apply_clip_to_picture = true;
-                            break;
-                        }
-                    }
-
-                    current_clip_chain_id = clip_chain_node.parent_clip_chain_id;
-                }
-
-                // If we decided not to use a surfce for clipping, then skip and draw straight
-                // into the parent surface.
-                if apply_clip_to_picture {
-                    Some(PictureCompositeMode::Blit(reason))
-                } else {
-                    None
-                }
-            }
             ref mode => mode.clone(),
         };
 
@@ -3398,7 +3359,6 @@ fn build_ref_prims(
     let mut map_local_to_world = SpaceMapper::new(
         ROOT_SPATIAL_NODE_INDEX,
         WorldRect::zero(),
-        clip_scroll_tree,
     );
 
     for ref_prim in ref_prims {
