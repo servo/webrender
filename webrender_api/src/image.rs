@@ -60,7 +60,7 @@ pub enum TextureTarget {
     /// https://www.khronos.org/opengl/wiki/Array_Texture for background
     /// on Array textures.
     Array = 1,
-    /// Rectange texture. This maps to GL_TEXTURE_RECTANGLE in OpenGL. This
+    /// Rectangle texture. This maps to GL_TEXTURE_RECTANGLE in OpenGL. This
     /// is similar to a standard texture, with a few subtle differences
     /// (no mipmaps, non-power-of-two dimensions, different coordinate space)
     /// that make it useful for representing the kinds of textures we use
@@ -298,13 +298,13 @@ pub trait BlobImageResources {
 /// and creating the rasterizer objects, but isn't expected to do any rasterization itself.
 pub trait BlobImageHandler: Send {
     /// Creates a snapshot of the current state of blob images in the handler.
-    fn create_blob_rasterizer(&mut self) -> Box<AsyncBlobImageRasterizer>;
+    fn create_blob_rasterizer(&mut self) -> Box<dyn AsyncBlobImageRasterizer>;
 
     /// A hook to let the blob image handler update any state related to resources that
     /// are not bundled in the blob recording itself.
     fn prepare_resources(
         &mut self,
-        services: &BlobImageResources,
+        services: &dyn BlobImageResources,
         requests: &[BlobImageParams],
     );
 
