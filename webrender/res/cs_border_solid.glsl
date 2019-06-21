@@ -88,13 +88,17 @@ void main(void) {
     vec2 outer = outer_scale * aRect.zw;
     vec2 clip_sign = 1.0 - 2.0 * outer_scale;
 
-    int mix_colors;
+    int mix_colors = DONT_MIX;
     switch (segment) {
         case SEGMENT_TOP_LEFT:
         case SEGMENT_TOP_RIGHT:
         case SEGMENT_BOTTOM_RIGHT:
         case SEGMENT_BOTTOM_LEFT:
-            mix_colors = do_aa ? MIX_AA : MIX_NO_AA;
+            if (do_aa) {
+                mix_colors = MIX_AA;
+            } else {
+                mix_colors = MIX_NO_AA;
+            }
             break;
         default:
             mix_colors = DONT_MIX;

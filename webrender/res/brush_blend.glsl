@@ -192,32 +192,40 @@ vec4 ComponentTransfer(vec4 colora) {
     int k;
 
     for (int i = 0; i < 4; i++) {
+        int index = i;
+        float value = 0.0;
         switch (vFuncs[i]) {
             case COMPONENT_TRANSFER_IDENTITY:
                 break;
             case COMPONENT_TRANSFER_TABLE:
-            case COMPONENT_TRANSFER_DISCRETE:
+            case COMPONENT_TRANSFER_DISCRETE: {
                 // fetch value from lookup table
                 k = int(floor(colora[i]*255.0));
                 texel = fetch_from_gpu_cache_1(vTableAddress + offset + k/4);
-                colora[i] = clamp(texel[k % 4], 0.0, 1.0);
+                value = clamp(texel[k % 4], 0.0, 1.0);
+                colora[index] = value;
                 // offset plus 256/4 blocks
                 offset = offset + 64;
                 break;
-            case COMPONENT_TRANSFER_LINEAR:
+            }
+            case COMPONENT_TRANSFER_LINEAR: {
                 // fetch the two values for use in the linear equation
                 texel = fetch_from_gpu_cache_1(vTableAddress + offset);
-                colora[i] = clamp(texel[0] * colora[i] + texel[1], 0.0, 1.0);
+                value = clamp(texel[0] * colora[i] + texel[1], 0.0, 1.0);
+                colora[index] = value;
                 // offset plus 1 block
                 offset = offset + 1;
                 break;
-            case COMPONENT_TRANSFER_GAMMA:
+            }
+            case COMPONENT_TRANSFER_GAMMA: {
                 // fetch the three values for use in the gamma equation
                 texel = fetch_from_gpu_cache_1(vTableAddress + offset);
-                colora[i] = clamp(texel[0] * pow(colora[i], texel[1]) + texel[2], 0.0, 1.0);
+                value = clamp(texel[0] * pow(colora[i], texel[1]) + texel[2], 0.0, 1.0);
+                colora[index] = value;
                 // offset plus 1 block
                 offset = offset + 1;
                 break;
+            }
             default:
                 // shouldn't happen
                 break;
@@ -256,12 +264,19 @@ Fragment brush_fs() {
         case 12:
             color = LinearToSrgb(color);
             break;
-        case 13: // Component Transfer
-            vec4 colora = alpha != 0.0 ? Cs / alpha : Cs;
+        case 13: {
+            // Component Transfer
+            vec4 colora;
+            if (alpha != 0.0) {
+                colora = Cs / alpha;
+            } else {
+                colora = Cs;
+            }
             colora = ComponentTransfer(colora);
             color = colora.rgb;
             alpha = colora.a;
             break;
+        }
         default:
             color = vColorMat * color + vColorOffset;
     }
