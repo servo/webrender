@@ -11,7 +11,6 @@ use gleam::gl;
 use crate::internal_types::{FastHashMap, LayerIndex, RenderTargetInfo};
 use log::Level;
 use crate::profiler;
-use sha2::{Digest, Sha256};
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
@@ -708,6 +707,8 @@ impl ProgramSourceInfo {
         name: &'static str,
         features: String,
     ) -> Self {
+        use std::hash::DefaultHasher;
+
         // Compute the digest. Assuming the device has a `ProgramCache`, this
         // will always be needed, whereas the source is rarely needed. As such,
         // we compute the hash by walking the static strings in the same order
@@ -721,7 +722,8 @@ impl ProgramSourceInfo {
         // and then just hash that digest here.
 
         // Setup.
-        let mut hasher = Sha256::new();
+        let mut hasher = DefaultHasher::new();
+
         let version_str = get_shader_version(&*device.gl());
         let override_path = device.resource_override_path.as_ref();
         let source_and_digest = SHADERS.get(&name).expect("Shader not found");
@@ -738,18 +740,8 @@ impl ProgramSourceInfo {
             &mut |s| hasher.input(s.as_bytes()),
         );
 
-        // Hash the shader file contents. We use a precomputed digest, and
-        // verify it in debug builds.
-        if override_path.is_some() || cfg!(debug_assertions) {
-            let mut h = Sha256::new();
-            build_shader_main_string(&name, override_path, &mut |s| h.input(s.as_bytes()));
-            let d: ProgramSourceDigest = h.into();
-            let digest = format!("{}", d);
-            debug_assert!(override_path.is_some() || digest == source_and_digest.digest);
-            hasher.input(digest.as_bytes());
-        } else {
-            hasher.input(source_and_digest.digest.as_bytes());
-        };
+        // Hash the shader file ID
+        hasher.input(source_and_digest.id);
 
         // Finish.
         ProgramSourceInfo {

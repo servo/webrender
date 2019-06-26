@@ -7,30 +7,21 @@
 //! This module is used during precompilation (build.rs) and regular compilation,
 //! so it has minimal dependencies.
 
-pub use sha2::{Digest, Sha256};
-use std::borrow::Cow;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-#[derive(PartialEq, Eq, Hash, Debug, Clone, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serialize_program", derive(Deserialize, Serialize))]
-pub struct ProgramSourceDigest([u8; 32]);
+pub struct ShaderId(usize);
 
-impl ::std::fmt::Display for ProgramSourceDigest {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serialize_program", derive(Deserialize, Serialize))]
+pub struct ProgramSourceDigest(usize);
+
+impl ::std::fmt::Display for ShaderId {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        for byte in self.0.iter() {
-            f.write_fmt(format_args!("{:02x}", byte))?;
-        }
-        Ok(())
-    }
-}
-
-impl From<Sha256> for ProgramSourceDigest {
-    fn from(hasher: Sha256) -> Self {
-        let mut digest = Self::default();
-        digest.0.copy_from_slice(hasher.result().as_slice());
-        digest
+        write!(f, "{}", self.0)
     }
 }
 
@@ -38,25 +29,29 @@ const SHADER_IMPORT: &str = "#include ";
 
 /// Parses a shader string for imports. Imports are recursively processed, and
 /// prepended to the output stream.
-pub fn parse_shader_source<F: FnMut(&str), G: Fn(&str) -> Cow<'static, str>>(
-    source: Cow<'static, str>,
+///
+/// NOTE: `imports` tracks the `#include ` imports, in order to generate a unique ID
+/// for each shader (without having to hash the source code).
+pub fn parse_shader_source<G: Fn(&str) -> String>(
+    shader_imports: &mut Vec<String>,
+    file_path: &str,
     get_source: &G,
-    output: &mut F,
 ) {
-    for line in source.lines() {
+    // Load the current shader file and append it to the
+    let current_shader_source = get_source(file_path);
+
+    for line in current_shader_source.lines() {
         if line.starts_with(SHADER_IMPORT) {
             let imports = line[SHADER_IMPORT.len() ..].split(',');
-
             // For each import, get the source, and recurse.
             for import in imports {
-                let include = get_source(import);
-                parse_shader_source(include, get_source, output);
+                parse_shader_source(shader_imports, import, get_source);
             }
-        } else {
-            output(line);
-            output("\n");
         }
     }
+
+    // Append the source to the output
+    shader_imports.push(file_path.to_string());
 }
 
 /// Reads a shader source file from disk into a String.
