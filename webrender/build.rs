@@ -5,7 +5,7 @@
 extern crate webrender_build;
 
 use std::env;
-use std::fs::{canonicalize, read_dir, File};
+use std::fs::{read_dir, File};
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -50,18 +50,17 @@ fn write_shaders(glsl_files: Vec<PathBuf>, shader_file_path: &Path) {
         // Imports used in this shader (i.e. what sub-shaders the file is made of)
         let mut shader_source_paths = Vec::new();
 
-        let full_name = canonicalize_path(&glsl_file_path);
-
         parse_shader_source(
             &mut shader_source_paths,
-            &full_name,
+            &shader_name,
             &|f| shader_source_from_file(&base.join(&format!("{}.glsl", f))),
         );
 
         let shader_id = compute_unique_shader_id(&shader_source_paths, &mut all_shader_files);
+        let full_name = canonicalize_path(&glsl_file_path);
 
         let source_code = format!(
-            "h.insert(\"{}\", SourceWithId {{ source: include_str!(\"{}\"), id: ShaderId({}) }});",
+            "        h.insert(\"{}\", SourceWithId {{ source: include_str!(\"{}\"), id: ShaderId({}) }});",
             shader_name, full_name, shader_id
         );
 
@@ -72,21 +71,7 @@ fn write_shaders(glsl_files: Vec<PathBuf>, shader_file_path: &Path) {
 
     // Format and write the file to a combined shader
     let mut shader_file = File::create(shader_file_path).unwrap();
-    write!(shader_file, include_str!("./combined_shaders.rs"), shader_source_code);
-
-}
-
-/// Compute the shader path for insertion into the include_str!() macro.
-/// This makes for more compact generated code than inserting the literal
-/// shader source into the generated file.
-///
-/// If someone is building on a network share, I'm sorry.
-fn canonicalize_path(input: &PathBuf) -> String {
-    let full_path = canonicalize(&input).unwrap();
-    let full_name = full_path.as_os_str().to_str().unwrap();
-    let full_name = full_name.replace("\\\\?\\", "");
-    let full_name = full_name.replace("\\", "/");
-    full_name
+    write!(shader_file, include_str!("./combined_shaders.rs"), shader_source_code).unwrap();
 }
 
 fn main() {

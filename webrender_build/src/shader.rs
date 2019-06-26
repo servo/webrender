@@ -10,14 +10,15 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::path::PathBuf;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serialize_program", derive(Deserialize, Serialize))]
-pub struct ShaderId(usize);
+pub struct ShaderId(pub usize);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serialize_program", derive(Deserialize, Serialize))]
-pub struct ProgramSourceDigest(usize);
+pub struct ProgramSourceDigest(pub usize);
 
 impl ::std::fmt::Display for ShaderId {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
@@ -37,9 +38,8 @@ pub fn parse_shader_source<G: Fn(&str) -> String>(
     file_path: &str,
     get_source: &G,
 ) {
-    // Load the current shader file and append it to the
+    // Load the current shader file and parse it for imports
     let current_shader_source = get_source(file_path);
-
     for line in current_shader_source.lines() {
         if line.starts_with(SHADER_IMPORT) {
             let imports = line[SHADER_IMPORT.len() ..].split(',');
@@ -52,6 +52,20 @@ pub fn parse_shader_source<G: Fn(&str) -> String>(
 
     // Append the source to the output
     shader_imports.push(file_path.to_string());
+}
+
+/// Compute the shader path for insertion into the include_str!() macro.
+/// This makes for more compact generated code than inserting the literal
+/// shader source into the generated file.
+///
+/// If someone is building on a network share, I'm sorry.
+pub fn canonicalize_path(input: &PathBuf) -> String {
+    use std::fs::canonicalize;
+    let full_path = canonicalize(&input).unwrap();
+    let full_name = full_path.as_os_str().to_str().unwrap();
+    let full_name = full_name.replace("\\\\?\\", "");
+    let full_name = full_name.replace("\\", "/");
+    full_name
 }
 
 /// Reads a shader source file from disk into a String.
