@@ -145,6 +145,27 @@ impl Context {
             pixel_format: pixel_format,
         })
     }
+
+    #[inline]
+    fn swap_buffers(&self) -> Result<(), ContextError> {
+        if self.surface.get() == ffi::egl::NO_SURFACE {
+            return Err(ContextError::ContextLost);
+        }
+
+        let ret = unsafe {
+            egl::SwapBuffers(self.display, self.surface.get())
+        };
+
+        if ret == 0 {
+            match unsafe { egl::GetError() } as u32 {
+                ffi::egl::CONTEXT_LOST => return Err(ContextError::ContextLost),
+                err => panic!("eglSwapBuffers failed (eglGetError returned 0x{:x})", err)
+            }
+
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl GlContext for Context {
@@ -172,27 +193,6 @@ impl GlContext for Context {
         let addr = addr.as_ptr();
         unsafe {
             egl::GetProcAddress(addr) as *const _
-        }
-    }
-
-    #[inline]
-    fn swap_buffers(&self) -> Result<(), ContextError> {
-        if self.surface.get() == ffi::egl::NO_SURFACE {
-            return Err(ContextError::ContextLost);
-        }
-
-        let ret = unsafe {
-            egl::SwapBuffers(self.display, self.surface.get())
-        };
-
-        if ret == 0 {
-            match unsafe { egl::GetError() } as u32 {
-                ffi::egl::CONTEXT_LOST => return Err(ContextError::ContextLost),
-                err => panic!("eglSwapBuffers failed (eglGetError returned 0x{:x})", err)
-            }
-
-        } else {
-            Ok(())
         }
     }
 

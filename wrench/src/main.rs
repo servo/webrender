@@ -258,7 +258,7 @@ fn make_window(
                 .with_multitouch()
                 .with_dimensions(LogicalSize::new(size.width as f64, size.height as f64));
 
-            let init = |context: &dyn glutin::GlContext| {
+            fn init(context: &impl glutin::GlContext) -> Rc<dyn gl::Gl> {
                 unsafe {
                     context
                         .make_current()
@@ -274,7 +274,7 @@ fn make_window(
                     },
                     glutin::Api::WebGl => unimplemented!(),
                 }
-            };
+            }
 
             if angle {
                 let (_window, _context) = angle::Context::with_window(

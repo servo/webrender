@@ -3,8 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use glutin::{self, ContextBuilder, CreationError};
-#[cfg(not(windows))]
-use winit::dpi::PhysicalSize;
 use winit::{EventsLoop, Window, WindowBuilder};
 
 #[cfg(not(windows))]
@@ -20,7 +18,9 @@ impl Context {
         _: ContextBuilder,
         _: &EventsLoop,
     ) -> Result<(Window, Self), CreationError> {
-        Err(CreationError::PlatformSpecific("ANGLE rendering is only supported on Windows".into()))
+        Err(CreationError::PlatformSpecific(
+            "ANGLE rendering is only supported on Windows".into(),
+        ))
     }
 
     #[cfg(windows)]
@@ -39,6 +39,11 @@ impl Context {
             .and_then(|p| p.finish(window.get_hwnd() as _))
             .map(|context| (window, context))
     }
+
+    #[cfg(not(windows))]
+    pub fn swap_buffers(&self) -> Result<(), glutin::ContextError> {
+        match *self {}
+    }
 }
 
 #[cfg(not(windows))]
@@ -55,20 +60,7 @@ impl glutin::GlContext for Context {
         match *self {}
     }
 
-    fn swap_buffers(&self) -> Result<(), glutin::ContextError> {
-        match *self {}
-    }
-
     fn get_api(&self) -> glutin::Api {
         match *self {}
     }
-
-    fn get_pixel_format(&self) -> glutin::PixelFormat {
-        match *self {}
-    }
-
-    fn resize(&self, _: PhysicalSize) {
-        match *self {}
-    }
 }
-
