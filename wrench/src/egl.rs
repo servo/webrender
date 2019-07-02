@@ -8,7 +8,6 @@
 use glutin::ContextError;
 use glutin::CreationError;
 use glutin::GlAttributes;
-use glutin::ContextTrait;
 use glutin::GlRequest;
 use glutin::PixelFormat;
 use glutin::PixelFormatRequirements;
@@ -166,9 +165,7 @@ impl Context {
             Ok(())
         }
     }
-}
 
-impl ContextTrait for Context {
     unsafe fn make_current(&self) -> Result<(), ContextError> {
         let ret = egl::MakeCurrent(self.display, self.surface.get(), self.surface.get(), self.context);
 
@@ -205,9 +202,6 @@ impl ContextTrait for Context {
     fn get_pixel_format(&self) -> PixelFormat {
         self.pixel_format.clone()
     }
-
-    #[inline]
-    fn resize(&self, _: PhysicalSize) {}
 }
 
 unsafe impl Send for Context {}
