@@ -47,7 +47,7 @@ impl Context {
 }
 
 #[cfg(not(windows))]
-impl glutin::GlContext for Context {
+impl glutin::ContextTrait for Context {
     unsafe fn make_current(&self) -> Result<(), glutin::ContextError> {
         match *self {}
     }

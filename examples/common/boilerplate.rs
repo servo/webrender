@@ -6,7 +6,7 @@ extern crate env_logger;
 extern crate euclid;
 
 use gleam::gl;
-use glutin::{self, GlContext};
+use glutin::{self, ContextTrait};
 use std::env;
 use std::path::PathBuf;
 use webrender;
@@ -126,8 +126,9 @@ pub fn main_wrapper<E: Example>(
         .with_title(E::TITLE)
         .with_multitouch()
         .with_dimensions(winit::dpi::LogicalSize::new(E::WIDTH as f64, E::HEIGHT as f64));
-    let window = glutin::GlWindow::new(window_builder, context_builder, &events_loop)
-        .unwrap();
+    let window =
+        glutin::WindowedContext::new_windowed(window_builder, context_builder, &events_loop)
+            .unwrap();
 
     unsafe {
         window.make_current().ok();

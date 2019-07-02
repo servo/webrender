@@ -9,7 +9,7 @@ extern crate webrender;
 extern crate winit;
 
 use gleam::gl;
-use glutin::GlContext;
+use glutin::ContextTrait;
 use std::fs::File;
 use std::io::Read;
 use webrender::api::*;
@@ -50,7 +50,7 @@ impl RenderNotifier for Notifier {
 
 struct Window {
     events_loop: winit::EventsLoop, //TODO: share events loop?
-    window: glutin::GlWindow,
+    window: glutin::WindowedContext,
     renderer: webrender::Renderer,
     name: &'static str,
     pipeline_id: PipelineId,
@@ -72,8 +72,9 @@ impl Window {
             .with_title(name)
             .with_multitouch()
             .with_dimensions(LogicalSize::new(800., 600.));
-        let window = glutin::GlWindow::new(window_builder, context_builder, &events_loop)
-            .unwrap();
+        let window =
+            glutin::WindowedContext::new_windowed(window_builder, context_builder, &events_loop)
+                .unwrap();
 
         unsafe {
             window.make_current().ok();

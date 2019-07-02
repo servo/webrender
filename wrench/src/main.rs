@@ -61,7 +61,7 @@ mod cgfont_to_data;
 
 use crate::binary_frame_reader::BinaryFrameReader;
 use gleam::gl;
-use glutin::GlContext;
+use glutin::ContextTrait;
 use crate::perf::PerfHarness;
 use crate::png::save_flipped;
 use crate::rawtest::RawtestHarness;
@@ -164,7 +164,7 @@ impl HeadlessContext {
 }
 
 pub enum WindowWrapper {
-    Window(glutin::GlWindow, Rc<dyn gl::Gl>),
+    Window(glutin::WindowedContext, Rc<dyn gl::Gl>),
     Angle(winit::Window, angle::Context, Rc<dyn gl::Gl>),
     Headless(HeadlessContext, Rc<dyn gl::Gl>),
 }
@@ -258,7 +258,7 @@ fn make_window(
                 .with_multitouch()
                 .with_dimensions(LogicalSize::new(size.width as f64, size.height as f64));
 
-            fn init(context: &impl glutin::GlContext) -> Rc<dyn gl::Gl> {
+            fn init(context: &impl glutin::ContextTrait) -> Rc<dyn gl::Gl> {
                 unsafe {
                     context
                         .make_current()
@@ -283,8 +283,12 @@ fn make_window(
                 let gl = init(&_context);
                 WindowWrapper::Angle(_window, _context, gl)
             } else {
-                let window = glutin::GlWindow::new(window_builder, context_builder, events_loop)
-                    .unwrap();
+                let window = glutin::WindowedContext::new_windowed(
+                    window_builder,
+                    context_builder,
+                    events_loop,
+                )
+                .unwrap();
                 let gl = init(&window);
                 WindowWrapper::Window(window, gl)
             }
