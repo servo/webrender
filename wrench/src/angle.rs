@@ -45,10 +45,12 @@ impl Context {
         match *self {}
     }
 
+    #[cfg(not(windows))]
     pub fn get_proc_address(&self, _: &str) -> *const () {
         match *self {}
     }
 
+    #[cfg(not(windows))]
     pub fn swap_buffers(&self) -> Result<(), glutin::ContextError> {
         match *self {}
     }
