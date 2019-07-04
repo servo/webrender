@@ -145,7 +145,7 @@ impl Context {
     }
 
     #[inline]
-    fn swap_buffers(&self) -> Result<(), ContextError> {
+    pub fn swap_buffers(&self) -> Result<(), ContextError> {
         if self.surface.get() == ffi::egl::NO_SURFACE {
             return Err(ContextError::ContextLost);
         }
@@ -165,7 +165,7 @@ impl Context {
         }
     }
 
-    unsafe fn make_current(&self) -> Result<(), ContextError> {
+    pub unsafe fn make_current(&self) -> Result<(), ContextError> {
         let ret = egl::MakeCurrent(self.display, self.surface.get(), self.surface.get(), self.context);
 
         if ret == 0 {
@@ -180,11 +180,11 @@ impl Context {
     }
 
     #[inline]
-    fn is_current(&self) -> bool {
+    pub fn is_current(&self) -> bool {
         unsafe { egl::GetCurrentContext() == self.context }
     }
 
-    fn get_proc_address(&self, addr: &str) -> *const () {
+    pub fn get_proc_address(&self, addr: &str) -> *const () {
         let addr = CString::new(addr.as_bytes()).unwrap();
         let addr = addr.as_ptr();
         unsafe {
@@ -193,12 +193,12 @@ impl Context {
     }
 
     #[inline]
-    fn get_api(&self) -> Api {
+    pub fn get_api(&self) -> Api {
         self.api
     }
 
     #[inline]
-    fn get_pixel_format(&self) -> PixelFormat {
+    pub fn get_pixel_format(&self) -> PixelFormat {
         self.pixel_format.clone()
     }
 }
