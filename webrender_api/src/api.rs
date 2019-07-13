@@ -5,6 +5,7 @@
 extern crate serde_bytes;
 
 use crate::channel::{self, MsgSender, Payload, PayloadSender, PayloadSenderHelperMethods};
+use peek_poke::PeekPoke;
 use std::cell::Cell;
 use std::fmt;
 use std::marker::PhantomData;
@@ -757,7 +758,7 @@ pub enum ApiMsg {
     WakeUp,
     WakeSceneBuilder,
     FlushSceneBuilder(MsgSender<()>),
-    ShutDown,
+    ShutDown(Option<MsgSender<()>>),
 }
 
 impl fmt::Debug for ApiMsg {
@@ -776,7 +777,7 @@ impl fmt::Debug for ApiMsg {
             ApiMsg::MemoryPressure => "ApiMsg::MemoryPressure",
             ApiMsg::ReportMemory(..) => "ApiMsg::ReportMemory",
             ApiMsg::DebugCommand(..) => "ApiMsg::DebugCommand",
-            ApiMsg::ShutDown => "ApiMsg::ShutDown",
+            ApiMsg::ShutDown(..) => "ApiMsg::ShutDown",
             ApiMsg::WakeUp => "ApiMsg::WakeUp",
             ApiMsg::WakeSceneBuilder => "ApiMsg::WakeSceneBuilder",
             ApiMsg::FlushSceneBuilder(..) => "ApiMsg::FlushSceneBuilder",
@@ -795,11 +796,12 @@ impl Epoch {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, MallocSizeOf, PartialEq, Hash, Ord, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, MallocSizeOf, PartialEq, Hash, Ord, PartialOrd, PeekPoke)]
+#[derive(Deserialize, Serialize)]
 pub struct IdNamespace(pub u32);
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
 pub struct DocumentId {
     pub namespace_id: IdNamespace,
     pub id: u32,
@@ -825,8 +827,14 @@ pub type PipelineSourceId = u32;
 /// From the point of view of WR, `PipelineId` is completely opaque and generic as long as
 /// it's clonable, serializable, comparable, and hashable.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
 pub struct PipelineId(pub PipelineSourceId, pub u32);
+
+impl Default for PipelineId {
+    fn default() -> Self {
+        PipelineId::dummy()
+    }
+}
 
 impl PipelineId {
     pub fn dummy() -> Self {
@@ -1189,8 +1197,14 @@ impl RenderApi {
         self.api_sender.send(ApiMsg::DebugCommand(cmd)).unwrap();
     }
 
-    pub fn shut_down(&self) {
-        self.api_sender.send(ApiMsg::ShutDown).unwrap();
+    pub fn shut_down(&self, synchronously: bool) {
+        if synchronously {
+            let (tx, rx) = channel::msg_channel().unwrap();
+            self.api_sender.send(ApiMsg::ShutDown(Some(tx))).unwrap();
+            rx.recv().unwrap();
+        } else {
+            self.api_sender.send(ApiMsg::ShutDown(None)).unwrap();
+        }
     }
 
     /// Create a new unique key that can be used for
@@ -1410,7 +1424,7 @@ impl ZoomFactor {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, MallocSizeOf, PartialEq, Serialize, Eq, Hash, PeekPoke)]
 pub struct PropertyBindingId {
     namespace: IdNamespace,
     uid: u32,
@@ -1428,7 +1442,7 @@ impl PropertyBindingId {
 /// A unique key that is used for connecting animated property
 /// values to bindings in the display list.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
 pub struct PropertyBindingKey<T> {
     pub id: PropertyBindingId,
     _phantom: PhantomData<T>,
@@ -1457,10 +1471,16 @@ impl<T> PropertyBindingKey<T> {
 /// used for the case where the animation is still in-delay phase
 /// (i.e. the animation doesn't produce any animation values).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]
 pub enum PropertyBinding<T> {
     Value(T),
     Binding(PropertyBindingKey<T>, T),
+}
+
+impl<T: Default> Default for PropertyBinding<T> {
+    fn default() -> Self {
+        PropertyBinding::Value(Default::default())
+    }
 }
 
 impl<T> From<T> for PropertyBinding<T> {
