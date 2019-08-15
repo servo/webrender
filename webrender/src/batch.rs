@@ -14,7 +14,7 @@ use crate::gpu_types::{ClipMaskInstance, SplitCompositeInstance, SnapOffsets};
 use crate::gpu_types::{PrimitiveInstanceData, RasterizationSpace, GlyphInstance};
 use crate::gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex, TransformPaletteId, TransformPalette};
 use crate::internal_types::{FastHashMap, SavedTargetIndex, Swizzle, TextureSource, Filter};
-use crate::picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive};
+use crate::picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, TileSurface};
 use crate::prim_store::{DeferredResolve, EdgeAaSegmentMask, PrimitiveInstanceKind, PrimitiveVisibilityIndex, PrimitiveVisibilityMask};
 use crate::prim_store::{VisibleGradientTile, PrimitiveInstance, PrimitiveOpacity, SegmentInstanceIndex};
 use crate::prim_store::{BrushSegment, ClipMaskKind, ClipTaskIndex, VECS_PER_SEGMENT};
@@ -1191,6 +1191,70 @@ impl BatchBuilder {
 
                                     debug_assert!(tile.is_valid);
                                     let local_tile_rect = LayoutRect::from_untyped(&tile.rect.to_untyped());
+
+                                    // Draw the tile as either a texture image or solid rect.
+                                    let surface = tile.surface.as_ref().expect("no tile surface set!");
+                                    let (opacity, blend_mode, batch_params, prim_cache_address) = match surface {
+                                        TileSurface::Color { color } => {
+                                            let batch_params = BrushBatchParameters::shared(
+                                                BrushBatchKind::Solid,
+                                                BatchTextures::no_texture(),
+                                                [get_shader_opacity(1.0), 0, 0, 0],
+                                                0,
+                                            );
+
+                                            // TODO(gw): Maybe we could retain this GPU cache handle inside
+                                            //           the tile to avoid pushing per-frame GPU cache blocks.
+                                            let gpu_blocks = [
+                                                color.premultiplied().into(),
+                                            ];
+
+                                            let gpu_handle = gpu_cache.push_per_frame_blocks(&gpu_blocks);
+                                            let prim_cache_address = gpu_cache.get_address(&gpu_handle);
+
+                                            (
+                                                PrimitiveOpacity::opaque(),
+                                                BlendMode::None,
+                                                batch_params,
+                                                prim_cache_address,
+                                            )
+                                        }
+                                        TileSurface::Texture { ref handle, .. } => {
+                                            let cache_item = ctx.resource_cache.texture_cache.get(handle);
+                                            let uv_rect_address = gpu_cache
+                                                .get_address(&cache_item.uv_rect_handle)
+                                                .as_int();
+
+                                            let batch_params = BrushBatchParameters::shared(
+                                                BrushBatchKind::Image(ImageBufferKind::Texture2DArray),
+                                                BatchTextures::color(cache_item.texture_id),
+                                                [
+                                                    ShaderColorMode::Image as i32 | ((AlphaType::PremultipliedAlpha as i32) << 16),
+                                                    RasterizationSpace::Local as i32,
+                                                    get_shader_opacity(1.0),
+                                                    0,
+                                                ],
+                                                uv_rect_address,
+                                            );
+
+                                            if tile.is_opaque || tile_cache.is_opaque() {
+                                                (
+                                                    PrimitiveOpacity::opaque(),
+                                                    BlendMode::None,
+                                                    batch_params,
+                                                    prim_cache_address,
+                                                )
+                                            } else {
+                                                (
+                                                    PrimitiveOpacity::translucent(),
+                                                    BlendMode::PremultipliedAlpha,
+                                                    batch_params,
+                                                    prim_cache_address,
+                                                )
+                                            }
+                                        }
+                                    };
+
                                     let prim_header = PrimitiveHeader {
                                         local_rect: local_tile_rect,
                                         local_clip_rect: local_tile_clip_rect,
@@ -1198,29 +1262,6 @@ impl BatchBuilder {
                                         specific_prim_address: prim_cache_address,
                                         transform_id,
                                     };
-
-                                    let (opacity, blend_mode) = if tile.is_opaque || tile_cache.is_opaque() {
-                                        (PrimitiveOpacity::opaque(), BlendMode::None)
-                                    } else {
-                                        (PrimitiveOpacity::translucent(), BlendMode::PremultipliedAlpha)
-                                    };
-
-                                    let cache_item = ctx.resource_cache.texture_cache.get(&tile.handle);
-                                    let uv_rect_address = gpu_cache
-                                        .get_address(&cache_item.uv_rect_handle)
-                                        .as_int();
-                                    let textures = BatchTextures::color(cache_item.texture_id);
-                                    let batch_params = BrushBatchParameters::shared(
-                                        BrushBatchKind::Image(ImageBufferKind::Texture2DArray),
-                                        textures,
-                                        [
-                                            ShaderColorMode::Image as i32 | ((AlphaType::PremultipliedAlpha as i32) << 16),
-                                            RasterizationSpace::Local as i32,
-                                            get_shader_opacity(1.0),
-                                            0,
-                                        ],
-                                        uv_rect_address,
-                                    );
 
                                     let prim_header_index = prim_headers.push(
                                         &prim_header,
@@ -1591,9 +1632,19 @@ impl BatchBuilder {
                                 let uv_rect_address = render_tasks[cache_task_id]
                                     .get_texture_address(gpu_cache)
                                     .as_int();
+                                let textures = match render_tasks[cache_task_id].saved_index {
+                                    Some(saved_index) => BatchTextures {
+                                        colors: [
+                                            TextureSource::RenderTaskCache(saved_index, Swizzle::default()),
+                                            TextureSource::PrevPassAlpha,
+                                            TextureSource::Invalid,
+                                        ]
+                                    },
+                                    None => BatchTextures::render_target_cache(),
+                                };
                                 let batch_params = BrushBatchParameters::shared(
                                     BrushBatchKind::Image(ImageBufferKind::Texture2DArray),
-                                    BatchTextures::render_target_cache(),
+                                    textures,
                                     [
                                         ShaderColorMode::Image as i32 | ((AlphaType::PremultipliedAlpha as i32) << 16),
                                         RasterizationSpace::Screen as i32,
@@ -2326,6 +2377,67 @@ impl BatchBuilder {
                     );
                 }
             }
+            PrimitiveInstanceKind::Backdrop { data_handle } => {
+                let prim_data = &ctx.data_stores.backdrop[data_handle];
+                let backdrop_pic_index = prim_data.kind.pic_index;
+                let backdrop_surface_index = ctx.prim_store.pictures[backdrop_pic_index.0]
+                    .raster_config
+                    .as_ref()
+                    .expect("backdrop surface should be alloc by now")
+                    .surface_index;
+
+                let backdrop_task_id = ctx.surfaces[backdrop_surface_index.0]
+                    .render_tasks
+                    .as_ref()
+                    .expect("backdrop task not available")
+                    .root;
+
+                let backdrop_uv_rect_address = render_tasks[backdrop_task_id]
+                    .get_texture_address(gpu_cache)
+                    .as_int();
+
+                let textures = BatchTextures::render_target_cache();
+                let batch_key = BatchKey::new(
+                    BatchKind::Brush(BrushBatchKind::Image(ImageBufferKind::Texture2DArray)),
+                    BlendMode::PremultipliedAlpha,
+                    textures,
+                );
+
+                let prim_cache_address = gpu_cache.get_address(&ctx.globals.default_image_handle);
+                let backdrop_picture = &ctx.prim_store.pictures[backdrop_pic_index.0];
+                let prim_header = PrimitiveHeader {
+                    local_rect: backdrop_picture.snapped_local_rect,
+                    local_clip_rect: prim_info.combined_local_clip_rect,
+                    transform_id,
+                    snap_offsets: SnapOffsets::empty(),
+                    specific_prim_address: prim_cache_address,
+                };
+
+                let prim_header_index = prim_headers.push(
+                    &prim_header,
+                    z_id,
+                    [
+                        ShaderColorMode::Image as i32 | ((AlphaType::PremultipliedAlpha as i32) << 16),
+                        RasterizationSpace::Screen as i32,
+                        get_shader_opacity(1.0),
+                        0
+                    ],
+                );
+
+                self.add_brush_instance_to_batches(
+                    batch_key,
+                    batch_features,
+                    bounding_rect,
+                    z_id,
+                    INVALID_SEGMENT_INDEX,
+                    EdgeAaSegmentMask::empty(),
+                    OPAQUE_TASK_ADDRESS,
+                    BrushFlags::empty(),
+                    prim_header_index,
+                    backdrop_uv_rect_address,
+                    prim_vis_mask,
+                );
+            }
         }
     }
 
@@ -2654,7 +2766,8 @@ impl PrimitiveInstance {
             PrimitiveInstanceKind::RadialGradient { .. } |
             PrimitiveInstanceKind::PushClipChain |
             PrimitiveInstanceKind::PopClipChain |
-            PrimitiveInstanceKind::Clear { .. } => {
+            PrimitiveInstanceKind::Clear { .. } |
+            PrimitiveInstanceKind::Backdrop { .. } => {
                 return true;
             }
         };
