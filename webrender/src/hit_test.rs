@@ -505,8 +505,12 @@ impl HitTester {
         result
     }
 
-    pub fn get_pipeline_root(&self, pipeline_id: PipelineId) -> &HitTestSpatialNode {
-        &self.spatial_nodes[self.pipeline_root_nodes[&pipeline_id].0 as usize]
+    pub fn get_pipeline_root(&self, pipeline_id: PipelineId) -> Option<&HitTestSpatialNode> {
+        if self.pipeline_root_nodes.contains_key(&pipeline_id) {
+            Some(&self.spatial_nodes[self.pipeline_root_nodes[&pipeline_id].0 as usize])
+        } else {
+            None
+        }
     }
 }
 
@@ -567,8 +571,11 @@ impl HitTest {
             .and_then(|id|
                 hit_tester
                     .get_pipeline_root(id)
-                    .world_viewport_transform
-                    .transform_point2d(point)
+                    .and_then(|pipeline_root| {
+                        pipeline_root
+                            .world_viewport_transform
+                            .transform_point2d(point)
+                    })
             )
             .unwrap_or_else(|| {
                 WorldPoint::new(self.point.x, self.point.y)
