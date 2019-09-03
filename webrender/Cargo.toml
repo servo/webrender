@@ -1,6 +1,6 @@
 [package]
 name = "webrender"
-version = "0.60.0"
+version = "0.61.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 repository = "https://github.com/servo/webrender"
@@ -31,7 +31,7 @@ cfg-if = "0.1.2"
 cstr = "0.1.2"
 euclid = { version = "0.20.0", features = ["serde"] }
 fxhash = "0.2.1"
-gleam = "0.6.17"
+gleam = "0.7.0"
 image_loader = { optional = true, version = "0.22", package = "image", default-features = false, features = ["png_codec"] }
 lazy_static = "1"
 log = "0.4"
