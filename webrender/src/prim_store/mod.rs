@@ -12,7 +12,7 @@ use crate::border::{get_max_scale_for_border, build_border_instances};
 use crate::border::BorderSegmentCacheKey;
 use crate::clip::{ClipStore};
 use crate::clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, ClipScrollTree, CoordinateSpaceMapping, SpatialNodeIndex, VisibleFace};
-use crate::clip::{ClipDataStore, ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem};
+use crate::clip::{ClipDataStore, ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItemKind};
 use crate::debug_colors;
 use crate::debug_render::DebugItem;
 use crate::display_list_flattener::{CreateShadow, IsVisible};
@@ -39,8 +39,9 @@ use crate::prim_store::text_run::{TextRunDataHandle, TextRunPrimitive};
 #[cfg(debug_assertions)]
 use crate::render_backend::{FrameId};
 use crate::render_backend::DataStores;
+use crate::render_task_graph::RenderTaskId;
 use crate::render_task::{RenderTask, RenderTaskCacheKey, to_cache_size};
-use crate::render_task::{RenderTaskCacheKeyKind, RenderTaskId, RenderTaskCacheEntryHandle};
+use crate::render_task::{RenderTaskCacheKeyKind, RenderTaskCacheEntryHandle};
 use crate::renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use crate::resource_cache::{ImageProperties, ImageRequest};
 use crate::scene::SceneProperties;
@@ -1803,7 +1804,7 @@ impl PrimitiveStore {
                 None => (parent_surface_index, false)
             };
 
-            let viewport = match pic.raster_config {
+            match pic.raster_config {
                 Some(RasterConfig { composite_mode: PictureCompositeMode::TileCache { .. }, .. }) => {
                     let mut tile_cache = pic.tile_cache.take().unwrap();
                     debug_assert!(frame_state.tile_cache.is_none());
@@ -1818,20 +1819,17 @@ impl PrimitiveStore {
                         frame_state,
                     );
 
-                    let viewport = tile_cache.world_viewport_rect;
-
+                    // Push a new surface, supplying the list of clips that should be
+                    // ignored, since they are handled by clipping when drawing this surface.
+                    frame_state.clip_chain_stack.push_surface(&tile_cache.shared_clips);
                     frame_state.tile_cache = Some(tile_cache);
-
-                    viewport
                 }
                 _ => {
-                    WorldRect::max_rect()
+                    if is_composite {
+                        frame_state.clip_chain_stack.push_surface(&[]);
+                    }
                 }
-            };
-
-            if is_composite {
-                frame_state.clip_chain_stack.push_surface(viewport);
-            };
+            }
 
             (prim_list, surface_index, pic.apply_local_clip_rect, world_culling_rect, is_composite)
         };
@@ -1887,9 +1885,6 @@ impl PrimitiveStore {
                     frame_state.clip_chain_stack.push_clip(
                         prim_instance.clip_chain_id,
                         frame_state.clip_store,
-                        frame_state.data_stores,
-                        frame_context.clip_scroll_tree,
-                        frame_context.global_screen_world_rect,
                     );
                     continue;
                 }
@@ -1905,9 +1900,6 @@ impl PrimitiveStore {
                     frame_state.clip_chain_stack.push_clip(
                         prim_instance.clip_chain_id,
                         frame_state.clip_store,
-                        frame_state.data_stores,
-                        frame_context.clip_scroll_tree,
-                        frame_context.global_screen_world_rect,
                     );
 
                     let pic_surface_rect = self.update_visibility(
@@ -2037,12 +2029,13 @@ impl PrimitiveStore {
                 }
 
                 // Inflate the local rect for this primitive by the inflation factor of
-                // the picture context. This ensures that even if the primitive itself
-                // is not visible, any effects from the blur radius will be correctly
-                // taken into account.
+                // the picture context and include the shadow offset. This ensures that
+                // even if the primitive itself is not visible, any effects from the
+                // blur radius or shadow will be correctly taken into account.
                 let inflation_factor = surface.inflation_factor;
                 let local_rect = prim_local_rect
                     .inflate(inflation_factor, inflation_factor)
+                    .union(&prim_shadow_rect)
                     .intersection(&prim_instance.local_clip_rect);
                 let local_rect = match local_rect {
                     Some(local_rect) => local_rect,
@@ -2059,9 +2052,6 @@ impl PrimitiveStore {
                 frame_state.clip_chain_stack.push_clip(
                     prim_instance.clip_chain_id,
                     frame_state.clip_store,
-                    frame_state.data_stores,
-                    frame_context.clip_scroll_tree,
-                    frame_context.global_screen_world_rect,
                 );
 
                 frame_state.clip_store.set_active_clips(
@@ -3526,22 +3516,22 @@ impl<'a> GpuDataRequest<'a> {
 
             local_clip_count += 1;
 
-            let (local_clip_rect, radius, mode) = match clip_node.item {
-                ClipItem::RoundedRectangle(size, radii, clip_mode) => {
+            let (local_clip_rect, radius, mode) = match clip_node.item.kind {
+                ClipItemKind::RoundedRectangle { rect, radius, mode } => {
                     rect_clips_only = false;
-                    (LayoutRect::new(clip_instance.local_pos, size), Some(radii), clip_mode)
+                    (rect, Some(radius), mode)
                 }
-                ClipItem::Rectangle(size, mode) => {
-                    (LayoutRect::new(clip_instance.local_pos, size), None, mode)
+                ClipItemKind::Rectangle { rect, mode } => {
+                    (rect, None, mode)
                 }
-                ClipItem::BoxShadow(ref info) => {
+                ClipItemKind::BoxShadow { ref source } => {
                     rect_clips_only = false;
 
                     // For inset box shadows, we can clip out any
                     // pixels that are inside the shadow region
                     // and are beyond the inner rect, as they can't
                     // be affected by the blur radius.
-                    let inner_clip_mode = match info.clip_mode {
+                    let inner_clip_mode = match source.clip_mode {
                         BoxShadowClipMode::Outset => None,
                         BoxShadowClipMode::Inset => Some(ClipMode::ClipOut),
                     };
@@ -3550,21 +3540,18 @@ impl<'a> GpuDataRequest<'a> {
                     // box-shadow can have an effect on the result. This
                     // ensures clip-mask tasks get allocated for these
                     // pixel regions, even if no other clips affect them.
-                    let prim_shadow_rect = info.prim_shadow_rect.translate(
-                        LayoutVector2D::new(clip_instance.local_pos.x, clip_instance.local_pos.y),
-                    );
                     segment_builder.push_mask_region(
-                        prim_shadow_rect,
-                        prim_shadow_rect.inflate(
-                            -0.5 * info.original_alloc_size.width,
-                            -0.5 * info.original_alloc_size.height,
+                        source.prim_shadow_rect,
+                        source.prim_shadow_rect.inflate(
+                            -0.5 * source.original_alloc_size.width,
+                            -0.5 * source.original_alloc_size.height,
                         ),
                         inner_clip_mode,
                     );
 
                     continue;
                 }
-                ClipItem::Image { .. } => {
+                ClipItemKind::Image { .. } => {
                     // If we encounter an image mask, bail out from segment building.
                     // It's not possible to know which parts of the primitive are affected
                     // by the mask (without inspecting the pixels). We could do something
@@ -3872,6 +3859,7 @@ impl PrimitiveInstance {
                     &prim_info.clip_chain,
                     self.spatial_node_index,
                     &frame_context.clip_scroll_tree,
+                    &data_stores.clip,
                 );
 
                 let segment_clip_chain = frame_state

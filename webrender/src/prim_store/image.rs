@@ -19,9 +19,10 @@ use crate::prim_store::{
     PrimTemplate, PrimTemplateCommonData, PrimitiveStore, SegmentInstanceIndex,
     SizeKey, InternablePrimitive,
 };
+use crate::render_target::RenderTargetKind;
 use crate::render_task::{
     BlitSource, RenderTask, RenderTaskCacheEntryHandle, RenderTaskCacheKey,
-    RenderTaskCacheKeyKind, RenderTargetKind,
+    RenderTaskCacheKeyKind,
 };
 use crate::resource_cache::{ImageRequest, ResourceCache};
 use crate::util::pack_as_float;
@@ -448,7 +449,8 @@ impl YuvImageData {
             self.write_prim_gpu_blocks(&mut request);
         };
 
-        common.opacity = PrimitiveOpacity::translucent();
+        // YUV images never have transparency
+        common.opacity = PrimitiveOpacity::opaque();
     }
 
     pub fn request_resources(

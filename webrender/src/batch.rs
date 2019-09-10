@@ -5,7 +5,7 @@
 use api::{AlphaType, ClipMode, ExternalImageType, ImageRendering};
 use api::{YuvColorSpace, YuvFormat, ColorDepth, ColorRange, PremultipliedColorF, RasterSpace};
 use api::units::*;
-use crate::clip::{ClipDataStore, ClipNodeFlags, ClipNodeRange, ClipItem, ClipStore, ClipNodeInstance};
+use crate::clip::{ClipDataStore, ClipNodeFlags, ClipNodeRange, ClipItemKind, ClipStore};
 use crate::clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex, CoordinateSystemId};
 use crate::glyph_rasterizer::GlyphFormat;
 use crate::gpu_cache::{GpuBlockData, GpuCache, GpuCacheHandle, GpuCacheAddress};
@@ -21,13 +21,14 @@ use crate::prim_store::{BrushSegment, ClipMaskKind, ClipTaskIndex, VECS_PER_SEGM
 use crate::prim_store::{recompute_snap_offsets};
 use crate::prim_store::image::ImageSource;
 use crate::render_backend::DataStores;
-use crate::render_task::{RenderTaskAddress, RenderTaskId, RenderTaskGraph};
+use crate::render_target::RenderTargetContext;
+use crate::render_task_graph::{RenderTaskId, RenderTaskGraph};
+use crate::render_task::RenderTaskAddress;
 use crate::renderer::{BlendMode, ImageBufferKind, ShaderColorMode};
 use crate::renderer::{BLOCKS_PER_UV_RECT, MAX_VERTEX_TEXTURE_WIDTH};
 use crate::resource_cache::{CacheItem, GlyphFetchResult, ImageRequest, ResourceCache, ImageProperties};
 use smallvec::SmallVec;
 use std::{f32, i32, usize};
-use crate::tiling::{RenderTargetContext};
 use crate::util::{project_rect, TransformedRectKind};
 
 // Special sentinel value recognized by the shader. It is considered to be
@@ -1178,13 +1179,13 @@ impl BatchBuilder {
                             PictureCompositeMode::TileCache { .. } => {
                                 let tile_cache = picture.tile_cache.as_ref().unwrap();
 
-                                let tile_clip_rect = match tile_cache.local_rect.intersection(&tile_cache.local_clip_rect) {
+                                let local_tile_clip_rect = LayoutRect::from_untyped(&tile_cache.local_rect.to_untyped());
+                                let local_tile_clip_rect = match local_tile_clip_rect.intersection(&prim_info.combined_local_clip_rect) {
                                     Some(rect) => rect,
                                     None => {
                                         return;
                                     }
                                 };
-                                let local_tile_clip_rect = LayoutRect::from_untyped(&tile_clip_rect.to_untyped());
 
                                 for key in &tile_cache.tiles_to_draw {
                                     let tile = &tile_cache.tiles[key];
@@ -2925,8 +2926,8 @@ impl ClipBatcher {
     fn add_tiled_clip_mask(
         &mut self,
         mask_screen_rect: DeviceIntRect,
-        clip_rect_size: LayoutSize,
-        clip_instance: &ClipNodeInstance,
+        local_clip_rect: LayoutRect,
+        clip_spatial_node_index: SpatialNodeIndex,
         clip_scroll_tree: &ClipScrollTree,
         world_rect: &WorldRect,
         device_pixel_scale: DevicePixelScale,
@@ -2940,7 +2941,7 @@ impl ClipBatcher {
         }
 
         let clip_spatial_node = &clip_scroll_tree
-            .spatial_nodes[clip_instance.spatial_node_index.0 as usize];
+            .spatial_nodes[clip_spatial_node_index.0 as usize];
 
         // Only support clips that are axis-aligned to the root coordinate space,
         // for now, to simplify the logic below. This handles the vast majority
@@ -2951,12 +2952,8 @@ impl ClipBatcher {
 
         // Get the world rect of the clip rectangle. If we can't transform it due
         // to the matrix, just fall back to drawing the entire clip mask.
-        let local_clip_rect = LayoutRect::new(
-            clip_instance.local_pos,
-            clip_rect_size,
-        );
         let transform = clip_scroll_tree.get_world_transform(
-            clip_instance.spatial_node_index,
+            clip_spatial_node_index,
         );
         let world_clip_rect = match project_rect(
             &transform.into_transform(),
@@ -3005,6 +3002,7 @@ impl ClipBatcher {
                     clip_list.slow_rectangles.push(ClipMaskInstance {
                         clip_data_address: gpu_address,
                         sub_rect: normalized_sub_rect,
+                        local_pos: local_clip_rect.origin,
                         ..*instance
                     });
                 }
@@ -3051,7 +3049,7 @@ impl ClipBatcher {
             let clip_node = &clip_data_store[clip_instance.handle];
 
             let clip_transform_id = transforms.get_id(
-                clip_instance.spatial_node_index,
+                clip_node.item.spatial_node_index,
                 ROOT_SPATIAL_NODE_INDEX,
                 clip_scroll_tree,
             );
@@ -3067,7 +3065,7 @@ impl ClipBatcher {
                 prim_transform_id,
                 clip_data_address: GpuCacheAddress::INVALID,
                 resource_address: GpuCacheAddress::INVALID,
-                local_pos: clip_instance.local_pos,
+                local_pos: LayoutPoint::zero(),
                 tile_rect: LayoutRect::zero(),
                 sub_rect: DeviceRect::new(
                     DevicePoint::zero(),
@@ -3079,8 +3077,8 @@ impl ClipBatcher {
                 device_pixel_scale: device_pixel_scale.0,
             };
 
-            let added_clip = match clip_node.item {
-                ClipItem::Image { image, size, .. } => {
+            let added_clip = match clip_node.item.kind {
+                ClipItemKind::Image { image, rect, .. } => {
                     let request = ImageRequest {
                         key: image,
                         rendering: ImageRendering::Auto,
@@ -3108,6 +3106,7 @@ impl ClipBatcher {
                                 clip_data_address,
                                 resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
                                 tile_rect: local_tile_rect,
+                                local_pos: rect.origin,
                                 ..instance
                             });
                     };
@@ -3122,17 +3121,16 @@ impl ClipBatcher {
                             }
                         }
                         None => {
-                            let mask_rect = LayoutRect::new(clip_instance.local_pos, size);
-                            add_image(request, mask_rect)
+                            add_image(request, rect)
                         }
                     }
 
                     true
                 }
-                ClipItem::BoxShadow(ref info) => {
+                ClipItemKind::BoxShadow { ref source }  => {
                     let gpu_address =
                         gpu_cache.get_address(&clip_node.gpu_cache_handle);
-                    let rt_handle = info
+                    let rt_handle = source
                         .cache_handle
                         .as_ref()
                         .expect("bug: render task handle not allocated");
@@ -3154,19 +3152,20 @@ impl ClipBatcher {
 
                     true
                 }
-                ClipItem::Rectangle(_, ClipMode::ClipOut) => {
+                ClipItemKind::Rectangle { rect, mode: ClipMode::ClipOut } => {
                     let gpu_address =
                         gpu_cache.get_address(&clip_node.gpu_cache_handle);
                     self.get_batch_list(is_first_clip)
                         .slow_rectangles
                         .push(ClipMaskInstance {
+                            local_pos: rect.origin,
                             clip_data_address: gpu_address,
                             ..instance
                         });
 
                     true
                 }
-                ClipItem::Rectangle(clip_rect_size, ClipMode::Clip) => {
+                ClipItemKind::Rectangle { rect, mode: ClipMode::Clip } => {
                     if clip_instance.flags.contains(ClipNodeFlags::SAME_COORD_SYSTEM) {
                         false
                     } else {
@@ -3174,8 +3173,8 @@ impl ClipBatcher {
 
                         if !self.add_tiled_clip_mask(
                             actual_rect,
-                            clip_rect_size,
-                            clip_instance,
+                            rect,
+                            clip_node.item.spatial_node_index,
                             clip_scroll_tree,
                             world_rect,
                             device_pixel_scale,
@@ -3187,6 +3186,7 @@ impl ClipBatcher {
                                 .slow_rectangles
                                 .push(ClipMaskInstance {
                                     clip_data_address: gpu_address,
+                                    local_pos: rect.origin,
                                     ..instance
                                 });
                         }
@@ -3194,12 +3194,13 @@ impl ClipBatcher {
                         true
                     }
                 }
-                ClipItem::RoundedRectangle(..) => {
+                ClipItemKind::RoundedRectangle { rect, .. } => {
                     let gpu_address =
                         gpu_cache.get_address(&clip_node.gpu_cache_handle);
                     let batch_list = self.get_batch_list(is_first_clip);
                     let instance = ClipMaskInstance {
                         clip_data_address: gpu_address,
+                        local_pos: rect.origin,
                         ..instance
                     };
                     if clip_instance.flags.contains(ClipNodeFlags::USE_FAST_PATH) {
