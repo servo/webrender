@@ -84,6 +84,13 @@ impl DocumentView {
             self.pinch_zoom_factor
         )
     }
+
+    pub fn accumulated_scale_factor_for_snapping(&self) -> DevicePixelScale {
+        DevicePixelScale::new(
+            self.device_pixel_ratio *
+            self.page_zoom_factor
+        )
+    }
 }
 
 #[derive(Copy, Clone, Hash, MallocSizeOf, PartialEq, PartialOrd, Debug, Eq, Ord)]
@@ -582,6 +589,7 @@ impl Document {
 
             self.clip_scroll_tree.update_tree(
                 pan,
+                accumulated_scale_factor,
                 &self.dynamic_properties,
             );
 
@@ -929,7 +937,8 @@ impl RenderBackend {
                             }
 
                             self.resource_cache.add_rasterized_blob_images(
-                                txn.rasterized_blobs.take()
+                                txn.rasterized_blobs.take(),
+                                &mut profile_counters.resources.texture_cache,
                             );
                             if let Some((rasterizer, info)) = txn.blob_rasterizer.take() {
                                 self.resource_cache.set_blob_rasterizer(rasterizer, info);
@@ -1748,6 +1757,10 @@ impl RenderBackend {
                 config.serialize_tree(&doc.clip_scroll_tree, file_name);
                 let file_name = format!("builder-{}-{}", id.namespace_id.0, id.id);
                 config.serialize(doc.frame_builder.as_ref().unwrap(), file_name);
+                let file_name = format!("scratch-{}-{}", id.namespace_id.0, id.id);
+                config.serialize(&doc.scratch, file_name);
+                let file_name = format!("properties-{}-{}", id.namespace_id.0, id.id);
+                config.serialize(&doc.dynamic_properties, file_name);
                 let file_name = format!("render-tasks-{}-{}.svg", id.namespace_id.0, id.id);
                 let mut svg_file = fs::File::create(&config.file_path(file_name, "svg"))
                     .expect("Failed to open the SVG file.");

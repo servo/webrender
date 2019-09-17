@@ -441,6 +441,7 @@ impl ClipScrollTree {
     pub fn update_tree(
         &mut self,
         pan: WorldPoint,
+        global_device_pixel_scale: DevicePixelScale,
         scene_properties: &SceneProperties,
     ) {
         if self.spatial_nodes.is_empty() {
@@ -471,7 +472,7 @@ impl ClipScrollTree {
                 None => continue,
             };
 
-            node.update(&mut state, &mut self.coord_systems, scene_properties, &*previous);
+            node.update(&mut state, &mut self.coord_systems, global_device_pixel_scale, scene_properties, &*previous);
 
             if !node.children.is_empty() {
                 node.prepare_state_for_children(&mut state);
@@ -570,12 +571,16 @@ impl ClipScrollTree {
         self.add_spatial_node(node)
     }
 
-    pub fn add_spatial_node(&mut self, node: SpatialNode) -> SpatialNodeIndex {
+    pub fn add_spatial_node(&mut self, mut node: SpatialNode) -> SpatialNodeIndex {
         let index = SpatialNodeIndex::new(self.spatial_nodes.len());
 
         // When the parent node is None this means we are adding the root.
         if let Some(parent_index) = node.parent {
-            self.spatial_nodes[parent_index.0 as usize].add_child(index);
+            let parent_node = &mut self.spatial_nodes[parent_index.0 as usize];
+            parent_node.add_child(index);
+            node.update_snapping(Some(parent_node));
+        } else {
+            node.update_snapping(None);
         }
 
         self.spatial_nodes.push(node);
@@ -640,12 +645,15 @@ impl ClipScrollTree {
                 pt.new_level(format!("ReferenceFrame"));
                 pt.add_item(format!("kind: {:?}", info.kind));
                 pt.add_item(format!("transform_style: {:?}", info.transform_style));
+                pt.add_item(format!("source_transform: {:?}", info.source_transform));
+                pt.add_item(format!("origin_in_parent_reference_frame: {:?}", info.origin_in_parent_reference_frame));
             }
         }
 
         pt.add_item(format!("index: {:?}", index));
         pt.add_item(format!("content_transform: {:?}", node.content_transform));
         pt.add_item(format!("viewport_transform: {:?}", node.viewport_transform));
+        pt.add_item(format!("snapping_transform: {:?}", node.snapping_transform));
         pt.add_item(format!("coordinate_system_id: {:?}", node.coordinate_system_id));
 
         for child_index in &node.children {
@@ -757,7 +765,7 @@ fn test_cst_simple_translation() {
         LayoutVector2D::zero(),
     );
 
-    cst.update_tree(WorldPoint::zero(), &SceneProperties::new());
+    cst.update_tree(WorldPoint::zero(), DevicePixelScale::new(1.0), &SceneProperties::new());
 
     test_pt(100.0, 100.0, &cst, child1, root, 200.0, 100.0);
     test_pt(100.0, 100.0, &cst, child2, root, 200.0, 150.0);
@@ -799,7 +807,7 @@ fn test_cst_simple_scale() {
         LayoutVector2D::zero(),
     );
 
-    cst.update_tree(WorldPoint::zero(), &SceneProperties::new());
+    cst.update_tree(WorldPoint::zero(), DevicePixelScale::new(1.0), &SceneProperties::new());
 
     test_pt(100.0, 100.0, &cst, child1, root, 400.0, 100.0);
     test_pt(100.0, 100.0, &cst, child2, root, 400.0, 200.0);
@@ -849,7 +857,7 @@ fn test_cst_scale_translation() {
         LayoutVector2D::zero(),
     );
 
-    cst.update_tree(WorldPoint::zero(), &SceneProperties::new());
+    cst.update_tree(WorldPoint::zero(), DevicePixelScale::new(1.0), &SceneProperties::new());
 
     test_pt(100.0, 100.0, &cst, child1, root, 200.0, 150.0);
     test_pt(100.0, 100.0, &cst, child2, root, 300.0, 450.0);
@@ -883,7 +891,7 @@ fn test_cst_translation_rotate() {
         LayoutVector2D::zero(),
     );
 
-    cst.update_tree(WorldPoint::zero(), &SceneProperties::new());
+    cst.update_tree(WorldPoint::zero(), DevicePixelScale::new(1.0), &SceneProperties::new());
 
     test_pt(100.0, 0.0, &cst, child1, root, 0.0, -100.0);
 }

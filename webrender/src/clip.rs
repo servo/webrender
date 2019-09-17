@@ -522,6 +522,7 @@ pub struct ClipStore {
 // A clip chain instance is what gets built for a given clip
 // chain id + local primitive region + positioning node.
 #[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct ClipChainInstance {
     pub clips_range: ClipNodeRange,
     // Combined clip rect for clips that are in the
@@ -1001,9 +1002,9 @@ impl ClipItemKeyKind {
         }
     }
 
-    pub fn image_mask(image_mask: &ImageMask) -> Self {
+    pub fn image_mask(image_mask: &ImageMask, mask_rect: LayoutRect) -> Self {
         ClipItemKeyKind::ImageMask(
-            image_mask.rect.into(),
+            mask_rect.into(),
             image_mask.image,
             image_mask.repeat,
         )

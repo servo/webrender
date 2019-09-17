@@ -37,7 +37,7 @@ lazy_static = "1"
 log = "0.4"
 malloc_size_of_derive = "0.1"
 num-traits = "0.2"
-plane-split = "0.14.1"
+plane-split = "0.15"
 png = { optional = true, version = "0.15" }
 rayon = "1"
 ron = { optional = true, version = "0.1.7" }
@@ -54,7 +54,7 @@ ws = { optional = true, version = "0.9" }
 svg_fmt = "0.4"
 
 [dev-dependencies]
-mozangle = "0.1"
+mozangle = "0.3.1"
 rand = "0.4"
 
 [target.'cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))'.dependencies]
