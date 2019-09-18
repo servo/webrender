@@ -14,7 +14,7 @@ use api::{ClipMode, PrimitiveKeyKind, TransformStyle, YuvColorSpace, ColorRange,
 use api::units::*;
 use crate::clip::{ClipChainId, ClipRegion, ClipItemKey, ClipStore, ClipItemKeyKind, ClipDataHandle, ClipNodeKind};
 use crate::clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, ClipScrollTree, SpatialNodeIndex};
-use crate::frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
+use crate::frame_builder::{ChasePrimitive, FrameBuilderConfig};
 use crate::glyph_rasterizer::FontInstance;
 use crate::hit_test::{HitTestingItem, HitTestingScene};
 use crate::image::simplify_repeated_primitive;
@@ -37,8 +37,8 @@ use crate::prim_store::picture::{Picture, PictureCompositeKey, PictureKey};
 use crate::prim_store::text_run::TextRun;
 use crate::render_backend::{DocumentView};
 use crate::resource_cache::{FontInstanceMap, ImageRequest};
-use crate::scene::{Scene, StackingContextHelpers};
-use crate::scene_builder::{DocumentStats, Interners};
+use crate::scene::{Scene, BuiltScene, SceneStats, StackingContextHelpers};
+use crate::scene_builder_thread::Interners;
 use crate::spatial_node::{StickyFrameInfo, ScrollFrameKind};
 use std::{f32, mem, usize, ops};
 use std::collections::vec_deque::VecDeque;
@@ -239,14 +239,11 @@ impl CompositeOps {
 }
 
 /// A structure that converts a serialized display list into a form that WebRender
-/// can use to later build a frame. This structure produces a FrameBuilder. Public
-/// members are typically those that are destructured into the FrameBuilder.
-pub struct DisplayListFlattener<'a> {
-    /// The scene that we are currently flattening.
+/// can use to later build a frame. This structure produces a BuiltScene. Public
+/// members are typically those that are destructured into the BuiltScene.
+pub struct SceneBuilder<'a> {
+    /// The scene that we are currently building.
     scene: &'a Scene,
-
-    /// The ClipScrollTree that we are currently building during flattening.
-    clip_scroll_tree: &'a mut ClipScrollTree,
 
     /// The map of all font instances.
     font_instances: FontInstanceMap,
@@ -255,7 +252,7 @@ pub struct DisplayListFlattener<'a> {
     /// output textures.
     output_pipelines: &'a FastHashSet<PipelineId>,
 
-    /// The data structure that converting between ClipId/SpatialId and the various
+    /// The data structure that converts between ClipId/SpatialId and the various
     /// index types that the ClipScrollTree uses.
     id_to_index_mapper: NodeIdToIndexMapper,
 
@@ -267,6 +264,9 @@ pub struct DisplayListFlattener<'a> {
 
     /// The stack keeping track of the root clip chains associated with pipelines.
     pipeline_clip_chain_stack: Vec<ClipChainId>,
+
+    /// The ClipScrollTree that we are currently building during building.
+    pub clip_scroll_tree: ClipScrollTree,
 
     /// The store of primitives.
     pub prim_store: PrimitiveStore,
@@ -284,7 +284,7 @@ pub struct DisplayListFlattener<'a> {
     /// Reference to the set of data that is interned across display lists.
     interners: &'a mut Interners,
 
-    /// The root picture index for this flattener. This is the picture
+    /// The root picture index for this builder. This is the picture
     /// to start the culling phase from.
     pub root_pic_index: PictureIndex,
 
@@ -295,22 +295,20 @@ pub struct DisplayListFlattener<'a> {
     external_scroll_mapper: ScrollOffsetMapper,
 
     /// If true, a stacking context with create_tile_cache set to true was found
-    /// during flattening.
+    /// during building.
     found_explicit_tile_cache: bool,
 }
 
-impl<'a> DisplayListFlattener<'a> {
-    pub fn create_frame_builder(
+impl<'a> SceneBuilder<'a> {
+    pub fn build(
         scene: &Scene,
-        clip_scroll_tree: &mut ClipScrollTree,
         font_instances: FontInstanceMap,
         view: &DocumentView,
         output_pipelines: &FastHashSet<PipelineId>,
         frame_builder_config: &FrameBuilderConfig,
-        new_scene: &mut Scene,
         interners: &mut Interners,
-        doc_stats: &DocumentStats,
-    ) -> FrameBuilder {
+        stats: &SceneStats,
+    ) -> BuiltScene {
         // We checked that the root pipeline is available on the render backend.
         let root_pipeline_id = scene.root_pipeline_id.unwrap();
         let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
@@ -319,18 +317,18 @@ impl<'a> DisplayListFlattener<'a> {
             .background_color
             .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
 
-        let mut flattener = DisplayListFlattener {
+        let mut builder = SceneBuilder {
             scene,
-            clip_scroll_tree,
+            clip_scroll_tree: ClipScrollTree::new(),
             font_instances,
             config: *frame_builder_config,
             output_pipelines,
             id_to_index_mapper: NodeIdToIndexMapper::default(),
-            hit_testing_scene: HitTestingScene::new(&doc_stats.hit_test_stats),
+            hit_testing_scene: HitTestingScene::new(&stats.hit_test_stats),
             pending_shadow_items: VecDeque::new(),
             sc_stack: Vec::new(),
             pipeline_clip_chain_stack: vec![ClipChainId::NONE],
-            prim_store: PrimitiveStore::new(&doc_stats.prim_store_stats),
+            prim_store: PrimitiveStore::new(&stats.prim_store_stats),
             clip_store: ClipStore::new(),
             interners,
             root_pic_index: PictureIndex(0),
@@ -341,7 +339,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         let device_pixel_scale = view.accumulated_scale_factor_for_snapping();
 
-        flattener.push_root(
+        builder.push_root(
             root_pipeline_id,
             &root_pipeline.viewport_size,
             &root_pipeline.content_size,
@@ -359,7 +357,7 @@ impl<'a> DisplayListFlattener<'a> {
         // Note that we don't do this for iframes, even if they're pipeline
         // roots, because they should be entirely contained within a stacking
         // context, and we probably wouldn't crash if they weren't.
-        flattener.push_stacking_context(
+        builder.push_stacking_context(
             root_pipeline.pipeline_id,
             CompositeOps::default(),
             TransformStyle::Flat,
@@ -372,25 +370,27 @@ impl<'a> DisplayListFlattener<'a> {
             device_pixel_scale,
         );
 
-        flattener.flatten_items(
+        builder.build_items(
             &mut root_pipeline.display_list.iter(),
             root_pipeline.pipeline_id,
             true,
         );
 
-        flattener.pop_stacking_context();
+        builder.pop_stacking_context();
 
-        debug_assert!(flattener.sc_stack.is_empty());
+        debug_assert!(builder.sc_stack.is_empty());
 
-        new_scene.root_pipeline_id = Some(root_pipeline_id);
-        new_scene.pipeline_epochs = scene.pipeline_epochs.clone();
-        new_scene.pipelines = scene.pipelines.clone();
-
-        FrameBuilder::with_display_list_flattener(
-            view.device_rect.size.into(),
+        BuiltScene {
+            src: scene.clone(),
+            output_rect: view.device_rect.size.into(),
             background_color,
-            flattener,
-        )
+            hit_testing_scene: Arc::new(builder.hit_testing_scene),
+            clip_scroll_tree: builder.clip_scroll_tree,
+            prim_store: builder.prim_store,
+            clip_store: builder.clip_store,
+            root_pic_index: builder.root_pic_index,
+            config: builder.config,
+        }
     }
 
     /// Retrieve the current offset to allow converting a stacking context
@@ -762,7 +762,7 @@ impl<'a> DisplayListFlattener<'a> {
         );
     }
 
-    fn flatten_items(
+    fn build_items(
         &mut self,
         traversal: &mut BuiltDisplayListIter<'a>,
         pipeline_id: PipelineId,
@@ -781,14 +781,14 @@ impl<'a> DisplayListFlattener<'a> {
                     _ => (),
                 }
 
-                self.flatten_item(
+                self.build_item(
                     item,
                     pipeline_id,
                     apply_pipeline_clip,
                 )
             };
 
-            // If flatten_item created a sub-traversal, we need `traversal` to have the
+            // If build_item created a sub-traversal, we need `traversal` to have the
             // same state as the completed subtraversal, so we reinitialize it here.
             if let Some(mut subtraversal) = subtraversal {
                 subtraversal.merge_debug_stats_from(traversal);
@@ -813,7 +813,7 @@ impl<'a> DisplayListFlattener<'a> {
         }
     }
 
-    fn flatten_sticky_frame(
+    fn build_sticky_frame(
         &mut self,
         info: &StickyFrameDisplayItem,
         parent_node_index: SpatialNodeIndex,
@@ -836,7 +836,7 @@ impl<'a> DisplayListFlattener<'a> {
         self.id_to_index_mapper.map_spatial_node(info.id, index);
     }
 
-    fn flatten_scroll_frame(
+    fn build_scroll_frame(
         &mut self,
         item: &DisplayItemRef,
         info: &ScrollFrameDisplayItem,
@@ -872,7 +872,7 @@ impl<'a> DisplayListFlattener<'a> {
         );
     }
 
-    fn flatten_reference_frame(
+    fn build_reference_frame(
         &mut self,
         traversal: &mut BuiltDisplayListIter<'a>,
         pipeline_id: PipelineId,
@@ -893,7 +893,7 @@ impl<'a> DisplayListFlattener<'a> {
         );
 
         self.rf_mapper.push_scope();
-        self.flatten_items(
+        self.build_items(
             traversal,
             pipeline_id,
             apply_pipeline_clip,
@@ -902,7 +902,7 @@ impl<'a> DisplayListFlattener<'a> {
     }
 
 
-    fn flatten_stacking_context(
+    fn build_stacking_context(
         &mut self,
         traversal: &mut BuiltDisplayListIter<'a>,
         pipeline_id: PipelineId,
@@ -968,7 +968,7 @@ impl<'a> DisplayListFlattener<'a> {
         }
 
         self.rf_mapper.push_offset(origin.to_vector());
-        self.flatten_items(
+        self.build_items(
             traversal,
             pipeline_id,
             apply_pipeline_clip && clip_chain_id == ClipChainId::NONE,
@@ -978,7 +978,7 @@ impl<'a> DisplayListFlattener<'a> {
         self.pop_stacking_context();
     }
 
-    fn flatten_iframe(
+    fn build_iframe(
         &mut self,
         info: &IframeDisplayItem,
         spatial_node_index: SpatialNodeIndex,
@@ -1006,7 +1006,7 @@ impl<'a> DisplayListFlattener<'a> {
         let snap_to_device = &mut self.sc_stack.last_mut().unwrap().snap_to_device;
         snap_to_device.set_target_spatial_node(
             spatial_node_index,
-            self.clip_scroll_tree,
+            &self.clip_scroll_tree,
         );
 
         let bounds = snap_to_device.snap_rect(
@@ -1039,7 +1039,7 @@ impl<'a> DisplayListFlattener<'a> {
         );
 
         self.rf_mapper.push_scope();
-        self.flatten_items(
+        self.build_items(
             &mut pipeline.display_list.iter(),
             pipeline.pipeline_id,
             true,
@@ -1101,7 +1101,7 @@ impl<'a> DisplayListFlattener<'a> {
         let snap_to_device = &mut self.sc_stack.last_mut().unwrap().snap_to_device;
         snap_to_device.set_target_spatial_node(
             clip_and_scroll.spatial_node_index,
-            self.clip_scroll_tree
+            &self.clip_scroll_tree
         );
 
         let clip_rect = common.clip_rect.translate(current_offset);
@@ -1125,12 +1125,12 @@ impl<'a> DisplayListFlattener<'a> {
         let snap_to_device = &mut self.sc_stack.last_mut().unwrap().snap_to_device;
         snap_to_device.set_target_spatial_node(
             target_spatial_node,
-            self.clip_scroll_tree
+            &self.clip_scroll_tree
         );
         snap_to_device.snap_rect(rect)
     }
 
-    fn flatten_item<'b>(
+    fn build_item<'b>(
         &'b mut self,
         item: DisplayItemRef<'a, 'b>,
         pipeline_id: PipelineId,
@@ -1364,7 +1364,7 @@ impl<'a> DisplayListFlattener<'a> {
             DisplayItem::PushStackingContext(ref info) => {
                 let space = self.get_space(&info.spatial_id);
                 let mut subtraversal = item.sub_iter();
-                self.flatten_stacking_context(
+                self.build_stacking_context(
                     &mut subtraversal,
                     pipeline_id,
                     &info.stacking_context,
@@ -1381,7 +1381,7 @@ impl<'a> DisplayListFlattener<'a> {
             DisplayItem::PushReferenceFrame(ref info) => {
                 let parent_space = self.get_space(&info.parent_spatial_id);
                 let mut subtraversal = item.sub_iter();
-                self.flatten_reference_frame(
+                self.build_reference_frame(
                     &mut subtraversal,
                     pipeline_id,
                     parent_space,
@@ -1393,7 +1393,7 @@ impl<'a> DisplayListFlattener<'a> {
             }
             DisplayItem::Iframe(ref info) => {
                 let space = self.get_space(&info.space_and_clip.spatial_id);
-                self.flatten_iframe(
+                self.build_iframe(
                     info,
                     space,
                 );
@@ -1478,7 +1478,7 @@ impl<'a> DisplayListFlattener<'a> {
             },
             DisplayItem::ScrollFrame(ref info) => {
                 let parent_space = self.get_space(&info.parent_space_and_clip.spatial_id);
-                self.flatten_scroll_frame(
+                self.build_scroll_frame(
                     &item,
                     info,
                     parent_space,
@@ -1487,7 +1487,7 @@ impl<'a> DisplayListFlattener<'a> {
             }
             DisplayItem::StickyFrame(ref info) => {
                 let parent_space = self.get_space(&info.parent_spatial_id);
-                self.flatten_sticky_frame(
+                self.build_sticky_frame(
                     info,
                     parent_space,
                 );
@@ -2340,7 +2340,7 @@ impl<'a> DisplayListFlattener<'a> {
             spatial_node_index,
             ROOT_SPATIAL_NODE_INDEX,
             device_pixel_scale,
-            self.clip_scroll_tree,
+            &self.clip_scroll_tree,
         );
 
         let content_size = snap_to_device.snap_size(content_size);
@@ -2381,7 +2381,7 @@ impl<'a> DisplayListFlattener<'a> {
         let snap_to_device = &mut self.sc_stack.last_mut().unwrap().snap_to_device;
         snap_to_device.set_target_spatial_node(
             spatial_node_index,
-            self.clip_scroll_tree,
+            &self.clip_scroll_tree,
         );
 
         let snapped_clip_rect = snap_to_device.snap_rect(&clip_region.main);
@@ -2713,7 +2713,7 @@ impl<'a> DisplayListFlattener<'a> {
         let snap_to_device = &mut self.sc_stack.last_mut().unwrap().snap_to_device;
         snap_to_device.set_target_spatial_node(
             pending_primitive.clip_and_scroll.spatial_node_index,
-            self.clip_scroll_tree
+            &self.clip_scroll_tree,
         );
 
         // Offset the local rect and clip rect by the shadow offset. The pending
