@@ -37,7 +37,7 @@ use smallvec::SmallVec;
 use std::{mem, u8, marker};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::texture_cache::TextureCacheHandle;
-use crate::util::{TransformedRectKind, MatrixHelpers, MaxRect, scale_factors, VecHelper, subtract_rect};
+use crate::util::{TransformedRectKind, MatrixHelpers, MaxRect, scale_factors, VecHelper};
 use crate::filterdata::{FilterDataHandle};
 
 /*
@@ -379,6 +379,7 @@ pub enum TileSurface {
     Color {
         color: ColorF,
     },
+    Clear,
 }
 
 impl TileSurface {
@@ -386,6 +387,7 @@ impl TileSurface {
         match *self {
             TileSurface::Color { .. } => "Color",
             TileSurface::Texture { .. } => "Texture",
+            TileSurface::Clear => "Clear",
         }
     }
 }
@@ -424,7 +426,7 @@ pub struct Tile {
     /// The world space dirty rect for this tile.
     /// TODO(gw): We have multiple dirty rects available due to the quadtree above. In future,
     ///           expose these as multiple dirty rects, which will help in some cases.
-    world_dirty_rect: WorldRect,
+    pub world_dirty_rect: WorldRect,
     /// The last rendered background color on this tile.
     background_color: Option<ColorF>,
 }
@@ -655,15 +657,22 @@ impl Tile {
 
         // See if this tile is a simple color, in which case we can just draw
         // it as a rect, and avoid allocating a texture surface and drawing it.
-        let is_solid_color = self.current_descriptor.prims.len() == 1 && self.is_opaque;
+        let is_simple_prim = self.current_descriptor.prims.len() == 1 && self.is_opaque;
 
         // Set up the backing surface for this tile.
-        let mut surface = if is_solid_color {
+        let mut surface = if is_simple_prim {
             // If we determine the tile can be represented by a color, set the
             // surface unconditionally (this will drop any previously used
             // texture cache backing surface).
-            TileSurface::Color {
-                color: ctx.backdrop.color,
+            match ctx.backdrop.kind {
+                BackdropKind::Color { color } => {
+                    TileSurface::Color {
+                        color,
+                    }
+                }
+                BackdropKind::Clear => {
+                    TileSurface::Clear
+                }
             }
         } else {
             // If this tile will be backed by a surface, we want to retain
@@ -674,7 +683,7 @@ impl Tile {
                 Some(old_surface @ TileSurface::Texture { .. }) => {
                     old_surface
                 }
-                Some(TileSurface::Color { .. }) | None => {
+                Some(TileSurface::Color { .. }) | Some(TileSurface::Clear) | None => {
                     TileSurface::Texture {
                         handle: TextureCacheHandle::invalid(),
                         visibility_mask: PrimitiveVisibilityMask::empty(),
@@ -1067,6 +1076,14 @@ impl ::std::fmt::Debug for RecordedDirtyRegion {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+enum BackdropKind {
+    Color {
+        color: ColorF,
+    },
+    Clear,
+}
+
 /// Stores information about the calculated opaque backdrop of this slice.
 #[derive(Debug, Copy, Clone)]
 struct BackdropInfo {
@@ -1074,15 +1091,17 @@ struct BackdropInfo {
     /// to determine where subpixel AA can be used, and where alpha blending
     /// can be disabled.
     rect: PictureRect,
-    /// Color of the backdrop.
-    color: ColorF,
+    /// Kind of the backdrop
+    kind: BackdropKind,
 }
 
 impl BackdropInfo {
     fn empty() -> Self {
         BackdropInfo {
             rect: PictureRect::zero(),
-            color: ColorF::BLACK,
+            kind: BackdropKind::Color {
+                color: ColorF::BLACK,
+            },
         }
     }
 }
@@ -1619,7 +1638,9 @@ impl TileCacheInstance {
                             if clip_chain.pic_clip_rect.contains_rect(&self.backdrop.rect) {
                                 self.backdrop = BackdropInfo {
                                     rect: clip_chain.pic_clip_rect,
-                                    color,
+                                    kind: BackdropKind::Color {
+                                        color,
+                                    },
                                 };
                             }
                         }
@@ -1685,8 +1706,15 @@ impl TileCacheInstance {
                     }
                 }
             }
+            PrimitiveInstanceKind::Clear { .. } => {
+                if let Some(ref clip_chain) = prim_clip_chain {
+                    self.backdrop = BackdropInfo {
+                        rect: clip_chain.pic_clip_rect,
+                        kind: BackdropKind::Clear,
+                    };
+                }
+            }
             PrimitiveInstanceKind::LineDecoration { .. } |
-            PrimitiveInstanceKind::Clear { .. } |
             PrimitiveInstanceKind::NormalBorder { .. } |
             PrimitiveInstanceKind::LinearGradient { .. } |
             PrimitiveInstanceKind::RadialGradient { .. } |
@@ -1725,10 +1753,8 @@ impl TileCacheInstance {
     /// set of tile blits.
     pub fn post_update(
         &mut self,
-        resource_cache: &mut ResourceCache,
-        gpu_cache: &mut GpuCache,
         frame_context: &FrameVisibilityContext,
-        scratch: &mut PrimitiveScratchBuffer,
+        frame_state: &mut FrameVisibilityState,
     ) {
         self.tiles_to_draw.clear();
         self.dirty_region.clear();
@@ -1746,6 +1772,7 @@ impl TileCacheInstance {
         let root_transform_changed = root_transform != self.root_transform;
         if root_transform_changed {
             self.root_transform = root_transform;
+            frame_state.composite_state.dirty_rects_are_valid = false;
         }
 
         // Diff the state of the spatial nodes between last frame build and now.
@@ -1800,9 +1827,9 @@ impl TileCacheInstance {
         };
 
         let mut state = TilePostUpdateState {
-            resource_cache,
-            gpu_cache,
-            scratch,
+            resource_cache: frame_state.resource_cache,
+            gpu_cache: frame_state.gpu_cache,
+            scratch: frame_state.scratch,
             dirty_region: &mut self.dirty_region,
         };
 
@@ -1812,57 +1839,14 @@ impl TileCacheInstance {
                 &ctx,
                 &mut state,
             ) {
-                // If we have dirty tiles and a scroll didn't occur (e.g. video
-                // playback or animation) we can produce a valid dirty rect for
-                // Gecko to use as partial present.
-                if !root_transform_changed && !tile.dirty_rect.is_empty() {
-                    state.scratch.dirty_rects.push(
-                        (tile.world_dirty_rect * frame_context.global_device_pixel_scale).to_i32()
-                    );
-                }
-
                 self.tiles_to_draw.push(*key);
-            }
-        }
-
-        // If the cache was scrolled / scaled, just push a full-screen dirty rect
-        // for now, to ensure correctness. This won't be required once we fully
-        // support OS compositors, where we can pass the transform of the cache slice.
-        if root_transform_changed {
-            scratch.dirty_rects.push(
-                (frame_context.global_screen_world_rect * frame_context.global_device_pixel_scale).to_i32()
-            );
-        } else {
-            // TODO(gw): This is a total hack! While experimenting with dirty rects and
-            //           partial present, we need to include a dirty rect for the area
-            //           of the screen that is _not_ picture cached. Since we know there
-            //           is only a single picture cache right now, we can derive this
-            //           area by subtracting the picture cache rect from the screen rect.
-            //           This only works reliably while we can assume that (a) there is
-            //           only a single picture cache slice and (b) it's opaque. In future,
-            //           once we enable multiple picture cache slices, we won't need to
-            //           do this at all, since all content will be in a cache slice that
-            //           can provide valid dirty rects.
-            let world_clip_rect = ctx.pic_to_world_mapper
-                .map(&self.local_clip_rect)
-                .expect("bug - unable to map picture clip rect to world");
-            let mut non_cached_rects = Vec::new();
-            subtract_rect(
-                &ctx.global_screen_world_rect,
-                &world_clip_rect,
-                &mut non_cached_rects,
-            );
-            for rect in non_cached_rects {
-                scratch.dirty_rects.push(
-                    (rect * frame_context.global_device_pixel_scale).to_i32()
-                );
             }
         }
 
         // When under test, record a copy of the dirty region to support
         // invalidation testing in wrench.
         if frame_context.config.testing {
-            scratch.recorded_dirty_regions.push(self.dirty_region.record());
+            frame_state.scratch.recorded_dirty_regions.push(self.dirty_region.record());
         }
     }
 }
@@ -2287,6 +2271,8 @@ bitflags! {
         const CREATE_PICTURE_CACHE_POST = 32;
         /// If set, this cluster represents a scroll bar container.
         const SCROLLBAR_CONTAINER = 64;
+        /// If set, this cluster contains clear rectangle primitives.
+        const IS_CLEAR_PRIMITIVE = 128;
     }
 }
 
@@ -2399,6 +2385,9 @@ impl PrimitiveList {
             }
             PrimitiveInstanceKind::Backdrop { .. } => {
                 flags.insert(ClusterFlags::IS_BACKDROP_FILTER);
+            }
+            PrimitiveInstanceKind::Clear { .. } => {
+                flags.insert(ClusterFlags::IS_CLEAR_PRIMITIVE);
             }
             _ => {}
         }
