@@ -5,7 +5,7 @@
 use api::{BuiltDisplayList, ColorF, DynamicProperties, Epoch, FontRenderMode};
 use api::{PipelineId, PropertyBinding, PropertyBindingId, MixBlendMode, StackingContext};
 use api::units::*;
-use crate::composite::CompositeMode;
+use crate::composite::CompositorKind;
 use crate::clip::{ClipStore, ClipDataStore};
 use crate::clip_scroll_tree::ClipScrollTree;
 use crate::frame_builder::{ChasePrimitive, FrameBuilderConfig};
@@ -227,6 +227,7 @@ pub struct BuiltScene {
     pub config: FrameBuilderConfig,
     pub clip_scroll_tree: ClipScrollTree,
     pub hit_testing_scene: Arc<HitTestingScene>,
+    pub content_slice_count: usize,
 }
 
 impl BuiltScene {
@@ -240,6 +241,7 @@ impl BuiltScene {
             clip_store: ClipStore::new(),
             clip_scroll_tree: ClipScrollTree::new(),
             hit_testing_scene: Arc::new(HitTestingScene::new(&HitTestingSceneStats::empty())),
+            content_slice_count: 0,
             config: FrameBuilderConfig {
                 default_font_render_mode: FontRenderMode::Mono,
                 dual_source_blending_is_enabled: true,
@@ -252,7 +254,7 @@ impl BuiltScene {
                 advanced_blend_is_coherent: false,
                 batch_lookback_count: 0,
                 background_color: None,
-                composite_mode: CompositeMode::Draw,
+                compositor_kind: CompositorKind::default(),
             },
         }
     }

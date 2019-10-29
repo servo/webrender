@@ -8,7 +8,7 @@ use api::units::*;
 use crate::batch::{BatchBuilder, AlphaBatchBuilder, AlphaBatchContainer};
 use crate::clip::{ClipStore, ClipChainStack};
 use crate::clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
-use crate::composite::{CompositeMode, CompositeState};
+use crate::composite::{CompositorKind, CompositeState};
 use crate::debug_render::DebugItem;
 use crate::gpu_cache::{GpuCache, GpuCacheHandle};
 use crate::gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind, ZBufferIdGenerator};
@@ -18,7 +18,7 @@ use crate::picture::{PictureUpdateState, SurfaceInfo, ROOT_SURFACE_INDEX, Surfac
 use crate::picture::{RetainedTiles, TileCacheInstance, DirtyRegion, SurfaceRenderTasks, SubpixelMode};
 use crate::prim_store::{SpaceMapper, PictureIndex, PrimitiveDebugId, PrimitiveScratchBuffer};
 use crate::prim_store::{DeferredResolve, PrimitiveVisibilityMask};
-use crate::profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
+use crate::profiler::{FrameProfileCounters, TextureCacheProfileCounters, ResourceProfileCounters};
 use crate::render_backend::{DataStores, FrameStamp, FrameId};
 use crate::render_target::{RenderTarget, PictureCacheTarget, TextureCacheRenderTarget};
 use crate::render_target::{RenderTargetContext, RenderTargetKind};
@@ -64,7 +64,7 @@ pub struct FrameBuilderConfig {
     pub advanced_blend_is_coherent: bool,
     pub batch_lookback_count: usize,
     pub background_color: Option<ColorF>,
-    pub composite_mode: CompositeMode,
+    pub compositor_kind: CompositorKind,
 }
 
 /// A set of common / global resources that are retained between
@@ -443,8 +443,7 @@ impl FrameBuilder {
         layer: DocumentLayer,
         device_origin: DeviceIntPoint,
         pan: WorldPoint,
-        texture_cache_profile: &mut TextureCacheProfileCounters,
-        gpu_cache_profile: &mut GpuCacheProfileCounters,
+        resource_profile: &mut ResourceProfileCounters,
         scene_properties: &SceneProperties,
         data_stores: &mut DataStores,
         scratch: &mut PrimitiveScratchBuffer,
@@ -458,7 +457,7 @@ impl FrameBuilder {
         profile_counters
             .total_primitives
             .set(scene.prim_store.prim_count());
-
+        resource_profile.content_slices.set(scene.content_slice_count);
         resource_cache.begin_frame(stamp);
         gpu_cache.begin_frame(stamp);
 
@@ -480,7 +479,7 @@ impl FrameBuilder {
 
         let output_size = scene.output_rect.size.to_i32();
         let screen_world_rect = (scene.output_rect.to_f32() / global_device_pixel_scale).round_out();
-        let mut composite_state = CompositeState::new(scene.config.composite_mode);
+        let mut composite_state = CompositeState::new(scene.config.compositor_kind);
 
         let main_render_task_id = self.build_layer_screen_rects_and_cull_layers(
             scene,
@@ -496,7 +495,7 @@ impl FrameBuilder {
             &mut surfaces,
             scratch,
             debug_flags,
-            texture_cache_profile,
+            &mut resource_profile.texture_cache,
             &mut composite_state,
         );
 
@@ -563,11 +562,11 @@ impl FrameBuilder {
             }
         }
 
-        let gpu_cache_frame_id = gpu_cache.end_frame(gpu_cache_profile).frame_id();
+        let gpu_cache_frame_id = gpu_cache.end_frame(&mut resource_profile.gpu_cache).frame_id();
 
         render_tasks.write_task_data();
         *render_task_counters = render_tasks.counters();
-        resource_cache.end_frame(texture_cache_profile);
+        resource_cache.end_frame(&mut resource_profile.texture_cache);
 
         Frame {
             content_origin: scene.output_rect.origin,
@@ -851,9 +850,9 @@ pub fn build_render_pass(
                             let scissor_rect  = match render_tasks[task_id].kind {
                                 RenderTaskKind::Picture(ref info) => info.scissor_rect,
                                 _ => unreachable!(),
-                            };
+                            }.expect("bug: dirty rect must be set for picture cache tasks");
                             let mut batch_containers = Vec::new();
-                            let mut alpha_batch_container = AlphaBatchContainer::new(scissor_rect);
+                            let mut alpha_batch_container = AlphaBatchContainer::new(Some(scissor_rect));
                             batcher.build(
                                 &mut batch_containers,
                                 &mut alpha_batch_container,
@@ -866,6 +865,7 @@ pub fn build_render_pass(
                                 surface: surface.clone(),
                                 clear_color,
                                 alpha_batch_container,
+                                dirty_rect: scissor_rect,
                             };
 
                             picture_cache.push(target);

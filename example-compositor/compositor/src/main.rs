@@ -12,6 +12,7 @@
 
  */
 
+use euclid::Angle;
 use gleam::gl;
 use std::ffi::CString;
 use std::sync::mpsc;
@@ -55,13 +56,21 @@ impl webrender::Compositor for DirectCompositeInterface {
     fn bind(
         &mut self,
         id: webrender::NativeSurfaceId,
-    ) -> DeviceIntPoint {
+        dirty_rect: DeviceIntRect,
+    ) -> webrender::NativeSurfaceInfo {
         let (x, y) = compositor::bind_surface(
             self.window,
             id.0,
+            dirty_rect.origin.x,
+            dirty_rect.origin.y,
+            dirty_rect.size.width,
+            dirty_rect.size.height,
         );
 
-        DeviceIntPoint::new(x, y)
+        webrender::NativeSurfaceInfo {
+            origin: DeviceIntPoint::new(x, y),
+            fbo_id: 0,
+        }
     }
 
     fn unbind(&mut self) {
@@ -143,16 +152,21 @@ fn main() {
         enable_compositor,
     );
     let debug_flags = DebugFlags::empty();
-    let native_compositor: Option<Box<dyn webrender::Compositor>> = if enable_compositor {
-        Some(Box::new(DirectCompositeInterface::new(window)))
+    let compositor_config = if enable_compositor {
+        webrender::CompositorConfig::Native {
+            max_update_rects: 1,
+            compositor: Box::new(DirectCompositeInterface::new(window)),
+        }
     } else {
-        None
+        webrender::CompositorConfig::Draw {
+            max_partial_present_rects: 0,
+        }
     };
     let opts = webrender::RendererOptions {
         clear_color: Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
         debug_flags,
         enable_picture_caching: true,
-        native_compositor,
+        compositor_config,
         ..webrender::RendererOptions::default()
     };
     let (tx, rx) = mpsc::channel();
@@ -184,6 +198,7 @@ fn main() {
     txn.set_root_pipeline(root_pipeline_id);
     txn.generate_frame();
     api.send_transaction(document_id, txn);
+    let mut rotation_angle = 0.0;
 
     // Tick the compositor (in this sample, we don't block on UI events)
     while compositor::tick(window) {
@@ -209,6 +224,33 @@ fn main() {
                     },
                 ),
                 ColorF::new(0.3, 0.3, 0.3, 1.0),
+            );
+            let rotation = LayoutTransform::create_rotation(0.0, 0.0, 1.0, Angle::degrees(rotation_angle));
+            rotation_angle += 1.0;
+            if rotation_angle > 360.0 {
+                rotation_angle = 0.0;
+            }
+            let transform_origin = LayoutVector3D::new(400.0, 400.0, 0.0);
+            let transform = rotation.pre_translate(-transform_origin).post_translate(transform_origin);
+            let spatial_id = root_builder.push_reference_frame(
+                LayoutPoint::zero(),
+                SpatialId::root_scroll_node(root_pipeline_id),
+                TransformStyle::Flat,
+                PropertyBinding::Value(transform),
+                ReferenceFrameKind::Transform,
+            );
+            root_builder.push_rect(
+                &CommonItemProperties::new(
+                    LayoutRect::new(
+                        LayoutPoint::new(300.0, 300.0),
+                        LayoutSize::new(200.0, 200.0),
+                    ),
+                    SpaceAndClipInfo {
+                        spatial_id,
+                        clip_id: ClipId::root(root_pipeline_id),
+                    },
+                ),
+                ColorF::new(1.0, 0.0, 0.0, 1.0),
             );
             txn.set_display_list(
                 current_epoch,
