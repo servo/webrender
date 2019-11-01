@@ -66,7 +66,7 @@ use api::units::*;
 use crate::box_shadow::{BLUR_SAMPLE_SCALE};
 use crate::clip::{ClipStore, ClipChainInstance, ClipDataHandle, ClipChainId};
 use crate::clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX,
-    ClipScrollTree, CoordinateSpaceMapping, SpatialNodeIndex, VisibleFace, CoordinateSystemId
+    ClipScrollTree, CoordinateSpaceMapping, SpatialNodeIndex, VisibleFace
 };
 use crate::composite::{CompositorKind, CompositeState, NativeSurfaceId};
 use crate::debug_colors;
@@ -1949,6 +1949,7 @@ pub struct PictureUpdateState<'a> {
     surface_stack: Vec<SurfaceIndex>,
     picture_stack: Vec<PictureInfo>,
     are_raster_roots_assigned: bool,
+    composite_state: &'a CompositeState,
 }
 
 impl<'a> PictureUpdateState<'a> {
@@ -1960,6 +1961,7 @@ impl<'a> PictureUpdateState<'a> {
         gpu_cache: &mut GpuCache,
         clip_store: &ClipStore,
         data_stores: &mut DataStores,
+        composite_state: &CompositeState,
     ) {
         profile_marker!("UpdatePictures");
 
@@ -1968,6 +1970,7 @@ impl<'a> PictureUpdateState<'a> {
             surface_stack: vec![SurfaceIndex(0)],
             picture_stack: Vec::new(),
             are_raster_roots_assigned: true,
+            composite_state,
         };
 
         state.update(
@@ -3656,13 +3659,9 @@ impl PicturePrimitive {
         let actual_composite_mode = match self.requested_composite_mode {
             Some(PictureCompositeMode::Filter(ref filter)) if filter.is_noop() => None,
             Some(PictureCompositeMode::TileCache { .. }) => {
-                // Disable tile cache if the scroll root has a perspective transform, since
-                // this breaks many assumptions (it's a very rare edge case anyway, and
-                // is probably (?) going to be moving / animated in this case).
-                let spatial_node = &frame_context
-                    .clip_scroll_tree
-                    .spatial_nodes[self.spatial_node_index.0 as usize];
-                if spatial_node.coordinate_system_id == CoordinateSystemId::root() {
+                // Only allow picture caching composite mode if global picture caching setting
+                // is enabled this frame.
+                if state.composite_state.picture_caching_is_enabled {
                     Some(PictureCompositeMode::TileCache { })
                 } else {
                     None
