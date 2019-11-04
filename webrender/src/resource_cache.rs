@@ -21,7 +21,7 @@ use crate::device::TextureFilter;
 use euclid::{point2, size2};
 use crate::glyph_cache::GlyphCache;
 use crate::glyph_cache::GlyphCacheEntry;
-use crate::glyph_rasterizer::{BaseFontInstance, FontInstance, GlyphFormat, GlyphKey, GlyphRasterizer};
+use crate::glyph_rasterizer::{GLYPH_FLASHING, BaseFontInstance, FontInstance, GlyphFormat, GlyphKey, GlyphRasterizer};
 use crate::gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use crate::gpu_types::UvRectKind;
 use crate::image::{compute_tile_size, compute_tile_rect, compute_tile_range, for_each_tile_in_range};
@@ -1856,6 +1856,7 @@ impl ResourceCache {
     }
 
     pub fn set_debug_flags(&mut self, flags: DebugFlags) {
+        GLYPH_FLASHING.store(flags.contains(DebugFlags::GLYPH_FLASHING), std::sync::atomic::Ordering::Relaxed);
         self.texture_cache.set_debug_flags(flags);
     }
 
@@ -1957,11 +1958,18 @@ impl ResourceCache {
             self.delete_image_template(key);
         }
 
-        let blob_f = |key: &BlobImageKey| { f(&key.as_image()) };
-        debug_assert!(!self.resources.image_templates.images.keys().any(&f));
-        debug_assert!(!self.cached_images.resources.keys().any(&f));
-        debug_assert!(!self.blob_image_templates.keys().any(&blob_f));
-        debug_assert!(!self.rasterized_blob_images.keys().any(&blob_f));
+        #[cfg(features="leak_checks")]
+        let check_leaks = true;
+        #[cfg(not(features="leak_checks"))]
+        let check_leaks = false;
+
+        if check_leaks {
+            let blob_f = |key: &BlobImageKey| { f(&key.as_image()) };
+            assert!(!self.resources.image_templates.images.keys().any(&f));
+            assert!(!self.cached_images.resources.keys().any(&f));
+            assert!(!self.blob_image_templates.keys().any(&blob_f));
+            assert!(!self.rasterized_blob_images.keys().any(&blob_f));
+        }
     }
 }
 
