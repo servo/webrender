@@ -315,14 +315,14 @@ impl DebugRenderer {
         device: &mut Device,
         viewport_size: Option<DeviceIntSize>,
         scale: f32,
+        surface_origin_is_top_left: bool,
     ) {
         if let Some(viewport_size) = viewport_size {
             device.disable_depth();
             device.set_blend(true);
             device.set_blend_mode_premultiplied_alpha();
 
-            let surface_is_y_flipped = device.surface_is_y_flipped();
-            let (bottom, top) = if surface_is_y_flipped {
+            let (bottom, top) = if surface_origin_is_top_left {
                 (0.0, viewport_size.height as f32 * scale)
             } else {
                 (viewport_size.height as f32 * scale, 0.0)
