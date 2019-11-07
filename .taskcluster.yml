@@ -70,8 +70,9 @@ tasks:
               - '--login'
               - '-c'
               - >-
-                curl https://sh.rustup.rs -sSf | sh -s -- -y &&
+                curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain none &&
                 source $HOME/.cargo/env &&
+                rustup toolchain install 1.38.0 &&
                 git clone ${repo_url} webrender && cd webrender &&
                 git checkout ${sha} &&
                 servo-tidy &&
@@ -97,8 +98,9 @@ tasks:
               - '--login'
               - '-c'
               - >-
-                curl https://sh.rustup.rs -sSf | sh -s -- -y &&
+                curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain none &&
                 source $HOME/.cargo/env &&
+                rustup toolchain install 1.38.0 &&
                 git clone ${repo_url} webrender && cd webrender &&
                 git checkout ${sha} &&
                 servo-tidy &&
