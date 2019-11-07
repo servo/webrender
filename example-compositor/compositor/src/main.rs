@@ -21,6 +21,73 @@ use webrender::api::units::*;
 #[cfg(target_os = "windows")]
 use compositor_windows as compositor;
 
+#[cfg(not(target_os = "windows"))]
+mod compositor {
+    use std::os::raw::{c_void, c_char};
+
+    pub struct Window;
+
+    pub fn create_surface(
+        _window: *mut Window,
+        _id: u64,
+        _width: i32,
+        _height: i32,
+        _is_opaque: bool,
+    ) {
+    }
+
+    pub fn destroy_surface(
+        _window: *mut Window,
+        _id: u64,
+    ) {
+    }
+
+    pub fn bind_surface(
+        _window: *mut Window,
+        _id: u64,
+        _dirty_x0: i32,
+        _dirty_y0: i32,
+        _dirty_width: i32,
+        _dirty_height: i32,
+    ) -> (i32, i32) {
+        unimplemented!()
+    }
+
+    pub fn add_surface(
+        _window: *mut Window,
+        _id: u64,
+        _x: i32,
+        _y: i32,
+        _clip_x: i32,
+        _clip_y: i32,
+        _clip_w: i32,
+        _clip_h: i32,
+    ) {
+    }
+
+    pub fn begin_transaction(_window: *mut Window) {}
+
+    pub fn unbind_surface(_window: *mut Window) {}
+
+    pub fn end_transaction(_window: *mut Window) {}
+
+    pub fn swap_buffers(_window: *mut Window) {}
+
+    pub fn create_window(_width: i32, _height: i32, _enable_compositor: bool) -> *mut Window {
+        unimplemented!()
+    }
+
+    pub fn get_proc_address(_name: *const c_char) -> *const c_void {
+        unimplemented!()
+    }
+
+    pub fn tick(_window: *mut Window) -> bool {
+        unimplemented!()
+    }
+
+    pub fn destroy_window(_window: *mut Window) {}
+}
+
 // A very hacky integration with DirectComposite. It proxies calls from the compositor
 // interface to a simple C99 library which does the DirectComposition / D3D11 / ANGLE
 // interfacing. This is a very unsafe impl due to the way the window pointer is passed
