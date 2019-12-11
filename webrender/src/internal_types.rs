@@ -6,6 +6,7 @@ use api::{ColorF, DebugCommand, DocumentId, ExternalImageData, ExternalImageId, 
 use api::{ImageFormat, ItemTag, NotificationRequest, Shadow, FilterOp, MAX_BLUR_RADIUS};
 use api::units::*;
 use api;
+use crate::composite::NativeSurfaceOperation;
 use crate::device::TextureFilter;
 use crate::renderer::PipelineInfo;
 use crate::gpu_cache::GpuCacheUpdateList;
@@ -362,7 +363,7 @@ pub struct TextureUpdateList {
     /// Commands to alloc/realloc/free the textures. Processed first.
     pub allocations: Vec<TextureCacheAllocation>,
     /// Commands to update the contents of the textures. Processed second.
-    pub updates: Vec<TextureCacheUpdate>,
+    pub updates: FastHashMap<CacheTextureId, Vec<TextureCacheUpdate>>,
 }
 
 impl TextureUpdateList {
@@ -371,8 +372,13 @@ impl TextureUpdateList {
         TextureUpdateList {
             clears_shared_cache: false,
             allocations: Vec::new(),
-            updates: Vec::new(),
+            updates: FastHashMap::default(),
         }
+    }
+
+    /// Returns true if this is a no-op (no updates to be applied).
+    pub fn is_nop(&self) -> bool {
+        self.allocations.is_empty() && self.updates.is_empty()
     }
 
     /// Sets the clears_shared_cache flag for renderer-side sanity checks.
@@ -384,7 +390,10 @@ impl TextureUpdateList {
     /// Pushes an update operation onto the list.
     #[inline]
     pub fn push_update(&mut self, update: TextureCacheUpdate) {
-        self.updates.push(update);
+        self.updates
+            .entry(update.id)
+            .or_default()
+            .push(update);
     }
 
     /// Sends a command to the Renderer to clear the portion of the shared region
@@ -474,7 +483,7 @@ impl TextureUpdateList {
         self.debug_assert_coalesced(id);
 
         // Drop any unapplied updates to the to-be-freed texture.
-        self.updates.retain(|x| x.id != id);
+        self.updates.remove(&id);
 
         // Drop any allocations for it as well. If we happen to be allocating and
         // freeing in the same batch, we can collapse them to a no-op.
@@ -502,6 +511,23 @@ impl TextureUpdateList {
     }
 }
 
+/// A list of updates built by the render backend that should be applied
+/// by the renderer thread.
+pub struct ResourceUpdateList {
+    /// List of OS native surface create / destroy operations to apply.
+    pub native_surface_updates: Vec<NativeSurfaceOperation>,
+
+    /// Atomic set of texture cache updates to apply.
+    pub texture_updates: TextureUpdateList,
+}
+
+impl ResourceUpdateList {
+    /// Returns true if this update list has no effect.
+    pub fn is_nop(&self) -> bool {
+        self.texture_updates.is_nop() && self.native_surface_updates.is_empty()
+    }
+}
+
 /// Wraps a frame_builder::Frame, but conceptually could hold more information
 pub struct RenderedDocument {
     pub frame: Frame,
@@ -524,14 +550,14 @@ pub enum ResultMsg {
     RefreshShader(PathBuf),
     UpdateGpuCache(GpuCacheUpdateList),
     UpdateResources {
-        updates: TextureUpdateList,
+        resource_updates: ResourceUpdateList,
         memory_pressure: bool,
     },
     PublishPipelineInfo(PipelineInfo),
     PublishDocument(
         DocumentId,
         RenderedDocument,
-        TextureUpdateList,
+        ResourceUpdateList,
         BackendProfileCounters,
     ),
     AppendNotificationRequests(Vec<NotificationRequest>),

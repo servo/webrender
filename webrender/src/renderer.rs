@@ -50,7 +50,7 @@ use crate::batch::{AlphaBatchContainer, BatchKind, BatchFeatures, BatchTextures,
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
 use crate::composite::{CompositeState, CompositeTileSurface, CompositeTile, CompositorKind, Compositor};
-use crate::composite::{CompositorConfig, NativeSurfaceOperationDetails, NativeSurfaceId};
+use crate::composite::{CompositorConfig, NativeSurfaceOperationDetails, NativeSurfaceId, NativeSurfaceOperation};
 use crate::debug_colors;
 use crate::debug_render::{DebugItem, DebugRenderer};
 use crate::device::{DepthFunction, Device, GpuFrameId, Program, UploadMethod, Texture, PBO};
@@ -85,7 +85,7 @@ use crate::render_backend::{FrameId, RenderBackend};
 use crate::render_task_graph::RenderTaskGraph;
 use crate::render_task::{RenderTask, RenderTaskData, RenderTaskKind};
 use crate::resource_cache::ResourceCache;
-use crate::scene_builder_thread::{SceneBuilderThread, LowPrioritySceneBuilderThread};
+use crate::scene_builder_thread::{SceneBuilderThread, SceneBuilderThreadChannels, LowPrioritySceneBuilderThread};
 use crate::screen_capture::AsyncScreenshotGrabber;
 use crate::shade::{Shaders, WrShaders};
 use smallvec::SmallVec;
@@ -1519,10 +1519,17 @@ impl GpuCacheTexture {
                     return 0
                 }
 
+                let upload_size = rows_dirty * Device::required_upload_size(
+                    DeviceIntSize::new(MAX_VERTEX_TEXTURE_WIDTH as i32, 1),
+                    None,
+                    texture.get_format(),
+                    device.optimal_pbo_stride(),
+                );
+
                 let mut uploader = device.upload_texture(
                     texture,
                     buffer,
-                    rows_dirty * MAX_VERTEX_TEXTURE_WIDTH,
+                    upload_size,
                 );
 
                 for (row_index, row) in rows.iter_mut().enumerate() {
@@ -1663,8 +1670,14 @@ impl<T> VertexDataTexture<T> {
         );
 
         debug_assert!(len <= data.capacity(), "CPU copy will read out of bounds");
+        let upload_size = Device::required_upload_size(
+            rect.size,
+            None,
+            self.texture().get_format(),
+            device.optimal_pbo_stride(),
+        );
         device
-            .upload_texture(self.texture(), &self.pbo, 0)
+            .upload_texture(self.texture(), &self.pbo, upload_size)
             .upload(rect, 0, None, None, data.as_ptr(), len);
     }
 
@@ -1774,6 +1787,7 @@ pub struct Renderer {
     debug_server: Box<dyn DebugServer>,
     pub device: Device,
     pending_texture_updates: Vec<TextureUpdateList>,
+    pending_native_surface_updates: Vec<NativeSurfaceOperation>,
     pending_gpu_cache_updates: Vec<GpuCacheUpdateList>,
     pending_gpu_cache_clear: bool,
     pending_shader_updates: Vec<PathBuf>,
@@ -2216,19 +2230,21 @@ impl Renderer {
         let lp_scene_thread_name = format!("WRSceneBuilderLP#{}", options.renderer_id.unwrap_or(0));
         let glyph_rasterizer = GlyphRasterizer::new(workers)?;
 
-        let (scene_builder, scene_tx, scene_rx) = SceneBuilderThread::new(
-            config,
-            api_tx.clone(),
-            scene_builder_hooks,
-            make_size_of_ops(),
-        );
+        let (scene_builder_channels, scene_tx, scene_rx) =
+            SceneBuilderThreadChannels::new(api_tx.clone());
+
         thread::Builder::new().name(scene_thread_name.clone()).spawn(move || {
             register_thread_with_profiler(scene_thread_name.clone());
             if let Some(ref thread_listener) = *thread_listener_for_scene_builder {
                 thread_listener.thread_started(&scene_thread_name);
             }
 
-            let mut scene_builder = scene_builder;
+            let mut scene_builder = SceneBuilderThread::new(
+                config,
+                make_size_of_ops(),
+                scene_builder_hooks,
+                scene_builder_channels,
+            );
             scene_builder.run();
 
             if let Some(ref thread_listener) = *thread_listener_for_scene_builder {
@@ -2337,6 +2353,7 @@ impl Renderer {
             device,
             active_documents: Vec::new(),
             pending_texture_updates: Vec::new(),
+            pending_native_surface_updates: Vec::new(),
             pending_gpu_cache_updates: Vec::new(),
             pending_gpu_cache_clear: false,
             pending_shader_updates: Vec::new(),
@@ -2478,7 +2495,7 @@ impl Renderer {
                 ResultMsg::PublishDocument(
                     document_id,
                     doc,
-                    texture_update_list,
+                    resource_update_list,
                     profile_counters,
                 ) => {
                     if doc.is_new_scene {
@@ -2497,15 +2514,10 @@ impl Renderer {
                                 self.render_impl(device_size).ok();
                             }
 
-                            let mut old_doc = mem::replace(
+                            mem::replace(
                                 &mut self.active_documents[pos].1,
                                 doc,
                             );
-
-                            // If the document we are overwriting has any pending
-                            // native surface updates, ensure they are flushed
-                            // before replacing with the new document.
-                            self.update_native_surfaces(&mut old_doc.frame.composite_state);
                         }
                         None => self.active_documents.push((document_id, doc)),
                     }
@@ -2521,7 +2533,8 @@ impl Renderer {
                     //            3) bad stuff happens.
 
                     //TODO: associate `document_id` with target window
-                    self.pending_texture_updates.push(texture_update_list);
+                    self.pending_texture_updates.push(resource_update_list.texture_updates);
+                    self.pending_native_surface_updates.extend(resource_update_list.native_surface_updates);
                     self.backend_profile_counters = profile_counters;
                     self.documents_seen.insert(document_id);
                 }
@@ -2552,13 +2565,15 @@ impl Renderer {
                     self.pending_gpu_cache_updates.push(list);
                 }
                 ResultMsg::UpdateResources {
-                    updates,
+                    resource_updates,
                     memory_pressure,
                 } => {
-                    self.pending_texture_updates.push(updates);
+                    self.pending_texture_updates.push(resource_updates.texture_updates);
+                    self.pending_native_surface_updates.extend(resource_updates.native_surface_updates);
                     self.device.begin_frame();
 
                     self.update_texture_cache();
+                    self.update_native_surfaces();
 
                     // Flush the render target pool on memory pressure.
                     //
@@ -2625,9 +2640,9 @@ impl Renderer {
 
     #[cfg(feature = "debugger")]
     fn get_screenshot_for_debugger(&mut self) -> String {
-        use api::ImageDescriptor;
+        use api::{ImageDescriptor, ImageDescriptorFlags};
 
-        let desc = ImageDescriptor::new(1024, 768, ImageFormat::BGRA8, true, false);
+        let desc = ImageDescriptor::new(1024, 768, ImageFormat::BGRA8, ImageDescriptorFlags::IS_OPAQUE);
         let data = self.device.read_pixels(&desc);
         let screenshot = debug_server::Screenshot::new(desc.size, data);
 
@@ -3072,6 +3087,7 @@ impl Renderer {
             //self.update_shaders();
 
             self.update_texture_cache();
+            self.update_native_surfaces();
 
             frame_id
         });
@@ -3450,83 +3466,108 @@ impl Renderer {
                     }
                 }
 
-                for update in update_list.updates {
-                    let TextureCacheUpdate { id, rect, stride, offset, layer_index, format_override, source } = update;
-                    let texture = &self.texture_resolver.texture_cache_map[&id];
+                for (texture_id, updates) in update_list.updates {
+                    let texture = &self.texture_resolver.texture_cache_map[&texture_id];
+                    let device = &mut self.device;
 
-                    let bytes_uploaded = match source {
-                        TextureUpdateSource::Bytes { data } => {
-                            let mut uploader = self.device.upload_texture(
-                                texture,
-                                &self.texture_cache_upload_pbo,
-                                0,
-                            );
-                            let data = &data[offset as usize ..];
-                            uploader.upload(
-                                rect,
-                                layer_index,
-                                stride,
-                                format_override,
-                                data.as_ptr(),
-                                data.len(),
-                            )
-                        }
-                        TextureUpdateSource::External { id, channel_index } => {
-                            let mut uploader = self.device.upload_texture(
-                                texture,
-                                &self.texture_cache_upload_pbo,
-                                0,
-                            );
-                            let handler = self.external_image_handler
-                                .as_mut()
-                                .expect("Found external image, but no handler set!");
-                            // The filter is only relevant for NativeTexture external images.
-                            let dummy_data;
-                            let data = match handler.lock(id, channel_index, ImageRendering::Auto).source {
-                                ExternalImageSource::RawData(data) => {
-                                    &data[offset as usize ..]
-                                }
-                                ExternalImageSource::Invalid => {
-                                    // Create a local buffer to fill the pbo.
-                                    let bpp = texture.get_format().bytes_per_pixel();
-                                    let width = stride.unwrap_or(rect.size.width * bpp);
-                                    let total_size = width * rect.size.height;
-                                    // WR haven't support RGBAF32 format in texture_cache, so
-                                    // we use u8 type here.
-                                    dummy_data = vec![0xFFu8; total_size as usize];
-                                    &dummy_data
-                                }
-                                ExternalImageSource::NativeTexture(eid) => {
-                                    panic!("Unexpected external texture {:?} for the texture cache update of {:?}", eid, id);
-                                }
-                            };
-                            let size = uploader.upload(
-                                rect,
-                                layer_index,
-                                stride,
-                                format_override,
-                                data.as_ptr(),
-                                data.len()
-                            );
-                            handler.unlock(id, channel_index);
-                            size
-                        }
-                        TextureUpdateSource::DebugClear => {
+                    // Calculate the total size of buffer required to upload all updates.
+                    let required_size = updates.iter().map(|update| {
+                        // Perform any debug clears now. As this requires a mutable borrow of device,
+                        // it must be done before all the updates which require a TextureUploader.
+                        if let TextureUpdateSource::DebugClear = update.source  {
                             let draw_target = DrawTarget::from_texture(
                                 texture,
-                                layer_index as usize,
+                                update.layer_index as usize,
                                 false,
                             );
-                            self.device.bind_draw_target(draw_target);
-                            self.device.clear_target(
+                            device.bind_draw_target(draw_target);
+                            device.clear_target(
                                 Some(TEXTURE_CACHE_DBG_CLEAR_COLOR),
                                 None,
-                                Some(draw_target.to_framebuffer_rect(rect.to_i32()))
+                                Some(draw_target.to_framebuffer_rect(update.rect.to_i32()))
                             );
+
                             0
+                        } else {
+                            Device::required_upload_size(
+                                update.rect.size,
+                                update.stride,
+                                texture.get_format(),
+                                device.optimal_pbo_stride(),
+                            )
                         }
-                    };
-                    self.profile_counters.texture_data_uploaded.add(bytes_uploaded >> 10);
+                    }).sum();
+
+                    if required_size == 0 {
+                        break;
+                    }
+
+                    // For best performance we use a single TextureUploader for all uploads.
+                    // Using individual TextureUploaders was causing performance issues on some drivers
+                    // due to allocating too many PBOs.
+                    let mut uploader = device.upload_texture(
+                        texture,
+                        &self.texture_cache_upload_pbo,
+                        required_size
+                    );
+
+                    for update in updates {
+                        let TextureCacheUpdate { id: _id, rect, stride, offset, layer_index, format_override, source } = update;
+
+                        let bytes_uploaded = match source {
+                            TextureUpdateSource::Bytes { data } => {
+                                let data = &data[offset as usize ..];
+                                uploader.upload(
+                                    rect,
+                                    layer_index,
+                                    stride,
+                                    format_override,
+                                    data.as_ptr(),
+                                    data.len(),
+                                )
+                            }
+                            TextureUpdateSource::External { id, channel_index } => {
+                                let handler = self.external_image_handler
+                                    .as_mut()
+                                    .expect("Found external image, but no handler set!");
+                                // The filter is only relevant for NativeTexture external images.
+                                let dummy_data;
+                                let data = match handler.lock(id, channel_index, ImageRendering::Auto).source {
+                                    ExternalImageSource::RawData(data) => {
+                                        &data[offset as usize ..]
+                                    }
+                                    ExternalImageSource::Invalid => {
+                                        // Create a local buffer to fill the pbo.
+                                        let bpp = texture.get_format().bytes_per_pixel();
+                                        let width = stride.unwrap_or(rect.size.width * bpp);
+                                        let total_size = width * rect.size.height;
+                                        // WR haven't support RGBAF32 format in texture_cache, so
+                                        // we use u8 type here.
+                                        dummy_data = vec![0xFFu8; total_size as usize];
+                                        &dummy_data
+                                    }
+                                    ExternalImageSource::NativeTexture(eid) => {
+                                        panic!("Unexpected external texture {:?} for the texture cache update of {:?}", eid, id);
+                                    }
+                                };
+                                let size = uploader.upload(
+                                    rect,
+                                    layer_index,
+                                    stride,
+                                    format_override,
+                                    data.as_ptr(),
+                                    data.len()
+                                );
+                                handler.unlock(id, channel_index);
+                                size
+                            }
+                            TextureUpdateSource::DebugClear => {
+                                // DebugClear updates are handled separately.
+                                0
+                            }
+                        };
+                        self.profile_counters.texture_data_uploaded.add(bytes_uploaded >> 10);
+                    }
                 }
 
                 if update_list.clears_shared_cache {
@@ -5024,13 +5065,10 @@ impl Renderer {
         debug_assert!(self.texture_resolver.prev_pass_color.is_none());
     }
 
-    fn update_native_surfaces(
-        &mut self,
-        composite_state: &mut CompositeState,
-    ) {
+    fn update_native_surfaces(&mut self) {
         match self.compositor_config {
             CompositorConfig::Native { ref mut compositor, .. } => {
-                for op in composite_state.native_surface_updates.drain(..) {
+                for op in self.pending_native_surface_updates.drain(..) {
                     match op.details {
                         NativeSurfaceOperationDetails::CreateSurface { size, is_opaque } => {
                             let _inserted = self.allocated_native_surfaces.insert(op.id);
@@ -5056,7 +5094,7 @@ impl Renderer {
             CompositorConfig::Draw { .. } => {
                 // Ensure nothing is added in simple composite mode, since otherwise
                 // memory will leak as this doesn't get drained
-                debug_assert!(composite_state.native_surface_updates.is_empty());
+                debug_assert!(self.pending_native_surface_updates.is_empty());
             }
         }
     }
@@ -5083,7 +5121,6 @@ impl Renderer {
         self.device.disable_stencil();
 
         self.bind_frame_data(frame);
-        self.update_native_surfaces(&mut frame.composite_state);
 
         for (_pass_index, pass) in frame.passes.iter_mut().enumerate() {
             #[cfg(not(target_os = "android"))]

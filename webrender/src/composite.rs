@@ -5,17 +5,13 @@
 use api::ColorF;
 use api::units::{DeviceRect, DeviceIntSize, DeviceIntRect, DeviceIntPoint, WorldRect, DevicePixelScale};
 use crate::gpu_types::{ZBufferId, ZBufferIdGenerator};
-use crate::picture::{ResolvedSurfaceTexture};
+use crate::picture::{ResolvedSurfaceTexture, TileId};
 use std::{ops, u64};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 /*
  Types and definitions related to compositing picture cache tiles
  and/or OS compositor integration.
  */
-
-// Counter for generating unique native surface ids
-static NEXT_NATIVE_SURFACE_ID: AtomicU64 = AtomicU64::new(0);
 
 /// Describes details of an operation to apply to a native surface
 #[derive(Debug, Clone)]
@@ -62,6 +58,7 @@ pub struct CompositeTile {
     pub clip_rect: DeviceRect,
     pub dirty_rect: DeviceRect,
     pub z_id: ZBufferId,
+    pub tile_id: TileId,
 }
 
 /// Public interface specified in `RendererOptions` that configures
@@ -133,6 +130,30 @@ struct Occluder {
     device_rect: DeviceIntRect,
 }
 
+/// Describes the properties that identify a tile composition uniquely.
+#[derive(PartialEq)]
+pub struct CompositeTileDescriptor {
+    pub rect: DeviceRect,
+    pub clip_rect: DeviceRect,
+    pub tile_id: TileId,
+}
+
+/// Describes which tiles and properties were used to composite a frame. This
+/// is used to compare compositions between frames.
+#[derive(PartialEq)]
+pub struct CompositeDescriptor {
+    tiles: Vec<CompositeTileDescriptor>,
+}
+
+impl CompositeDescriptor {
+    /// Construct an empty descriptor.
+    pub fn empty() -> Self {
+        CompositeDescriptor {
+            tiles: Vec::new(),
+        }
+    }
+}
+
 /// The list of tiles to be drawn this frame
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -158,9 +179,6 @@ pub struct CompositeState {
     // it gives us the ability to partial present for any non-scroll
     // case as a simple win (e.g. video, animation etc).
     pub dirty_rects_are_valid: bool,
-    /// List of OS native surface create / destroy operations to
-    /// apply when render occurs.
-    pub native_surface_updates: Vec<NativeSurfaceOperation>,
     /// The kind of compositor for picture cache tiles (e.g. drawn by WR, or OS compositor)
     pub compositor_kind: CompositorKind,
     /// Picture caching may be disabled dynamically, based on debug flags, pinch zoom etc.
@@ -195,7 +213,6 @@ impl CompositeState {
             clear_tiles: Vec::new(),
             z_generator: ZBufferIdGenerator::new(0),
             dirty_rects_are_valid: true,
-            native_surface_updates: Vec::new(),
             compositor_kind,
             picture_caching_is_enabled,
             global_device_pixel_scale,
@@ -203,40 +220,27 @@ impl CompositeState {
         }
     }
 
-    /// Queue up allocation of a new OS native compositor surface with the
-    /// specified id and dimensions.
-    pub fn create_surface(
-        &mut self,
-        size: DeviceIntSize,
-        is_opaque: bool,
-    ) -> NativeSurfaceId {
-        let id = NativeSurfaceId(NEXT_NATIVE_SURFACE_ID.fetch_add(1, Ordering::Relaxed));
+    /// Construct a descriptor of this composition state. Used for comparing
+    /// composition states between frames.
+    pub fn create_descriptor(&self) -> CompositeDescriptor {
+        let mut tiles = Vec::new();
 
-        self.native_surface_updates.push(
-            NativeSurfaceOperation {
-                id,
-                details: NativeSurfaceOperationDetails::CreateSurface {
-                    size,
-                    is_opaque,
-                }
-            }
-        );
+        let native_iter = self.native_tiles.iter();
+        let opaque_iter = self.opaque_tiles.iter();
+        let clear_iter = self.clear_tiles.iter();
+        let alpha_iter = self.alpha_tiles.iter();
 
-        id
-    }
+        for tile in native_iter.chain(opaque_iter).chain(clear_iter).chain(alpha_iter) {
+            tiles.push(CompositeTileDescriptor {
+                rect: tile.rect,
+                clip_rect: tile.clip_rect,
+                tile_id: tile.tile_id,
+            });
+        }
 
-    /// Queue up destruction of an existing native OS surface. This is used when
-    /// a picture cache tile is dropped or resized.
-    pub fn destroy_surface(
-        &mut self,
-        id: NativeSurfaceId,
-    ) {
-        self.native_surface_updates.push(
-            NativeSurfaceOperation {
-                id,
-                details: NativeSurfaceOperationDetails::DestroySurface,
-            }
-        );
+        CompositeDescriptor {
+            tiles,
+        }
     }
 
     /// Register an occluder during picture cache updates that can be

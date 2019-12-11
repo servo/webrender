@@ -94,8 +94,8 @@ void main(void) {
     Instance instance = decode_instance_attributes();
 
     int glyph_index = instance.segment_index;
-    int subpx_dir = (instance.flags >> 24) & 0xff;
-    int color_mode = (instance.flags >> 16) & 0xff;
+    int subpx_dir = (instance.flags >> 8) & 0xff;
+    int color_mode = instance.flags & 0xff;
 
     PrimitiveHeader ph = fetch_prim_header(instance.prim_header_address);
     Transform transform = fetch_transform(ph.transform_id);
@@ -237,7 +237,7 @@ void main(void) {
     vec2 f = (local_pos - glyph_rect.p0) / glyph_rect.size;
 #endif
 
-    write_clip(world_pos, vec2(0.0), clip_area);
+    write_clip(world_pos, clip_area);
 
     switch (color_mode) {
         case COLOR_MODE_ALPHA:
