@@ -188,6 +188,7 @@ struct PictureInfo {
     _spatial_node_index: SpatialNodeIndex,
 }
 
+/// Picture-caching state to keep between scenes.
 pub struct PictureCacheState {
     /// The tiles retained by this picture cache.
     pub tiles: FastHashMap<TileOffset, Tile>,
@@ -199,6 +200,14 @@ pub struct PictureCacheState {
     root_transform: TransformKey,
     /// The current tile size in device pixels
     current_tile_size: DeviceIntSize,
+    /// Various allocations we want to avoid re-doing.
+    allocations: PictureCacheRecycledAllocations,
+}
+
+pub struct PictureCacheRecycledAllocations {
+    old_tiles: FastHashMap<TileOffset, Tile>,
+    old_opacity_bindings: FastHashMap<PropertyBindingId, OpacityBindingInfo>,
+    compare_cache: FastHashMap<PrimitiveComparisonKey, PrimitiveCompareResult>,
 }
 
 /// Stores a list of cached picture tiles that are retained
@@ -367,6 +376,9 @@ struct TilePostUpdateState<'a> {
 
     /// Current configuration and setup for compositing all the picture cache tiles in renderer.
     composite_state: &'a mut CompositeState,
+
+    /// A cache of comparison results to avoid re-computation during invalidation.
+    compare_cache: &'a mut FastHashMap<PrimitiveComparisonKey, PrimitiveCompareResult>,
 }
 
 /// Information about the dependencies of a single primitive instance.
@@ -641,8 +653,7 @@ impl Tile {
     fn update_dirty_rects(
         &mut self,
         ctx: &TilePostUpdateContext,
-        state: &TilePostUpdateState,
-        compare_cache: &mut FastHashMap<PrimitiveComparisonKey, PrimitiveCompareResult>,
+        state: &mut TilePostUpdateState,
         invalidation_reason: &mut Option<InvalidationReason>,
     ) -> PictureRect {
         let mut prim_comparer = PrimitiveComparer::new(
@@ -654,13 +665,12 @@ impl Tile {
         );
 
         let mut dirty_rect = PictureRect::zero();
-
         self.root.update_dirty_rects(
             &self.prev_descriptor.prims,
             &self.current_descriptor.prims,
             &mut prim_comparer,
             &mut dirty_rect,
-            compare_cache,
+            state.compare_cache,
             invalidation_reason,
         );
 
@@ -674,16 +684,15 @@ impl Tile {
     fn update_content_validity(
         &mut self,
         ctx: &TilePostUpdateContext,
-        state: &TilePostUpdateState,
+        state: &mut TilePostUpdateState,
     ) {
         // Check if the contents of the primitives, clips, and
         // other dependencies are the same.
-        let mut compare_cache = FastHashMap::default();
+        state.compare_cache.clear();
         let mut invalidation_reason = None;
         let dirty_rect = self.update_dirty_rects(
             ctx,
             state,
-            &mut compare_cache,
             &mut invalidation_reason,
         );
         if !dirty_rect.is_empty() {
@@ -1435,6 +1444,8 @@ pub struct TileCacheInstance {
     pub spatial_node_index: SpatialNodeIndex,
     /// Hash of tiles present in this picture.
     pub tiles: FastHashMap<TileOffset, Tile>,
+    /// Switch back and forth between old and new tiles hashmaps to avoid re-allocating.
+    old_tiles: FastHashMap<TileOffset, Tile>,
     /// A helper struct to map local rects into surface coords.
     map_local_to_surface: SpaceMapper<LayoutPixel, PicturePixel>,
     /// A helper struct to map child picture rects into picture cache surface coords.
@@ -1442,9 +1453,13 @@ pub struct TileCacheInstance {
     /// List of opacity bindings, with some extra information
     /// about whether they changed since last frame.
     opacity_bindings: FastHashMap<PropertyBindingId, OpacityBindingInfo>,
+    /// Switch back and forth between old and new bindings hashmaps to avoid re-allocating.
+    old_opacity_bindings: FastHashMap<PropertyBindingId, OpacityBindingInfo>,
     /// List of spatial nodes, with some extra information
     /// about whether they changed since last frame.
     spatial_nodes: FastHashMap<SpatialNodeIndex, SpatialNodeDependency>,
+    /// Switch back and forth between old and new spatial nodes hashmaps to avoid re-allocating.
+    old_spatial_nodes: FastHashMap<SpatialNodeIndex, SpatialNodeDependency>,
     /// A set of spatial nodes that primitives / clips depend on found
     /// during dependency creation. This is used to avoid trying to
     /// calculate invalid relative transforms when building the spatial
@@ -1493,6 +1508,9 @@ pub struct TileCacheInstance {
     frames_until_size_eval: usize,
     /// The current fractional offset of the cached picture
     fract_offset: PictureVector2D,
+    /// keep around the hash map used as compare_cache to avoid reallocating it each
+    /// frame.
+    compare_cache: FastHashMap<PrimitiveComparisonKey, PrimitiveCompareResult>,
 }
 
 impl TileCacheInstance {
@@ -1507,6 +1525,7 @@ impl TileCacheInstance {
             slice,
             spatial_node_index,
             tiles: FastHashMap::default(),
+            old_tiles: FastHashMap::default(),
             map_local_to_surface: SpaceMapper::new(
                 ROOT_SPATIAL_NODE_INDEX,
                 PictureRect::zero(),
@@ -1516,7 +1535,9 @@ impl TileCacheInstance {
                 PictureRect::zero(),
             ),
             opacity_bindings: FastHashMap::default(),
+            old_opacity_bindings: FastHashMap::default(),
             spatial_nodes: FastHashMap::default(),
+            old_spatial_nodes: FastHashMap::default(),
             used_spatial_nodes: FastHashSet::default(),
             dirty_region: DirtyRegion::new(),
             tile_size: PictureSize::zero(),
@@ -1536,6 +1557,7 @@ impl TileCacheInstance {
             current_tile_size: DeviceIntSize::zero(),
             frames_until_size_eval: 0,
             fract_offset: PictureVector2D::zero(),
+            compare_cache: FastHashMap::default(),
         }
     }
 
@@ -1656,6 +1678,36 @@ impl TileCacheInstance {
             self.spatial_nodes = prev_state.spatial_nodes;
             self.opacity_bindings = prev_state.opacity_bindings;
             self.current_tile_size = prev_state.current_tile_size;
+
+            fn recycle_map<K: std::cmp::Eq + std::hash::Hash, V>(
+                ideal_len: usize,
+                dest: &mut FastHashMap<K, V>,
+                src: FastHashMap<K, V>,
+            ) {
+                if dest.capacity() < src.capacity() {
+                    if src.capacity() < 3 * ideal_len {
+                        *dest = src;
+                    } else {
+                        dest.clear();
+                        dest.reserve(ideal_len);
+                    }
+                }
+            }
+            recycle_map(
+                self.tiles.len(),
+                &mut self.old_tiles,
+                prev_state.allocations.old_tiles,
+            );
+            recycle_map(
+                self.opacity_bindings.len(),
+                &mut self.old_opacity_bindings,
+                prev_state.allocations.old_opacity_bindings,
+            );
+            recycle_map(
+                prev_state.allocations.compare_cache.len(),
+                &mut self.compare_cache,
+                prev_state.allocations.compare_cache,
+            );
         }
 
         // Only evaluate what tile size to use fairly infrequently, so that we don't end
@@ -1732,10 +1784,11 @@ impl TileCacheInstance {
         // Do a hacky diff of opacity binding values from the last frame. This is
         // used later on during tile invalidation tests.
         let current_properties = frame_context.scene_properties.float_properties();
-        let old_properties = mem::replace(&mut self.opacity_bindings, FastHashMap::default());
+        mem::swap(&mut self.opacity_bindings, &mut self.old_opacity_bindings);
 
+        self.opacity_bindings.clear();
         for (id, value) in current_properties {
-            let changed = match old_properties.get(id) {
+            let changed = match self.old_opacity_bindings.get(id) {
                 Some(old_property) => !old_property.value.approx_eq(value),
                 None => true,
             };
@@ -1795,10 +1848,7 @@ impl TileCacheInstance {
 
         let mut world_culling_rect = WorldRect::zero();
 
-        let mut old_tiles = mem::replace(
-            &mut self.tiles,
-            FastHashMap::default(),
-        );
+        mem::swap(&mut self.tiles, &mut self.old_tiles);
 
         let ctx = TilePreUpdateContext {
             local_rect: self.local_rect,
@@ -1809,11 +1859,12 @@ impl TileCacheInstance {
             global_screen_world_rect: frame_context.global_screen_world_rect,
         };
 
+        self.tiles.clear();
         for y in y0 .. y1 {
             for x in x0 .. x1 {
                 let key = TileOffset::new(x, y);
 
-                let mut tile = old_tiles
+                let mut tile = self.old_tiles
                     .remove(&key)
                     .unwrap_or_else(|| {
                         let next_id = TileId(NEXT_TILE_ID.fetch_add(1, Ordering::Relaxed));
@@ -1861,7 +1912,7 @@ impl TileCacheInstance {
         // by the texture cache. For native compositor mode, we need to explicitly
         // invoke a callback to the client to destroy that surface.
         frame_state.composite_state.destroy_native_surfaces(
-            old_tiles.values(),
+            self.old_tiles.values(),
             frame_state.resource_cache,
         );
 
@@ -2236,10 +2287,11 @@ impl TileCacheInstance {
         }
 
         // Diff the state of the spatial nodes between last frame build and now.
-        let mut old_spatial_nodes = mem::replace(&mut self.spatial_nodes, FastHashMap::default());
+        mem::swap(&mut self.spatial_nodes, &mut self.old_spatial_nodes);
 
         // TODO(gw): Maybe remove the used_spatial_nodes set and just mutate / create these
         //           diffs inside add_prim_dependency?
+        self.spatial_nodes.clear();
         for spatial_node_index in self.used_spatial_nodes.drain() {
             // Get the current relative transform.
             let mut value = get_transform_key(
@@ -2250,7 +2302,7 @@ impl TileCacheInstance {
 
             // Check if the transform has changed from last frame
             let mut changed = true;
-            if let Some(old_info) = old_spatial_nodes.remove(&spatial_node_index) {
+            if let Some(old_info) = self.old_spatial_nodes.remove(&spatial_node_index) {
                 if old_info.value == value {
                     // Since the transform key equality check applies epsilon, if we
                     // consider the value to be the same, store that old value to avoid
@@ -2278,14 +2330,12 @@ impl TileCacheInstance {
         let mut state = TilePostUpdateState {
             resource_cache: frame_state.resource_cache,
             composite_state: frame_state.composite_state,
+            compare_cache: &mut self.compare_cache,
         };
 
         // Step through each tile and invalidate if the dependencies have changed.
         for (key, tile) in self.tiles.iter_mut() {
-            if tile.post_update(
-                &ctx,
-                &mut state,
-            ) {
+            if tile.post_update(&ctx, &mut state) {
                 self.tiles_to_draw.push(*key);
             }
         }
@@ -3110,6 +3160,11 @@ impl PicturePrimitive {
                         opacity_bindings: tile_cache.opacity_bindings,
                         root_transform: tile_cache.root_transform,
                         current_tile_size: tile_cache.current_tile_size,
+                        allocations: PictureCacheRecycledAllocations {
+                            old_tiles: tile_cache.old_tiles,
+                            old_opacity_bindings: tile_cache.old_opacity_bindings,
+                            compare_cache: tile_cache.compare_cache,
+                        },
                     },
                 );
             }
@@ -4811,11 +4866,12 @@ impl TileNode {
     /// Calculate the four child rects for a given node
     fn get_child_rects(
         rect: &PictureRect,
-    ) -> Vec<PictureRect> {
+        result: &mut [PictureRect; 4],
+    ) {
         let p0 = rect.origin;
         let half_size = PictureSize::new(rect.size.width * 0.5, rect.size.height * 0.5);
 
-        [
+        *result = [
             PictureRect::new(
                 PicturePoint::new(p0.x, p0.y),
                 half_size,
@@ -4832,7 +4888,7 @@ impl TileNode {
                 PicturePoint::new(p0.x + half_size.width, p0.y + half_size.height),
                 half_size,
             ),
-        ].to_vec()
+        ];
     }
 
     /// Called during pre_update, to clear the current dependencies
@@ -4852,7 +4908,8 @@ impl TileNode {
                 *frames_since_modified += 1;
             }
             TileNodeKind::Node { ref mut children, .. } => {
-                let child_rects = TileNode::get_child_rects(&rect);
+                let mut child_rects = [PictureRect::zero(); 4];
+                TileNode::get_child_rects(&rect, &mut child_rects);
                 assert_eq!(child_rects.len(), children.len());
 
                 for (child, rect) in children.iter_mut().zip(child_rects.iter()) {
@@ -4964,25 +5021,33 @@ impl TileNode {
                     }
                 };
 
-                // TODO(gw): We know that these are fixed arrays, we could do better with
-                //           allocations here!
-                let child_rects = TileNode::get_child_rects(&self.rect);
-                let child_rects: Vec<RectangleKey> = child_rects.iter().map(|r| (*r).into()).collect();
-                let mut child_indices = vec![Vec::new(); child_rects.len()];
+                let mut child_rects = [PictureRect::zero(); 4];
+                TileNode::get_child_rects(&self.rect, &mut child_rects);
+
+                let mut child_indices = [
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                ];
 
                 // Step through the index buffer, and add primitives to each of the children
                 // that they intersect.
                 for index in curr_indices {
                     let prim = &curr_prims[index.0 as usize];
                     for (child_rect, indices) in child_rects.iter().zip(child_indices.iter_mut()) {
-                        if prim.prim_clip_rect.intersects(child_rect) {
+                        let child_rect_key: RectangleKey = (*child_rect).into();
+                        if prim.prim_clip_rect.intersects(&child_rect_key) {
                             indices.push(index);
                         }
                     }
                 }
 
                 // Create the child nodes and switch from leaf -> node.
-                let children = child_indices.into_iter().map(|i| TileNode::new_leaf(i)).collect();
+                let children = child_indices
+                    .iter_mut()
+                    .map(|i| TileNode::new_leaf(mem::replace(i, Vec::new())))
+                    .collect();
 
                 self.kind = TileNodeKind::Node {
                     children: children,
