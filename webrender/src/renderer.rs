@@ -49,7 +49,7 @@ use api::channel::{MsgSender, PayloadReceiverHelperMethods};
 use crate::batch::{AlphaBatchContainer, BatchKind, BatchFeatures, BatchTextures, BrushBatchKind, ClipBatchList};
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
-use crate::composite::{CompositeState, CompositeTileSurface, CompositeTile, CompositorKind, Compositor};
+use crate::composite::{CompositeState, CompositeTileSurface, CompositeTile, CompositorKind, Compositor, NativeTileId};
 use crate::composite::{CompositorConfig, NativeSurfaceOperationDetails, NativeSurfaceId, NativeSurfaceOperation};
 use crate::debug_colors;
 use crate::debug_render::{DebugItem, DebugRenderer};
@@ -2968,6 +2968,9 @@ impl Renderer {
                 compositor.create_surface(
                     NativeSurfaceId::DEBUG_OVERLAY,
                     framebuffer_size,
+                );
+                compositor.create_tile(
+                    NativeTileId::DEBUG_OVERLAY,
                     false,
                 );
                 self.debug_overlay_state.current_size = Some(framebuffer_size);
@@ -2984,7 +2987,7 @@ impl Renderer {
 
                 // Bind the native surface
                 let surface_info = compositor.bind(
-                    NativeSurfaceId::DEBUG_OVERLAY,
+                    NativeTileId::DEBUG_OVERLAY,
                     DeviceIntRect::new(
                         DeviceIntPoint::zero(),
                         surface_size,
@@ -3956,7 +3959,9 @@ impl Renderer {
             let _gl = self.gpu_profile.start_marker("alpha batches");
             let transparent_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_TRANSPARENT);
             self.set_blend(true, framebuffer_kind);
+
             let mut prev_blend_mode = BlendMode::None;
+            let shaders_rc = self.shaders.clone();
 
             // If the device supports pixel local storage, initialize the PLS buffer for
             // the transparent pass. This involves reading the current framebuffer value
@@ -3980,12 +3985,12 @@ impl Renderer {
                     continue;
                 }
 
-                self.shaders.borrow_mut()
-                    .get(&batch.key, batch.features | BatchFeatures::ALPHA_PASS, self.debug_flags)
-                    .bind(
-                        &mut self.device, projection,
-                        &mut self.renderer_errors,
-                    );
+                let mut shaders = shaders_rc.borrow_mut();
+                let shader = shaders.get(
+                    &batch.key,
+                    batch.features | BatchFeatures::ALPHA_PASS,
+                    self.debug_flags,
+                );
 
                 if batch.key.blend_mode != prev_blend_mode {
                     match batch.key.blend_mode {
@@ -4018,6 +4023,12 @@ impl Renderer {
                             // /webrender/doc/text-rendering.md
                             //
                             self.device.set_blend_mode_subpixel_with_bg_color_pass0();
+                            // need to make sure the shader is bound
+                            shader.bind(
+                                &mut self.device,
+                                projection,
+                                &mut self.renderer_errors,
+                            );
                             self.device.switch_mode(ShaderColorMode::SubpixelWithBgColorPass0 as _);
                         }
                         BlendMode::Advanced(mode) => {
@@ -4045,6 +4056,11 @@ impl Renderer {
                 }
 
                 let _timer = self.gpu_profile.start_timer(batch.key.kind.sampler_tag());
+                shader.bind(
+                    &mut self.device,
+                    projection,
+                    &mut self.renderer_errors,
+                );
 
                 self.draw_instanced_batch(
                     &batch.instances,
@@ -4055,6 +4071,12 @@ impl Renderer {
 
                 if batch.key.blend_mode == BlendMode::SubpixelWithBgColor {
                     self.set_blend_mode_subpixel_with_bg_color_pass1(framebuffer_kind);
+                    // re-binding the shader after the blend mode change
+                    shader.bind(
+                        &mut self.device,
+                        projection,
+                        &mut self.renderer_errors,
+                    );
                     self.device.switch_mode(ShaderColorMode::SubpixelWithBgColorPass1 as _);
 
                     // When drawing the 2nd and 3rd passes, we know that the VAO, textures etc
@@ -4065,6 +4087,12 @@ impl Renderer {
                         .draw_indexed_triangles_instanced_u16(6, batch.instances.len() as i32);
 
                     self.set_blend_mode_subpixel_with_bg_color_pass2(framebuffer_kind);
+                    // re-binding the shader after the blend mode change
+                    shader.bind(
+                        &mut self.device,
+                        projection,
+                        &mut self.renderer_errors,
+                    );
                     self.device.switch_mode(ShaderColorMode::SubpixelWithBgColorPass2 as _);
 
                     self.device
@@ -4101,9 +4129,16 @@ impl Renderer {
     fn draw_tile_list<'a, I: Iterator<Item = &'a CompositeTile>>(
         &mut self,
         tiles_iter: I,
+        projection: &default::Transform3D<f32>,
         partial_present_mode: Option<PartialPresentMode>,
         stats: &mut RendererStats,
     ) {
+        self.shaders.borrow_mut().composite.bind(
+            &mut self.device,
+            projection,
+            &mut self.renderer_errors
+        );
+
         let mut current_textures = BatchTextures::no_texture();
         let mut instances = Vec::new();
 
@@ -4119,7 +4154,7 @@ impl Renderer {
                 CompositeTileSurface::Texture { surface: ResolvedSurfaceTexture::TextureCache { texture, layer } } => {
                     (texture, layer as f32, ColorF::WHITE)
                 }
-                CompositeTileSurface::Texture { surface: ResolvedSurfaceTexture::NativeSurface { .. } } => {
+                CompositeTileSurface::Texture { surface: ResolvedSurfaceTexture::Native { .. } } => {
                     unreachable!("bug: found native surface in simple composite path");
                 }
             };
@@ -4251,12 +4286,6 @@ impl Renderer {
             }
         }
 
-        self.shaders.borrow_mut().composite.bind(
-            &mut self.device,
-            &projection,
-            &mut self.renderer_errors
-        );
-
         // We are only interested in tiles backed with actual cached pixels so we don't
         // count clear tiles here.
         let num_tiles = composite_state.opaque_tiles.len()
@@ -4271,6 +4300,7 @@ impl Renderer {
             self.set_blend(false, FramebufferKind::Main);
             self.draw_tile_list(
                 composite_state.opaque_tiles.iter().rev(),
+                projection,
                 partial_present_mode,
                 &mut results.stats,
             );
@@ -4284,6 +4314,7 @@ impl Renderer {
             self.device.set_blend_mode_premultiplied_dest_out();
             self.draw_tile_list(
                 composite_state.clear_tiles.iter(),
+                projection,
                 partial_present_mode,
                 &mut results.stats,
             );
@@ -4298,6 +4329,7 @@ impl Renderer {
             self.set_blend_mode_premultiplied_alpha(FramebufferKind::Main);
             self.draw_tile_list(
                 composite_state.alpha_tiles.iter(),
+                projection,
                 partial_present_mode,
                 &mut results.stats,
             );
@@ -5067,23 +5099,21 @@ impl Renderer {
             CompositorConfig::Native { ref mut compositor, .. } => {
                 for op in self.pending_native_surface_updates.drain(..) {
                     match op.details {
-                        NativeSurfaceOperationDetails::CreateSurface { size, is_opaque } => {
-                            let _inserted = self.allocated_native_surfaces.insert(op.id);
+                        NativeSurfaceOperationDetails::CreateSurface { id, tile_size } => {
+                            let _inserted = self.allocated_native_surfaces.insert(id);
                             debug_assert!(_inserted, "bug: creating existing surface");
-
-                            compositor.create_surface(
-                                op.id,
-                                size,
-                                is_opaque,
-                            );
+                            compositor.create_surface(id, tile_size);
                         }
-                        NativeSurfaceOperationDetails::DestroySurface => {
-                            let _existed = self.allocated_native_surfaces.remove(&op.id);
+                        NativeSurfaceOperationDetails::DestroySurface { id } => {
+                            let _existed = self.allocated_native_surfaces.remove(&id);
                             debug_assert!(_existed, "bug: removing unknown surface");
-
-                            compositor.destroy_surface(
-                                op.id,
-                            );
+                            compositor.destroy_surface(id);
+                        }
+                        NativeSurfaceOperationDetails::CreateTile { id, is_opaque } => {
+                            compositor.create_tile(id, is_opaque);
+                        }
+                        NativeSurfaceOperationDetails::DestroyTile { id } => {
+                            compositor.destroy_tile(id);
                         }
                     }
                 }
@@ -5258,7 +5288,7 @@ impl Renderer {
                                         true,
                                     )
                                 }
-                                ResolvedSurfaceTexture::NativeSurface { id, size, .. } => {
+                                ResolvedSurfaceTexture::Native { id, size } => {
                                     let surface_info = match self.compositor_config {
                                         CompositorConfig::Native { ref mut compositor, .. } => {
                                             compositor.bind(id, picture_target.dirty_rect)
@@ -5295,7 +5325,7 @@ impl Renderer {
                             );
 
                             // Native OS surfaces must be unbound at the end of drawing to them
-                            if let ResolvedSurfaceTexture::NativeSurface { .. } = picture_target.surface {
+                            if let ResolvedSurfaceTexture::Native { .. } = picture_target.surface {
                                 match self.compositor_config {
                                     CompositorConfig::Native { ref mut compositor, .. } => {
                                         compositor.unbind();
@@ -5989,7 +6019,7 @@ impl Renderer {
 
     // Sets the blend mode. Blend is unconditionally set if the "show overdraw" debugging mode is
     // enabled.
-    fn set_blend(&self, mut blend: bool, framebuffer_kind: FramebufferKind) {
+    fn set_blend(&mut self, mut blend: bool, framebuffer_kind: FramebufferKind) {
         if framebuffer_kind == FramebufferKind::Main &&
                 self.debug_flags.contains(DebugFlags::SHOW_OVERDRAW) {
             blend = true
@@ -5997,7 +6027,7 @@ impl Renderer {
         self.device.set_blend(blend)
     }
 
-    fn set_blend_mode_multiply(&self, framebuffer_kind: FramebufferKind) {
+    fn set_blend_mode_multiply(&mut self, framebuffer_kind: FramebufferKind) {
         if framebuffer_kind == FramebufferKind::Main &&
                 self.debug_flags.contains(DebugFlags::SHOW_OVERDRAW) {
             self.device.set_blend_mode_show_overdraw();
@@ -6006,7 +6036,7 @@ impl Renderer {
         }
     }
 
-    fn set_blend_mode_premultiplied_alpha(&self, framebuffer_kind: FramebufferKind) {
+    fn set_blend_mode_premultiplied_alpha(&mut self, framebuffer_kind: FramebufferKind) {
         if framebuffer_kind == FramebufferKind::Main &&
                 self.debug_flags.contains(DebugFlags::SHOW_OVERDRAW) {
             self.device.set_blend_mode_show_overdraw();
@@ -6015,7 +6045,7 @@ impl Renderer {
         }
     }
 
-    fn set_blend_mode_subpixel_with_bg_color_pass1(&self, framebuffer_kind: FramebufferKind) {
+    fn set_blend_mode_subpixel_with_bg_color_pass1(&mut self, framebuffer_kind: FramebufferKind) {
         if framebuffer_kind == FramebufferKind::Main &&
                 self.debug_flags.contains(DebugFlags::SHOW_OVERDRAW) {
             self.device.set_blend_mode_show_overdraw();
@@ -6024,7 +6054,7 @@ impl Renderer {
         }
     }
 
-    fn set_blend_mode_subpixel_with_bg_color_pass2(&self, framebuffer_kind: FramebufferKind) {
+    fn set_blend_mode_subpixel_with_bg_color_pass2(&mut self, framebuffer_kind: FramebufferKind) {
         if framebuffer_kind == FramebufferKind::Main &&
                 self.debug_flags.contains(DebugFlags::SHOW_OVERDRAW) {
             self.device.set_blend_mode_show_overdraw();
@@ -6774,21 +6804,14 @@ impl CompositeState {
         &self,
         compositor: &mut dyn Compositor,
     ) {
-        // For each tile, update the properties with the native OS compositor,
-        // such as position and clip rect. z-order of the tiles are implicit based
-        // on the order they are added in this loop.
-        for tile in &self.native_tiles {
-            // Extract the native surface id. We should only ever encounter native surfaces here!
-            let id = match tile.surface {
-                CompositeTileSurface::Texture { surface: ResolvedSurfaceTexture::NativeSurface { id, .. }, .. } => id,
-                _ => unreachable!(),
-            };
-
-            // Add the tile to the OS compositor.
+        // Add each surface to the visual tree. z-order is implicit based on
+        // order added. Offset and clip rect apply to all tiles within this
+        // surface.
+        for surface in &self.descriptor.surfaces {
             compositor.add_surface(
-                id,
-                tile.rect.origin.to_i32(),
-                tile.clip_rect.to_i32(),
+                surface.surface_id.expect("bug: no native surface allocated"),
+                surface.offset.to_i32(),
+                surface.clip_rect.to_i32(),
             );
         }
     }
