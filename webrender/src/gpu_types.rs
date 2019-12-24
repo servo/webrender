@@ -26,10 +26,10 @@ pub struct ZBufferId(i32);
 // 4 bits to account for GPU issues. This seems to manifest on
 // some GPUs under certain perspectives due to z interpolation
 // precision problems.
-const MAX_DOCUMENT_LAYERS : i8 = 1 << 3;
-const MAX_ITEMS_PER_DOCUMENT_LAYER : i32 = 1 << 19;
-const MAX_DOCUMENT_LAYER_VALUE : i8 = MAX_DOCUMENT_LAYERS / 2 - 1;
-const MIN_DOCUMENT_LAYER_VALUE : i8 = -MAX_DOCUMENT_LAYERS / 2;
+const MAX_DOCUMENT_LAYERS: i8 = 1 << 3;
+const MAX_ITEMS_PER_DOCUMENT_LAYER: i32 = 1 << 19;
+const MAX_DOCUMENT_LAYER_VALUE: i8 = MAX_DOCUMENT_LAYERS / 2 - 1;
+const MIN_DOCUMENT_LAYER_VALUE: i8 = -MAX_DOCUMENT_LAYERS / 2;
 
 impl ZBufferId {
     pub fn invalid() -> Self {
@@ -51,7 +51,7 @@ impl ZBufferIdGenerator {
         debug_assert!(layer <= MAX_DOCUMENT_LAYER_VALUE);
         ZBufferIdGenerator {
             base: layer as i32 * MAX_ITEMS_PER_DOCUMENT_LAYER,
-            next: 0
+            next: 0,
         }
     }
 
@@ -72,15 +72,15 @@ impl ZBufferIdGenerator {
 #[repr(i32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BrushShaderKind {
-    None            = 0,
-    Solid           = 1,
-    Image           = 2,
-    Text            = 3,
-    LinearGradient  = 4,
-    RadialGradient  = 5,
-    Blend           = 6,
-    MixBlend        = 7,
-    Yuv             = 8,
+    None = 0,
+    Solid = 1,
+    Image = 2,
+    Text = 3,
+    LinearGradient = 4,
+    RadialGradient = 5,
+    Blend = 6,
+    MixBlend = 7,
+    Yuv = 8,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -342,7 +342,7 @@ pub struct PrimitiveHeaderI {
     pub z: ZBufferId,
     pub specific_prim_address: i32,
     pub transform_id: TransformPaletteId,
-    pub unused: i32,                    // To ensure required 16 byte alignment of vertex textures
+    pub unused: i32, // To ensure required 16 byte alignment of vertex textures
     pub user_data: [i32; 4],
 }
 
@@ -351,12 +351,8 @@ pub struct GlyphInstance {
 }
 
 impl GlyphInstance {
-    pub fn new(
-        prim_header_index: PrimitiveHeaderIndex,
-    ) -> Self {
-        GlyphInstance {
-            prim_header_index,
-        }
+    pub fn new(prim_header_index: PrimitiveHeaderIndex) -> Self {
+        GlyphInstance { prim_header_index }
     }
 
     // TODO(gw): Some of these fields can be moved to the primitive
@@ -433,13 +429,12 @@ impl From<BrushInstance> for PrimitiveInstanceData {
             data: [
                 instance.prim_header_index.0,
                 ((instance.render_task_address.0 as i32) << 16)
-                | instance.clip_task_address.0 as i32,
+                    | instance.clip_task_address.0 as i32,
                 instance.segment_index
-                | ((instance.edge_flags.bits() as i32) << 16)
-                | ((instance.brush_flags.bits() as i32) << 24),
-                instance.resource_address
-                | ((instance.brush_kind as i32) << 24),
-            ]
+                    | ((instance.edge_flags.bits() as i32) << 16)
+                    | ((instance.brush_flags.bits() as i32) << 24),
+                instance.resource_address | ((instance.brush_kind as i32) << 24),
+            ],
         }
     }
 }
@@ -570,24 +565,14 @@ impl TransformPalette {
             let metadata = &mut self.metadata;
             let transforms = &mut self.transforms;
 
-            *self.map
-                .entry(key)
-                .or_insert_with(|| {
-                    let transform = clip_scroll_tree.get_relative_transform(
-                        child_index,
-                        parent_index,
-                    )
+            *self.map.entry(key).or_insert_with(|| {
+                let transform = clip_scroll_tree
+                    .get_relative_transform(child_index, parent_index)
                     .into_transform()
                     .with_destination::<PicturePixel>();
 
-                    register_transform(
-                        metadata,
-                        transforms,
-                        child_index,
-                        parent_index,
-                        transform,
-                    )
-                })
+                register_transform(metadata, transforms, child_index, parent_index, transform)
+            })
         }
     }
 
@@ -601,16 +586,9 @@ impl TransformPalette {
         to_index: SpatialNodeIndex,
         clip_scroll_tree: &ClipScrollTree,
     ) -> TransformPaletteId {
-        let index = self.get_index(
-            from_index,
-            to_index,
-            clip_scroll_tree,
-        );
+        let index = self.get_index(from_index, to_index, clip_scroll_tree);
         let transform_kind = self.metadata[index].transform_kind as u32;
-        TransformPaletteId(
-            (index as u32) |
-            (transform_kind << 24)
-        )
+        TransformPaletteId((index as u32) | (transform_kind << 24))
     }
 }
 
@@ -652,12 +630,7 @@ impl ImageSource {
     pub fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
         // see fetch_image_resource in GLSL
         // has to be VECS_PER_IMAGE_RESOURCE vectors
-        request.push([
-            self.p0.x,
-            self.p0.y,
-            self.p1.x,
-            self.p1.y,
-        ]);
+        request.push([self.p0.x, self.p0.y, self.p1.x, self.p1.y]);
         request.push([
             self.texture_layer,
             self.user_data[0],
@@ -666,7 +639,13 @@ impl ImageSource {
         ]);
 
         // If this is a polygon uv kind, then upload the four vertices.
-        if let UvRectKind::Quad { top_left, top_right, bottom_left, bottom_right } = self.uv_rect_kind {
+        if let UvRectKind::Quad {
+            top_left,
+            top_right,
+            bottom_left,
+            bottom_right,
+        } = self.uv_rect_kind
+        {
             // see fetch_image_resource_extra in GLSL
             //Note: we really need only 3 components per point here: X, Y, and W
             request.push(top_left);
@@ -693,7 +672,7 @@ fn register_transform(
         .unwrap_or_else(PictureToLayoutTransform::identity);
 
     let metadata = TransformMetadata {
-        transform_kind: transform.transform_kind()
+        transform_kind: transform.transform_kind(),
     };
     let data = TransformData {
         transform,

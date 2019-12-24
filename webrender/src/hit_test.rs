@@ -41,21 +41,15 @@ pub struct HitTestClipNode {
 impl HitTestClipNode {
     fn new(node: &ClipNode) -> Self {
         let region = match node.item.kind {
-            ClipItemKind::Rectangle { rect, mode } => {
-                HitTestRegion::Rectangle(rect, mode)
-            }
+            ClipItemKind::Rectangle { rect, mode } => HitTestRegion::Rectangle(rect, mode),
             ClipItemKind::RoundedRectangle { rect, radius, mode } => {
                 HitTestRegion::RoundedRectangle(rect, radius, mode)
             }
-            ClipItemKind::Image { rect, .. } => {
-                HitTestRegion::Rectangle(rect, ClipMode::Clip)
-            }
+            ClipItemKind::Image { rect, .. } => HitTestRegion::Rectangle(rect, ClipMode::Clip),
             ClipItemKind::BoxShadow { .. } => HitTestRegion::Invalid,
         };
 
-        HitTestClipNode {
-            region,
-        }
+        HitTestClipNode { region }
     }
 }
 
@@ -168,13 +162,15 @@ impl HitTestingScene {
     /// Add a clip chain to the clip chain roots list.
     pub fn add_clip_chain(&mut self, clip_chain_id: ClipChainId) {
         if clip_chain_id != ClipChainId::INVALID {
-            self.clip_chain_roots.push(HitTestClipChainId(clip_chain_id.0));
+            self.clip_chain_roots
+                .push(HitTestClipChainId(clip_chain_id.0));
         }
     }
 
     /// Get the slice of clip chain roots for a given hit test primitive.
     fn get_clip_chains_for_item(&self, item: &HitTestingItem) -> &[HitTestClipChainId] {
-        &self.clip_chain_roots[item.clip_chain_range.start.0 as usize .. item.clip_chain_range.end.0 as usize]
+        &self.clip_chain_roots
+            [item.clip_chain_range.start.0 as usize .. item.clip_chain_range.end.0 as usize]
     }
 
     /// Get the next index of the clip chain roots list.
@@ -193,14 +189,16 @@ enum HitTestRegion {
 impl HitTestRegion {
     pub fn contains(&self, point: &LayoutPoint) -> bool {
         match *self {
-            HitTestRegion::Rectangle(ref rectangle, ClipMode::Clip) =>
-                rectangle.contains(*point),
-            HitTestRegion::Rectangle(ref rectangle, ClipMode::ClipOut) =>
-                !rectangle.contains(*point),
-            HitTestRegion::RoundedRectangle(rect, radii, ClipMode::Clip) =>
-                rounded_rectangle_contains_point(point, &rect, &radii),
-            HitTestRegion::RoundedRectangle(rect, radii, ClipMode::ClipOut) =>
-                !rounded_rectangle_contains_point(point, &rect, &radii),
+            HitTestRegion::Rectangle(ref rectangle, ClipMode::Clip) => rectangle.contains(*point),
+            HitTestRegion::Rectangle(ref rectangle, ClipMode::ClipOut) => {
+                !rectangle.contains(*point)
+            }
+            HitTestRegion::RoundedRectangle(rect, radii, ClipMode::Clip) => {
+                rounded_rectangle_contains_point(point, &rect, &radii)
+            }
+            HitTestRegion::RoundedRectangle(rect, radii, ClipMode::ClipOut) => {
+                !rounded_rectangle_contains_point(point, &rect, &radii)
+            }
             HitTestRegion::Invalid => true,
         }
     }
@@ -228,11 +226,7 @@ impl HitTester {
             clip_chains: Vec::new(),
             pipeline_root_nodes: FastHashMap::default(),
         };
-        hit_tester.read_clip_scroll_tree(
-            clip_scroll_tree,
-            clip_store,
-            clip_data_store,
-        );
+        hit_tester.read_clip_scroll_tree(clip_scroll_tree, clip_store, clip_data_store);
         hit_tester
     }
 
@@ -245,13 +239,16 @@ impl HitTester {
         self.spatial_nodes.clear();
         self.clip_chains.clear();
 
-        self.spatial_nodes.reserve(clip_scroll_tree.spatial_nodes.len());
+        self.spatial_nodes
+            .reserve(clip_scroll_tree.spatial_nodes.len());
         for (index, node) in clip_scroll_tree.spatial_nodes.iter().enumerate() {
             let index = SpatialNodeIndex::new(index);
 
             // If we haven't already seen a node for this pipeline, record this one as the root
             // node.
-            self.pipeline_root_nodes.entry(node.pipeline_id).or_insert(index);
+            self.pipeline_root_nodes
+                .entry(node.pipeline_id)
+                .or_insert(index);
 
             //TODO: avoid inverting more than necessary:
             //  - if the coordinate system is non-invertible, no need to try any of these concrete transforms
@@ -286,7 +283,7 @@ impl HitTester {
         &self,
         point: WorldPoint,
         clip_chain_id: HitTestClipChainId,
-        test: &mut HitTest
+        test: &mut HitTest,
     ) -> bool {
         if clip_chain_id == HitTestClipChainId::NONE {
             return true;
@@ -297,11 +294,8 @@ impl HitTester {
         }
 
         let descriptor = &self.clip_chains[clip_chain_id.0 as usize];
-        let parent_clipped_in = self.is_point_clipped_in_for_clip_chain(
-            point,
-            descriptor.parent_clip_chain_id,
-            test,
-        );
+        let parent_clipped_in =
+            self.is_point_clipped_in_for_clip_chain(point, descriptor.parent_clip_chain_id, test);
 
         if !parent_clipped_in {
             test.set_in_clip_chain_cache(clip_chain_id, ClippedIn::NotClippedIn);
@@ -327,33 +321,34 @@ impl HitTester {
         point: WorldPoint,
         clip_chain_node_id: HitTestClipChainId,
         spatial_node_index: SpatialNodeIndex,
-        test: &mut HitTest
+        test: &mut HitTest,
     ) -> bool {
         if let Some(clipped_in) = test.node_cache.get(&clip_chain_node_id) {
             return *clipped_in == ClippedIn::ClippedIn;
         }
 
         let node = &self.clip_chains[clip_chain_node_id.0 as usize].region;
-        let transform = self
-            .spatial_nodes[spatial_node_index.0 as usize]
-            .world_content_transform;
+        let transform = self.spatial_nodes[spatial_node_index.0 as usize].world_content_transform;
         let transformed_point = match transform
             .inverse()
             .and_then(|inverted| inverted.transform_point2d(point))
         {
             Some(point) => point,
             None => {
-                test.node_cache.insert(clip_chain_node_id, ClippedIn::NotClippedIn);
+                test.node_cache
+                    .insert(clip_chain_node_id, ClippedIn::NotClippedIn);
                 return false;
             }
         };
 
         if !node.region.contains(&transformed_point) {
-            test.node_cache.insert(clip_chain_node_id, ClippedIn::NotClippedIn);
+            test.node_cache
+                .insert(clip_chain_node_id, ClippedIn::NotClippedIn);
             return false;
         }
 
-        test.node_cache.insert(clip_chain_node_id, ClippedIn::ClippedIn);
+        test.node_cache
+            .insert(clip_chain_node_id, ClippedIn::ClippedIn);
         true
     }
 
@@ -424,7 +419,7 @@ impl HitTester {
             let pipeline_id = scroll_node.pipeline_id;
             match (test.pipeline_id, pipeline_id) {
                 (Some(id), node_id) if node_id != id => continue,
-                _ => {},
+                _ => {}
             }
 
             // Update the cached point in layer space, if the spatial node
@@ -463,7 +458,9 @@ impl HitTester {
                 }
 
                 // Don't hit items with backface-visibility:hidden if they are facing the back.
-                if !item.is_backface_visible && scroll_node.world_content_transform.is_backface_visible() {
+                if !item.is_backface_visible
+                    && scroll_node.world_content_transform.is_backface_visible()
+                {
                     continue;
                 }
 
@@ -523,11 +520,7 @@ pub struct HitTest {
 }
 
 impl HitTest {
-    pub fn new(
-        pipeline_id: Option<PipelineId>,
-        point: WorldPoint,
-        flags: HitTestFlags,
-    ) -> HitTest {
+    pub fn new(pipeline_id: Option<PipelineId>, point: WorldPoint, flags: HitTestFlags) -> HitTest {
         HitTest {
             pipeline_id,
             point,
@@ -555,20 +548,21 @@ impl HitTest {
     }
 
     fn get_absolute_point(&self, hit_tester: &HitTester) -> WorldPoint {
-        if !self.flags.contains(HitTestFlags::POINT_RELATIVE_TO_PIPELINE_VIEWPORT) {
+        if !self
+            .flags
+            .contains(HitTestFlags::POINT_RELATIVE_TO_PIPELINE_VIEWPORT)
+        {
             return self.point;
         }
 
         let point = LayoutPoint::new(self.point.x, self.point.y);
         self.pipeline_id
-            .and_then(|id|
+            .and_then(|id| {
                 hit_tester
                     .get_pipeline_root(id)
                     .world_viewport_transform
                     .transform_point2d(point)
-            )
-            .unwrap_or_else(|| {
-                WorldPoint::new(self.point.x, self.point.y)
             })
+            .unwrap_or_else(|| WorldPoint::new(self.point.x, self.point.y))
     }
 }

@@ -11,7 +11,7 @@ use crate::gpu_cache::GpuCache;
 use crate::intern;
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::picture::{SubpixelMode, SurfaceInfo};
-use crate::prim_store::{PrimitiveOpacity, PrimitiveSceneData,  PrimitiveScratchBuffer};
+use crate::prim_store::{PrimitiveOpacity, PrimitiveSceneData, PrimitiveScratchBuffer};
 use crate::prim_store::{PrimitiveStore, PrimKeyCommonData, PrimTemplateCommonData};
 use crate::render_task_graph::RenderTaskGraph;
 use crate::renderer::{MAX_VERTEX_TEXTURE_WIDTH};
@@ -36,14 +36,9 @@ pub struct TextRunKey {
 }
 
 impl TextRunKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        text_run: TextRun,
-    ) -> Self {
+    pub fn new(info: &LayoutPrimitiveInfo, text_run: TextRun) -> Self {
         TextRunKey {
-            common: PrimKeyCommonData::with_info(
-                info,
-            ),
+            common: PrimKeyCommonData::with_info(info),
             font: text_run.font,
             glyphs: PrimaryArc(text_run.glyphs),
             shadow: text_run.shadow,
@@ -92,20 +87,17 @@ impl TextRunTemplate {
     /// times per frame, by each primitive reference that refers to this interned
     /// template. The initial request call to the GPU cache ensures that work is only
     /// done if the cache entry is invalid (due to first use or eviction).
-    pub fn update(
-        &mut self,
-        frame_state: &mut FrameBuildingState,
-    ) {
+    pub fn update(&mut self, frame_state: &mut FrameBuildingState) {
         self.write_prim_gpu_blocks(frame_state);
         self.opacity = PrimitiveOpacity::translucent();
     }
 
-    fn write_prim_gpu_blocks(
-        &mut self,
-        frame_state: &mut FrameBuildingState,
-    ) {
+    fn write_prim_gpu_blocks(&mut self, frame_state: &mut FrameBuildingState) {
         // corresponds to `fetch_glyph` in the shaders
-        if let Some(mut request) = frame_state.gpu_cache.request(&mut self.common.gpu_cache_handle) {
+        if let Some(mut request) = frame_state
+            .gpu_cache
+            .request(&mut self.common.gpu_cache_handle)
+        {
             request.push(ColorF::from(self.font.color).premultiplied());
             // this is the only case where we need to provide plain color to GPU
             let bg_color = ColorF::from(self.font.bg_color);
@@ -155,14 +147,8 @@ impl intern::Internable for TextRun {
 }
 
 impl InternablePrimitive for TextRun {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> TextRunKey {
-        TextRunKey::new(
-            info,
-            self,
-        )
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> TextRunKey {
+        TextRunKey::new(info, self)
     }
 
     fn make_instance_kind(
@@ -180,7 +166,10 @@ impl InternablePrimitive for TextRun {
             raster_space: RasterSpace::Screen,
         });
 
-        PrimitiveInstanceKind::TextRun{ data_handle, run_index }
+        PrimitiveInstanceKind::TextRun {
+            data_handle,
+            run_index,
+        }
     }
 }
 
@@ -240,13 +229,17 @@ impl TextRunPrimitive {
         let raster_scale = raster_space.local_scale().unwrap_or(1.0).max(0.001);
 
         // Get the current font size in device pixels
-        let mut device_font_size = specified_font.size.scale_by(surface.device_pixel_scale.0 * raster_scale);
+        let mut device_font_size = specified_font
+            .size
+            .scale_by(surface.device_pixel_scale.0 * raster_scale);
 
         // Check there is a valid transform that doesn't exceed the font size limit.
         // Ensure the font is supposed to be rasterized in screen-space.
         // Only support transforms that can be coerced to simple 2D transforms.
-        let (transform_glyphs, oversized) = if raster_space != RasterSpace::Screen ||
-            transform.has_perspective_component() || !transform.has_2d_inverse() {
+        let (transform_glyphs, oversized) = if raster_space != RasterSpace::Screen
+            || transform.has_perspective_component()
+            || !transform.has_2d_inverse()
+        {
             (false, device_font_size.to_f64_px() > FONT_SIZE_LIMIT)
         } else if transform.exceeds_2d_scale(FONT_SIZE_LIMIT / device_font_size.to_f64_px()) {
             (false, true)
@@ -300,8 +293,7 @@ impl TextRunPrimitive {
         // If the transform or device size is different, then the caller of
         // this method needs to know to rebuild the glyphs.
         let cache_dirty =
-            self.used_font.transform != font_transform ||
-            self.used_font.size != device_font_size;
+            self.used_font.transform != font_transform || self.used_font.size != device_font_size;
 
         // Construct used font instance from the specified font instance
         self.used_font = FontInstance {
@@ -361,13 +353,12 @@ impl TextRunPrimitive {
         if self.glyph_keys_range.is_empty() || cache_dirty {
             let subpx_dir = self.used_font.get_subpx_dir();
 
-            self.glyph_keys_range = scratch.glyph_keys.extend(
-                glyphs.iter().map(|src| {
-                    let src_point = src.point + prim_offset;
-                    let world_offset = self.used_font.transform.transform(&src_point);
-                    let device_offset = surface.device_pixel_scale.transform_point(world_offset);
-                    GlyphKey::new(src.index, device_offset, subpx_dir)
-                }));
+            self.glyph_keys_range = scratch.glyph_keys.extend(glyphs.iter().map(|src| {
+                let src_point = src.point + prim_offset;
+                let world_offset = self.used_font.transform.transform(&src_point);
+                let device_offset = surface.device_pixel_scale.transform_point(world_offset);
+                GlyphKey::new(src.index, device_offset, subpx_dir)
+            }));
         }
 
         resource_cache.request_glyphs(
@@ -391,7 +382,15 @@ fn test_struct_sizes() {
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<TextRun>(), 56, "TextRun size changed");
-    assert_eq!(mem::size_of::<TextRunTemplate>(), 72, "TextRunTemplate size changed");
+    assert_eq!(
+        mem::size_of::<TextRunTemplate>(),
+        72,
+        "TextRunTemplate size changed"
+    );
     assert_eq!(mem::size_of::<TextRunKey>(), 64, "TextRunKey size changed");
-    assert_eq!(mem::size_of::<TextRunPrimitive>(), 80, "TextRunPrimitive size changed");
+    assert_eq!(
+        mem::size_of::<TextRunPrimitive>(),
+        80,
+        "TextRunPrimitive size changed"
+    );
 }

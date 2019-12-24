@@ -29,7 +29,7 @@ macro_rules! try_intersect {
             warn!("skipping item with non-intersecting bounds and clip_rect");
             return;
         };
-    }
+    };
 }
 
 fn rsrc_path(item: &Yaml, aux_dir: &PathBuf) -> PathBuf {
@@ -85,8 +85,16 @@ impl LocalExternalImageHandler {
         gl.bind_texture(gl_target, id);
         gl.tex_parameter_i(gl_target, gl::TEXTURE_MAG_FILTER, gl::LINEAR as gl::GLint);
         gl.tex_parameter_i(gl_target, gl::TEXTURE_MIN_FILTER, gl::LINEAR as gl::GLint);
-        gl.tex_parameter_i(gl_target, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as gl::GLint);
-        gl.tex_parameter_i(gl_target, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as gl::GLint);
+        gl.tex_parameter_i(
+            gl_target,
+            gl::TEXTURE_WRAP_S,
+            gl::CLAMP_TO_EDGE as gl::GLint,
+        );
+        gl.tex_parameter_i(
+            gl_target,
+            gl::TEXTURE_WRAP_T,
+            gl::CLAMP_TO_EDGE as gl::GLint,
+        );
         gl.tex_image_2d(
             gl_target,
             0,
@@ -101,7 +109,8 @@ impl LocalExternalImageHandler {
         gl.bind_texture(gl_target, 0);
     }
 
-    pub fn add_image(&mut self,
+    pub fn add_image(
+        &mut self,
         device: &webrender::Device,
         desc: ImageDescriptor,
         target: TextureTarget,
@@ -124,17 +133,15 @@ impl LocalExternalImageHandler {
                 );
                 self.texture_ids.push((texture_ids[0], desc));
                 (ExternalImageId((self.texture_ids.len() - 1) as u64), 0)
-            },
+            }
             _ => panic!("unsupported!"),
         };
 
-        ImageData::External(
-            ExternalImageData {
-                id: image_id,
-                channel_index: channel_idx,
-                image_type: ExternalImageType::TextureHandle(target)
-            }
-        )
+        ImageData::External(ExternalImageData {
+            id: image_id,
+            channel_index: channel_idx,
+            image_type: ExternalImageType::TextureHandle(target),
+        })
     }
 }
 
@@ -196,8 +203,7 @@ fn generate_checkerboard_image(
 
     for y in 0 .. height {
         for x in 0 .. width {
-            if y < border || y >= (height - border) ||
-               x < border || x >= (width - border) {
+            if y < border || y >= (height - border) || x < border || x >= (width - border) {
                 pixels.push(0);
                 pixels.push(0);
                 pixels.push(0xff);
@@ -226,7 +232,12 @@ fn generate_checkerboard_image(
     }
 
     (
-        ImageDescriptor::new(width as i32, height as i32, ImageFormat::BGRA8, ImageDescriptorFlags::IS_OPAQUE),
+        ImageDescriptor::new(
+            width as i32,
+            height as i32,
+            ImageFormat::BGRA8,
+            ImageDescriptorFlags::IS_OPAQUE,
+        ),
         ImageData::new(pixels),
     )
 }
@@ -244,7 +255,12 @@ fn generate_xy_gradient_image(w: u32, h: u32) -> (ImageDescriptor, ImageData) {
     }
 
     (
-        ImageDescriptor::new(w as i32, h as i32, ImageFormat::BGRA8, ImageDescriptorFlags::IS_OPAQUE),
+        ImageDescriptor::new(
+            w as i32,
+            h as i32,
+            ImageFormat::BGRA8,
+            ImageDescriptorFlags::IS_OPAQUE,
+        ),
         ImageData::new(pixels),
     )
 }
@@ -284,12 +300,9 @@ fn generate_solid_color_image(
     )
 }
 
-
-
 fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
     match format {
-        ImageFormat::BGRA8 |
-        ImageFormat::RGBA8 => {
+        ImageFormat::BGRA8 | ImageFormat::RGBA8 => {
             let mut is_opaque = true;
             for i in 0 .. (bytes.len() / 4) {
                 if bytes[i * 4 + 3] != 255 {
@@ -303,8 +316,7 @@ fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
         ImageFormat::RG16 => true,
         ImageFormat::R8 => false,
         ImageFormat::R16 => false,
-        ImageFormat::RGBAF32 |
-        ImageFormat::RGBAI32 => unreachable!(),
+        ImageFormat::RGBAF32 | ImageFormat::RGBAI32 => unreachable!(),
     }
 }
 
@@ -327,7 +339,16 @@ pub struct YamlFrameReader {
     image_map: HashMap<(PathBuf, Option<i64>), (ImageKey, LayoutSize)>,
 
     fonts: HashMap<FontDescriptor, FontKey>,
-    font_instances: HashMap<(FontKey, Au, FontInstanceFlags, Option<ColorU>, SyntheticItalics), FontInstanceKey>,
+    font_instances: HashMap<
+        (
+            FontKey,
+            Au,
+            FontInstanceFlags,
+            Option<ColorU>,
+            SyntheticItalics,
+        ),
+        FontInstanceKey,
+    >,
     font_render_mode: Option<FontRenderMode>,
     allow_mipmaps: bool,
 
@@ -417,7 +438,8 @@ impl YamlFrameReader {
         });
         y.list_resources = args.is_present("list-resources");
         y.watch_source = args.is_present("watch");
-        y.include_only = args.values_of("include")
+        y.include_only = args
+            .values_of("include")
             .map(|v| v.map(|s| s.to_owned()).collect())
             .unwrap_or(vec![]);
         y
@@ -429,8 +451,8 @@ impl YamlFrameReader {
     }
 
     fn build(&mut self, wrench: &mut Wrench) {
-        let mut yaml_doc = YamlLoader::load_from_str(&self.yaml_string)
-            .expect("Failed to parse YAML file");
+        let mut yaml_doc =
+            YamlLoader::load_from_str(&self.yaml_string).expect("Failed to parse YAML file");
         assert_eq!(yaml_doc.len(), 1);
 
         self.reset();
@@ -449,23 +471,21 @@ impl YamlFrameReader {
         // If replaying the same frame during interactive use, the frame gets rebuilt,
         // but the external image handler has already been consumed by the renderer.
         if let Some(external_image_handler) = self.external_image_handler.take() {
-            wrench.renderer.set_external_image_handler(external_image_handler);
+            wrench
+                .renderer
+                .set_external_image_handler(external_image_handler);
         }
     }
 
-    fn build_pipeline(
-        &mut self,
-        wrench: &mut Wrench,
-        pipeline_id: PipelineId,
-        yaml: &Yaml
-    ) {
+    fn build_pipeline(&mut self, wrench: &mut Wrench, pipeline_id: PipelineId, yaml: &Yaml) {
         // Don't allow referencing clips between pipelines for now.
         self.user_clip_id_map.clear();
         self.user_spatial_id_map.clear();
         self.clip_id_stack.clear();
         self.clip_id_stack.push(ClipId::root(pipeline_id));
         self.spatial_id_stack.clear();
-        self.spatial_id_stack.push(SpatialId::root_scroll_node(pipeline_id));
+        self.spatial_id_stack
+            .push(SpatialId::root_scroll_node(pipeline_id));
 
         let content_size = self.get_root_size_from_yaml(wrench, yaml);
         let mut builder = DisplayListBuilder::new(pipeline_id, content_size);
@@ -490,9 +510,7 @@ impl YamlFrameReader {
         let radius = item["radius"]
             .as_border_radius()
             .unwrap_or(BorderRadius::zero());
-        let mode = item["clip-mode"]
-            .as_clip_mode()
-            .unwrap_or(ClipMode::Clip);
+        let mode = item["clip-mode"].as_clip_mode().unwrap_or(ClipMode::Clip);
         ComplexClipRegion::new(rect, radius, mode)
     }
 
@@ -523,8 +541,9 @@ impl YamlFrameReader {
     fn to_clip_id(&self, item: &Yaml, pipeline_id: PipelineId) -> Option<ClipId> {
         match *item {
             Yaml::Integer(value) => Some(self.user_clip_id_map[&(value as u64)]),
-            Yaml::String(ref id_string) if id_string == "root_clip" =>
-                Some(ClipId::root(pipeline_id)),
+            Yaml::String(ref id_string) if id_string == "root_clip" => {
+                Some(ClipId::root(pipeline_id))
+            }
             _ => None,
         }
     }
@@ -532,10 +551,12 @@ impl YamlFrameReader {
     fn to_spatial_id(&self, item: &Yaml, pipeline_id: PipelineId) -> SpatialId {
         match *item {
             Yaml::Integer(value) => self.user_spatial_id_map[&(value as u64)],
-            Yaml::String(ref id_string) if id_string == "root-reference-frame" =>
-                SpatialId::root_reference_frame(pipeline_id),
-            Yaml::String(ref id_string) if id_string == "root-scroll-node" =>
-                SpatialId::root_scroll_node(pipeline_id),
+            Yaml::String(ref id_string) if id_string == "root-reference-frame" => {
+                SpatialId::root_reference_frame(pipeline_id)
+            }
+            Yaml::String(ref id_string) if id_string == "root-scroll-node" => {
+                SpatialId::root_scroll_node(pipeline_id)
+            }
             _ => {
                 println!("Unable to parse SpatialId {:?}", item);
                 SpatialId::root_reference_frame(pipeline_id)
@@ -549,7 +570,10 @@ impl YamlFrameReader {
     }
 
     fn add_spatial_id_mapping(&mut self, numeric_id: u64, real_id: SpatialId) {
-        assert_ne!(numeric_id, 0, "id=0 is reserved for the root reference frame");
+        assert_ne!(
+            numeric_id, 0,
+            "id=0 is reserved for the root reference frame"
+        );
         assert_ne!(numeric_id, 1, "id=1 is reserved for the root scroll node");
         self.user_spatial_id_map.insert(numeric_id, real_id);
     }
@@ -557,7 +581,7 @@ impl YamlFrameReader {
     fn to_clip_and_scroll_info(
         &self,
         item: &Yaml,
-        pipeline_id: PipelineId
+        pipeline_id: PipelineId,
     ) -> (Option<ClipId>, Option<SpatialId>) {
         // Note: this is tricky. In the old code the single ID could be used either way
         // for clip/scroll. In the new code we are trying to reflect that and not break
@@ -584,14 +608,13 @@ impl YamlFrameReader {
                 (Some(clip_id), None)
             }
             Yaml::Integer(value) => {
-                let scroll_id = self.user_spatial_id_map
-                    .get(&(value as u64))
-                    .cloned();
-                let clip_id = self.user_clip_id_map
-                    .get(&(value as u64))
-                    .cloned();
-                assert!(scroll_id.is_some() || clip_id.is_some(),
-                    "clip-and-scroll index not found: {}", value);
+                let scroll_id = self.user_spatial_id_map.get(&(value as u64)).cloned();
+                let clip_id = self.user_clip_id_map.get(&(value as u64)).cloned();
+                assert!(
+                    scroll_id.is_some() || clip_id.is_some(),
+                    "clip-and-scroll index not found: {}",
+                    value
+                );
                 (clip_id, scroll_id)
             }
             _ => {
@@ -611,7 +634,6 @@ impl YamlFrameReader {
             }
             _ => None,
         }
-
     }
 
     fn add_or_get_image(
@@ -626,14 +648,14 @@ impl YamlFrameReader {
             return *k;
         }
 
-        if self.list_resources { println!("{}", file.to_string_lossy()); }
+        if self.list_resources {
+            println!("{}", file.to_string_lossy());
+        }
         let (descriptor, image_data) = match image::open(file) {
             Ok(image) => {
                 let (image_width, image_height) = image.dimensions();
                 let (format, bytes) = match image {
-                    image::ImageLuma8(_) => {
-                        (ImageFormat::R8, image.raw_pixels())
-                    }
+                    image::ImageLuma8(_) => (ImageFormat::R8, image.raw_pixels()),
                     image::ImageRgba8(_) => {
                         let mut pixels = image.raw_pixels();
                         premultiply(pixels.as_mut_slice());
@@ -641,14 +663,10 @@ impl YamlFrameReader {
                     }
                     image::ImageRgb8(_) => {
                         let bytes = image.raw_pixels();
-                        let mut pixels = Vec::with_capacity(image_width as usize * image_height as usize * 4);
+                        let mut pixels =
+                            Vec::with_capacity(image_width as usize * image_height as usize * 4);
                         for bgr in bytes.chunks(3) {
-                            pixels.extend_from_slice(&[
-                                bgr[2],
-                                bgr[1],
-                                bgr[0],
-                                0xff
-                            ]);
+                            pixels.extend_from_slice(&[bgr[2], bgr[1], bgr[0], 0xff]);
                         }
                         (ImageFormat::BGRA8, pixels)
                     }
@@ -661,12 +679,8 @@ impl YamlFrameReader {
                 if self.allow_mipmaps {
                     flags |= ImageDescriptorFlags::ALLOW_MIPMAPS;
                 }
-                let descriptor = ImageDescriptor::new(
-                    image_width as i32,
-                    image_height as i32,
-                    format,
-                    flags,
-                );
+                let descriptor =
+                    ImageDescriptor::new(image_width as i32, image_height as i32, format, flags);
                 let data = ImageData::new(bytes);
                 (descriptor, data)
             }
@@ -693,8 +707,8 @@ impl YamlFrameReader {
                         args.get(4).unwrap_or(&"1000").parse::<u32>().unwrap(),
                         args.get(5).unwrap_or(&"1000").parse::<u32>().unwrap(),
                     ),
-                    (name @ "transparent-checkerboard", args, _) |
-                    (name @ "checkerboard", args, _) => {
+                    (name @ "transparent-checkerboard", args, _)
+                    | (name @ "checkerboard", args, _) => {
                         let border = args.get(0).unwrap_or(&"4").parse::<u32>().unwrap();
 
                         let (x_size, y_size, x_count, y_count) = match args.len() {
@@ -721,14 +735,7 @@ impl YamlFrameReader {
                             CheckerboardKind::BlackGrey
                         };
 
-                        generate_checkerboard_image(
-                            border,
-                            x_size,
-                            y_size,
-                            x_count,
-                            y_count,
-                            kind,
-                        )
+                        generate_checkerboard_image(border, x_size, y_size, x_count, y_count, kind)
                     }
                     _ => {
                         panic!("Failed to load image {:?}", file.to_str());
@@ -750,19 +757,16 @@ impl YamlFrameReader {
                     "array" => TextureTarget::Array,
                     "rect" => TextureTarget::Rect,
                     _ => panic!("Unsupported external texture target."),
-                }
-                None => {
-                    TextureTarget::Default
-                }
+                },
+                None => TextureTarget::Default,
             };
 
-            let external_image_data =
-                self.external_image_handler.as_mut().unwrap().add_image(
-                    &wrench.renderer.device,
-                    descriptor,
-                    external_target,
-                    image_data
-                );
+            let external_image_data = self.external_image_handler.as_mut().unwrap().add_image(
+                &wrench.renderer.device,
+                descriptor,
+                external_target,
+                image_data,
+            );
             txn.add_image(image_key, descriptor, external_image_data, tiling);
         } else {
             txn.add_image(image_key, descriptor, image_data, tiling);
@@ -779,14 +783,17 @@ impl YamlFrameReader {
 
     fn get_or_create_font(&mut self, desc: FontDescriptor, wrench: &mut Wrench) -> FontKey {
         let list_resources = self.list_resources;
-        *self.fonts
+        *self
+            .fonts
             .entry(desc.clone())
             .or_insert_with(|| match desc {
                 FontDescriptor::Path {
                     ref path,
                     font_index,
                 } => {
-                    if list_resources { println!("{}", path.to_string_lossy()); }
+                    if list_resources {
+                        println!("{}", path.to_string_lossy());
+                    }
                     let mut file = File::open(path).expect("Couldn't open font file");
                     let mut bytes = vec![];
                     file.read_to_end(&mut bytes)
@@ -822,7 +829,8 @@ impl YamlFrameReader {
     ) -> FontInstanceKey {
         let font_render_mode = self.font_render_mode;
 
-        *self.font_instances
+        *self
+            .font_instances
             .entry((font_key, size, flags, bg_color, synthetic_italics))
             .or_insert_with(|| {
                 wrench.add_font_instance(
@@ -877,15 +885,13 @@ impl YamlFrameReader {
             .as_vec()
             .expect("gradient must have stops")
             .chunks(2)
-            .map(|chunk| {
-                GradientStop {
-                    offset: chunk[0]
-                        .as_force_f32()
-                        .expect("gradient stop offset is not f32"),
-                    color: chunk[1]
-                        .as_colorf()
-                        .expect("gradient stop color is not color"),
-                }
+            .map(|chunk| GradientStop {
+                offset: chunk[0]
+                    .as_force_f32()
+                    .expect("gradient stop offset is not f32"),
+                color: chunk[1]
+                    .as_colorf()
+                    .expect("gradient stop color is not color"),
             })
             .collect::<Vec<_>>();
         let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
@@ -898,21 +904,23 @@ impl YamlFrameReader {
     }
 
     fn to_radial_gradient(&mut self, dl: &mut DisplayListBuilder, item: &Yaml) -> RadialGradient {
-        let center = item["center"].as_point().expect("radial gradient must have center");
-        let radius = item["radius"].as_size().expect("radial gradient must have a radius");
+        let center = item["center"]
+            .as_point()
+            .expect("radial gradient must have center");
+        let radius = item["radius"]
+            .as_size()
+            .expect("radial gradient must have a radius");
         let stops = item["stops"]
             .as_vec()
             .expect("radial gradient must have stops")
             .chunks(2)
-            .map(|chunk| {
-                GradientStop {
-                    offset: chunk[0]
-                        .as_force_f32()
-                        .expect("gradient stop offset is not f32"),
-                    color: chunk[1]
-                        .as_colorf()
-                        .expect("gradient stop color is not color"),
-                }
+            .map(|chunk| GradientStop {
+                offset: chunk[0]
+                    .as_force_f32()
+                    .expect("gradient stop offset is not f32"),
+                color: chunk[1]
+                    .as_colorf()
+                    .expect("gradient stop color is not color"),
             })
             .collect::<Vec<_>>();
         let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
@@ -936,10 +944,7 @@ impl YamlFrameReader {
             "bounds"
         };
 
-        info.clip_rect = try_intersect!(
-            self.resolve_rect(&item[bounds_key]),
-            &info.clip_rect
-        );
+        info.clip_rect = try_intersect!(self.resolve_rect(&item[bounds_key]), &info.clip_rect);
 
         let color = self.resolve_colorf(&item["color"], ColorF::BLACK);
         dl.push_rect(&info, color);
@@ -952,7 +957,9 @@ impl YamlFrameReader {
         info: &mut CommonItemProperties,
     ) {
         info.clip_rect = try_intersect!(
-            item["bounds"].as_rect().expect("clear-rect type must have bounds"),
+            item["bounds"]
+                .as_rect()
+                .expect("clear-rect type must have bounds"),
             &info.clip_rect
         );
         dl.push_clear_rect(&info);
@@ -965,7 +972,9 @@ impl YamlFrameReader {
         info: &mut CommonItemProperties,
     ) {
         info.clip_rect = try_intersect!(
-            item["bounds"].as_rect().expect("hit-test type must have bounds"),
+            item["bounds"]
+                .as_rect()
+                .expect("hit-test type must have bounds"),
             &info.clip_rect
         );
 
@@ -989,7 +998,9 @@ impl YamlFrameReader {
             .expect("line must have style");
 
         let wavy_line_thickness = if let LineStyle::Wavy = style {
-            item["thickness"].as_f32().expect("wavy lines must have a thickness")
+            item["thickness"]
+                .as_f32()
+                .expect("wavy lines must have a thickness")
         } else {
             0.0
         };
@@ -1013,14 +1024,14 @@ impl YamlFrameReader {
             let width = item["width"].as_f32().expect("line must have width");
 
             area = match orientation {
-                LineOrientation::Horizontal => {
-                    LayoutRect::new(LayoutPoint::new(start, baseline),
-                                    LayoutSize::new(end - start, width))
-                }
-                LineOrientation::Vertical => {
-                    LayoutRect::new(LayoutPoint::new(baseline, start),
-                                    LayoutSize::new(width, end - start))
-                }
+                LineOrientation::Horizontal => LayoutRect::new(
+                    LayoutPoint::new(start, baseline),
+                    LayoutSize::new(end - start, width),
+                ),
+                LineOrientation::Vertical => LayoutRect::new(
+                    LayoutPoint::new(baseline, start),
+                    LayoutSize::new(width, end - start),
+                ),
             };
         }
 
@@ -1053,13 +1064,7 @@ impl YamlFrameReader {
         let tile_size = item["tile-size"].as_size().unwrap_or(bounds.size);
         let tile_spacing = item["tile-spacing"].as_size().unwrap_or(LayoutSize::zero());
 
-        dl.push_gradient(
-            &info,
-            bounds,
-            gradient,
-            tile_size,
-            tile_spacing
-        );
+        dl.push_gradient(&info, bounds, gradient, tile_size, tile_spacing);
     }
 
     fn handle_radial_gradient(
@@ -1080,13 +1085,7 @@ impl YamlFrameReader {
         let tile_size = item["tile-size"].as_size().unwrap_or(bounds.size);
         let tile_spacing = item["tile-spacing"].as_size().unwrap_or(LayoutSize::zero());
 
-        dl.push_radial_gradient(
-            &info,
-            bounds,
-            gradient,
-            tile_size,
-            tile_spacing,
-        );
+        dl.push_radial_gradient(&info, bounds, gradient, tile_size, tile_spacing);
     }
 
     fn handle_border(
@@ -1101,7 +1100,9 @@ impl YamlFrameReader {
         } else {
             "bounds"
         };
-        let bounds = item[bounds_key].as_rect().expect("borders must have bounds");
+        let bounds = item[bounds_key]
+            .as_rect()
+            .expect("borders must have bounds");
         let widths = item["width"]
             .as_vec_f32()
             .expect("borders must have width(s)");
@@ -1179,38 +1180,38 @@ impl YamlFrameReader {
                     let slice = item["slice"].as_vec_u32();
                     let slice = match slice {
                         Some(slice) => broadcast(&slice, 4),
-                        None => vec![widths.top as u32, widths.left as u32, widths.bottom as u32, widths.right as u32],
+                        None => vec![
+                            widths.top as u32,
+                            widths.left as u32,
+                            widths.bottom as u32,
+                            widths.right as u32,
+                        ],
                     };
 
                     let outset = item["outset"]
                         .as_vec_f32()
                         .expect("border must have outset");
                     let outset = broadcast(&outset, 4);
-                    let repeat_horizontal = match item["repeat-horizontal"]
-                        .as_str()
-                        .unwrap_or("stretch")
-                    {
-                        "stretch" => RepeatMode::Stretch,
-                        "repeat" => RepeatMode::Repeat,
-                        "round" => RepeatMode::Round,
-                        "space" => RepeatMode::Space,
-                        s => panic!("Unknown box border image repeat mode {}", s),
-                    };
-                    let repeat_vertical = match item["repeat-vertical"]
-                        .as_str()
-                        .unwrap_or("stretch")
-                    {
-                        "stretch" => RepeatMode::Stretch,
-                        "repeat" => RepeatMode::Repeat,
-                        "round" => RepeatMode::Round,
-                        "space" => RepeatMode::Space,
-                        s => panic!("Unknown box border image repeat mode {}", s),
-                    };
+                    let repeat_horizontal =
+                        match item["repeat-horizontal"].as_str().unwrap_or("stretch") {
+                            "stretch" => RepeatMode::Stretch,
+                            "repeat" => RepeatMode::Repeat,
+                            "round" => RepeatMode::Round,
+                            "space" => RepeatMode::Space,
+                            s => panic!("Unknown box border image repeat mode {}", s),
+                        };
+                    let repeat_vertical =
+                        match item["repeat-vertical"].as_str().unwrap_or("stretch") {
+                            "stretch" => RepeatMode::Stretch,
+                            "repeat" => RepeatMode::Repeat,
+                            "round" => RepeatMode::Round,
+                            "space" => RepeatMode::Space,
+                            s => panic!("Unknown box border image repeat mode {}", s),
+                        };
                     let source = match border_type {
                         "image" => {
                             let file = rsrc_path(&item["image-source"], &self.aux_dir);
-                            let (image_key, _) = self
-                                .add_or_get_image(&file, None, item, wrench);
+                            let (image_key, _) = self.add_or_get_image(&file, None, item, wrench);
                             NinePatchBorderSource::Image(image_key)
                         }
                         "gradient" => {
@@ -1220,7 +1221,6 @@ impl YamlFrameReader {
                         "radial-gradient" => {
                             let gradient = self.to_radial_gradient(dl, item);
                             NinePatchBorderSource::RadialGradient(gradient)
-
                         }
                         _ => unreachable!("Unexpected border type"),
                     };
@@ -1229,7 +1229,12 @@ impl YamlFrameReader {
                         source,
                         width: image_width as i32,
                         height: image_height as i32,
-                        slice: SideOffsets2D::new(slice[0] as i32, slice[1] as i32, slice[2] as i32, slice[3] as i32),
+                        slice: SideOffsets2D::new(
+                            slice[0] as i32,
+                            slice[1] as i32,
+                            slice[2] as i32,
+                            slice[3] as i32,
+                        ),
                         fill,
                         repeat_horizontal,
                         repeat_vertical,
@@ -1366,14 +1371,13 @@ impl YamlFrameReader {
         info: &mut CommonItemProperties,
     ) {
         let filename = &item[if item["type"].is_badvalue() {
-                                 "image"
-                             } else {
-                                 "src"
-                             }];
+            "image"
+        } else {
+            "src"
+        }];
         let tiling = item["tile-size"].as_i64();
         let file = rsrc_path(filename, &self.aux_dir);
-        let (image_key, image_dims) =
-            self.add_or_get_image(&file, tiling, item, wrench);
+        let (image_key, image_dims) = self.add_or_get_image(&file, tiling, item, wrench);
 
         let bounds_raws = item["bounds"].as_vec_f32().unwrap();
         let bounds = if bounds_raws.len() == 2 {
@@ -1416,7 +1420,7 @@ impl YamlFrameReader {
                 alpha_type,
                 image_key,
                 ColorF::WHITE,
-           );
+            );
         } else {
             dl.push_repeating_image(
                 &info,
@@ -1427,7 +1431,7 @@ impl YamlFrameReader {
                 alpha_type,
                 image_key,
                 ColorF::WHITE,
-           );
+            );
         }
     }
 
@@ -1473,12 +1477,14 @@ impl YamlFrameReader {
 
         let desc = FontDescriptor::from_yaml(item, &self.aux_dir);
         let font_key = self.get_or_create_font(desc, wrench);
-        let font_instance_key = self.get_or_create_font_instance(font_key,
-                                                                 size,
-                                                                 bg_color,
-                                                                 flags,
-                                                                 synthetic_italics,
-                                                                 wrench);
+        let font_instance_key = self.get_or_create_font_instance(
+            font_key,
+            size,
+            bg_color,
+            flags,
+            synthetic_italics,
+            wrench,
+        );
 
         assert!(
             !(item["glyphs"].is_badvalue() && item["text"].is_badvalue()),
@@ -1520,14 +1526,8 @@ impl YamlFrameReader {
             let origin = item["origin"]
                 .as_point()
                 .expect("origin required for text without glyphs");
-            let (glyph_indices, glyph_positions, bounds) = wrench.layout_simple_ascii(
-                font_key,
-                font_instance_key,
-                text,
-                size,
-                origin,
-                flags,
-            );
+            let (glyph_indices, glyph_positions, bounds) =
+                wrench.layout_simple_ascii(font_key, font_instance_key, text, size, origin, flags);
 
             let glyphs = glyph_indices
                 .iter()
@@ -1543,14 +1543,7 @@ impl YamlFrameReader {
             (glyphs, bounds)
         };
 
-        dl.push_text(
-            &info,
-            rect,
-            &glyphs,
-            font_instance_key,
-            color,
-            None,
-        );
+        dl.push_text(&info, rect, &glyphs, font_instance_key, color, None);
     }
 
     fn handle_iframe(
@@ -1567,10 +1560,10 @@ impl YamlFrameReader {
             info.clip_rect,
             &SpaceAndClipInfo {
                 spatial_id: info.spatial_id,
-                clip_id: info.clip_id
+                clip_id: info.clip_id,
             },
             pipeline_id,
-            ignore
+            ignore,
         );
     }
 
@@ -1613,23 +1606,23 @@ impl YamlFrameReader {
         // A rect that should in practical terms serve as a no-op for clipping
         let full_clip = LayoutRect::new(
             LayoutPoint::new(-big_number / 2.0, -big_number / 2.0),
-            LayoutSize::new(big_number, big_number));
+            LayoutSize::new(big_number, big_number),
+        );
 
         for item in yaml.as_vec().unwrap() {
             let item_type = Self::get_item_type_from_yaml(item);
 
             // We never skip stacking contexts and reference frames because
             // they are structural elements of the display list.
-            if item_type != "stacking-context" &&
-                item_type != "reference-frame" &&
-                self.include_only.contains(&item_type.to_owned()) {
+            if item_type != "stacking-context"
+                && item_type != "reference-frame"
+                && self.include_only.contains(&item_type.to_owned())
+            {
                 continue;
             }
 
-            let (set_clip_id, set_scroll_id) = self.to_clip_and_scroll_info(
-                &item["clip-and-scroll"],
-                dl.pipeline_id
-            );
+            let (set_clip_id, set_scroll_id) =
+                self.to_clip_and_scroll_info(&item["clip-and-scroll"], dl.pipeline_id);
             if let Some(clip_id) = set_clip_id {
                 self.clip_id_stack.push(clip_id);
             }
@@ -1643,7 +1636,7 @@ impl YamlFrameReader {
             let mut pushed_clip = false;
             if let Some(complex_clip) = complex_clip {
                 match item_type {
-                    "clip" | "clip-chain" | "scroll-frame" => {},
+                    "clip" | "clip-chain" | "scroll-frame" => {}
                     _ => {
                         let id = dl.define_clip(
                             &self.top_space_and_clip(),
@@ -1732,16 +1725,19 @@ impl YamlFrameReader {
             .expect("scroll frame must have a bounds");
         let content_size = yaml["content-size"].as_size().unwrap_or(clip_rect.size);
         let content_rect = LayoutRect::new(clip_rect.origin, content_size);
-        let external_scroll_offset = yaml["external-scroll-offset"].as_vector().unwrap_or(LayoutVector2D::zero());
+        let external_scroll_offset = yaml["external-scroll-offset"]
+            .as_vector()
+            .unwrap_or(LayoutVector2D::zero());
 
         let numeric_id = yaml["id"].as_i64().map(|id| id as u64);
 
         let complex_clips = self.to_complex_clip_regions(&yaml["complex"]);
         let image_mask = self.to_image_mask(&yaml["image-mask"], wrench);
 
-        let external_id =  yaml["scroll-offset"].as_point().map(|size| {
+        let external_id = yaml["scroll-offset"].as_point().map(|size| {
             let id = ExternalScrollId((self.scroll_offsets.len() + 1) as u64, dl.pipeline_id);
-            self.scroll_offsets.insert(id, LayoutPoint::new(size.x, size.y));
+            self.scroll_offsets
+                .insert(id, LayoutPoint::new(size.x, size.y));
             id
         });
 
@@ -1775,7 +1771,9 @@ impl YamlFrameReader {
         wrench: &mut Wrench,
         yaml: &Yaml,
     ) {
-        let bounds = yaml["bounds"].as_rect().expect("sticky frame must have a bounds");
+        let bounds = yaml["bounds"]
+            .as_rect()
+            .expect("sticky frame must have a bounds");
         let numeric_id = yaml["id"].as_i64().map(|id| id as u64);
 
         let real_id = dl.define_sticky_frame(
@@ -1789,7 +1787,9 @@ impl YamlFrameReader {
             ),
             self.to_sticky_offset_bounds(&yaml["vertical-offset-bounds"]),
             self.to_sticky_offset_bounds(&yaml["horizontal-offset-bounds"]),
-            yaml["previously-applied-offset"].as_vector().unwrap_or(LayoutVector2D::zero()),
+            yaml["previously-applied-offset"]
+                .as_vector()
+                .unwrap_or(LayoutVector2D::zero()),
         );
 
         if let Some(numeric_id) = numeric_id {
@@ -1803,10 +1803,7 @@ impl YamlFrameReader {
         }
     }
 
-    fn resolve_binding<'a>(
-        &'a self,
-        yaml: &'a Yaml,
-    ) -> &'a Yaml {
+    fn resolve_binding<'a>(&'a self, yaml: &'a Yaml) -> &'a Yaml {
         if let Some(ref keyframes) = self.keyframes {
             if let Some(s) = yaml.as_str() {
                 let prefix: &str = "key(";
@@ -1821,33 +1818,18 @@ impl YamlFrameReader {
         yaml
     }
 
-    fn resolve_colorf(
-        &self,
-        yaml: &Yaml,
-        default: ColorF,
-    ) -> ColorF {
-        self.resolve_binding(yaml)
-            .as_colorf()
-            .unwrap_or(default)
+    fn resolve_colorf(&self, yaml: &Yaml, default: ColorF) -> ColorF {
+        self.resolve_binding(yaml).as_colorf().unwrap_or(default)
     }
 
-    fn resolve_rect(
-        &self,
-        yaml: &Yaml,
-    ) -> LayoutRect {
+    fn resolve_rect(&self, yaml: &Yaml) -> LayoutRect {
         self.resolve_binding(yaml)
             .as_rect()
             .expect(&format!("invalid rect {:?}", yaml))
     }
 
-    fn resolve_vector(
-        &self,
-        yaml: &Yaml,
-        default: LayoutVector2D,
-    ) -> LayoutVector2D {
-        self.resolve_binding(yaml)
-            .as_vector()
-            .unwrap_or(default)
+    fn resolve_vector(&self, yaml: &Yaml, default: LayoutVector2D) -> LayoutVector2D {
+        self.resolve_binding(yaml).as_vector().unwrap_or(default)
     }
 
     fn handle_push_shadow(
@@ -1861,7 +1843,10 @@ impl YamlFrameReader {
         let color = yaml["color"].as_colorf().unwrap_or(ColorF::BLACK);
 
         dl.push_shadow(
-            &SpaceAndClipInfo { spatial_id: info.spatial_id, clip_id: info.clip_id },
+            &SpaceAndClipInfo {
+                spatial_id: info.spatial_id,
+                clip_id: info.clip_id,
+            },
             Shadow {
                 blur_radius,
                 offset,
@@ -1902,12 +1887,7 @@ impl YamlFrameReader {
         let image_mask = self.to_image_mask(&yaml["image-mask"], wrench);
 
         let space_and_clip = self.top_space_and_clip();
-        let real_id = dl.define_clip(
-            &space_and_clip,
-            clip_rect,
-            complex_clips,
-            image_mask,
-        );
+        let real_id = dl.define_clip(&space_and_clip, clip_rect, complex_clips, image_mask);
         if let Some(numeric_id) = numeric_id {
             self.add_clip_id_mapping(numeric_id as u64, real_id);
             self.add_spatial_id_mapping(numeric_id as u64, space_and_clip.spatial_id);
@@ -1953,24 +1933,22 @@ impl YamlFrameReader {
             .unwrap_or(default_transform_origin);
 
         assert!(
-            yaml["transform"].is_badvalue() ||
-            yaml["perspective"].is_badvalue(),
+            yaml["transform"].is_badvalue() || yaml["perspective"].is_badvalue(),
             "Should have one of either transform or perspective"
         );
 
         let reference_frame_kind = if !yaml["perspective"].is_badvalue() {
-            ReferenceFrameKind::Perspective { scrolling_relative_to: None }
+            ReferenceFrameKind::Perspective {
+                scrolling_relative_to: None,
+            }
         } else {
             ReferenceFrameKind::Transform
         };
 
-        let transform = yaml["transform"]
-            .as_transform(&transform_origin);
+        let transform = yaml["transform"].as_transform(&transform_origin);
 
         let perspective = match yaml["perspective"].as_f32() {
-            Some(value) if value != 0.0 => {
-                Some(make_perspective(perspective_origin, value as f32))
-            }
+            Some(value) if value != 0.0 => Some(make_perspective(perspective_origin, value as f32)),
             Some(..) => None,
             _ => yaml["perspective"].as_matrix4d(),
         };
@@ -2019,15 +1997,15 @@ impl YamlFrameReader {
         let default_bounds = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32());
         let mut bounds = yaml["bounds"].as_rect().unwrap_or(default_bounds);
 
-        let reference_frame_id = if !yaml["transform"].is_badvalue() ||
-            !yaml["perspective"].is_badvalue() {
-            let reference_frame_id = self.push_reference_frame(dl, wrench, yaml);
-            self.spatial_id_stack.push(reference_frame_id);
-            bounds.origin = LayoutPoint::zero();
-            Some(reference_frame_id)
-        } else {
-            None
-        };
+        let reference_frame_id =
+            if !yaml["transform"].is_badvalue() || !yaml["perspective"].is_badvalue() {
+                let reference_frame_id = self.push_reference_frame(dl, wrench, yaml);
+                self.spatial_id_stack.push(reference_frame_id);
+                bounds.origin = LayoutPoint::zero();
+                Some(reference_frame_id)
+            } else {
+                None
+            };
 
         let clip_node_id = self.to_clip_id(&yaml["clip-node"], dl.pipeline_id);
 
@@ -2046,13 +2024,16 @@ impl YamlFrameReader {
         if is_root {
             if let Some(size) = yaml["scroll-offset"].as_point() {
                 let external_id = ExternalScrollId(0, dl.pipeline_id);
-                self.scroll_offsets.insert(external_id, LayoutPoint::new(size.x, size.y));
+                self.scroll_offsets
+                    .insert(external_id, LayoutPoint::new(size.x, size.y));
             }
         }
 
         let filters = yaml["filters"].as_vec_filter_op().unwrap_or(vec![]);
         let filter_datas = yaml["filter-datas"].as_vec_filter_data().unwrap_or(vec![]);
-        let filter_primitives = yaml["filter-primitives"].as_vec_filter_primitive().unwrap_or(vec![]);
+        let filter_primitives = yaml["filter-primitives"]
+            .as_vec_filter_primitive()
+            .unwrap_or(vec![]);
 
         dl.push_stacking_context(
             bounds.origin,
@@ -2087,21 +2068,15 @@ impl YamlFrameReader {
         item: &Yaml,
         info: &mut CommonItemProperties,
     ) {
-        info.clip_rect = try_intersect!(
-            self.resolve_rect(&item["bounds"]),
-            &info.clip_rect
-        );
+        info.clip_rect = try_intersect!(self.resolve_rect(&item["bounds"]), &info.clip_rect);
 
         let filters = item["filters"].as_vec_filter_op().unwrap_or(vec![]);
         let filter_datas = item["filter-datas"].as_vec_filter_data().unwrap_or(vec![]);
-        let filter_primitives = item["filter-primitives"].as_vec_filter_primitive().unwrap_or(vec![]);
+        let filter_primitives = item["filter-primitives"]
+            .as_vec_filter_primitive()
+            .unwrap_or(vec![]);
 
-        dl.push_backdrop_filter(
-            &info,
-            &filters,
-            &filter_datas,
-            &filter_primitives,
-        );
+        dl.push_backdrop_filter(&info, &filters, &filter_datas, &filter_primitives);
     }
 }
 

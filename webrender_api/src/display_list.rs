@@ -25,7 +25,6 @@ use crate::font::{FontInstanceKey, GlyphInstance, GlyphOptions};
 use crate::image::{ColorDepth, ImageKey};
 use crate::units::*;
 
-
 // We don't want to push a long text-run. If a text-run is too long, split it into several parts.
 // This needs to be set to (renderer::MAX_VERTEX_TEXTURE_WIDTH - VECS_PER_TEXT_RUN) * 2
 pub const MAX_TEXT_RUN_LENGTH: usize = 2040;
@@ -174,11 +173,7 @@ impl DebugStats {
 
     /// Logs the stats for the given serialized slice
     #[cfg(feature = "display_list_stats")]
-    fn log_slice<T: Peek>(
-        &mut self,
-        slice_name: &'static str,
-        range: &ItemRange<T>,
-    ) {
+    fn log_slice<T: Peek>(&mut self, slice_name: &'static str, range: &ItemRange<T>) {
         // Run this so log_item_stats is accurate, but ignore its result
         // because log_slice_stats may be called after multiple slices have been
         // processed, and the `range` has everything we need.
@@ -218,7 +213,7 @@ pub struct AuxIter<'a, T> {
     item: T,
     data: &'a [u8],
     size: usize,
-//    _boo: PhantomData<T>,
+    //    _boo: PhantomData<T>,
 }
 
 impl BuiltDisplayListDescriptor {}
@@ -303,7 +298,7 @@ impl<'a> BuiltDisplayListIter<'a> {
             debug_stats: DebugStats {
                 last_addr: data.as_ptr() as usize,
                 stats: HashMap::default(),
-            }
+            },
         }
     }
 
@@ -336,10 +331,7 @@ impl<'a> BuiltDisplayListIter<'a> {
         loop {
             self.next_raw()?;
             match self.cur_item {
-                SetGradientStops |
-                SetFilterOps |
-                SetFilterData |
-                SetFilterPrimitives => {
+                SetGradientStops | SetFilterOps | SetFilterData | SetFilterPrimitives => {
                     // These are marker items for populating other display items, don't yield them.
                     continue;
                 }
@@ -371,11 +363,13 @@ impl<'a> BuiltDisplayListIter<'a> {
         match self.cur_item {
             SetGradientStops => {
                 self.cur_stops = skip_slice::<di::GradientStop>(&mut self.data);
-                self.debug_stats.log_slice("set_gradient_stops.stops", &self.cur_stops);
+                self.debug_stats
+                    .log_slice("set_gradient_stops.stops", &self.cur_stops);
             }
             SetFilterOps => {
                 self.cur_filters = skip_slice::<di::FilterOp>(&mut self.data);
-                self.debug_stats.log_slice("set_filter_ops.ops", &self.cur_filters);
+                self.debug_stats
+                    .log_slice("set_filter_ops.ops", &self.cur_filters);
             }
             SetFilterData => {
                 self.cur_filter_data.push(TempFilterData {
@@ -387,19 +381,28 @@ impl<'a> BuiltDisplayListIter<'a> {
                 });
 
                 let data = *self.cur_filter_data.last().unwrap();
-                self.debug_stats.log_slice("set_filter_data.func_types", &data.func_types);
-                self.debug_stats.log_slice("set_filter_data.r_values", &data.r_values);
-                self.debug_stats.log_slice("set_filter_data.g_values", &data.g_values);
-                self.debug_stats.log_slice("set_filter_data.b_values", &data.b_values);
-                self.debug_stats.log_slice("set_filter_data.a_values", &data.a_values);
+                self.debug_stats
+                    .log_slice("set_filter_data.func_types", &data.func_types);
+                self.debug_stats
+                    .log_slice("set_filter_data.r_values", &data.r_values);
+                self.debug_stats
+                    .log_slice("set_filter_data.g_values", &data.g_values);
+                self.debug_stats
+                    .log_slice("set_filter_data.b_values", &data.b_values);
+                self.debug_stats
+                    .log_slice("set_filter_data.a_values", &data.a_values);
             }
             SetFilterPrimitives => {
                 self.cur_filter_primitives = skip_slice::<di::FilterPrimitive>(&mut self.data);
-                self.debug_stats.log_slice("set_filter_primitives.primitives", &self.cur_filter_primitives);
+                self.debug_stats.log_slice(
+                    "set_filter_primitives.primitives",
+                    &self.cur_filter_primitives,
+                );
             }
             ClipChain(_) => {
                 self.cur_clip_chain_items = skip_slice::<di::ClipId>(&mut self.data);
-                self.debug_stats.log_slice("clip_chain.clip_ids", &self.cur_clip_chain_items);
+                self.debug_stats
+                    .log_slice("clip_chain.clip_ids", &self.cur_clip_chain_items);
             }
             Clip(_) | ScrollFrame(_) => {
                 self.cur_complex_clip = skip_slice::<di::ComplexClipRegion>(&mut self.data);
@@ -478,7 +481,8 @@ impl<'a> BuiltDisplayListIter<'a> {
     }
 
     #[cfg(not(feature = "display_list_stats"))]
-    fn log_item_stats(&mut self) { /* no-op */ }
+    fn log_item_stats(&mut self) { /* no-op */
+    }
 }
 
 // Some of these might just become ItemRanges
@@ -536,7 +540,7 @@ impl<'a, T> AuxIter<'a, T> {
             item,
             data,
             size,
-//            _boo: PhantomData,
+            //            _boo: PhantomData,
         }
     }
 }
@@ -561,7 +565,6 @@ impl<'a, T: Copy + peek_poke::Peek> Iterator for AuxIter<'a, T> {
 
 impl<'a, T: Copy + peek_poke::Peek> ::std::iter::ExactSizeIterator for AuxIter<'a, T> {}
 
-
 #[cfg(feature = "serialize")]
 impl Serialize for BuiltDisplayList {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -572,34 +575,29 @@ impl Serialize for BuiltDisplayList {
         let mut traversal = self.iter();
         while let Some(item) = traversal.next_raw() {
             let serial_di = match *item.item() {
-                Real::Clip(v) => Debug::Clip(
-                    v,
-                    item.iter.cur_complex_clip.iter().collect()
-                ),
-                Real::ClipChain(v) => Debug::ClipChain(
-                    v,
-                    item.iter.cur_clip_chain_items.iter().collect()
-                ),
-                Real::ScrollFrame(v) => Debug::ScrollFrame(
-                    v,
-                    item.iter.cur_complex_clip.iter().collect()
-                ),
-                Real::Text(v) => Debug::Text(
-                    v,
-                    item.iter.cur_glyphs.iter().collect()
-                ),
-                Real::SetFilterOps => Debug::SetFilterOps(
-                    item.iter.cur_filters.iter().collect()
-                ),
+                Real::Clip(v) => Debug::Clip(v, item.iter.cur_complex_clip.iter().collect()),
+                Real::ClipChain(v) => {
+                    Debug::ClipChain(v, item.iter.cur_clip_chain_items.iter().collect())
+                }
+                Real::ScrollFrame(v) => {
+                    Debug::ScrollFrame(v, item.iter.cur_complex_clip.iter().collect())
+                }
+                Real::Text(v) => Debug::Text(v, item.iter.cur_glyphs.iter().collect()),
+                Real::SetFilterOps => Debug::SetFilterOps(item.iter.cur_filters.iter().collect()),
                 Real::SetFilterData => {
-                    debug_assert!(!item.iter.cur_filter_data.is_empty(),
-                        "next_raw should have populated cur_filter_data");
-                    let temp_filter_data = &item.iter.cur_filter_data[item.iter.cur_filter_data.len()-1];
+                    debug_assert!(
+                        !item.iter.cur_filter_data.is_empty(),
+                        "next_raw should have populated cur_filter_data"
+                    );
+                    let temp_filter_data =
+                        &item.iter.cur_filter_data[item.iter.cur_filter_data.len() - 1];
 
                     let func_types: Vec<di::ComponentTransferFuncType> =
                         temp_filter_data.func_types.iter().collect();
-                    debug_assert!(func_types.len() == 4,
-                        "someone changed the number of filter funcs without updating this code");
+                    debug_assert!(
+                        func_types.len() == 4,
+                        "someone changed the number of filter funcs without updating this code"
+                    );
                     Debug::SetFilterData(di::FilterData {
                         func_r_type: func_types[0],
                         r_values: temp_filter_data.r_values.iter().collect(),
@@ -610,13 +608,13 @@ impl Serialize for BuiltDisplayList {
                         func_a_type: func_types[3],
                         a_values: temp_filter_data.a_values.iter().collect(),
                     })
-                },
-                Real::SetFilterPrimitives => Debug::SetFilterPrimitives(
-                    item.iter.cur_filter_primitives.iter().collect()
-                ),
-                Real::SetGradientStops => Debug::SetGradientStops(
-                    item.iter.cur_stops.iter().collect()
-                ),
+                }
+                Real::SetFilterPrimitives => {
+                    Debug::SetFilterPrimitives(item.iter.cur_filter_primitives.iter().collect())
+                }
+                Real::SetGradientStops => {
+                    Debug::SetGradientStops(item.iter.cur_stops.iter().collect())
+                }
                 Real::StickyFrame(v) => Debug::StickyFrame(v),
                 Real::Rectangle(v) => Debug::Rectangle(v),
                 Real::ClearRectangle(v) => Debug::ClearRectangle(v),
@@ -670,7 +668,7 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
                     total_clip_nodes += 1;
                     DisplayListBuilder::push_iter_impl(&mut temp, complex_clips);
                     Real::Clip(v)
-                },
+                }
                 Debug::ClipChain(v, clip_chain_ids) => {
                     DisplayListBuilder::push_iter_impl(&mut temp, clip_chain_ids);
                     Real::ClipChain(v)
@@ -688,7 +686,7 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
                 Debug::Text(v, glyphs) => {
                     DisplayListBuilder::push_iter_impl(&mut temp, glyphs);
                     Real::Text(v)
-                },
+                }
                 Debug::Iframe(v) => {
                     total_clip_nodes += 1;
                     Real::Iframe(v)
@@ -700,20 +698,22 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
                 Debug::SetFilterOps(filters) => {
                     DisplayListBuilder::push_iter_impl(&mut temp, filters);
                     Real::SetFilterOps
-                },
+                }
                 Debug::SetFilterData(filter_data) => {
-                    let func_types: Vec<di::ComponentTransferFuncType> =
-                        [filter_data.func_r_type,
-                         filter_data.func_g_type,
-                         filter_data.func_b_type,
-                         filter_data.func_a_type].to_vec();
+                    let func_types: Vec<di::ComponentTransferFuncType> = [
+                        filter_data.func_r_type,
+                        filter_data.func_g_type,
+                        filter_data.func_b_type,
+                        filter_data.func_a_type,
+                    ]
+                    .to_vec();
                     DisplayListBuilder::push_iter_impl(&mut temp, func_types);
                     DisplayListBuilder::push_iter_impl(&mut temp, filter_data.r_values);
                     DisplayListBuilder::push_iter_impl(&mut temp, filter_data.g_values);
                     DisplayListBuilder::push_iter_impl(&mut temp, filter_data.b_values);
                     DisplayListBuilder::push_iter_impl(&mut temp, filter_data.a_values);
                     Real::SetFilterData
-                },
+                }
                 Debug::SetFilterPrimitives(filter_primitives) => {
                     DisplayListBuilder::push_iter_impl(&mut temp, filter_primitives);
                     Real::SetFilterPrimitives
@@ -721,7 +721,7 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
                 Debug::SetGradientStops(stops) => {
                     DisplayListBuilder::push_iter_impl(&mut temp, stops);
                     Real::SetGradientStops
-                },
+                }
 
                 Debug::Rectangle(v) => Real::Rectangle(v),
                 Debug::ClearRectangle(v) => Real::ClearRectangle(v),
@@ -825,7 +825,10 @@ impl DisplayListBuilder {
     /// * Doesn't support nested saves.
     /// * Must call `clear_save()` if the restore becomes unnecessary.
     pub fn save(&mut self) {
-        assert!(self.save_state.is_none(), "DisplayListBuilder doesn't support nested saves");
+        assert!(
+            self.save_state.is_none(),
+            "DisplayListBuilder doesn't support nested saves"
+        );
 
         self.save_state = Some(SaveState {
             dl_len: self.data.len(),
@@ -837,7 +840,10 @@ impl DisplayListBuilder {
 
     /// Restores the state of the builder to when `save()` was last called.
     pub fn restore(&mut self) {
-        let state = self.save_state.take().expect("No save to restore DisplayListBuilder from");
+        let state = self
+            .save_state
+            .take()
+            .expect("No save to restore DisplayListBuilder from");
 
         self.data.truncate(state.dl_len);
         self.next_clip_index = state.next_clip_index;
@@ -847,12 +853,21 @@ impl DisplayListBuilder {
 
     /// Discards the builder's save (indicating the attempted operation was successful).
     pub fn clear_save(&mut self) {
-        self.save_state.take().expect("No save to clear in DisplayListBuilder");
+        self.save_state
+            .take()
+            .expect("No save to clear in DisplayListBuilder");
     }
 
     /// Print the display items in the list to stdout.
     pub fn print_display_list(&mut self) {
-        self.emit_display_list(0, Range { start: None, end: None }, stdout());
+        self.emit_display_list(
+            0,
+            Range {
+                start: None,
+                end: None,
+            },
+            stdout(),
+        );
     }
 
     /// Emits a debug representation of display items in the list, for debugging
@@ -873,7 +888,7 @@ impl DisplayListBuilder {
         mut sink: W,
     ) -> usize
     where
-        W: Write
+        W: Write,
     {
         let mut temp = BuiltDisplayList::default();
         mem::swap(&mut temp.data, &mut self.data);
@@ -930,10 +945,12 @@ impl DisplayListBuilder {
 
         // Now write the actual byte_size
         let final_offset = data.len();
-        debug_assert!(final_offset >= (byte_size_offset + mem::size_of::<usize>()),
-            "space was never allocated for this array's byte_size");
+        debug_assert!(
+            final_offset >= (byte_size_offset + mem::size_of::<usize>()),
+            "space was never allocated for this array's byte_size"
+        );
         let byte_size = final_offset - byte_size_offset - mem::size_of::<usize>();
-        poke_inplace_slice(&byte_size, &mut data[byte_size_offset..]);
+        poke_inplace_slice(&byte_size, &mut data[byte_size_offset ..]);
     }
 
     /// Push items from an iterator to the display list.
@@ -949,35 +966,22 @@ impl DisplayListBuilder {
         Self::push_iter_impl(&mut self.data, iter);
     }
 
-    pub fn push_rect(
-        &mut self,
-        common: &di::CommonItemProperties,
-        color: ColorF,
-    ) {
+    pub fn push_rect(&mut self, common: &di::CommonItemProperties, color: ColorF) {
         let item = di::DisplayItem::Rectangle(di::RectangleDisplayItem {
             common: *common,
-            color
+            color,
         });
         self.push_item(&item);
     }
 
-    pub fn push_clear_rect(
-        &mut self,
-        common: &di::CommonItemProperties,
-    ) {
-        let item = di::DisplayItem::ClearRectangle(di::ClearRectangleDisplayItem {
-            common: *common,
-        });
+    pub fn push_clear_rect(&mut self, common: &di::CommonItemProperties) {
+        let item =
+            di::DisplayItem::ClearRectangle(di::ClearRectangleDisplayItem { common: *common });
         self.push_item(&item);
     }
 
-    pub fn push_hit_test(
-        &mut self,
-        common: &di::CommonItemProperties,
-    ) {
-        let item = di::DisplayItem::HitTest(di::HitTestDisplayItem {
-            common: *common,
-        });
+    pub fn push_hit_test(&mut self, common: &di::CommonItemProperties) {
+        let item = di::DisplayItem::HitTest(di::HitTestDisplayItem { common: *common });
         self.push_item(&item);
     }
 
@@ -1348,9 +1352,8 @@ impl DisplayListBuilder {
     ) {
         self.push_filters(filters, filter_datas, filter_primitives);
 
-        let item = di::DisplayItem::BackdropFilter(di::BackdropFilterDisplayItem {
-            common: *common,
-        });
+        let item =
+            di::DisplayItem::BackdropFilter(di::BackdropFilterDisplayItem { common: *common });
         self.push_item(&item);
     }
 
@@ -1367,8 +1370,11 @@ impl DisplayListBuilder {
 
         for filter_data in filter_datas {
             let func_types = [
-                filter_data.func_r_type, filter_data.func_g_type,
-                filter_data.func_b_type, filter_data.func_a_type];
+                filter_data.func_r_type,
+                filter_data.func_g_type,
+                filter_data.func_b_type,
+                filter_data.func_a_type,
+            ];
             self.push_item(&di::DisplayItem::SetFilterData);
             self.push_iter(&func_types);
             self.push_iter(&filter_data.r_values);
@@ -1446,7 +1452,10 @@ impl DisplayListBuilder {
         I::IntoIter: ExactSizeIterator + Clone,
     {
         let id = self.generate_clip_chain_id();
-        self.push_item(&di::DisplayItem::ClipChain(di::ClipChainItem { id, parent }));
+        self.push_item(&di::DisplayItem::ClipChain(di::ClipChainItem {
+            id,
+            parent,
+        }));
         self.push_iter(clips);
         id
     }
@@ -1505,7 +1514,7 @@ impl DisplayListBuilder {
         clip_rect: LayoutRect,
         space_and_clip: &di::SpaceAndClipInfo,
         pipeline_id: PipelineId,
-        ignore_missing_pipeline: bool
+        ignore_missing_pipeline: bool,
     ) {
         let item = di::DisplayItem::Iframe(di::IframeDisplayItem {
             bounds,
@@ -1536,7 +1545,10 @@ impl DisplayListBuilder {
     }
 
     pub fn finalize(mut self) -> (PipelineId, LayoutSize, BuiltDisplayList) {
-        assert!(self.save_state.is_none(), "Finalized DisplayListBuilder with a pending save");
+        assert!(
+            self.save_state.is_none(),
+            "Finalized DisplayListBuilder with a pending save"
+        );
 
         // Add `DisplayItem::max_size` zone of zeroes to the end of display list
         // so there is at least this amount available in the display list during

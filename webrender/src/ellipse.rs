@@ -6,7 +6,6 @@ use api::units::*;
 use euclid::Size2D;
 use std::f32::consts::FRAC_PI_2;
 
-
 /// Number of steps to integrate arc length over.
 const STEP_COUNT: usize = 20;
 

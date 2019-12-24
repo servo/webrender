@@ -41,7 +41,7 @@ impl FontContexts {
         self.lock_context(id)
     }
 
-    pub(in super) fn current_worker_id(&self) -> Option<usize> {
+    pub(super) fn current_worker_id(&self) -> Option<usize> {
         self.workers.current_thread_index()
     }
 }
@@ -69,11 +69,10 @@ impl GlyphRasterizer {
         _: &mut RenderTaskCache,
         _: &mut RenderTaskGraph,
     ) {
-        assert!(
-            self.font_contexts
-                .lock_shared_context()
-                .has_font(&font.font_key)
-        );
+        assert!(self
+            .font_contexts
+            .lock_shared_context()
+            .has_font(&font.font_key));
         let mut new_glyphs = Vec::new();
 
         let glyph_key_cache = glyph_cache.get_glyph_key_cache_for_font_mut(font.clone());
@@ -108,7 +107,11 @@ impl GlyphRasterizer {
         self.request_glyphs_from_backend(font, new_glyphs);
     }
 
-    pub(in super) fn request_glyphs_from_backend(&mut self, font: FontInstance, glyphs: Vec<GlyphKey>) {
+    pub(super) fn request_glyphs_from_backend(
+        &mut self,
+        font: FontInstance,
+        glyphs: Vec<GlyphKey>,
+    ) {
         let font_contexts = Arc::clone(&self.font_contexts);
         let glyph_tx = self.glyph_tx.clone();
 
@@ -180,7 +183,8 @@ impl GlyphRasterizer {
             // we could try_recv and steal work from the thread pool to take advantage
             // of the fact that this thread is alive and we avoid the added latency
             // of blocking it.
-            let GlyphRasterJobs { font, mut jobs } = self.glyph_rx
+            let GlyphRasterJobs { font, mut jobs } = self
+                .glyph_rx
                 .recv()
                 .expect("BUG: Should be glyphs pending!");
 
@@ -270,7 +274,12 @@ impl FontTransform {
     const QUANTIZE_SCALE: f32 = 1024.0;
 
     pub fn new(scale_x: f32, skew_x: f32, skew_y: f32, scale_y: f32) -> Self {
-        FontTransform { scale_x, skew_x, skew_y, scale_y }
+        FontTransform {
+            scale_x,
+            skew_x,
+            skew_y,
+            scale_y,
+        }
     }
 
     pub fn identity() -> Self {
@@ -436,8 +445,10 @@ impl Deref for FontInstance {
     }
 }
 
-impl MallocSizeOf for  FontInstance {
-    fn size_of(&self, _ops: &mut MallocSizeOfOps) -> usize { 0 }
+impl MallocSizeOf for FontInstance {
+    fn size_of(&self, _ops: &mut MallocSizeOfOps) -> usize {
+        0
+    }
 }
 
 impl FontInstance {
@@ -457,9 +468,7 @@ impl FontInstance {
         }
     }
 
-    pub fn from_base(
-        base: Arc<BaseFontInstance>,
-    ) -> Self {
+    pub fn from_base(base: Arc<BaseFontInstance>) -> Self {
         FontInstance {
             transform: FontTransform::identity(),
             color: ColorU::new(0, 0, 0, 255),
@@ -471,11 +480,19 @@ impl FontInstance {
     }
 
     pub fn get_alpha_glyph_format(&self) -> GlyphFormat {
-        if self.transform.is_identity() { GlyphFormat::Alpha } else { GlyphFormat::TransformedAlpha }
+        if self.transform.is_identity() {
+            GlyphFormat::Alpha
+        } else {
+            GlyphFormat::TransformedAlpha
+        }
     }
 
     pub fn get_subpixel_glyph_format(&self) -> GlyphFormat {
-        if self.transform.is_identity() { GlyphFormat::Subpixel } else { GlyphFormat::TransformedSubpixel }
+        if self.transform.is_identity() {
+            GlyphFormat::Subpixel
+        } else {
+            GlyphFormat::TransformedSubpixel
+        }
     }
 
     pub fn disable_subpixel_aa(&mut self) {
@@ -487,8 +504,8 @@ impl FontInstance {
     }
 
     pub fn use_subpixel_position(&self) -> bool {
-        self.flags.contains(FontInstanceFlags::SUBPIXEL_POSITION) &&
-        self.render_mode != FontRenderMode::Mono
+        self.flags.contains(FontInstanceFlags::SUBPIXEL_POSITION)
+            && self.render_mode != FontRenderMode::Mono
     }
 
     pub fn get_subpx_dir(&self) -> SubpixelDirection {
@@ -548,8 +565,7 @@ impl SubpixelDirection {
     // Limit the subpixel direction to what is supported by the glyph format.
     pub fn limit_by(self, glyph_format: GlyphFormat) -> Self {
         match glyph_format {
-            GlyphFormat::Bitmap |
-            GlyphFormat::ColorBitmap => SubpixelDirection::None,
+            GlyphFormat::Bitmap | GlyphFormat::ColorBitmap => SubpixelDirection::None,
             _ => self,
         }
     }
@@ -589,9 +605,9 @@ impl SubpixelOffset {
         let apos = ((pos - pos.floor()) * 8.0) as i32;
 
         match apos {
-            1..=2 => SubpixelOffset::Quarter,
-            3..=4 => SubpixelOffset::Half,
-            5..=6 => SubpixelOffset::ThreeQuarters,
+            1 ..= 2 => SubpixelOffset::Quarter,
+            3 ..= 4 => SubpixelOffset::Half,
+            5 ..= 6 => SubpixelOffset::ThreeQuarters,
             _ => SubpixelOffset::Zero,
         }
     }
@@ -614,11 +630,7 @@ impl Into<f64> for SubpixelOffset {
 pub struct GlyphKey(u32);
 
 impl GlyphKey {
-    pub fn new(
-        index: u32,
-        point: DevicePoint,
-        subpx_dir: SubpixelDirection,
-    ) -> Self {
+    pub fn new(index: u32, point: DevicePoint, subpx_dir: SubpixelDirection) -> Self {
         let (dx, dy) = match subpx_dir {
             SubpixelDirection::None => (0.0, 0.0),
             SubpixelDirection::Horizontal => (point.x, 0.0),
@@ -639,9 +651,7 @@ impl GlyphKey {
     fn subpixel_offset(&self) -> (SubpixelOffset, SubpixelOffset) {
         let x = (self.0 >> 28) as u8 & 3;
         let y = (self.0 >> 30) as u8 & 3;
-        unsafe {
-            (mem::transmute(x), mem::transmute(y))
-        }
+        unsafe { (mem::transmute(x), mem::transmute(y)) }
     }
 }
 
@@ -688,7 +698,7 @@ impl RasterizedGlyph {
         // produce the appropriate mip level for individual glyphs where bilinear filtering
         // will still produce acceptable results.
         match self.format {
-            GlyphFormat::Bitmap | GlyphFormat::ColorBitmap => {},
+            GlyphFormat::Bitmap | GlyphFormat::ColorBitmap => {}
             _ => return,
         }
         let (x_scale, y_scale) = font.transform.compute_scale().unwrap_or((1.0, 1.0));
@@ -775,7 +785,6 @@ pub struct FontContexts {
 }
 
 impl FontContexts {
-
     /// Get access to any particular font context.
     ///
     /// The id is ```Some(i)``` where i is an index between 0 and num_worker_contexts
@@ -885,11 +894,11 @@ impl GlyphRasterizer {
         }
 
         let font_context = FontContexts {
-                worker_contexts: contexts,
-                shared_context: Mutex::new(shared_context),
-                workers: Arc::clone(&workers),
-                locked_mutex: Mutex::new(false),
-                locked_cond: Condvar::new(),
+            worker_contexts: contexts,
+            shared_context: Mutex::new(shared_context),
+            workers: Arc::clone(&workers),
+            locked_mutex: Mutex::new(false),
+            locked_cond: Condvar::new(),
         };
 
         Ok(GlyphRasterizer {
@@ -934,11 +943,7 @@ impl GlyphRasterizer {
         font: &FontInstance,
         glyph_index: GlyphIndex,
     ) -> Option<GlyphDimensions> {
-        let glyph_key = GlyphKey::new(
-            glyph_index,
-            DevicePoint::zero(),
-            SubpixelDirection::None,
-        );
+        let glyph_key = GlyphKey::new(glyph_index, DevicePoint::zero(), SubpixelDirection::None);
 
         self.font_contexts
             .lock_shared_context()
@@ -953,11 +958,11 @@ impl GlyphRasterizer {
 
     fn remove_dead_fonts(&mut self) {
         if self.fonts_to_remove.is_empty() && self.font_instances_to_remove.is_empty() {
-            return
+            return;
         }
 
         let fonts_to_remove = mem::replace(&mut self.fonts_to_remove, Vec::new());
-        let font_instances_to_remove = mem::replace(& mut self.font_instances_to_remove, Vec::new());
+        let font_instances_to_remove = mem::replace(&mut self.font_instances_to_remove, Vec::new());
         self.font_contexts.async_for_each(move |mut context| {
             for font_key in &fonts_to_remove {
                 context.delete_font(font_key);
@@ -1035,16 +1040,17 @@ mod test_glyph_rasterizer {
         use crate::render_task_cache::RenderTaskCache;
         use crate::render_task_graph::{RenderTaskGraph, RenderTaskGraphCounters};
         use crate::profiler::TextureCacheProfileCounters;
-        use api::{FontKey, FontInstanceKey, FontTemplate, FontRenderMode,
-                  IdNamespace, ColorU};
+        use api::{FontKey, FontInstanceKey, FontTemplate, FontRenderMode, IdNamespace, ColorU};
         use api::units::{Au, DevicePoint};
         use crate::render_backend::FrameId;
         use thread_profiler::register_thread_with_profiler;
         use std::sync::Arc;
-        use crate::glyph_rasterizer::{FORMAT, FontInstance, BaseFontInstance, GlyphKey, GlyphRasterizer};
+        use crate::glyph_rasterizer::{
+            FORMAT, FontInstance, BaseFontInstance, GlyphKey, GlyphRasterizer,
+        };
 
         let worker = ThreadPoolBuilder::new()
-            .thread_name(|idx|{ format!("WRWorker#{}", idx) })
+            .thread_name(|idx| format!("WRWorker#{}", idx))
             .start_handler(move |idx| {
                 register_thread_with_profiler(format!("WRWorker#{}", idx));
             })
@@ -1055,7 +1061,8 @@ mod test_glyph_rasterizer {
         let mut gpu_cache = GpuCache::new_for_testing();
         let mut texture_cache = TextureCache::new_for_testing(2048, 1024, FORMAT);
         let mut render_task_cache = RenderTaskCache::new();
-        let mut render_task_tree = RenderTaskGraph::new(FrameId::INVALID, &RenderTaskGraphCounters::new());
+        let mut render_task_tree =
+            RenderTaskGraph::new(FrameId::INVALID, &RenderTaskGraphCounters::new());
         let mut font_file =
             File::open("../wrench/reftests/text/VeraBd.ttf").expect("Couldn't open font file");
         let mut font_data = vec![];
@@ -1082,11 +1089,7 @@ mod test_glyph_rasterizer {
 
         let mut glyph_keys = Vec::with_capacity(200);
         for i in 0 .. 200 {
-            glyph_keys.push(GlyphKey::new(
-                i,
-                DevicePoint::zero(),
-                subpx_dir,
-            ));
+            glyph_keys.push(GlyphKey::new(i, DevicePoint::zero(), subpx_dir));
         }
 
         for i in 0 .. 4 {
@@ -1138,11 +1141,23 @@ mod test_glyph_rasterizer {
         assert_eq!(SubpixelOffset::quantize(0.58), SubpixelOffset::Half);
         assert_eq!(SubpixelOffset::quantize(0.624), SubpixelOffset::Half);
 
-        assert_eq!(SubpixelOffset::quantize(0.625), SubpixelOffset::ThreeQuarters);
-        assert_eq!(SubpixelOffset::quantize(0.67), SubpixelOffset::ThreeQuarters);
+        assert_eq!(
+            SubpixelOffset::quantize(0.625),
+            SubpixelOffset::ThreeQuarters
+        );
+        assert_eq!(
+            SubpixelOffset::quantize(0.67),
+            SubpixelOffset::ThreeQuarters
+        );
         assert_eq!(SubpixelOffset::quantize(0.7), SubpixelOffset::ThreeQuarters);
-        assert_eq!(SubpixelOffset::quantize(0.78), SubpixelOffset::ThreeQuarters);
-        assert_eq!(SubpixelOffset::quantize(0.874), SubpixelOffset::ThreeQuarters);
+        assert_eq!(
+            SubpixelOffset::quantize(0.78),
+            SubpixelOffset::ThreeQuarters
+        );
+        assert_eq!(
+            SubpixelOffset::quantize(0.874),
+            SubpixelOffset::ThreeQuarters
+        );
 
         assert_eq!(SubpixelOffset::quantize(0.875), SubpixelOffset::Zero);
         assert_eq!(SubpixelOffset::quantize(0.89), SubpixelOffset::Zero);
@@ -1154,6 +1169,9 @@ mod test_glyph_rasterizer {
         assert_eq!(SubpixelOffset::quantize(1.0), SubpixelOffset::Zero);
         assert_eq!(SubpixelOffset::quantize(1.5), SubpixelOffset::Half);
         assert_eq!(SubpixelOffset::quantize(-1.625), SubpixelOffset::Half);
-        assert_eq!(SubpixelOffset::quantize(-4.33), SubpixelOffset::ThreeQuarters);
+        assert_eq!(
+            SubpixelOffset::quantize(-4.33),
+            SubpixelOffset::ThreeQuarters
+        );
     }
 }

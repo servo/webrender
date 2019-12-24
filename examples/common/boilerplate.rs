@@ -34,11 +34,13 @@ impl RenderNotifier for Notifier {
         let _ = self.events_proxy.wakeup();
     }
 
-    fn new_frame_ready(&self,
-                       _: DocumentId,
-                       _scrolled: bool,
-                       _composite_needed: bool,
-                       _render_time: Option<u64>) {
+    fn new_frame_ready(
+        &self,
+        _: DocumentId,
+        _scrolled: bool,
+        _composite_needed: bool,
+        _render_time: Option<u64>,
+    ) {
         self.wake_up();
     }
 }
@@ -80,29 +82,22 @@ pub trait Example {
         pipeline_id: PipelineId,
         document_id: DocumentId,
     );
-    fn on_event(
-        &mut self,
-        _: winit::WindowEvent,
-        _: &RenderApi,
-        _: DocumentId,
-    ) -> bool {
+    fn on_event(&mut self, _: winit::WindowEvent, _: &RenderApi, _: DocumentId) -> bool {
         false
     }
     fn get_image_handlers(
         &mut self,
         _gl: &dyn gl::Gl,
-    ) -> (Option<Box<dyn ExternalImageHandler>>,
-          Option<Box<dyn OutputImageHandler>>) {
+    ) -> (
+        Option<Box<dyn ExternalImageHandler>>,
+        Option<Box<dyn OutputImageHandler>>,
+    ) {
         (None, None)
     }
-    fn draw_custom(&mut self, _gl: &dyn gl::Gl) {
-    }
+    fn draw_custom(&mut self, _gl: &dyn gl::Gl) {}
 }
 
-pub fn main_wrapper<E: Example>(
-    example: &mut E,
-    options: Option<webrender::RendererOptions>,
-) {
+pub fn main_wrapper<E: Example>(example: &mut E, options: Option<webrender::RendererOptions>) {
     env_logger::init();
 
     #[cfg(target_os = "macos")]
@@ -127,7 +122,10 @@ pub fn main_wrapper<E: Example>(
     let window_builder = winit::WindowBuilder::new()
         .with_title(E::TITLE)
         .with_multitouch()
-        .with_dimensions(winit::dpi::LogicalSize::new(E::WIDTH as f64, E::HEIGHT as f64));
+        .with_dimensions(winit::dpi::LogicalSize::new(
+            E::WIDTH as f64,
+            E::HEIGHT as f64,
+        ));
     let windowed_context = glutin::ContextBuilder::new()
         .with_gl(glutin::GlRequest::GlThenGles {
             opengl_version: (3, 2),
@@ -140,14 +138,10 @@ pub fn main_wrapper<E: Example>(
 
     let gl = match windowed_context.get_api() {
         glutin::Api::OpenGl => unsafe {
-            gl::GlFns::load_with(
-                |symbol| windowed_context.get_proc_address(symbol) as *const _
-            )
+            gl::GlFns::load_with(|symbol| windowed_context.get_proc_address(symbol) as *const _)
         },
         glutin::Api::OpenGlEs => unsafe {
-            gl::GlesFns::load_with(
-                |symbol| windowed_context.get_proc_address(symbol) as *const _
-            )
+            gl::GlesFns::load_with(|symbol| windowed_context.get_proc_address(symbol) as *const _)
         },
         glutin::Api::WebGl => unimplemented!(),
     };
@@ -179,13 +173,8 @@ pub fn main_wrapper<E: Example>(
         DeviceIntSize::new(size.width as i32, size.height as i32)
     };
     let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
-    let (mut renderer, sender) = webrender::Renderer::new(
-        gl.clone(),
-        notifier,
-        opts,
-        None,
-        device_size,
-    ).unwrap();
+    let (mut renderer, sender) =
+        webrender::Renderer::new(gl.clone(), notifier, opts, None, device_size).unwrap();
     let api = sender.create_api();
     let document_id = api.add_document(device_size, 0);
 
@@ -237,14 +226,16 @@ pub fn main_wrapper<E: Example>(
         match win_event {
             winit::WindowEvent::CloseRequested => return winit::ControlFlow::Break,
             // skip high-frequency events
-            winit::WindowEvent::AxisMotion { .. } |
-            winit::WindowEvent::CursorMoved { .. } => return winit::ControlFlow::Continue,
+            winit::WindowEvent::AxisMotion { .. } | winit::WindowEvent::CursorMoved { .. } => {
+                return winit::ControlFlow::Continue
+            }
             winit::WindowEvent::KeyboardInput {
-                input: winit::KeyboardInput {
-                    state: winit::ElementState::Pressed,
-                    virtual_keycode: Some(key),
-                    ..
-                },
+                input:
+                    winit::KeyboardInput {
+                        state: winit::ElementState::Pressed,
+                        virtual_keycode: Some(key),
+                        ..
+                    },
                 ..
             } => match key {
                 winit::VirtualKeyCode::Escape => return winit::ControlFlow::Break,
@@ -253,21 +244,13 @@ pub fn main_wrapper<E: Example>(
                 winit::VirtualKeyCode::I => debug_flags.toggle(DebugFlags::TEXTURE_CACHE_DBG),
                 winit::VirtualKeyCode::S => debug_flags.toggle(DebugFlags::COMPACT_PROFILER),
                 winit::VirtualKeyCode::T => debug_flags.toggle(DebugFlags::PICTURE_CACHING_DBG),
-                winit::VirtualKeyCode::Q => debug_flags.toggle(
-                    DebugFlags::GPU_TIME_QUERIES | DebugFlags::GPU_SAMPLE_QUERIES
-                ),
-                winit::VirtualKeyCode::F => debug_flags.toggle(
-                    DebugFlags::NEW_FRAME_INDICATOR | DebugFlags::NEW_SCENE_INDICATOR
-                ),
+                winit::VirtualKeyCode::Q => debug_flags
+                    .toggle(DebugFlags::GPU_TIME_QUERIES | DebugFlags::GPU_SAMPLE_QUERIES),
+                winit::VirtualKeyCode::F => debug_flags
+                    .toggle(DebugFlags::NEW_FRAME_INDICATOR | DebugFlags::NEW_SCENE_INDICATOR),
                 winit::VirtualKeyCode::G => debug_flags.toggle(DebugFlags::GPU_CACHE_DBG),
-                winit::VirtualKeyCode::Key1 => txn.set_document_view(
-                    device_size.into(),
-                    1.0
-                ),
-                winit::VirtualKeyCode::Key2 => txn.set_document_view(
-                    device_size.into(),
-                    2.0
-                ),
+                winit::VirtualKeyCode::Key1 => txn.set_document_view(device_size.into(), 1.0),
+                winit::VirtualKeyCode::Key2 => txn.set_document_view(device_size.into(), 2.0),
                 winit::VirtualKeyCode::M => api.notify_memory_pressure(),
                 winit::VirtualKeyCode::C => {
                     let path: PathBuf = "../captures/example".into();
@@ -275,20 +258,10 @@ pub fn main_wrapper<E: Example>(
                     // based on "shift" modifier, when `glutin` is updated.
                     let bits = CaptureBits::all();
                     api.save_capture(path, bits);
-                },
-                _ => {
-                    custom_event = example.on_event(
-                        win_event,
-                        &api,
-                        document_id,
-                    )
-                },
+                }
+                _ => custom_event = example.on_event(win_event, &api, document_id),
             },
-            other => custom_event = example.on_event(
-                other,
-                &api,
-                document_id,
-            ),
+            other => custom_event = example.on_event(other, &api, document_id),
         };
 
         if debug_flags != old_flags {

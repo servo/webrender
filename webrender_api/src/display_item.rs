@@ -74,10 +74,7 @@ pub struct CommonItemProperties {
 
 impl CommonItemProperties {
     /// Convenience for tests.
-    pub fn new(
-        clip_rect: LayoutRect,
-        space_and_clip: SpaceAndClipInfo,
-    ) -> Self {
+    pub fn new(clip_rect: LayoutRect, space_and_clip: SpaceAndClipInfo) -> Self {
         Self {
             clip_rect,
             spatial_id: space_and_clip.spatial_id,
@@ -326,14 +323,18 @@ pub struct LineDisplayItem {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, Eq, Hash, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, Eq, Hash, PeekPoke,
+)]
 pub enum LineOrientation {
     Vertical,
     Horizontal,
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, Eq, Hash, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, Eq, Hash, PeekPoke,
+)]
 pub enum LineStyle {
     Solid,
     Dotted,
@@ -377,11 +378,11 @@ impl NormalBorder {
             style == BorderStyle::Solid || style == BorderStyle::None
         }
 
-        self.radius.is_zero() &&
-            is_valid(self.top.style) &&
-            is_valid(self.left.style) &&
-            is_valid(self.bottom.style) &&
-            is_valid(self.right.style)
+        self.radius.is_zero()
+            && is_valid(self.top.style)
+            && is_valid(self.left.style)
+            && is_valid(self.bottom.style)
+            && is_valid(self.right.style)
     }
 
     /// Normalizes a border so that we don't render disallowed stuff, like inset
@@ -396,8 +397,7 @@ impl NormalBorder {
         #[inline]
         fn renders_small_border_solid(style: BorderStyle) -> bool {
             match style {
-                BorderStyle::Groove |
-                BorderStyle::Ridge => true,
+                BorderStyle::Groove | BorderStyle::Ridge => true,
                 _ => false,
             }
         }
@@ -416,7 +416,9 @@ impl NormalBorder {
 }
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone, MallocSizeOf, PartialEq, Serialize, Deserialize, Eq, Hash, PeekPoke)]
+#[derive(
+    Debug, Copy, Clone, MallocSizeOf, PartialEq, Serialize, Deserialize, Eq, Hash, PeekPoke,
+)]
 pub enum RepeatMode {
     Stretch,
     Repeat,
@@ -518,7 +520,9 @@ pub struct BorderSide {
 }
 
 #[repr(u32)]
-#[derive(Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, Hash, Eq, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize, Hash, Eq, PeekPoke,
+)]
 pub enum BorderStyle {
     None = 0,
     Solid = 1,
@@ -539,7 +543,9 @@ impl BorderStyle {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke,
+)]
 pub enum BoxShadowClipMode {
     Outset = 0,
     Inset = 1,
@@ -573,7 +579,20 @@ pub struct Shadow {
 }
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone, Hash, Eq, MallocSizeOf, PartialEq, Serialize, Deserialize, Ord, PartialOrd, PeekPoke)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    Hash,
+    Eq,
+    MallocSizeOf,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Ord,
+    PartialOrd,
+    PeekPoke,
+)]
 pub enum ExtendMode {
     Clamp,
     Repeat,
@@ -656,7 +675,7 @@ pub enum ReferenceFrameKind {
     Transform,
     Perspective {
         scrolling_relative_to: Option<ExternalScrollId>,
-    }
+    },
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
@@ -727,7 +746,9 @@ impl RasterSpace {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke,
+)]
 pub enum MixBlendMode {
     Normal = 0,
     Multiply = 1,
@@ -748,7 +769,9 @@ pub enum MixBlendMode {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke,
+)]
 pub enum ColorSpace {
     Srgb,
     LinearRgb,
@@ -784,7 +807,9 @@ impl CompositeOperator {
 
 /// An input to a SVG filter primitive.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke,
+)]
 pub enum FilterPrimitiveInput {
     /// The input is the original graphic that the filter is being applied to.
     Original,
@@ -992,11 +1017,11 @@ pub enum FilterOp {
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, PeekPoke)]
 pub enum ComponentTransferFuncType {
-  Identity = 0,
-  Table = 1,
-  Discrete = 2,
-  Linear = 3,
-  Gamma = 4,
+    Identity = 0,
+    Table = 1,
+    Discrete = 2,
+    Linear = 3,
+    Gamma = 4,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -1027,10 +1052,7 @@ fn sanitize_func_type(
     func_type
 }
 
-fn sanitize_values(
-    func_type: ComponentTransferFuncType,
-    values: &[f32],
-) -> bool {
+fn sanitize_values(func_type: ComponentTransferFuncType, values: &[f32]) -> bool {
     if values.len() < 2 && func_type == ComponentTransferFuncType::Linear {
         return false;
     }
@@ -1045,44 +1067,39 @@ impl FilterData {
     pub fn sanitize(&self) -> FilterData {
         FilterData {
             func_r_type: sanitize_func_type(self.func_r_type, &self.r_values),
-            r_values:
-                    if sanitize_values(self.func_r_type, &self.r_values) {
-                        self.r_values.clone()
-                    } else {
-                        Vec::new()
-                    },
+            r_values: if sanitize_values(self.func_r_type, &self.r_values) {
+                self.r_values.clone()
+            } else {
+                Vec::new()
+            },
             func_g_type: sanitize_func_type(self.func_g_type, &self.g_values),
-            g_values:
-                    if sanitize_values(self.func_g_type, &self.g_values) {
-                        self.g_values.clone()
-                    } else {
-                        Vec::new()
-                    },
+            g_values: if sanitize_values(self.func_g_type, &self.g_values) {
+                self.g_values.clone()
+            } else {
+                Vec::new()
+            },
 
             func_b_type: sanitize_func_type(self.func_b_type, &self.b_values),
-            b_values:
-                    if sanitize_values(self.func_b_type, &self.b_values) {
-                        self.b_values.clone()
-                    } else {
-                        Vec::new()
-                    },
+            b_values: if sanitize_values(self.func_b_type, &self.b_values) {
+                self.b_values.clone()
+            } else {
+                Vec::new()
+            },
 
             func_a_type: sanitize_func_type(self.func_a_type, &self.a_values),
-            a_values:
-                    if sanitize_values(self.func_a_type, &self.a_values) {
-                        self.a_values.clone()
-                    } else {
-                        Vec::new()
-                    },
-
+            a_values: if sanitize_values(self.func_a_type, &self.a_values) {
+                self.a_values.clone()
+            } else {
+                Vec::new()
+            },
         }
     }
 
     pub fn is_identity(&self) -> bool {
-        self.func_r_type == ComponentTransferFuncType::Identity &&
-        self.func_g_type == ComponentTransferFuncType::Identity &&
-        self.func_b_type == ComponentTransferFuncType::Identity &&
-        self.func_a_type == ComponentTransferFuncType::Identity
+        self.func_r_type == ComponentTransferFuncType::Identity
+            && self.func_g_type == ComponentTransferFuncType::Identity
+            && self.func_b_type == ComponentTransferFuncType::Identity
+            && self.func_a_type == ComponentTransferFuncType::Identity
     }
 }
 
@@ -1134,14 +1151,18 @@ pub struct RepeatingImageDisplayItem {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke,
+)]
 pub enum ImageRendering {
     Auto = 0,
     CrispEdges = 1,
     Pixelated = 2,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke,
+)]
 pub enum AlphaType {
     Alpha = 0,
     PremultipliedAlpha = 1,
@@ -1159,7 +1180,9 @@ pub struct YuvImageDisplayItem {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke,
+)]
 pub enum YuvColorSpace {
     Rec601 = 0,
     Rec709 = 1,
@@ -1167,7 +1190,9 @@ pub enum YuvColorSpace {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke,
+)]
 pub enum ColorRange {
     Limited = 0,
     Full = 1,
@@ -1190,7 +1215,9 @@ impl YuvData {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke,
+)]
 pub enum YuvFormat {
     NV12 = 0,
     PlanarYCbCr = 1,
@@ -1227,7 +1254,9 @@ impl ImageMask {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, MallocSizeOf, PartialEq, Serialize, Deserialize, Eq, Hash, PeekPoke)]
+#[derive(
+    Copy, Clone, Debug, MallocSizeOf, PartialEq, Serialize, Deserialize, Eq, Hash, PeekPoke,
+)]
 pub enum ClipMode {
     Clip,    // Pixels inside the region are visible.
     ClipOut, // Pixels outside the region are visible.
@@ -1293,8 +1322,9 @@ impl BorderRadius {
 
     pub fn is_uniform_size(&self) -> Option<LayoutSize> {
         let uniform_radius = self.top_left;
-        if self.top_right == uniform_radius && self.bottom_left == uniform_radius &&
-            self.bottom_right == uniform_radius
+        if self.top_right == uniform_radius
+            && self.bottom_left == uniform_radius
+            && self.bottom_right == uniform_radius
         {
             Some(uniform_radius)
         } else {
@@ -1313,11 +1343,7 @@ impl BorderRadius {
 
 impl ComplexClipRegion {
     /// Create a new complex clip region.
-    pub fn new(
-        rect: LayoutRect,
-        radii: BorderRadius,
-        mode: ClipMode,
-    ) -> Self {
+    pub fn new(rect: LayoutRect, radii: BorderRadius, mode: ClipMode) -> Self {
         ComplexClipRegion { rect, radii, mode }
     }
 }
@@ -1326,12 +1352,8 @@ impl ComplexClipRegion {
     /// Get a local clipping rect contributed by this clip region.
     pub fn get_local_clip_rect(&self) -> Option<LayoutRect> {
         match self.mode {
-            ClipMode::Clip => {
-                Some(self.rect)
-            }
-            ClipMode::ClipOut => {
-                None
-            }
+            ClipMode::Clip => Some(self.rect),
+            ClipMode::ClipOut => None,
         }
     }
 }
@@ -1362,8 +1384,9 @@ impl ClipId {
 
     pub fn pipeline_id(&self) -> PipelineId {
         match *self {
-            ClipId::Clip(_, pipeline_id) |
-            ClipId::ClipChain(ClipChainId(_, pipeline_id)) => pipeline_id,
+            ClipId::Clip(_, pipeline_id) | ClipId::ClipChain(ClipChainId(_, pipeline_id)) => {
+                pipeline_id
+            }
         }
     }
 

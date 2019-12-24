@@ -39,7 +39,6 @@ use crate::debug_server;
 #[cfg(feature = "debugger")]
 use api::{BuiltDisplayListIter, DisplayItem};
 
-
 /// Represents the work associated to a transaction before scene building.
 pub struct Transaction {
     pub document_id: DocumentId,
@@ -60,17 +59,16 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn can_skip_scene_builder(&self) -> bool {
-        self.request_scene_build.is_none() &&
-            self.display_list_updates.is_empty() &&
-            self.epoch_updates.is_empty() &&
-            self.removed_pipelines.is_empty() &&
-            self.blob_requests.is_empty() &&
-            self.set_root_pipeline.is_none()
+        self.request_scene_build.is_none()
+            && self.display_list_updates.is_empty()
+            && self.epoch_updates.is_empty()
+            && self.removed_pipelines.is_empty()
+            && self.blob_requests.is_empty()
+            && self.set_root_pipeline.is_none()
     }
 
     pub fn should_build_scene(&self) -> bool {
-        !self.display_list_updates.is_empty() ||
-            self.set_root_pipeline.is_some()
+        !self.display_list_updates.is_empty() || self.set_root_pipeline.is_some()
     }
 
     fn rasterize_blobs(&mut self, is_low_priority: bool) {
@@ -149,7 +147,7 @@ pub enum SceneBuilderRequest {
     SaveScene(CaptureConfig),
     #[cfg(feature = "replay")]
     LoadScenes(Vec<LoadScene>),
-    DocumentsForDebugger
+    DocumentsForDebugger,
 }
 
 // Message from scene builder to render backend.
@@ -159,7 +157,7 @@ pub enum SceneBuilderResult {
     FlushComplete(MsgSender<()>),
     ClearNamespace(IdNamespace),
     Stopped,
-    DocumentsForDebugger(String)
+    DocumentsForDebugger(String),
 }
 
 // Message from render backend to scene builder to indicate the
@@ -265,8 +263,12 @@ pub struct SceneBuilderThreadChannels {
 
 impl SceneBuilderThreadChannels {
     pub fn new(
-        api_tx: MsgSender<ApiMsg>
-    ) -> (Self, Sender<SceneBuilderRequest>, Receiver<SceneBuilderResult>) {
+        api_tx: MsgSender<ApiMsg>,
+    ) -> (
+        Self,
+        Sender<SceneBuilderRequest>,
+        Receiver<SceneBuilderResult>,
+    ) {
         let (in_tx, in_rx) = channel();
         let (out_tx, out_rx) = channel();
         (
@@ -324,7 +326,8 @@ impl SceneBuilderThread {
                     self.send(SceneBuilderResult::FlushComplete(tx));
                 }
                 Ok(SceneBuilderRequest::Transactions(mut txns)) => {
-                    let built_txns : Vec<Box<BuiltTransaction>> = txns.iter_mut()
+                    let built_txns: Vec<Box<BuiltTransaction>> = txns
+                        .iter_mut()
                         .map(|txn| self.process_transaction(txn))
                         .collect();
                     self.forward_built_transactions(built_txns);
@@ -336,7 +339,8 @@ impl SceneBuilderThread {
                     self.config = cfg;
                 }
                 Ok(SceneBuilderRequest::ClearNamespace(id)) => {
-                    self.documents.retain(|doc_id, _doc| doc_id.namespace_id != id);
+                    self.documents
+                        .retain(|doc_id, _doc| doc_id.namespace_id != id);
                     self.send(SceneBuilderResult::ClearNamespace(id));
                 }
                 #[cfg(feature = "replay")]
@@ -418,9 +422,7 @@ impl SceneBuilderThread {
                     &SceneStats::empty(),
                 ));
 
-                interner_updates = Some(
-                    item.interners.end_frame_and_get_pending_updates()
-                );
+                interner_updates = Some(item.interners.end_frame_and_get_pending_updates());
             }
 
             self.documents.insert(
@@ -524,9 +526,10 @@ impl SceneBuilderThread {
 
         let scene_build_start_time = precise_time_ns();
 
-        let doc = self.documents
-                      .entry(txn.document_id)
-                      .or_insert_with(|| Document::new(Scene::new()));
+        let doc = self
+            .documents
+            .entry(txn.document_id)
+            .or_insert_with(|| Document::new(Scene::new()));
         let scene = &mut doc.scene;
 
         for update in txn.display_list_updates.drain(..) {
@@ -570,9 +573,7 @@ impl SceneBuilderThread {
                 doc.stats = built.get_stats();
 
                 // Retrieve the list of updates from the clip interner.
-                interner_updates = Some(
-                    doc.interners.end_frame_and_get_pending_updates()
-                );
+                interner_updates = Some(doc.interners.end_frame_and_get_pending_updates());
 
                 built_scene = Some(built);
             }
@@ -585,8 +586,10 @@ impl SceneBuilderThread {
 
         drain_filter(
             &mut txn.notifications,
-            |n| { n.when() == Checkpoint::SceneBuilt },
-            |n| { n.notify(); },
+            |n| n.when() == Checkpoint::SceneBuilt,
+            |n| {
+                n.notify();
+            },
         );
 
         if self.simulate_slow_ms > 0 {
@@ -616,17 +619,27 @@ impl SceneBuilderThread {
             &Some(ref hooks) => {
                 if txns.iter().any(|txn| txn.built_scene.is_some()) {
                     let info = PipelineInfo {
-                        epochs: txns.iter()
+                        epochs: txns
+                            .iter()
                             .filter(|txn| txn.built_scene.is_some())
                             .map(|txn| {
-                                txn.built_scene.as_ref().unwrap()
-                                    .pipeline_epochs.iter()
+                                txn.built_scene
+                                    .as_ref()
+                                    .unwrap()
+                                    .pipeline_epochs
+                                    .iter()
                                     .zip(iter::repeat(txn.document_id))
-                                    .map(|((&pipeline_id, &epoch), document_id)| ((pipeline_id, document_id), epoch))
-                            }).flatten().collect(),
-                        removed_pipelines: txns.iter()
+                                    .map(|((&pipeline_id, &epoch), document_id)| {
+                                        ((pipeline_id, document_id), epoch)
+                                    })
+                            })
+                            .flatten()
+                            .collect(),
+                        removed_pipelines: txns
+                            .iter()
                             .map(|txn| txn.removed_pipelines.clone())
-                            .flatten().collect(),
+                            .flatten()
+                            .collect(),
                     };
 
                     let (tx, rx) = channel();
@@ -638,12 +651,12 @@ impl SceneBuilderThread {
                     (None, None, None)
                 }
             }
-            _ => (None, None, None)
+            _ => (None, None, None),
         };
 
         let scene_swap_start_time = precise_time_ns();
         let document_ids = txns.iter().map(|txn| txn.document_id).collect();
-        let have_resources_updates : Vec<DocumentId> = if pipeline_info.is_none() {
+        let have_resources_updates: Vec<DocumentId> = if pipeline_info.is_none() {
             txns.iter()
                 .filter(|txn| !txn.resource_updates.is_empty() || txn.invalidate_rendered_frame)
                 .map(|txn| txn.document_id.clone())
@@ -652,7 +665,9 @@ impl SceneBuilderThread {
             Vec::new()
         };
 
-        self.tx.send(SceneBuilderResult::Transactions(txns, result_tx)).unwrap();
+        self.tx
+            .send(SceneBuilderResult::Transactions(txns, result_tx))
+            .unwrap();
 
         let _ = self.api_tx.send(ApiMsg::WakeUp);
 
@@ -660,13 +675,16 @@ impl SceneBuilderThread {
             // Block until the swap is done, then invoke the hook.
             let swap_result = result_rx.unwrap().recv();
             let scene_swap_time = precise_time_ns() - scene_swap_start_time;
-            self.hooks.as_ref().unwrap().post_scene_swap(&document_ids,
-                                                         pipeline_info, scene_swap_time);
+            self.hooks.as_ref().unwrap().post_scene_swap(
+                &document_ids,
+                pipeline_info,
+                scene_swap_time,
+            );
             // Once the hook is done, allow the RB thread to resume
             match swap_result {
                 Ok(SceneSwapResult::Complete(resume_tx)) => {
                     resume_tx.send(()).ok();
-                },
+                }
                 _ => (),
             };
         } else if !have_resources_updates.is_empty() {
@@ -708,13 +726,18 @@ impl LowPrioritySceneBuilderThread {
         loop {
             match self.rx.recv() {
                 Ok(SceneBuilderRequest::Transactions(mut txns)) => {
-                    let txns : Vec<Box<Transaction>> = txns.drain(..)
+                    let txns: Vec<Box<Transaction>> = txns
+                        .drain(..)
                         .map(|txn| self.process_transaction(txn))
                         .collect();
-                    self.tx.send(SceneBuilderRequest::Transactions(txns)).unwrap();
+                    self.tx
+                        .send(SceneBuilderRequest::Transactions(txns))
+                        .unwrap();
                 }
                 Ok(SceneBuilderRequest::DeleteDocument(document_id)) => {
-                    self.tx.send(SceneBuilderRequest::DeleteDocument(document_id)).unwrap();
+                    self.tx
+                        .send(SceneBuilderRequest::DeleteDocument(document_id))
+                        .unwrap();
                 }
                 Ok(SceneBuilderRequest::Stop) => {
                     self.tx.send(SceneBuilderRequest::Stop).unwrap();

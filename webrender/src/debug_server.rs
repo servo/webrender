@@ -54,24 +54,48 @@ impl ws::Handler for Server {
                 match string.as_str() {
                     "enable_profiler" => self.debug_flags.insert(DebugFlags::PROFILER_DBG),
                     "disable_profiler" => self.debug_flags.remove(DebugFlags::PROFILER_DBG),
-                    "enable_texture_cache_debug" => self.debug_flags.insert(DebugFlags::TEXTURE_CACHE_DBG),
-                    "disable_texture_cache_debug" => self.debug_flags.remove(DebugFlags::TEXTURE_CACHE_DBG),
-                    "enable_render_target_debug" => self.debug_flags.insert(DebugFlags::RENDER_TARGET_DBG),
-                    "disable_render_target_debug" => self.debug_flags.remove(DebugFlags::RENDER_TARGET_DBG),
-                    "enable_gpu_time_queries" => self.debug_flags.insert(DebugFlags::GPU_TIME_QUERIES),
-                    "disable_gpu_time_queries" => self.debug_flags.remove(DebugFlags::GPU_TIME_QUERIES),
-                    "enable_gpu_sample_queries" => self.debug_flags.insert(DebugFlags::GPU_SAMPLE_QUERIES),
-                    "disable_gpu_sample_queries" => self.debug_flags.remove(DebugFlags::GPU_SAMPLE_QUERIES),
-                    "disable_opaque_pass" => self.debug_flags.insert(DebugFlags::DISABLE_OPAQUE_PASS),
-                    "enable_opaque_pass" => self.debug_flags.remove(DebugFlags::DISABLE_OPAQUE_PASS),
+                    "enable_texture_cache_debug" => {
+                        self.debug_flags.insert(DebugFlags::TEXTURE_CACHE_DBG)
+                    }
+                    "disable_texture_cache_debug" => {
+                        self.debug_flags.remove(DebugFlags::TEXTURE_CACHE_DBG)
+                    }
+                    "enable_render_target_debug" => {
+                        self.debug_flags.insert(DebugFlags::RENDER_TARGET_DBG)
+                    }
+                    "disable_render_target_debug" => {
+                        self.debug_flags.remove(DebugFlags::RENDER_TARGET_DBG)
+                    }
+                    "enable_gpu_time_queries" => {
+                        self.debug_flags.insert(DebugFlags::GPU_TIME_QUERIES)
+                    }
+                    "disable_gpu_time_queries" => {
+                        self.debug_flags.remove(DebugFlags::GPU_TIME_QUERIES)
+                    }
+                    "enable_gpu_sample_queries" => {
+                        self.debug_flags.insert(DebugFlags::GPU_SAMPLE_QUERIES)
+                    }
+                    "disable_gpu_sample_queries" => {
+                        self.debug_flags.remove(DebugFlags::GPU_SAMPLE_QUERIES)
+                    }
+                    "disable_opaque_pass" => {
+                        self.debug_flags.insert(DebugFlags::DISABLE_OPAQUE_PASS)
+                    }
+                    "enable_opaque_pass" => {
+                        self.debug_flags.remove(DebugFlags::DISABLE_OPAQUE_PASS)
+                    }
                     "disable_alpha_pass" => self.debug_flags.insert(DebugFlags::DISABLE_ALPHA_PASS),
                     "enable_alpha_pass" => self.debug_flags.remove(DebugFlags::DISABLE_ALPHA_PASS),
                     "disable_clip_masks" => self.debug_flags.insert(DebugFlags::DISABLE_CLIP_MASKS),
                     "enable_clip_masks" => self.debug_flags.remove(DebugFlags::DISABLE_CLIP_MASKS),
                     "disable_text_prims" => self.debug_flags.insert(DebugFlags::DISABLE_TEXT_PRIMS),
                     "enable_text_prims" => self.debug_flags.remove(DebugFlags::DISABLE_TEXT_PRIMS),
-                    "disable_gradient_prims" => self.debug_flags.insert(DebugFlags::DISABLE_GRADIENT_PRIMS),
-                    "enable_gradient_prims" => self.debug_flags.remove(DebugFlags::DISABLE_GRADIENT_PRIMS),
+                    "disable_gradient_prims" => {
+                        self.debug_flags.insert(DebugFlags::DISABLE_GRADIENT_PRIMS)
+                    }
+                    "enable_gradient_prims" => {
+                        self.debug_flags.remove(DebugFlags::DISABLE_GRADIENT_PRIMS)
+                    }
                     _ => set_flags = false,
                 };
 
@@ -115,13 +139,11 @@ impl DebugServerImpl {
         let (debug_tx, debug_rx) = channel();
 
         let socket = ws::Builder::new()
-            .build(move |out| {
-                Server {
-                    ws: out,
-                    debug_tx: debug_tx.clone(),
-                    api_tx: api_tx.clone(),
-                    debug_flags: DebugFlags::empty(),
-                }
+            .build(move |out| Server {
+                ws: out,
+                debug_tx: debug_tx.clone(),
+                api_tx: api_tx.clone(),
+                debug_flags: DebugFlags::empty(),
             })
             .unwrap();
 
@@ -298,7 +320,7 @@ impl DocumentList {
 #[derive(Serialize)]
 pub struct Screenshot {
     kind: &'static str,
-    data: String
+    data: String,
 }
 
 impl Screenshot {
@@ -306,18 +328,20 @@ impl Screenshot {
         let mut output = Vec::with_capacity((size.width * size.height) as usize);
         {
             let encoder = image_loader::png::PNGEncoder::new(&mut output);
-            encoder.encode(
-                &data,
-                size.width as u32,
-                size.height as u32,
-                image_loader::ColorType::RGBA(8),
-            ).unwrap();
+            encoder
+                .encode(
+                    &data,
+                    size.width as u32,
+                    size.height as u32,
+                    image_loader::ColorType::RGBA(8),
+                )
+                .unwrap();
         }
 
         let data = encode(&output);
         Screenshot {
             kind: "screenshot",
-            data
+            data,
         }
     }
 }

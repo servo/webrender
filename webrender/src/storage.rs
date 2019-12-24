@@ -13,7 +13,9 @@ pub struct Index<T>(u32, PhantomData<T>);
 // We explicitly implement Copy + Clone instead of using #[derive(Copy, Clone)]
 // because we don't want to require that T implements Clone + Copy.
 impl<T> Clone for Index<T> {
-    fn clone(&self) -> Self { *self }
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 
 impl<T> Copy for Index<T> {}
@@ -31,7 +33,7 @@ impl<T> Index<T> {
     }
 
     pub const INVALID: Index<T> = Index(u32::MAX, PhantomData);
-    pub const UNUSED: Index<T> = Index(u32::MAX-1, PhantomData);
+    pub const UNUSED: Index<T> = Index(u32::MAX - 1, PhantomData);
 }
 
 #[derive(Debug)]
@@ -45,7 +47,10 @@ pub struct Range<T> {
 // because we don't want to require that T implements Clone + Copy.
 impl<T> Clone for Range<T> {
     fn clone(&self) -> Self {
-        Range { start: self.start, end: self.end }
+        Range {
+            start: self.start,
+            end: self.end,
+        }
     }
 }
 impl<T> Copy for Range<T> {}
@@ -95,7 +100,7 @@ impl<T> Storage<T> {
         recycler.recycle_vec(&mut self.data);
     }
 
-    pub fn extend<II: IntoIterator<Item=T>>(&mut self, iter: II) -> Range<T> {
+    pub fn extend<II: IntoIterator<Item = T>>(&mut self, iter: II) -> Range<T> {
         let start = Index::new(self.data.len());
         self.data.extend(iter);
         let end = Index::new(self.data.len());
@@ -121,7 +126,7 @@ impl<T> ops::Index<Range<T>> for Storage<T> {
     fn index(&self, index: Range<T>) -> &Self::Output {
         let start = index.start.0 as _;
         let end = index.end.0 as _;
-        &self.data[start..end]
+        &self.data[start .. end]
     }
 }
 
@@ -129,6 +134,6 @@ impl<T> ops::IndexMut<Range<T>> for Storage<T> {
     fn index_mut(&mut self, index: Range<T>) -> &mut Self::Output {
         let start = index.start.0 as _;
         let end = index.end.0 as _;
-        &mut self.data[start..end]
+        &mut self.data[start .. end]
     }
 }

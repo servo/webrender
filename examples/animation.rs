@@ -24,7 +24,6 @@ use euclid::Angle;
 use webrender::api::*;
 use webrender::api::units::*;
 
-
 struct App {
     property_key0: PropertyBindingKey<LayoutTransform>,
     property_key1: PropertyBindingKey<LayoutTransform>,
@@ -47,14 +46,11 @@ impl App {
         opacity_key: Option<PropertyBindingKey<f32>>,
     ) {
         let filters = match opacity_key {
-            Some(opacity_key) => {
-                vec![
-                    FilterOp::Opacity(PropertyBinding::Binding(opacity_key, self.opacity), self.opacity),
-                ]
-            }
-            None => {
-                vec![]
-            }
+            Some(opacity_key) => vec![FilterOp::Opacity(
+                PropertyBinding::Binding(opacity_key, self.opacity),
+                self.opacity,
+            )],
+            None => vec![],
         };
 
         let spatial_id = builder.push_reference_frame(
@@ -71,7 +67,7 @@ impl App {
             PrimitiveFlags::IS_BACKFACE_VISIBLE,
             &filters,
             &[],
-            &[]
+            &[],
         );
 
         let space_and_clip = SpaceAndClipInfo {
@@ -93,7 +89,7 @@ impl App {
                 SpaceAndClipInfo {
                     spatial_id,
                     clip_id,
-                }
+                },
             ),
             color,
         );
@@ -120,27 +116,54 @@ impl Example for App {
 
         let bounds = (150, 150).to(250, 250);
         let key0 = self.property_key0;
-        self.add_rounded_rect(bounds, ColorF::new(1.0, 0.0, 0.0, 0.5), builder, pipeline_id, key0, Some(opacity_key));
+        self.add_rounded_rect(
+            bounds,
+            ColorF::new(1.0, 0.0, 0.0, 0.5),
+            builder,
+            pipeline_id,
+            key0,
+            Some(opacity_key),
+        );
 
         let bounds = (400, 400).to(600, 600);
         let key1 = self.property_key1;
-        self.add_rounded_rect(bounds, ColorF::new(0.0, 1.0, 0.0, 0.5), builder, pipeline_id, key1, None);
+        self.add_rounded_rect(
+            bounds,
+            ColorF::new(0.0, 1.0, 0.0, 0.5),
+            builder,
+            pipeline_id,
+            key1,
+            None,
+        );
 
         let bounds = (200, 500).to(350, 580);
         let key2 = self.property_key2;
-        self.add_rounded_rect(bounds, ColorF::new(0.0, 0.0, 1.0, 0.5), builder, pipeline_id, key2, None);
+        self.add_rounded_rect(
+            bounds,
+            ColorF::new(0.0, 0.0, 1.0, 0.5),
+            builder,
+            pipeline_id,
+            key2,
+            None,
+        );
     }
 
-    fn on_event(&mut self, win_event: winit::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {
+    fn on_event(
+        &mut self,
+        win_event: winit::WindowEvent,
+        api: &RenderApi,
+        document_id: DocumentId,
+    ) -> bool {
         let mut rebuild_display_list = false;
 
         match win_event {
             winit::WindowEvent::KeyboardInput {
-                input: winit::KeyboardInput {
-                    state: winit::ElementState::Pressed,
-                    virtual_keycode: Some(key),
-                    ..
-                },
+                input:
+                    winit::KeyboardInput {
+                        state: winit::ElementState::Pressed,
+                        virtual_keycode: Some(key),
+                        ..
+                    },
                 ..
             } => {
                 let (delta_angle, delta_opacity) = match key {
@@ -161,34 +184,33 @@ impl Example for App {
                 self.angle0 += delta_angle * 0.1;
                 self.angle1 += delta_angle * 0.2;
                 self.angle2 -= delta_angle * 0.15;
-                let xf0 = LayoutTransform::create_rotation(0.0, 0.0, 1.0, Angle::radians(self.angle0));
-                let xf1 = LayoutTransform::create_rotation(0.0, 0.0, 1.0, Angle::radians(self.angle1));
-                let xf2 = LayoutTransform::create_rotation(0.0, 0.0, 1.0, Angle::radians(self.angle2));
+                let xf0 =
+                    LayoutTransform::create_rotation(0.0, 0.0, 1.0, Angle::radians(self.angle0));
+                let xf1 =
+                    LayoutTransform::create_rotation(0.0, 0.0, 1.0, Angle::radians(self.angle1));
+                let xf2 =
+                    LayoutTransform::create_rotation(0.0, 0.0, 1.0, Angle::radians(self.angle2));
                 let mut txn = Transaction::new();
-                txn.update_dynamic_properties(
-                    DynamicProperties {
-                        transforms: vec![
-                            PropertyValue {
-                                key: self.property_key0,
-                                value: xf0,
-                            },
-                            PropertyValue {
-                                key: self.property_key1,
-                                value: xf1,
-                            },
-                            PropertyValue {
-                                key: self.property_key2,
-                                value: xf2,
-                            },
-                        ],
-                        floats: vec![
-                            PropertyValue {
-                                key: self.opacity_key,
-                                value: self.opacity,
-                            }
-                        ],
-                    },
-                );
+                txn.update_dynamic_properties(DynamicProperties {
+                    transforms: vec![
+                        PropertyValue {
+                            key: self.property_key0,
+                            value: xf0,
+                        },
+                        PropertyValue {
+                            key: self.property_key1,
+                            value: xf1,
+                        },
+                        PropertyValue {
+                            key: self.property_key2,
+                            value: xf2,
+                        },
+                    ],
+                    floats: vec![PropertyValue {
+                        key: self.opacity_key,
+                        value: self.opacity,
+                    }],
+                });
                 txn.generate_frame();
                 api.send_transaction(document_id, txn);
             }

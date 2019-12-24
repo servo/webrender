@@ -19,16 +19,13 @@ pub struct RawtestHarness<'a> {
     window: &'a mut WindowWrapper,
 }
 
-
 impl<'a> RawtestHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench,
-               window: &'a mut WindowWrapper,
-               rx: &'a Receiver<NotifierEvent>) -> Self {
-        RawtestHarness {
-            wrench,
-            rx,
-            window,
-        }
+    pub fn new(
+        wrench: &'a mut Wrench,
+        window: &'a mut WindowWrapper,
+        rx: &'a Receiver<NotifierEvent>,
+    ) -> Self {
+        RawtestHarness { wrench, rx, window }
     }
 
     pub fn run(mut self) {
@@ -57,18 +54,15 @@ impl<'a> RawtestHarness<'a> {
 
     fn compare_pixels(&self, data1: Vec<u8>, data2: Vec<u8>, size: FramebufferIntSize) {
         let size = DeviceIntSize::new(size.width, size.height);
-        let image1 = ReftestImage {
-            data: data1,
-            size,
-        };
-        let image2 = ReftestImage {
-            data: data2,
-            size,
-        };
+        let image1 = ReftestImage { data: data1, size };
+        let image2 = ReftestImage { data: data2, size };
 
         match image1.compare(&image2) {
             ReftestImageComparison::Equal => {}
-            ReftestImageComparison::NotEqual { max_difference, count_different } => {
+            ReftestImageComparison::NotEqual {
+                max_difference,
+                count_different,
+            } => {
                 let t = "rawtest";
                 println!(
                     "{} | {} | {}: {}, {}: {}",
@@ -92,7 +86,7 @@ impl<'a> RawtestHarness<'a> {
         epoch: &mut Epoch,
         layout_size: LayoutSize,
         builder: DisplayListBuilder,
-        resources: &[ResourceUpdate]
+        resources: &[ResourceUpdate],
     ) {
         let mut txn = Transaction::new();
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
@@ -110,7 +104,9 @@ impl<'a> RawtestHarness<'a> {
         epoch.0 += 1;
 
         txn.generate_frame();
-        self.wrench.api.send_transaction(self.wrench.document_id, txn);
+        self.wrench
+            .api
+            .send_transaction(self.wrench.document_id, txn);
     }
 
     fn make_common_properties(&self, clip_rect: LayoutRect) -> CommonItemProperties {
@@ -128,7 +124,7 @@ impl<'a> RawtestHarness<'a> {
         &self,
         clip_rect: LayoutRect,
         clip_id: ClipId,
-        spatial_id: SpatialId
+        spatial_id: SpatialId,
     ) -> CommonItemProperties {
         CommonItemProperties {
             clip_rect,
@@ -180,7 +176,12 @@ impl<'a> RawtestHarness<'a> {
         // Resize the image to something bigger than the max texture size (8196) to force tiling.
         txn.update_image(
             img,
-            ImageDescriptor::new(8200, 32, ImageFormat::BGRA8, ImageDescriptorFlags::IS_OPAQUE),
+            ImageDescriptor::new(
+                8200,
+                32,
+                ImageFormat::BGRA8,
+                ImageDescriptorFlags::IS_OPAQUE,
+            ),
             ImageData::new(vec![255; 8200 * 32 * 4]),
             &DirtyRect::All,
         );
@@ -296,7 +297,12 @@ impl<'a> RawtestHarness<'a> {
         let blob_img = self.wrench.api.generate_blob_image_key();
         txn.add_blob_image(
             blob_img,
-            ImageDescriptor::new(15000, 15000, ImageFormat::BGRA8, ImageDescriptorFlags::empty()),
+            ImageDescriptor::new(
+                15000,
+                15000,
+                ImageFormat::BGRA8,
+                ImageDescriptorFlags::empty(),
+            ),
             blob::serialize_blob(ColorU::new(50, 50, 150, 255)),
             rect(0, 0, 15000, 15000),
             Some(100),
@@ -434,7 +440,6 @@ impl<'a> RawtestHarness<'a> {
         //use super::png;
         //png::save_flipped("out.png", pixels.clone(), size2(window_rect.size.width, window_rect.size.height));
 
-
         // make sure things are in the right spot
         let w = window_rect.size.width as usize;
         let h = window_rect.size.height as usize;
@@ -536,10 +541,13 @@ impl<'a> RawtestHarness<'a> {
 
         let mut txn = Transaction::new();
 
-        txn.set_blob_image_visible_area(blob_img, DeviceIntRect {
-            origin: point2(50, 50),
-            size: size2(400, 400),
-        });
+        txn.set_blob_image_visible_area(
+            blob_img,
+            DeviceIntRect {
+                origin: point2(50, 50),
+                size: size2(400, 400),
+            },
+        );
 
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
 
@@ -640,10 +648,8 @@ impl<'a> RawtestHarness<'a> {
         let window_size = self.window.get_inner_size();
 
         let test_size = FramebufferIntSize::new(800, 800);
-        let window_rect = FramebufferIntRect::new(
-            point2(0, window_size.height - test_size.height),
-            test_size,
-        );
+        let window_rect =
+            FramebufferIntRect::new(point2(0, window_size.height - test_size.height), test_size);
 
         // This exposes a crash in tile decomposition
         let mut txn = Transaction::new();
@@ -652,7 +658,12 @@ impl<'a> RawtestHarness<'a> {
         let blob_img = self.wrench.api.generate_blob_image_key();
         txn.add_blob_image(
             blob_img,
-            ImageDescriptor::new(1510, 1510, ImageFormat::BGRA8, ImageDescriptorFlags::empty()),
+            ImageDescriptor::new(
+                1510,
+                1510,
+                ImageFormat::BGRA8,
+                ImageDescriptorFlags::empty(),
+            ),
             blob::serialize_blob(ColorU::new(50, 50, 150, 255)),
             rect(0, 0, 1510, 1510),
             None,
@@ -710,7 +721,12 @@ impl<'a> RawtestHarness<'a> {
 
         txn.update_blob_image(
             blob_img,
-            ImageDescriptor::new(1510, 1510, ImageFormat::BGRA8, ImageDescriptorFlags::empty()),
+            ImageDescriptor::new(
+                1510,
+                1510,
+                ImageFormat::BGRA8,
+                ImageDescriptorFlags::empty(),
+            ),
             blob::serialize_blob(ColorU::new(50, 50, 150, 255)),
             rect(0, 0, 1510, 1510),
             &rect(10, 10, 100, 100).into(),
@@ -841,10 +857,8 @@ impl<'a> RawtestHarness<'a> {
         let window_size = self.window.get_inner_size();
 
         let test_size = FramebufferIntSize::new(400, 400);
-        let window_rect = FramebufferIntRect::new(
-            point2(0, window_size.height - test_size.height),
-            test_size,
-        );
+        let window_rect =
+            FramebufferIntRect::new(point2(0, window_size.height - test_size.height), test_size);
         let layout_size = LayoutSize::new(400., 400.);
 
         let mut txn = Transaction::new();
@@ -969,10 +983,8 @@ impl<'a> RawtestHarness<'a> {
         let window_size = self.window.get_inner_size();
 
         let test_size = FramebufferIntSize::new(400, 400);
-        let window_rect = FramebufferIntRect::new(
-            point2(0, window_size.height - test_size.height),
-            test_size,
-        );
+        let window_rect =
+            FramebufferIntRect::new(point2(0, window_size.height - test_size.height), test_size);
         let layout_size = LayoutSize::new(400., 400.);
         let mut txn = Transaction::new();
 
@@ -1066,10 +1078,8 @@ impl<'a> RawtestHarness<'a> {
         let window_size = self.window.get_inner_size();
 
         let test_size = FramebufferIntSize::new(400, 400);
-        let window_rect = FramebufferIntRect::new(
-            point2(0, window_size.height - test_size.height),
-            test_size,
-        );
+        let window_rect =
+            FramebufferIntRect::new(point2(0, window_size.height - test_size.height), test_size);
         let layout_size = LayoutSize::new(400., 400.);
 
         let mut do_test = |should_try_and_fail| {
@@ -1080,33 +1090,38 @@ impl<'a> RawtestHarness<'a> {
                 &SpaceAndClipInfo::root_scroll(self.wrench.root_pipeline_id),
                 rect(110., 120., 200., 200.),
                 None::<ComplexClipRegion>,
-                None
+                None,
             );
             builder.push_rect(
                 &self.make_common_properties_with_clip_and_spatial(
                     rect(100., 100., 100., 100.),
                     clip_id,
-                    spatial_id),
+                    spatial_id,
+                ),
                 ColorF::new(0.0, 0.0, 1.0, 1.0),
             );
 
             if should_try_and_fail {
                 builder.save();
                 let clip_id = builder.define_clip(
-                    &SpaceAndClipInfo { spatial_id, clip_id },
+                    &SpaceAndClipInfo {
+                        spatial_id,
+                        clip_id,
+                    },
                     rect(80., 80., 90., 90.),
                     None::<ComplexClipRegion>,
-                    None
+                    None,
                 );
                 let space_and_clip = SpaceAndClipInfo {
                     spatial_id,
-                    clip_id
+                    clip_id,
                 };
                 builder.push_rect(
                     &self.make_common_properties_with_clip_and_spatial(
                         rect(110., 110., 50., 50.),
                         clip_id,
-                        spatial_id),
+                        spatial_id,
+                    ),
                     ColorF::new(0.0, 1.0, 0.0, 1.0),
                 );
                 builder.push_shadow(
@@ -1128,7 +1143,8 @@ impl<'a> RawtestHarness<'a> {
                 builder.push_line(
                     &info,
                     &info.clip_rect,
-                    0.0, LineOrientation::Horizontal,
+                    0.0,
+                    LineOrientation::Horizontal,
                     &ColorF::new(0.0, 0.0, 0.0, 1.0),
                     LineStyle::Solid,
                 );
@@ -1138,16 +1154,20 @@ impl<'a> RawtestHarness<'a> {
             {
                 builder.save();
                 let clip_id = builder.define_clip(
-                    &SpaceAndClipInfo { spatial_id, clip_id },
+                    &SpaceAndClipInfo {
+                        spatial_id,
+                        clip_id,
+                    },
                     rect(80., 80., 100., 100.),
                     None::<ComplexClipRegion>,
-                    None
+                    None,
                 );
                 builder.push_rect(
                     &self.make_common_properties_with_clip_and_spatial(
                         rect(150., 150., 100., 100.),
                         clip_id,
-                        spatial_id),
+                        spatial_id,
+                    ),
                     ColorF::new(0.0, 0.0, 1.0, 1.0),
                 );
                 builder.clear_save();
@@ -1173,10 +1193,8 @@ impl<'a> RawtestHarness<'a> {
         let window_size = self.window.get_inner_size();
 
         let test_size = FramebufferIntSize::new(400, 400);
-        let window_rect = FramebufferIntRect::new(
-            point2(0, window_size.height - test_size.height),
-            test_size,
-        );
+        let window_rect =
+            FramebufferIntRect::new(point2(0, window_size.height - test_size.height), test_size);
         let layout_size = LayoutSize::new(400., 400.);
 
         let mut do_test = |shadow_is_red| {
@@ -1200,7 +1218,8 @@ impl<'a> RawtestHarness<'a> {
             builder.push_line(
                 &info,
                 &info.clip_rect,
-                0.0, LineOrientation::Horizontal,
+                0.0,
+                LineOrientation::Horizontal,
                 &ColorF::new(0.0, 0.0, 0.0, 1.0),
                 LineStyle::Solid,
             );
@@ -1262,12 +1281,16 @@ impl<'a> RawtestHarness<'a> {
         );
         txn.generate_frame();
 
-        self.wrench.api.send_transaction(self.wrench.document_id, txn);
+        self.wrench
+            .api
+            .send_transaction(self.wrench.document_id, txn);
 
         let pixels0 = self.render_and_get_pixels(window_rect);
 
         // 2. capture it
-        self.wrench.api.save_capture(path.into(), CaptureBits::all());
+        self.wrench
+            .api
+            .save_capture(path.into(), CaptureBits::all());
 
         // 3. set a different scene
 
@@ -1281,7 +1304,9 @@ impl<'a> RawtestHarness<'a> {
             builder.finalize(),
             false,
         );
-        self.wrench.api.send_transaction(self.wrench.document_id, txn);
+        self.wrench
+            .api
+            .send_transaction(self.wrench.document_id, txn);
 
         // 4. load the first one
 
@@ -1309,12 +1334,11 @@ impl<'a> RawtestHarness<'a> {
         let doc_id = self.wrench.api.add_document(window_size, 1);
 
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
-        let info = self.make_common_properties(LayoutRect::new(LayoutPoint::zero(),
-                                                            LayoutSize::new(100.0, 100.0)));
-        builder.push_rect(
-            &info,
-            ColorF::new(0.0, 1.0, 0.0, 1.0),
-        );
+        let info = self.make_common_properties(LayoutRect::new(
+            LayoutPoint::zero(),
+            LayoutSize::new(100.0, 100.0),
+        ));
+        builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
 
         let mut txn = Transaction::new();
         txn.set_root_pipeline(self.wrench.root_pipeline_id);
@@ -1333,7 +1357,6 @@ impl<'a> RawtestHarness<'a> {
         assert!(self.rx.recv().unwrap() == NotifierEvent::WakeUp);
     }
 
-
     fn test_hit_testing(&mut self) {
         println!("\thit testing test...");
 
@@ -1341,14 +1364,15 @@ impl<'a> RawtestHarness<'a> {
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
 
         // Add a rectangle that covers the entire scene.
-        let mut info = self.make_common_properties(LayoutRect::new(LayoutPoint::zero(), layout_size));
+        let mut info =
+            self.make_common_properties(LayoutRect::new(LayoutPoint::zero(), layout_size));
         info.hit_info = Some((0, 1));
         builder.push_rect(&info, ColorF::new(1.0, 1.0, 1.0, 1.0));
 
         // Add a simple 100x100 rectangle at 100,0.
         let mut info = self.make_common_properties(LayoutRect::new(
             LayoutPoint::new(100., 0.),
-            LayoutSize::new(100., 100.)
+            LayoutSize::new(100., 100.),
         ));
         info.hit_info = Some((0, 2));
         builder.push_rect(&info, ColorF::new(1.0, 1.0, 1.0, 1.0));
@@ -1359,7 +1383,7 @@ impl<'a> RawtestHarness<'a> {
             ComplexClipRegion::new(
                 *rect,
                 BorderRadius::uniform_size(LayoutSize::new(radius, radius)),
-                ClipMode::Clip
+                ClipMode::Clip,
             )
         };
 
@@ -1411,12 +1435,9 @@ impl<'a> RawtestHarness<'a> {
         self.wrench.render();
 
         let hit_test = |point: WorldPoint| -> HitTestResult {
-            self.wrench.api.hit_test(
-                self.wrench.document_id,
-                None,
-                point,
-                HitTestFlags::FIND_ALL,
-            )
+            self.wrench
+                .api
+                .hit_test(self.wrench.document_id, None, point, HitTestFlags::FIND_ALL)
         };
 
         let assert_hit_test = |point: WorldPoint, tags: Vec<ItemTag>| {
@@ -1447,7 +1468,7 @@ impl<'a> RawtestHarness<'a> {
 
             assert_hit_test(
                 WorldPoint::new(point.x + (size.width / 2.), point.y + (size.height / 2.)),
-                vec![tag, (0, 1)]
+                vec![tag, (0, 1)],
             );
 
             assert_hit_test(top_left, vec![(0, 1)]);
@@ -1456,14 +1477,26 @@ impl<'a> RawtestHarness<'a> {
             assert_hit_test(bottom_right, vec![(0, 1)]);
         };
 
-        test_rounded_rectangle(WorldPoint::new(100., 100.), WorldSize::new(100., 100.), (0, 4));
-        test_rounded_rectangle(WorldPoint::new(200., 100.), WorldSize::new(100., 100.), (0, 5));
+        test_rounded_rectangle(
+            WorldPoint::new(100., 100.),
+            WorldSize::new(100., 100.),
+            (0, 4),
+        );
+        test_rounded_rectangle(
+            WorldPoint::new(200., 100.),
+            WorldSize::new(100., 100.),
+            (0, 5),
+        );
     }
 
     fn test_clear_cache(&mut self) {
         println!("\tclear cache test...");
 
-        self.wrench.api.send_message(ApiMsg::DebugCommand(DebugCommand::ClearCaches(ClearCache::all())));
+        self.wrench
+            .api
+            .send_message(ApiMsg::DebugCommand(DebugCommand::ClearCaches(
+                ClearCache::all(),
+            )));
 
         let layout_size = LayoutSize::new(400., 400.);
         let builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);

@@ -10,7 +10,6 @@ use std::io::Cursor;
 use std::io::Read;
 use std::io::Write;
 
-
 fn calc_table_checksum<D: Read>(mut data: D) -> u32 {
     let mut sum: u32 = 0;
 
@@ -40,7 +39,7 @@ struct TableRecord {
     checksum: u32,
     offset: u32,
     length: u32,
-    data: CFData
+    data: CFData,
 }
 
 const CFF_TAG: u32 = 0x43464620; // 'CFF '
@@ -68,12 +67,18 @@ pub fn font_to_data(font: CGFont) -> Result<Vec<u8>, std::io::Error> {
         let checksum;
         if tag == HEAD_TAG {
             // we need to skip the checksum field
-            checksum = calc_table_checksum(&data.bytes()[0..2])
-                .wrapping_add(calc_table_checksum(&data.bytes()[3..]))
+            checksum = calc_table_checksum(&data.bytes()[0 .. 2])
+                .wrapping_add(calc_table_checksum(&data.bytes()[3 ..]))
         } else {
             checksum = calc_table_checksum(data.bytes());
         }
-        records.push(TableRecord { tag, offset, data, length, checksum } );
+        records.push(TableRecord {
+            tag,
+            offset,
+            data,
+            length,
+            checksum,
+        });
         offset += length;
         // 32 bit align the tables
         offset = (offset + 3) & !3;

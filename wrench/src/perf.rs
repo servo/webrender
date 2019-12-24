@@ -128,7 +128,11 @@ pub struct PerfHarness<'a> {
 }
 
 impl<'a> PerfHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper, rx: Receiver<NotifierEvent>) -> Self {
+    pub fn new(
+        wrench: &'a mut Wrench,
+        window: &'a mut WindowWrapper,
+        rx: Receiver<NotifierEvent>,
+    ) -> Self {
         PerfHarness { wrench, window, rx }
     }
 
@@ -153,8 +157,8 @@ impl<'a> PerfHarness<'a> {
         let mut cpu_frame_profiles = Vec::new();
         let mut gpu_frame_profiles = Vec::new();
 
-        while cpu_frame_profiles.len() < MIN_SAMPLE_COUNT ||
-            gpu_frame_profiles.len() < MIN_SAMPLE_COUNT
+        while cpu_frame_profiles.len() < MIN_SAMPLE_COUNT
+            || gpu_frame_profiles.len() < MIN_SAMPLE_COUNT
         {
             reader.do_frame(self.wrench);
             self.rx.recv().unwrap();
@@ -167,11 +171,9 @@ impl<'a> PerfHarness<'a> {
 
         // Ensure the draw calls match in every sample.
         let draw_calls = cpu_frame_profiles[0].draw_calls;
-        assert!(
-            cpu_frame_profiles
-                .iter()
-                .all(|s| s.draw_calls == draw_calls)
-        );
+        assert!(cpu_frame_profiles
+            .iter()
+            .all(|s| s.draw_calls == draw_calls));
 
         let composite_time_ns = extract_sample(&mut cpu_frame_profiles, |a| a.composite_time_ns);
         let paint_time_ns = extract_sample(&mut gpu_frame_profiles, |a| a.paint_time_ns);
@@ -226,12 +228,7 @@ pub fn compare(first_filename: &str, second_filename: &str) {
     for test_name in set0.symmetric_difference(&set1) {
         println!(
             "| {}{:47}{}|{:14}|{:18}|{:18}|",
-            COLOR_MAGENTA,
-            test_name,
-            COLOR_DEFAULT,
-            " -",
-            " -",
-            " -"
+            COLOR_MAGENTA, test_name, COLOR_DEFAULT, " -", " -", " -"
         );
     }
 

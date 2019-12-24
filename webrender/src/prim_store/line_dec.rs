@@ -2,10 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{
-    ColorF, ColorU,
-    LineOrientation, LineStyle, PremultipliedColorF, Shadow,
-};
+use api::{ColorF, ColorU, LineOrientation, LineStyle, PremultipliedColorF, Shadow};
 use api::units::{Au, LayoutSizeAu, LayoutVector2D};
 use crate::scene_building::{CreateShadow, IsVisible};
 use crate::frame_builder::{FrameBuildingState};
@@ -13,11 +10,10 @@ use crate::gpu_cache::GpuDataRequest;
 use crate::intern;
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
-    PrimKey, PrimKeyCommonData, PrimTemplate, PrimTemplateCommonData,
-    InternablePrimitive, PrimitiveSceneData, PrimitiveStore,
+    PrimKey, PrimKeyCommonData, PrimTemplate, PrimTemplateCommonData, InternablePrimitive,
+    PrimitiveSceneData, PrimitiveStore,
 };
 use crate::prim_store::PrimitiveInstanceKind;
-
 
 #[derive(Clone, Debug, Hash, MallocSizeOf, PartialEq, Eq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -45,14 +41,9 @@ pub struct LineDecoration {
 pub type LineDecorationKey = PrimKey<LineDecoration>;
 
 impl LineDecorationKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        line_dec: LineDecoration,
-    ) -> Self {
+    pub fn new(info: &LayoutPrimitiveInfo, line_dec: LineDecoration) -> Self {
         LineDecorationKey {
-            common: PrimKeyCommonData::with_info(
-                info,
-            ),
+            common: PrimKeyCommonData::with_info(info),
             kind: line_dec,
         }
     }
@@ -83,10 +74,7 @@ impl LineDecorationData {
         }
     }
 
-    fn write_prim_gpu_blocks(
-        &self,
-        request: &mut GpuDataRequest
-    ) {
+    fn write_prim_gpu_blocks(&self, request: &mut GpuDataRequest) {
         match self.cache_key.as_ref() {
             Some(cache_key) => {
                 request.push(self.color.premultiplied());
@@ -115,7 +103,7 @@ impl From<LineDecorationKey> for LineDecorationTemplate {
             kind: LineDecorationData {
                 cache_key: line_dec.kind.cache_key,
                 color: line_dec.kind.color.into(),
-            }
+            },
         }
     }
 }
@@ -129,14 +117,8 @@ impl intern::Internable for LineDecoration {
 }
 
 impl InternablePrimitive for LineDecoration {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> LineDecorationKey {
-        LineDecorationKey::new(
-            info,
-            self,
-        )
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> LineDecorationKey {
+        LineDecorationKey::new(info, self)
     }
 
     fn make_instance_kind(
@@ -177,7 +159,19 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<LineDecoration>(), 20, "LineDecoration size changed");
-    assert_eq!(mem::size_of::<LineDecorationTemplate>(), 52, "LineDecorationTemplate size changed");
-    assert_eq!(mem::size_of::<LineDecorationKey>(), 32, "LineDecorationKey size changed");
+    assert_eq!(
+        mem::size_of::<LineDecoration>(),
+        20,
+        "LineDecoration size changed"
+    );
+    assert_eq!(
+        mem::size_of::<LineDecorationTemplate>(),
+        52,
+        "LineDecorationTemplate size changed"
+    );
+    assert_eq!(
+        mem::size_of::<LineDecorationKey>(),
+        32,
+        "LineDecorationKey size changed"
+    );
 }

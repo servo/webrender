@@ -8,8 +8,8 @@ use crate::clip_scroll_tree::SpatialNodeIndex;
 use crate::intern::{Internable, InternDebug, Handle as InternHandle};
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
-    InternablePrimitive, PictureIndex, PrimitiveInstanceKind, PrimKey, PrimKeyCommonData, PrimTemplate,
-    PrimTemplateCommonData, PrimitiveStore, PrimitiveSceneData, RectangleKey,
+    InternablePrimitive, PictureIndex, PrimitiveInstanceKind, PrimKey, PrimKeyCommonData,
+    PrimTemplate, PrimTemplateCommonData, PrimitiveStore, PrimitiveSceneData, RectangleKey,
 };
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -34,11 +34,7 @@ impl From<Backdrop> for BackdropData {
 pub type BackdropKey = PrimKey<Backdrop>;
 
 impl BackdropKey {
-    pub fn new(
-        flags: PrimitiveFlags,
-        prim_size: LayoutSize,
-        backdrop: Backdrop,
-    ) -> Self {
+    pub fn new(flags: PrimitiveFlags, prim_size: LayoutSize, backdrop: Backdrop) -> Self {
         BackdropKey {
             common: PrimKeyCommonData {
                 flags,
@@ -82,15 +78,8 @@ impl Internable for Backdrop {
 }
 
 impl InternablePrimitive for Backdrop {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> BackdropKey {
-        BackdropKey::new(
-            info.flags,
-            info.rect.size,
-            self
-        )
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> BackdropKey {
+        BackdropKey::new(info.flags, info.rect.size, self)
     }
 
     fn make_instance_kind(
@@ -99,8 +88,6 @@ impl InternablePrimitive for Backdrop {
         _prim_store: &mut PrimitiveStore,
         _reference_frame_relative_offset: LayoutVector2D,
     ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::Backdrop {
-            data_handle,
-        }
+        PrimitiveInstanceKind::Backdrop { data_handle }
     }
 }

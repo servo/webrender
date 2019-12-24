@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-
 use api::units::*;
 use api::{ColorF, PremultipliedColorF, ImageFormat, LineOrientation, BorderStyle, PipelineId};
 use crate::batch::{AlphaBatchBuilder, AlphaBatchContainer, BatchTextures, resolve_image};
@@ -13,11 +12,16 @@ use crate::composite::CompositeState;
 use crate::device::Texture;
 use crate::frame_builder::{FrameGlobalResources};
 use crate::gpu_cache::{GpuCache, GpuCacheAddress};
-use crate::gpu_types::{BorderInstance, SvgFilterInstance, BlurDirection, BlurInstance, PrimitiveHeaders, ScalingInstance};
+use crate::gpu_types::{
+    BorderInstance, SvgFilterInstance, BlurDirection, BlurInstance, PrimitiveHeaders,
+    ScalingInstance,
+};
 use crate::gpu_types::{TransformPalette, ZBufferIdGenerator};
 use crate::internal_types::{FastHashMap, TextureSource, LayerIndex, Swizzle, SavedTargetIndex};
 use crate::picture::{SurfaceInfo, ResolvedSurfaceTexture};
-use crate::prim_store::{PrimitiveStore, DeferredResolve, PrimitiveScratchBuffer, PrimitiveVisibilityMask};
+use crate::prim_store::{
+    PrimitiveStore, DeferredResolve, PrimitiveScratchBuffer, PrimitiveVisibilityMask,
+};
 use crate::prim_store::gradient::GRADIENT_FP_STOPS;
 use crate::render_backend::DataStores;
 use crate::render_task::{RenderTaskKind, RenderTaskAddress, ClearMode, BlitSource};
@@ -26,7 +30,6 @@ use crate::render_task_graph::{RenderTaskGraph, RenderTaskId};
 use crate::resource_cache::ResourceCache;
 use crate::texture_allocator::{ArrayAllocationTracker, FreeRectSlice};
 use std::{cmp, mem};
-
 
 const STYLE_SOLID: i32 = ((BorderStyle::Solid as i32) << 8) | ((BorderStyle::Solid as i32) << 16);
 const STYLE_MASK: i32 = 0x00FF_FF00;
@@ -86,10 +89,7 @@ pub struct RenderTargetContext<'a, 'rc> {
 /// and sometimes on its parameters. See `RenderTask::target_kind`.
 pub trait RenderTarget {
     /// Creates a new RenderTarget of the given type.
-    fn new(
-        screen_size: DeviceIntSize,
-        gpu_supports_fast_clears: bool,
-    ) -> Self;
+    fn new(screen_size: DeviceIntSize, gpu_supports_fast_clears: bool) -> Self;
 
     /// Optional hook to provide additional processing for the target at the
     /// end of the build phase.
@@ -222,10 +222,7 @@ impl<T: RenderTarget> RenderTargetList<T> {
         }
     }
 
-    pub fn allocate(
-        &mut self,
-        alloc_size: DeviceIntSize,
-    ) -> (RenderTargetIndex, DeviceIntPoint) {
+    pub fn allocate(&mut self, alloc_size: DeviceIntSize) -> (RenderTargetIndex, DeviceIntPoint) {
         let (free_rect_slice, origin) = match self.alloc_tracker.allocate(&alloc_size) {
             Some(allocation) => allocation,
             None => {
@@ -233,24 +230,26 @@ impl<T: RenderTarget> RenderTargetList<T> {
                 // dimensions, unless we've already gone bigger on a previous
                 // slice.
                 let rounded_dimensions = DeviceIntSize::new(
-                    (self.max_dynamic_size.width + TEXTURE_DIMENSION_MASK) & !TEXTURE_DIMENSION_MASK,
-                    (self.max_dynamic_size.height + TEXTURE_DIMENSION_MASK) & !TEXTURE_DIMENSION_MASK,
+                    (self.max_dynamic_size.width + TEXTURE_DIMENSION_MASK)
+                        & !TEXTURE_DIMENSION_MASK,
+                    (self.max_dynamic_size.height + TEXTURE_DIMENSION_MASK)
+                        & !TEXTURE_DIMENSION_MASK,
                 );
                 let allocator_dimensions = DeviceIntSize::new(
                     cmp::max(IDEAL_MAX_TEXTURE_DIMENSION, rounded_dimensions.width),
                     cmp::max(IDEAL_MAX_TEXTURE_DIMENSION, rounded_dimensions.height),
                 );
 
-                assert!(alloc_size.width <= allocator_dimensions.width &&
-                    alloc_size.height <= allocator_dimensions.height);
-                let slice = FreeRectSlice(self.targets.len() as u32);
-                self.targets.push(T::new(self.screen_size, self.gpu_supports_fast_clears));
-
-                self.alloc_tracker.extend(
-                    slice,
-                    allocator_dimensions,
-                    alloc_size,
+                assert!(
+                    alloc_size.width <= allocator_dimensions.width
+                        && alloc_size.height <= allocator_dimensions.height
                 );
+                let slice = FreeRectSlice(self.targets.len() as u32);
+                self.targets
+                    .push(T::new(self.screen_size, self.gpu_supports_fast_clears));
+
+                self.alloc_tracker
+                    .extend(slice, allocator_dimensions, alloc_size);
 
                 (slice, DeviceIntPoint::zero())
             }
@@ -258,11 +257,11 @@ impl<T: RenderTarget> RenderTargetList<T> {
 
         if alloc_size.is_empty_or_negative() && self.targets.is_empty() {
             // push an unused target here, only if we don't have any
-            self.targets.push(T::new(self.screen_size, self.gpu_supports_fast_clears));
+            self.targets
+                .push(T::new(self.screen_size, self.gpu_supports_fast_clears));
         }
 
-        self.targets[free_rect_slice.0 as usize]
-            .add_used(DeviceIntRect::new(origin, alloc_size));
+        self.targets[free_rect_slice.0 as usize].add_used(DeviceIntRect::new(origin, alloc_size));
 
         (RenderTargetIndex(free_rect_slice.0 as usize), origin)
     }
@@ -280,7 +279,6 @@ impl<T: RenderTarget> RenderTargetList<T> {
         assert!(t.supports_depth() >= self.needs_depth());
     }
 }
-
 
 /// Contains the work (in the form of instance arrays) needed to fill a color
 /// color output surface (RGBA8).
@@ -308,10 +306,7 @@ pub struct ColorRenderTarget {
 }
 
 impl RenderTarget for ColorRenderTarget {
-    fn new(
-        screen_size: DeviceIntSize,
-        _: bool,
-    ) -> Self {
+    fn new(screen_size: DeviceIntSize, _: bool) -> Self {
         ColorRenderTarget {
             alpha_batch_containers: Vec::new(),
             vertical_blurs: Vec::new(),
@@ -344,12 +339,10 @@ impl RenderTarget for ColorRenderTarget {
             let task = &render_tasks[*task_id];
 
             match task.clear_mode {
-                ClearMode::One |
-                ClearMode::Zero => {
+                ClearMode::One | ClearMode::Zero => {
                     panic!("bug: invalid clear mode for color task");
                 }
-                ClearMode::DontCare |
-                ClearMode::Transparent => {}
+                ClearMode::DontCare | ClearMode::Transparent => {}
             }
 
             match task.kind {
@@ -389,9 +382,7 @@ impl RenderTarget for ColorRenderTarget {
                         PrimitiveVisibilityMask::all(),
                     );
 
-                    let mut batch_builder = BatchBuilder::new(
-                        vec![alpha_batch_builder],
-                    );
+                    let mut batch_builder = BatchBuilder::new(vec![alpha_batch_builder]);
 
                     batch_builder.add_pic_to_batch(
                         pic,
@@ -471,22 +462,22 @@ impl RenderTarget for ColorRenderTarget {
                     });
                 }
             }
-            RenderTaskKind::SvgFilter(ref task_info) => {
-                add_svg_filter_instances(
-                    &mut self.svg_filters,
-                    render_tasks,
-                    &task_info.info,
-                    task_id,
-                    task.children.get(0).cloned(),
-                    task.children.get(1).cloned(),
-                    task_info.extra_gpu_cache_handle.map(|handle| gpu_cache.get_address(&handle)),
-                )
-            }
-            RenderTaskKind::ClipRegion(..) |
-            RenderTaskKind::Border(..) |
-            RenderTaskKind::CacheMask(..) |
-            RenderTaskKind::Gradient(..) |
-            RenderTaskKind::LineDecoration(..) => {
+            RenderTaskKind::SvgFilter(ref task_info) => add_svg_filter_instances(
+                &mut self.svg_filters,
+                render_tasks,
+                &task_info.info,
+                task_id,
+                task.children.get(0).cloned(),
+                task.children.get(1).cloned(),
+                task_info
+                    .extra_gpu_cache_handle
+                    .map(|handle| gpu_cache.get_address(&handle)),
+            ),
+            RenderTaskKind::ClipRegion(..)
+            | RenderTaskKind::Border(..)
+            | RenderTaskKind::CacheMask(..)
+            | RenderTaskKind::Gradient(..)
+            | RenderTaskKind::LineDecoration(..) => {
                 panic!("Should not be added to color target!");
             }
             RenderTaskKind::Readback(device_rect) => {
@@ -516,15 +507,17 @@ impl RenderTarget for ColorRenderTarget {
 
                         // Work out a source rect to copy from the texture, depending on whether
                         // a sub-rect is present or not.
-                        let source_rect = key.texel_rect.map_or(cache_item.uv_rect.to_i32(), |sub_rect| {
-                            DeviceIntRect::new(
-                                DeviceIntPoint::new(
-                                    cache_item.uv_rect.origin.x as i32 + sub_rect.origin.x,
-                                    cache_item.uv_rect.origin.y as i32 + sub_rect.origin.y,
-                                ),
-                                sub_rect.size,
-                            )
-                        });
+                        let source_rect =
+                            key.texel_rect
+                                .map_or(cache_item.uv_rect.to_i32(), |sub_rect| {
+                                    DeviceIntRect::new(
+                                        DeviceIntPoint::new(
+                                            cache_item.uv_rect.origin.x as i32 + sub_rect.origin.x,
+                                            cache_item.uv_rect.origin.y as i32 + sub_rect.origin.y,
+                                        ),
+                                        sub_rect.size,
+                                    )
+                                });
 
                         // Store the blit job for the renderer to execute, including
                         // the allocated destination rect within this target.
@@ -534,15 +527,10 @@ impl RenderTarget for ColorRenderTarget {
                             source_rect,
                         )
                     }
-                    BlitSource::RenderTask { task_id } => {
-                        BlitJobSource::RenderTask(task_id)
-                    }
+                    BlitSource::RenderTask { task_id } => BlitJobSource::RenderTask(task_id),
                 };
 
-                let target_rect = task
-                    .get_target_rect()
-                    .0
-                    .inner_rect(task_info.padding);
+                let target_rect = task.get_target_rect().0.inner_rect(task_info.padding);
                 self.blits.push(BlitJob {
                     source,
                     target_rect,
@@ -554,9 +542,9 @@ impl RenderTarget for ColorRenderTarget {
     }
 
     fn needs_depth(&self) -> bool {
-        self.alpha_batch_containers.iter().any(|ab| {
-            !ab.opaque_batches.is_empty()
-        })
+        self.alpha_batch_containers
+            .iter()
+            .any(|ab| !ab.opaque_batches.is_empty())
     }
 
     fn used_rect(&self) -> DeviceIntRect {
@@ -589,10 +577,7 @@ pub struct AlphaRenderTarget {
 }
 
 impl RenderTarget for AlphaRenderTarget {
-    fn new(
-        _: DeviceIntSize,
-        gpu_supports_fast_clears: bool,
-    ) -> Self {
+    fn new(_: DeviceIntSize, gpu_supports_fast_clears: bool) -> Self {
         AlphaRenderTarget {
             clip_batcher: ClipBatcher::new(gpu_supports_fast_clears),
             vertical_blurs: Vec::new(),
@@ -631,13 +616,13 @@ impl RenderTarget for AlphaRenderTarget {
         }
 
         match task.kind {
-            RenderTaskKind::Readback(..) |
-            RenderTaskKind::Picture(..) |
-            RenderTaskKind::Blit(..) |
-            RenderTaskKind::Border(..) |
-            RenderTaskKind::LineDecoration(..) |
-            RenderTaskKind::Gradient(..) |
-            RenderTaskKind::SvgFilter(..) => {
+            RenderTaskKind::Readback(..)
+            | RenderTaskKind::Picture(..)
+            | RenderTaskKind::Blit(..)
+            | RenderTaskKind::Border(..)
+            | RenderTaskKind::LineDecoration(..)
+            | RenderTaskKind::Gradient(..)
+            | RenderTaskKind::SvgFilter(..) => {
                 panic!("BUG: should not be added to alpha target!");
             }
             RenderTaskKind::VerticalBlur(..) => {
@@ -674,10 +659,7 @@ impl RenderTarget for AlphaRenderTarget {
                 );
             }
             RenderTaskKind::ClipRegion(ref region_task) => {
-                let device_rect = DeviceRect::new(
-                    DevicePoint::zero(),
-                    target_rect.size.to_f32(),
-                );
+                let device_rect = DeviceRect::new(DevicePoint::zero(), target_rect.size.to_f32());
                 self.clip_batcher.add_clip_region(
                     region_task.clip_data_address,
                     region_task.local_pos,
@@ -752,15 +734,12 @@ impl TextureCacheRenderTarget {
         }
     }
 
-    pub fn add_task(
-        &mut self,
-        task_id: RenderTaskId,
-        render_tasks: &mut RenderTaskGraph,
-    ) {
+    pub fn add_task(&mut self, task_id: RenderTaskId, render_tasks: &mut RenderTaskGraph) {
         let task_address = render_tasks.get_task_address(task_id);
-        let src_task_address = render_tasks[task_id].children.get(0).map(|src_task_id| {
-            render_tasks.get_task_address(*src_task_id)
-        });
+        let src_task_address = render_tasks[task_id]
+            .children
+            .get(0)
+            .map(|src_task_id| render_tasks.get_task_address(*src_task_id));
 
         let task = &mut render_tasks[task_id];
         let target_rect = task.get_target_rect();
@@ -827,7 +806,11 @@ impl TextureCacheRenderTarget {
                     LineOrientation::Vertical => 1.0,
                 };
 
-                for (stop, (offset, color)) in task_info.stops.iter().zip(stops.iter_mut().zip(colors.iter_mut())) {
+                for (stop, (offset, color)) in task_info
+                    .stops
+                    .iter()
+                    .zip(stops.iter_mut().zip(colors.iter_mut()))
+                {
                     *offset = stop.offset;
                     *color = ColorF::from(stop.color).premultiplied();
                 }
@@ -840,13 +823,13 @@ impl TextureCacheRenderTarget {
                     start_stop: [task_info.start_point, task_info.end_point],
                 });
             }
-            RenderTaskKind::VerticalBlur(..) |
-            RenderTaskKind::Picture(..) |
-            RenderTaskKind::ClipRegion(..) |
-            RenderTaskKind::CacheMask(..) |
-            RenderTaskKind::Readback(..) |
-            RenderTaskKind::Scaling(..) |
-            RenderTaskKind::SvgFilter(..) => {
+            RenderTaskKind::VerticalBlur(..)
+            | RenderTaskKind::Picture(..)
+            | RenderTaskKind::ClipRegion(..)
+            | RenderTaskKind::CacheMask(..)
+            | RenderTaskKind::Readback(..)
+            | RenderTaskKind::Scaling(..)
+            | RenderTaskKind::SvgFilter(..) => {
                 panic!("BUG: unexpected task kind for texture cache target");
             }
             #[cfg(test)]
@@ -890,12 +873,8 @@ fn add_scaling_instances(
             assert!(source_task.is_none());
 
             // Get the cache item for the source texture.
-            let cache_item = resolve_image(
-                key.request,
-                resource_cache,
-                gpu_cache,
-                deferred_resolves,
-            );
+            let cache_item =
+                resolve_image(key.request, resource_cache, gpu_cache, deferred_resolves);
 
             // Work out a source rect to copy from the texture, depending on whether
             // a sub-rect is present or not.
@@ -914,15 +893,13 @@ fn add_scaling_instances(
                 (source_rect, cache_item.texture_layer as LayerIndex),
             )
         }
-        None => {
-            (
-                match task.target_kind {
-                    RenderTargetKind::Color => TextureSource::PrevPassColor,
-                    RenderTargetKind::Alpha => TextureSource::PrevPassAlpha,
-                },
-                source_task.unwrap().location.to_source_rect(),
-            )
-        }
+        None => (
+            match task.target_kind {
+                RenderTargetKind::Color => TextureSource::PrevPassColor,
+                RenderTargetKind::Alpha => TextureSource::PrevPassAlpha,
+            },
+            source_task.unwrap().location.to_source_rect(),
+        ),
     };
 
     instances
@@ -977,43 +954,47 @@ fn add_svg_filter_instances(
     let input_count = match filter {
         SvgFilterInfo::Flood(..) => 0,
 
-        SvgFilterInfo::LinearToSrgb |
-        SvgFilterInfo::SrgbToLinear |
-        SvgFilterInfo::Opacity(..) |
-        SvgFilterInfo::ColorMatrix(..) |
-        SvgFilterInfo::Offset(..) |
-        SvgFilterInfo::ComponentTransfer(..) |
-        SvgFilterInfo::Identity => 1,
+        SvgFilterInfo::LinearToSrgb
+        | SvgFilterInfo::SrgbToLinear
+        | SvgFilterInfo::Opacity(..)
+        | SvgFilterInfo::ColorMatrix(..)
+        | SvgFilterInfo::Offset(..)
+        | SvgFilterInfo::ComponentTransfer(..)
+        | SvgFilterInfo::Identity => 1,
 
         // Not techincally a 2 input filter, but we have 2 inputs here: original content & blurred content.
-        SvgFilterInfo::DropShadow(..) |
-        SvgFilterInfo::Blend(..) |
-        SvgFilterInfo::Composite(..) => 2,
+        SvgFilterInfo::DropShadow(..) | SvgFilterInfo::Blend(..) | SvgFilterInfo::Composite(..) => {
+            2
+        }
     };
 
     let generic_int = match filter {
         SvgFilterInfo::Blend(mode) => *mode as u16,
-        SvgFilterInfo::ComponentTransfer(data) =>
-            ((data.r_func.to_int() << 12 |
-              data.g_func.to_int() << 8 |
-              data.b_func.to_int() << 4 |
-              data.a_func.to_int()) as u16),
-        SvgFilterInfo::Composite(operator) =>
-            operator.as_int() as u16,
-        SvgFilterInfo::LinearToSrgb |
-        SvgFilterInfo::SrgbToLinear |
-        SvgFilterInfo::Flood(..) |
-        SvgFilterInfo::Opacity(..) |
-        SvgFilterInfo::ColorMatrix(..) |
-        SvgFilterInfo::DropShadow(..) |
-        SvgFilterInfo::Offset(..) |
-        SvgFilterInfo::Identity => 0,
+        SvgFilterInfo::ComponentTransfer(data) => {
+            ((data.r_func.to_int() << 12
+                | data.g_func.to_int() << 8
+                | data.b_func.to_int() << 4
+                | data.a_func.to_int()) as u16)
+        }
+        SvgFilterInfo::Composite(operator) => operator.as_int() as u16,
+        SvgFilterInfo::LinearToSrgb
+        | SvgFilterInfo::SrgbToLinear
+        | SvgFilterInfo::Flood(..)
+        | SvgFilterInfo::Opacity(..)
+        | SvgFilterInfo::ColorMatrix(..)
+        | SvgFilterInfo::DropShadow(..)
+        | SvgFilterInfo::Offset(..)
+        | SvgFilterInfo::Identity => 0,
     };
 
     let instance = SvgFilterInstance {
         task_address: render_tasks.get_task_address(task_id),
-        input_1_task_address: input_1_task.map(|id| render_tasks.get_task_address(id)).unwrap_or(RenderTaskAddress(0)),
-        input_2_task_address: input_2_task.map(|id| render_tasks.get_task_address(id)).unwrap_or(RenderTaskAddress(0)),
+        input_1_task_address: input_1_task
+            .map(|id| render_tasks.get_task_address(id))
+            .unwrap_or(RenderTaskAddress(0)),
+        input_2_task_address: input_2_task
+            .map(|id| render_tasks.get_task_address(id))
+            .unwrap_or(RenderTaskAddress(0)),
         kind,
         input_count,
         generic_int,

@@ -107,11 +107,15 @@ impl fmt::Debug for ResourceUpdate {
                 &i.descriptor.size
             )),
             ResourceUpdate::DeleteImage(..) => f.write_str("ResourceUpdate::DeleteImage"),
-            ResourceUpdate::SetBlobImageVisibleArea(..) => f.write_str("ResourceUpdate::SetBlobImageVisibleArea"),
+            ResourceUpdate::SetBlobImageVisibleArea(..) => {
+                f.write_str("ResourceUpdate::SetBlobImageVisibleArea")
+            }
             ResourceUpdate::AddFont(..) => f.write_str("ResourceUpdate::AddFont"),
             ResourceUpdate::DeleteFont(..) => f.write_str("ResourceUpdate::DeleteFont"),
             ResourceUpdate::AddFontInstance(..) => f.write_str("ResourceUpdate::AddFontInstance"),
-            ResourceUpdate::DeleteFontInstance(..) => f.write_str("ResourceUpdate::DeleteFontInstance"),
+            ResourceUpdate::DeleteFontInstance(..) => {
+                f.write_str("ResourceUpdate::DeleteFontInstance")
+            }
         }
     }
 }
@@ -184,22 +188,24 @@ impl Transaction {
 
     /// Returns true if the transaction has no effect.
     pub fn is_empty(&self) -> bool {
-        !self.generate_frame &&
-            !self.invalidate_rendered_frame &&
-            self.scene_ops.is_empty() &&
-            self.frame_ops.is_empty() &&
-            self.resource_updates.is_empty() &&
-            self.notifications.is_empty()
+        !self.generate_frame
+            && !self.invalidate_rendered_frame
+            && self.scene_ops.is_empty()
+            && self.frame_ops.is_empty()
+            && self.resource_updates.is_empty()
+            && self.notifications.is_empty()
     }
 
     /// Update a pipeline's epoch.
     pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
         // We track epochs before and after scene building.
         // This one will be applied to the pending scene right away:
-        self.scene_ops.push(SceneMsg::UpdateEpoch(pipeline_id, epoch));
+        self.scene_ops
+            .push(SceneMsg::UpdateEpoch(pipeline_id, epoch));
         // And this one will be applied to the currently built scene at the end
         // of the transaction (potentially long after the scene_ops one).
-        self.frame_ops.push(FrameMsg::UpdateEpoch(pipeline_id, epoch));
+        self.frame_ops
+            .push(FrameMsg::UpdateEpoch(pipeline_id, epoch));
         // We could avoid the duplication here by storing the epoch updates in a
         // separate array and let the render backend schedule the updates at the
         // proper times, but it wouldn't make things simpler.
@@ -255,18 +261,20 @@ impl Transaction {
         preserve_frame_state: bool,
     ) {
         let (display_list_data, list_descriptor) = display_list.into_data();
-        self.scene_ops.push(
-            SceneMsg::SetDisplayList {
-                epoch,
-                pipeline_id,
-                background,
-                viewport_size,
-                content_size,
-                list_descriptor,
-                preserve_frame_state,
-            }
-        );
-        self.payloads.push(Payload { epoch, pipeline_id, display_list_data });
+        self.scene_ops.push(SceneMsg::SetDisplayList {
+            epoch,
+            pipeline_id,
+            background,
+            viewport_size,
+            content_size,
+            list_descriptor,
+            preserve_frame_state,
+        });
+        self.payloads.push(Payload {
+            epoch,
+            pipeline_id,
+            display_list_data,
+        });
     }
 
     /// Add a set of persistent resource updates to apply as part of this transaction.
@@ -290,23 +298,18 @@ impl Transaction {
     }
 
     /// Setup the output region in the framebuffer for a given document.
-    pub fn set_document_view(
-        &mut self,
-        device_rect: DeviceIntRect,
-        device_pixel_ratio: f32,
-    ) {
-        self.scene_ops.push(
-            SceneMsg::SetDocumentView {
-                device_rect,
-                device_pixel_ratio,
-            },
-        );
+    pub fn set_document_view(&mut self, device_rect: DeviceIntRect, device_pixel_ratio: f32) {
+        self.scene_ops.push(SceneMsg::SetDocumentView {
+            device_rect,
+            device_pixel_ratio,
+        });
     }
 
     /// Enable copying of the output of this pipeline id to
     /// an external texture for callers to consume.
     pub fn enable_frame_output(&mut self, pipeline_id: PipelineId, enable: bool) {
-        self.scene_ops.push(SceneMsg::EnableFrameOutput(pipeline_id, enable));
+        self.scene_ops
+            .push(SceneMsg::EnableFrameOutput(pipeline_id, enable));
     }
 
     /// Scrolls the scrolling layer under the `cursor`
@@ -314,7 +317,8 @@ impl Transaction {
     /// WebRender looks for the layer closest to the user
     /// which has `ScrollPolicy::Scrollable` set.
     pub fn scroll(&mut self, scroll_location: ScrollLocation, cursor: WorldPoint) {
-        self.frame_ops.push(FrameMsg::Scroll(scroll_location, cursor));
+        self.frame_ops
+            .push(FrameMsg::Scroll(scroll_location, cursor));
     }
 
     ///
@@ -324,12 +328,14 @@ impl Transaction {
         id: di::ExternalScrollId,
         clamp: ScrollClamping,
     ) {
-        self.frame_ops.push(FrameMsg::ScrollNodeWithId(origin, id, clamp));
+        self.frame_ops
+            .push(FrameMsg::ScrollNodeWithId(origin, id, clamp));
     }
 
     /// Set the current quality / performance settings for this document.
     pub fn set_quality_settings(&mut self, settings: QualitySettings) {
-        self.scene_ops.push(SceneMsg::SetQualitySettings { settings });
+        self.scene_ops
+            .push(SceneMsg::SetQualitySettings { settings });
     }
 
     ///
@@ -343,8 +349,15 @@ impl Transaction {
     }
 
     ///
-    pub fn set_is_transform_async_zooming(&mut self, is_zooming: bool, animation_id: PropertyBindingId) {
-        self.frame_ops.push(FrameMsg::SetIsTransformAsyncZooming(is_zooming, animation_id));
+    pub fn set_is_transform_async_zooming(
+        &mut self,
+        is_zooming: bool,
+        animation_id: PropertyBindingId,
+    ) {
+        self.frame_ops.push(FrameMsg::SetIsTransformAsyncZooming(
+            is_zooming,
+            animation_id,
+        ));
     }
 
     ///
@@ -376,7 +389,8 @@ impl Transaction {
     /// Supply a list of animated property bindings that should be used to resolve
     /// bindings in the current display list.
     pub fn update_dynamic_properties(&mut self, properties: DynamicProperties) {
-        self.frame_ops.push(FrameMsg::UpdateDynamicProperties(properties));
+        self.frame_ops
+            .push(FrameMsg::UpdateDynamicProperties(properties));
     }
 
     /// Add to the list of animated property bindings that should be used to
@@ -384,7 +398,8 @@ impl Transaction {
     /// so the caller doesn't have to figure out all the dynamic properties before
     /// setting them on the transaction but can do them incrementally.
     pub fn append_dynamic_properties(&mut self, properties: DynamicProperties) {
-        self.frame_ops.push(FrameMsg::AppendDynamicProperties(properties));
+        self.frame_ops
+            .push(FrameMsg::AppendDynamicProperties(properties));
     }
 
     /// Consumes this object and just returns the frame ops.
@@ -416,12 +431,13 @@ impl Transaction {
         data: ImageData,
         tiling: Option<TileSize>,
     ) {
-        self.resource_updates.push(ResourceUpdate::AddImage(AddImage {
-            key,
-            descriptor,
-            data,
-            tiling,
-        }));
+        self.resource_updates
+            .push(ResourceUpdate::AddImage(AddImage {
+                key,
+                descriptor,
+                data,
+                tiling,
+            }));
     }
 
     /// See `ResourceUpdate::UpdateImage`.
@@ -432,12 +448,13 @@ impl Transaction {
         data: ImageData,
         dirty_rect: &ImageDirtyRect,
     ) {
-        self.resource_updates.push(ResourceUpdate::UpdateImage(UpdateImage {
-            key,
-            descriptor,
-            data,
-            dirty_rect: *dirty_rect,
-        }));
+        self.resource_updates
+            .push(ResourceUpdate::UpdateImage(UpdateImage {
+                key,
+                descriptor,
+                data,
+                dirty_rect: *dirty_rect,
+            }));
     }
 
     /// See `ResourceUpdate::DeleteImage`.
@@ -454,15 +471,14 @@ impl Transaction {
         visible_rect: DeviceIntRect,
         tiling: Option<TileSize>,
     ) {
-        self.resource_updates.push(
-            ResourceUpdate::AddBlobImage(AddBlobImage {
+        self.resource_updates
+            .push(ResourceUpdate::AddBlobImage(AddBlobImage {
                 key,
                 descriptor,
                 data,
                 visible_rect,
                 tiling,
-            })
-        );
+            }));
     }
 
     /// See `ResourceUpdate::UpdateBlobImage`.
@@ -474,25 +490,26 @@ impl Transaction {
         visible_rect: DeviceIntRect,
         dirty_rect: &BlobDirtyRect,
     ) {
-        self.resource_updates.push(
-            ResourceUpdate::UpdateBlobImage(UpdateBlobImage {
+        self.resource_updates
+            .push(ResourceUpdate::UpdateBlobImage(UpdateBlobImage {
                 key,
                 descriptor,
                 data,
                 visible_rect,
                 dirty_rect: *dirty_rect,
-            })
-        );
+            }));
     }
 
     /// See `ResourceUpdate::DeleteBlobImage`.
     pub fn delete_blob_image(&mut self, key: BlobImageKey) {
-        self.resource_updates.push(ResourceUpdate::DeleteImage(key.as_image()));
+        self.resource_updates
+            .push(ResourceUpdate::DeleteImage(key.as_image()));
     }
 
     /// See `ResourceUpdate::SetBlobImageVisibleArea`.
     pub fn set_blob_image_visible_area(&mut self, key: BlobImageKey, area: DeviceIntRect) {
-        self.resource_updates.push(ResourceUpdate::SetBlobImageVisibleArea(key, area))
+        self.resource_updates
+            .push(ResourceUpdate::SetBlobImageVisibleArea(key, area))
     }
 
     /// See `ResourceUpdate::AddFont`.
@@ -535,7 +552,8 @@ impl Transaction {
 
     /// See `ResourceUpdate::DeleteFontInstance`.
     pub fn delete_font_instance(&mut self, key: font::FontInstanceKey) {
-        self.resource_updates.push(ResourceUpdate::DeleteFontInstance(key));
+        self.resource_updates
+            .push(ResourceUpdate::DeleteFontInstance(key));
     }
 
     /// A hint that this transaction can be processed at a lower priority. High-
@@ -586,12 +604,15 @@ pub struct TransactionMsg {
 
 impl fmt::Debug for TransactionMsg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "threaded={}, genframe={}, invalidate={}, low_priority={}",
-                        self.use_scene_builder_thread,
-                        self.generate_frame,
-                        self.invalidate_rendered_frame,
-                        self.low_priority,
-                    ).unwrap();
+        writeln!(
+            f,
+            "threaded={}, genframe={}, invalidate={}, low_priority={}",
+            self.use_scene_builder_thread,
+            self.generate_frame,
+            self.invalidate_rendered_frame,
+            self.low_priority,
+        )
+        .unwrap();
         for scene_op in &self.scene_ops {
             writeln!(f, "\t\t{:?}", scene_op).unwrap();
         }
@@ -610,12 +631,12 @@ impl fmt::Debug for TransactionMsg {
 impl TransactionMsg {
     /// Returns true if this transaction has no effect.
     pub fn is_empty(&self) -> bool {
-        !self.generate_frame &&
-            !self.invalidate_rendered_frame &&
-            self.scene_ops.is_empty() &&
-            self.frame_ops.is_empty() &&
-            self.resource_updates.is_empty() &&
-            self.notifications.is_empty()
+        !self.generate_frame
+            && !self.invalidate_rendered_frame
+            && self.scene_ops.is_empty()
+            && self.frame_ops.is_empty()
+            && self.resource_updates.is_empty()
+            && self.notifications.is_empty()
     }
 
     /// Creates a transaction message from a single frame message.
@@ -734,11 +755,7 @@ pub struct UpdateBlobImage {
 #[derive(Clone, Deserialize, Serialize)]
 pub enum AddFont {
     ///
-    Raw(
-        font::FontKey,
-        #[serde(with = "serde_bytes")] Vec<u8>,
-        u32
-    ),
+    Raw(font::FontKey, #[serde(with = "serde_bytes")] Vec<u8>, u32),
     ///
     Native(font::FontKey, font::NativeFontHandle),
 }
@@ -850,7 +867,12 @@ pub enum FrameMsg {
     ///
     UpdateEpoch(PipelineId, Epoch),
     ///
-    HitTest(Option<PipelineId>, WorldPoint, HitTestFlags, MsgSender<HitTestResult>),
+    HitTest(
+        Option<PipelineId>,
+        WorldPoint,
+        HitTestFlags,
+        MsgSender<HitTestResult>,
+    ),
     ///
     SetPan(DeviceIntPoint),
     ///
@@ -901,7 +923,7 @@ impl fmt::Debug for FrameMsg {
     }
 }
 
-bitflags!{
+bitflags! {
     /// Bit flags for WR stages to store in a capture.
     // Note: capturing `FRAME` without `SCENE` is not currently supported.
     #[derive(Deserialize, Serialize)]
@@ -913,7 +935,7 @@ bitflags!{
     }
 }
 
-bitflags!{
+bitflags! {
     /// Mask for clearing caches in debug commands.
     #[derive(Deserialize, Serialize)]
     pub struct ClearCache: u8 {
@@ -1068,8 +1090,21 @@ impl Epoch {
 ///
 /// For example in Gecko each content process uses a separate id namespace.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, MallocSizeOf, PartialEq, Hash, Ord, PartialOrd, PeekPoke)]
-#[derive(Deserialize, Serialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Eq,
+    MallocSizeOf,
+    PartialEq,
+    Hash,
+    Ord,
+    PartialOrd,
+    PeekPoke,
+    Deserialize,
+    Serialize,
+)]
 pub struct IdNamespace(pub u32);
 
 /// A key uniquely identifying a WebRender document.
@@ -1078,7 +1113,9 @@ pub struct IdNamespace(pub u32);
 /// Each document will internally correspond to a single scene, and scenes are made of
 /// one or several pipelines.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke,
+)]
 pub struct DocumentId {
     ///
     pub namespace_id: IdNamespace,
@@ -1089,14 +1126,14 @@ pub struct DocumentId {
 impl DocumentId {
     ///
     pub fn new(namespace_id: IdNamespace, id: u32) -> Self {
-        DocumentId {
-            namespace_id,
-            id,
-        }
+        DocumentId { namespace_id, id }
     }
 
     ///
-    pub const INVALID: DocumentId = DocumentId { namespace_id: IdNamespace(0), id: 0 };
+    pub const INVALID: DocumentId = DocumentId {
+        namespace_id: IdNamespace(0),
+        id: 0,
+    };
 }
 
 /// This type carries no valuable semantics for WR. However, it reflects the fact that
@@ -1108,7 +1145,9 @@ pub type PipelineSourceId = u32;
 /// From the point of view of WR, `PipelineId` is completely opaque and generic as long as
 /// it's clonable, serializable, comparable, and hashable.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, PeekPoke,
+)]
 pub struct PipelineId(pub PipelineSourceId, pub u32);
 
 impl Default for PipelineId {
@@ -1169,7 +1208,7 @@ macro_rules! enumerate_interners {
             filter_data: FilterDataIntern,
             backdrop: Backdrop,
         }
-    }
+    };
 }
 
 macro_rules! declare_interning_memory_report {
@@ -1297,10 +1336,11 @@ impl RenderApiSender {
 
     /// Creates a new resource API object with a dedicated namespace.
     pub fn create_api(&self) -> RenderApi {
-        let (sync_tx, sync_rx) =
-            channel::msg_channel().expect("Failed to create channel");
+        let (sync_tx, sync_rx) = channel::msg_channel().expect("Failed to create channel");
         let msg = ApiMsg::CloneApi(sync_tx);
-        self.api_sender.send(msg).expect("Failed to send CloneApi message");
+        self.api_sender
+            .send(msg)
+            .expect("Failed to send CloneApi message");
         let namespace_id = match sync_rx.recv() {
             Ok(id) => id,
             Err(e) => {
@@ -1309,7 +1349,10 @@ impl RenderApiSender {
                 if webrender_is_alive.is_err() {
                     panic!("WebRender was shut down before processing CloneApi: {}", e);
                 } else {
-                    panic!("CloneApi message response was dropped while WebRender was still alive: {}", e);
+                    panic!(
+                        "CloneApi message response was dropped while WebRender was still alive: {}",
+                        e
+                    );
                 }
             }
         };
@@ -1328,7 +1371,9 @@ impl RenderApiSender {
     /// When the option is true, create_api() could not be used to prevent namespace id conflict.
     pub fn create_api_by_client(&self, namespace_id: IdNamespace) -> RenderApi {
         let msg = ApiMsg::CloneApiByClient(namespace_id);
-        self.api_sender.send(msg).expect("Failed to send CloneApiByClient message");
+        self.api_sender
+            .send(msg)
+            .expect("Failed to send CloneApiByClient message");
         RenderApi {
             api_sender: self.api_sender.clone(),
             payload_sender: self.payload_sender.clone(),
@@ -1444,10 +1489,12 @@ impl RenderApi {
     }
 
     /// See `add_document`
-    pub fn add_document_with_id(&self,
-                                initial_size: DeviceIntSize,
-                                layer: DocumentLayer,
-                                id: u32) -> DocumentId {
+    pub fn add_document_with_id(
+        &self,
+        initial_size: DeviceIntSize,
+        layer: DocumentLayer,
+        id: u32,
+    ) -> DocumentId {
         let document_id = DocumentId::new(self.namespace_id, id);
 
         let msg = ApiMsg::AddDocument(document_id, initial_size, layer);
@@ -1598,7 +1645,10 @@ impl RenderApi {
         // `RenderApi` instances for layout and compositor.
         //assert_eq!(document_id.0, self.namespace_id);
         self.api_sender
-            .send(ApiMsg::UpdateDocuments(vec![document_id], vec![TransactionMsg::scene_message(msg)]))
+            .send(ApiMsg::UpdateDocuments(
+                vec![document_id],
+                vec![TransactionMsg::scene_message(msg)],
+            ))
             .unwrap()
     }
 
@@ -1608,7 +1658,10 @@ impl RenderApi {
         // `RenderApi` instances for layout and compositor.
         //assert_eq!(document_id.0, self.namespace_id);
         self.api_sender
-            .send(ApiMsg::UpdateDocuments(vec![document_id], vec![TransactionMsg::frame_message(msg)]))
+            .send(ApiMsg::UpdateDocuments(
+                vec![document_id],
+                vec![TransactionMsg::frame_message(msg)],
+            ))
             .unwrap()
     }
 
@@ -1618,25 +1671,34 @@ impl RenderApi {
         for payload in payloads {
             self.payload_sender.send_payload(payload).unwrap();
         }
-        self.api_sender.send(ApiMsg::UpdateDocuments(vec![document_id], vec![msg])).unwrap();
+        self.api_sender
+            .send(ApiMsg::UpdateDocuments(vec![document_id], vec![msg]))
+            .unwrap();
     }
 
     /// Send multiple transactions.
-    pub fn send_transactions(&self, document_ids: Vec<DocumentId>, mut transactions: Vec<Transaction>) {
+    pub fn send_transactions(
+        &self,
+        document_ids: Vec<DocumentId>,
+        mut transactions: Vec<Transaction>,
+    ) {
         debug_assert!(document_ids.len() == transactions.len());
         let length = document_ids.len();
-        let (msgs, mut document_payloads) = transactions.drain(..)
-            .fold((Vec::with_capacity(length), Vec::with_capacity(length)),
-                |(mut msgs, mut document_payloads), transaction| {
-                    let (msg, payloads) = transaction.finalize();
-                    msgs.push(msg);
-                    document_payloads.push(payloads);
-                    (msgs, document_payloads)
-                });
+        let (msgs, mut document_payloads) = transactions.drain(..).fold(
+            (Vec::with_capacity(length), Vec::with_capacity(length)),
+            |(mut msgs, mut document_payloads), transaction| {
+                let (msg, payloads) = transaction.finalize();
+                msgs.push(msg);
+                document_payloads.push(payloads);
+                (msgs, document_payloads)
+            },
+        );
         for payload in document_payloads.drain(..).flatten() {
             self.payload_sender.send_payload(payload).unwrap();
         }
-        self.api_sender.send(ApiMsg::UpdateDocuments(document_ids.clone(), msgs)).unwrap();
+        self.api_sender
+            .send(ApiMsg::UpdateDocuments(document_ids.clone(), msgs))
+            .unwrap();
     }
 
     /// Does a hit test on display items in the specified document, at the given
@@ -1645,17 +1707,18 @@ impl RenderApi {
     /// HitTestFlags argument contains the FIND_ALL flag, then the vector of hit
     /// results will contain all display items that match, ordered from front
     /// to back.
-    pub fn hit_test(&self,
-                    document_id: DocumentId,
-                    pipeline_id: Option<PipelineId>,
-                    point: WorldPoint,
-                    flags: HitTestFlags)
-                    -> HitTestResult {
+    pub fn hit_test(
+        &self,
+        document_id: DocumentId,
+        pipeline_id: Option<PipelineId>,
+        point: WorldPoint,
+        flags: HitTestFlags,
+    ) -> HitTestResult {
         let (tx, rx) = channel::msg_channel().unwrap();
 
         self.send_frame_msg(
             document_id,
-            FrameMsg::HitTest(pipeline_id, point, flags, tx)
+            FrameMsg::HitTest(pipeline_id, point, flags, tx),
         );
         rx.recv().unwrap()
     }
@@ -1669,7 +1732,10 @@ impl RenderApi {
     ) {
         self.send_scene_msg(
             document_id,
-            SceneMsg::SetDocumentView { device_rect, device_pixel_ratio },
+            SceneMsg::SetDocumentView {
+                device_rect,
+                device_pixel_ratio,
+            },
         );
     }
 
@@ -1786,7 +1852,9 @@ impl ZoomFactor {
 
 /// A key to identify an animated property binding.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Deserialize, MallocSizeOf, PartialEq, Serialize, Eq, Hash, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Default, Deserialize, MallocSizeOf, PartialEq, Serialize, Eq, Hash, PeekPoke,
+)]
 pub struct PropertyBindingId {
     namespace: IdNamespace,
     uid: u32,
@@ -1886,7 +1954,13 @@ pub trait RenderNotifier: Send {
     /// in the renderer's queue).
     fn wake_up(&self);
     /// Notify the thread containing the `Renderer` that a new frame is ready.
-    fn new_frame_ready(&self, _: DocumentId, scrolled: bool, composite_needed: bool, render_time_ns: Option<u64>);
+    fn new_frame_ready(
+        &self,
+        _: DocumentId,
+        scrolled: bool,
+        composite_needed: bool,
+        render_time_ns: Option<u64>,
+    );
     /// A Gecko-specific notification mechanism to get some code executed on the
     /// `Renderer`'s thread, mostly replaced by `NotificationHandler`. You should
     /// probably use the latter instead.
@@ -1917,7 +1991,7 @@ pub enum Checkpoint {
 
 /// A handler to notify when a transaction reaches certain stages of the rendering
 /// pipeline.
-pub trait NotificationHandler : Send + Sync {
+pub trait NotificationHandler: Send + Sync {
     /// Entry point of the handler to implement. Invoked by WebRender.
     fn notify(&self, when: Checkpoint);
 }
@@ -1942,7 +2016,9 @@ impl NotificationRequest {
     }
 
     /// The specified stage at which point the handler should be notified.
-    pub fn when(&self) -> Checkpoint { self.when }
+    pub fn when(&self) -> Checkpoint {
+        self.when
+    }
 
     /// Called by WebRender at specified stages to notify the registered handler.
     pub fn notify(mut self) {

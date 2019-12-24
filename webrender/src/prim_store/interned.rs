@@ -11,4 +11,3 @@ pub use crate::prim_store::line_dec::{LineDecoration};
 pub use crate::prim_store::gradient::{LinearGradient, RadialGradient};
 pub use crate::prim_store::picture::Picture;
 pub use crate::prim_store::text_run::TextRun;
-

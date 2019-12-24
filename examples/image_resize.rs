@@ -31,12 +31,7 @@ impl Example for App {
         _document_id: DocumentId,
     ) {
         let (image_descriptor, image_data) = image_helper::make_checkerboard(32, 32);
-        txn.add_image(
-            self.image_key,
-            image_descriptor,
-            image_data,
-            None,
-        );
+        txn.add_image(self.image_key, image_descriptor, image_data, None);
 
         let bounds = (0, 0).to(512, 512);
         let space_and_clip = SpaceAndClipInfo::root_scroll(pipeline_id);
@@ -76,14 +71,20 @@ impl Example for App {
         builder.pop_stacking_context();
     }
 
-    fn on_event(&mut self, event: winit::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {
+    fn on_event(
+        &mut self,
+        event: winit::WindowEvent,
+        api: &RenderApi,
+        document_id: DocumentId,
+    ) -> bool {
         match event {
             winit::WindowEvent::KeyboardInput {
-                input: winit::KeyboardInput {
-                    state: winit::ElementState::Pressed,
-                    virtual_keycode: Some(winit::VirtualKeyCode::Space),
-                    ..
-                },
+                input:
+                    winit::KeyboardInput {
+                        state: winit::ElementState::Pressed,
+                        virtual_keycode: Some(winit::VirtualKeyCode::Space),
+                        ..
+                    },
                 ..
             } => {
                 let mut image_data = Vec::new();
@@ -98,7 +99,12 @@ impl Example for App {
                 let mut txn = Transaction::new();
                 txn.update_image(
                     self.image_key,
-                    ImageDescriptor::new(64, 64, ImageFormat::BGRA8, ImageDescriptorFlags::IS_OPAQUE),
+                    ImageDescriptor::new(
+                        64,
+                        64,
+                        ImageFormat::BGRA8,
+                        ImageDescriptorFlags::IS_OPAQUE,
+                    ),
                     ImageData::new(image_data),
                     &DirtyRect::All,
                 );

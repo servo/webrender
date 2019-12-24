@@ -16,7 +16,6 @@ use std::cmp;
 use webrender::api::*;
 use webrender::api::units::DeviceIntSize;
 
-
 struct App {
     rect_count: usize,
 }
@@ -43,7 +42,7 @@ impl Example for App {
         for _ in 0 .. self.rect_count {
             builder.push_rect(
                 &CommonItemProperties::new(bounds, space_and_clip),
-                ColorF::new(1.0, 1.0, 1.0, 0.05)
+                ColorF::new(1.0, 1.0, 1.0, 0.05),
             );
         }
 
@@ -54,15 +53,16 @@ impl Example for App {
         &mut self,
         event: winit::WindowEvent,
         _api: &RenderApi,
-        _document_id: DocumentId
+        _document_id: DocumentId,
     ) -> bool {
         match event {
             winit::WindowEvent::KeyboardInput {
-                input: winit::KeyboardInput {
-                    state: winit::ElementState::Pressed,
-                    virtual_keycode: Some(key),
-                    ..
-                },
+                input:
+                    winit::KeyboardInput {
+                        state: winit::ElementState::Pressed,
+                        virtual_keycode: Some(key),
+                        ..
+                    },
                 ..
             } => {
                 match key {
@@ -85,8 +85,6 @@ impl Example for App {
 }
 
 fn main() {
-    let mut app = App {
-        rect_count: 1,
-    };
+    let mut app = App { rect_count: 1 };
     boilerplate::main_wrapper(&mut app, None);
 }

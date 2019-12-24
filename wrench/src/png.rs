@@ -26,15 +26,12 @@ pub fn save<P: Clone + AsRef<Path>>(
     path: P,
     orig_pixels: Vec<u8>,
     size: DeviceIntSize,
-    settings: SaveSettings
+    settings: SaveSettings,
 ) {
     let mut width = size.width as u32;
     let mut height = size.height as u32;
-    let mut buffer = image::RgbaImage::from_raw(
-        width,
-        height,
-        orig_pixels,
-    ).expect("bug: unable to construct image buffer");
+    let mut buffer = image::RgbaImage::from_raw(width, height, orig_pixels)
+        .expect("bug: unable to construct image buffer");
 
     if settings.flip_vertical {
         // flip image vertically (texture is upside down)
@@ -47,13 +44,7 @@ pub fn save<P: Clone + AsRef<Path>>(
             println!("Crop from {:?} to {:?}", size, old_dims);
             width = old_dims.0;
             height = old_dims.1;
-            buffer = image::imageops::crop(
-                &mut buffer,
-                0,
-                0,
-                width,
-                height
-            ).to_image();
+            buffer = image::imageops::crop(&mut buffer, 0, 0, width, height).to_image();
         }
     }
 
@@ -63,15 +54,16 @@ pub fn save<P: Clone + AsRef<Path>>(
         .expect("Unable to encode PNG!");
 }
 
-pub fn save_flipped<P: Clone + AsRef<Path>>(
-    path: P,
-    orig_pixels: Vec<u8>,
-    size: DeviceIntSize,
-) {
-    save(path, orig_pixels, size, SaveSettings {
-        flip_vertical: true,
-        try_crop: true,
-    })
+pub fn save_flipped<P: Clone + AsRef<Path>>(path: P, orig_pixels: Vec<u8>, size: DeviceIntSize) {
+    save(
+        path,
+        orig_pixels,
+        size,
+        SaveSettings {
+            flip_vertical: true,
+            try_crop: true,
+        },
+    )
 }
 
 pub fn png(
@@ -93,18 +85,25 @@ pub fn png(
             let dim = window.get_inner_size();
             let rect = FramebufferIntSize::new(dim.width, dim.height).into();
             let data = wrench.renderer.read_pixels_rgba8(rect);
-            (dim, data, SaveSettings {
-                flip_vertical: true,
-                try_crop: true,
-            })
+            (
+                dim,
+                data,
+                SaveSettings {
+                    flip_vertical: true,
+                    try_crop: true,
+                },
+            )
         }
         ReadSurface::GpuCache => {
-            let (size, data) = wrench.renderer
-                .read_gpu_cache();
-            (size, data, SaveSettings {
-                flip_vertical: false,
-                try_crop: false,
-            })
+            let (size, data) = wrench.renderer.read_gpu_cache();
+            (
+                size,
+                data,
+                SaveSettings {
+                    flip_vertical: false,
+                    try_crop: false,
+                },
+            )
         }
     };
 

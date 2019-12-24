@@ -4,13 +4,13 @@
 
 /*
 
-    An example of how to implement the Compositor trait that
-    allows picture caching surfaces to be composited by the operating
-    system.
+   An example of how to implement the Compositor trait that
+   allows picture caching surfaces to be composited by the operating
+   system.
 
-    The current example supports DirectComposite on Windows only.
+   The current example supports DirectComposite on Windows only.
 
- */
+*/
 
 use euclid::Angle;
 use gleam::gl;
@@ -32,57 +32,25 @@ struct DirectCompositeInterface {
 
 impl DirectCompositeInterface {
     fn new(window: *mut compositor::Window) -> Self {
-        DirectCompositeInterface {
-            window,
-        }
+        DirectCompositeInterface { window }
     }
 }
 
 impl webrender::Compositor for DirectCompositeInterface {
-    fn create_surface(
-        &mut self,
-        id: webrender::NativeSurfaceId,
-        tile_size: DeviceIntSize,
-    ) {
-        compositor::create_surface(
-            self.window,
-            id.0,
-            tile_size.width,
-            tile_size.height,
-        );
+    fn create_surface(&mut self, id: webrender::NativeSurfaceId, tile_size: DeviceIntSize) {
+        compositor::create_surface(self.window, id.0, tile_size.width, tile_size.height);
     }
 
-    fn destroy_surface(
-        &mut self,
-        id: webrender::NativeSurfaceId,
-    ) {
+    fn destroy_surface(&mut self, id: webrender::NativeSurfaceId) {
         compositor::destroy_surface(self.window, id.0);
     }
 
-    fn create_tile(
-        &mut self,
-        id: webrender::NativeTileId,
-        is_opaque: bool,
-    ) {
-        compositor::create_tile(
-            self.window,
-            id.surface_id.0,
-            id.x,
-            id.y,
-            is_opaque,
-        );
+    fn create_tile(&mut self, id: webrender::NativeTileId, is_opaque: bool) {
+        compositor::create_tile(self.window, id.surface_id.0, id.x, id.y, is_opaque);
     }
 
-    fn destroy_tile(
-        &mut self,
-        id: webrender::NativeTileId,
-    ) {
-        compositor::destroy_tile(
-            self.window,
-            id.surface_id.0,
-            id.x,
-            id.y,
-        );
+    fn destroy_tile(&mut self, id: webrender::NativeTileId) {
+        compositor::destroy_tile(self.window, id.surface_id.0, id.x, id.y);
     }
 
     fn bind(
@@ -146,27 +114,26 @@ struct Notifier {
 
 impl Notifier {
     fn new(tx: mpsc::Sender<()>) -> Self {
-        Notifier {
-            tx,
-        }
+        Notifier { tx }
     }
 }
 
 impl RenderNotifier for Notifier {
     fn clone(&self) -> Box<dyn RenderNotifier> {
         Box::new(Notifier {
-            tx: self.tx.clone()
+            tx: self.tx.clone(),
         })
     }
 
-    fn wake_up(&self) {
-    }
+    fn wake_up(&self) {}
 
-    fn new_frame_ready(&self,
-                       _: DocumentId,
-                       _scrolled: bool,
-                       _composite_needed: bool,
-                       _render_time: Option<u64>) {
+    fn new_frame_ready(
+        &self,
+        _: DocumentId,
+        _scrolled: bool,
+        _composite_needed: bool,
+        _render_time: Option<u64>,
+    ) {
         self.tx.send(()).ok();
     }
 }
@@ -370,21 +337,14 @@ fn main() {
     let (tx, rx) = mpsc::channel();
     let notifier = Box::new(Notifier::new(tx));
     let gl = unsafe {
-        gl::GlesFns::load_with(
-            |symbol| {
-                let symbol = CString::new(symbol).unwrap();
-                let ptr = compositor::get_proc_address(symbol.as_ptr());
-                ptr
-            }
-        )
+        gl::GlesFns::load_with(|symbol| {
+            let symbol = CString::new(symbol).unwrap();
+            let ptr = compositor::get_proc_address(symbol.as_ptr());
+            ptr
+        })
     };
-    let (mut renderer, sender) = webrender::Renderer::new(
-        gl.clone(),
-        notifier,
-        opts,
-        None,
-        device_size,
-    ).unwrap();
+    let (mut renderer, sender) =
+        webrender::Renderer::new(gl.clone(), notifier, opts, None, device_size).unwrap();
     let api = sender.create_api();
     let document_id = api.add_document(device_size, 0);
     let device_pixel_ratio = 1.0;

@@ -194,7 +194,9 @@ impl Iterator for TileIterator {
 
         // Stop iterating if we reach the last tile. We may start here if there
         // were no tiles to iterate over.
-        if self.current_tile.x >= self.x.tile_range.end || self.current_tile.y >= self.y.tile_range.end {
+        if self.current_tile.x >= self.x.tile_range.end
+            || self.current_tile.y >= self.y.tile_range.end
+        {
             return None;
         }
 
@@ -284,16 +286,16 @@ pub fn tiles(
             return TileIterator {
                 current_tile: TileOffset::zero(),
                 x: TileIteratorExtent {
-                    tile_range: 0..0,
-                    image_tiles: 0..0,
+                    tile_range: 0 .. 0,
+                    image_tiles: 0 .. 0,
                     first_tile_layout_size: 0.0,
                     last_tile_layout_size: 0.0,
                     layout_tiling_origin: 0.0,
                     layout_prim_start: prim_rect.origin.x,
                 },
                 y: TileIteratorExtent {
-                    tile_range: 0..0,
-                    image_tiles: 0..0,
+                    tile_range: 0 .. 0,
+                    image_tiles: 0 .. 0,
                     first_tile_layout_size: 0.0,
                     last_tile_layout_size: 0.0,
                     layout_tiling_origin: 0.0,
@@ -330,10 +332,7 @@ pub fn tiles(
     );
 
     TileIterator {
-        current_tile: point2(
-            x_extent.tile_range.start,
-            y_extent.tile_range.start,
-        ),
+        current_tile: point2(x_extent.tile_range.start, y_extent.tile_range.start),
         x: x_extent,
         y: y_extent,
         regular_tile_size: layout_tile_size,
@@ -366,13 +365,16 @@ fn tiles_1d(
     let image_tiles = tile_range_1d(&device_image_range, device_tile_size);
 
     // Layout offset of tile (0, 0) with respect to the top-left corner of the display item.
-    let layout_offset = device_image_range.start as f32 * layout_tile_size / device_tile_size as f32;
+    let layout_offset =
+        device_image_range.start as f32 * layout_tile_size / device_tile_size as f32;
     // Position in layout space of tile (0, 0).
     let layout_tiling_origin = layout_prim_start - layout_offset;
 
     // [start..end[ Range of the visible tiles (because of culling).
-    let visible_tiles_start = f32::floor((layout_visible_range.start - layout_tiling_origin) / layout_tile_size) as i32;
-    let visible_tiles_end = f32::ceil((layout_visible_range.end - layout_tiling_origin) / layout_tile_size) as i32;
+    let visible_tiles_start =
+        f32::floor((layout_visible_range.start - layout_tiling_origin) / layout_tile_size) as i32;
+    let visible_tiles_end =
+        f32::ceil((layout_visible_range.end - layout_tiling_origin) / layout_tile_size) as i32;
 
     // Combine the above two to get the tiles in the image that are visible this frame.
     let mut tiles_start = i32::max(image_tiles.start, visible_tiles_start);
@@ -397,7 +399,7 @@ fn tiles_1d(
     };
 
     TileIteratorExtent {
-        tile_range: tiles_start..tiles_end,
+        tile_range: tiles_start .. tiles_end,
         image_tiles,
         first_tile_layout_size,
         last_tile_layout_size,
@@ -422,10 +424,7 @@ fn tiles_1d(
 ///        +---+  regular_tile_size
 ///
 /// ```
-fn tile_range_1d(
-    image_range: &Range<i32>,
-    regular_tile_size: i32,
-) -> Range<i32> {
+fn tile_range_1d(image_range: &Range<i32>, regular_tile_size: i32) -> Range<i32> {
     // Integer division truncates towards zero so with negative values if the first/last
     // tile isn't a full tile we can get offset by one which we account for here.
 
@@ -439,17 +438,14 @@ fn tile_range_1d(
         end += 1;
     }
 
-    start..end
+    start .. end
 }
 
 // Sizes of the first boundary tile in pixels.
 //
 // It can be smaller than the regular tile size if the image is not a multiple
 // of the regular tile size.
-fn first_tile_size_1d(
-    image_range: &Range<i32>,
-    regular_tile_size: i32,
-) -> i32 {
+fn first_tile_size_1d(image_range: &Range<i32>, regular_tile_size: i32) -> i32 {
     // We have to account for how the % operation behaves for negative values.
     let image_size = image_range.end - image_range.start;
     i32::min(
@@ -466,7 +462,7 @@ fn first_tile_size_1d(
             // %(m):                  <~~
             m => -m,
         },
-        image_size
+        image_size,
     )
 }
 
@@ -474,10 +470,7 @@ fn first_tile_size_1d(
 //
 // It can be smaller than the regular tile size if the image is not a multiple
 // of the regular tile size.
-fn last_tile_size_1d(
-    image_range: &Range<i32>,
-    regular_tile_size: i32,
-) -> i32 {
+fn last_tile_size_1d(image_range: &Range<i32>, regular_tile_size: i32) -> i32 {
     // We have to account for how the modulo operation behaves for negative values.
     let image_size = image_range.end - image_range.start;
     i32::min(
@@ -516,11 +509,7 @@ pub fn compute_tile_rect(
     }
 }
 
-fn compute_tile_origin_1d(
-    img_range: Range<i32>,
-    regular_tile_size: i32,
-    tile_offset: i32,
-) -> i32 {
+fn compute_tile_origin_1d(img_range: Range<i32>, regular_tile_size: i32, tile_offset: i32) -> i32 {
     let tile_range = tile_range_1d(&img_range, regular_tile_size);
     if tile_offset == tile_range.start {
         img_range.start
@@ -542,11 +531,7 @@ pub fn compute_tile_size(
     )
 }
 
-fn compute_tile_size_1d(
-    img_range: Range<i32>,
-    regular_tile_size: i32,
-    tile_offset: i32,
-) -> i32 {
+fn compute_tile_size_1d(img_range: Range<i32>, regular_tile_size: i32, tile_offset: i32) -> i32 {
     let tile_range = tile_range_1d(&img_range, regular_tile_size);
 
     // Most tiles are going to have base_size as width and height,
@@ -564,10 +549,7 @@ fn compute_tile_size_1d(
     actual_size
 }
 
-pub fn compute_tile_range(
-    visible_area: &DeviceIntRect,
-    tile_size: u16,
-) -> TileRange {
+pub fn compute_tile_range(visible_area: &DeviceIntRect, tile_size: u16) -> TileRange {
     let tile_size = tile_size as i32;
     let x_range = tile_range_1d(&visible_area.x_range(), tile_size);
     let y_range = tile_range_1d(&visible_area.y_range(), tile_size);
@@ -578,10 +560,7 @@ pub fn compute_tile_range(
     }
 }
 
-pub fn for_each_tile_in_range(
-    range: &TileRange,
-    mut callback: impl FnMut(TileOffset),
-) {
+pub fn for_each_tile_in_range(range: &TileRange, mut callback: impl FnMut(TileOffset)) {
     for y in range.y_range() {
         for x in range.x_range() {
             callback(point2(x, y));
@@ -615,14 +594,28 @@ pub fn compute_valid_tiles_if_bounds_change(
     let tw = 1.0 / (tile_size as f32);
     let th = 1.0 / (tile_size as f32);
 
-    let tiles = intersection
-        .cast::<f32>()
-        .scale(tw, th);
+    let tiles = intersection.cast::<f32>().scale(tw, th);
 
-    let min_x = if left { f32::ceil(tiles.min_x()) } else { f32::floor(tiles.min_x()) };
-    let min_y = if top { f32::ceil(tiles.min_y()) } else { f32::floor(tiles.min_y()) };
-    let max_x = if right { f32::floor(tiles.max_x()) } else { f32::ceil(tiles.max_x()) };
-    let max_y = if bottom { f32::floor(tiles.max_y()) } else { f32::ceil(tiles.max_y()) };
+    let min_x = if left {
+        f32::ceil(tiles.min_x())
+    } else {
+        f32::floor(tiles.min_x())
+    };
+    let min_y = if top {
+        f32::ceil(tiles.min_y())
+    } else {
+        f32::floor(tiles.min_y())
+    };
+    let max_x = if right {
+        f32::floor(tiles.max_x())
+    } else {
+        f32::ceil(tiles.max_x())
+    };
+    let max_y = if bottom {
+        f32::floor(tiles.max_y())
+    } else {
+        f32::ceil(tiles.max_y())
+    };
 
     Some(TileRange {
         origin: point2(min_x as i32, min_y as i32),
@@ -646,12 +639,7 @@ mod tests {
     ) {
         let mut coverage = LayoutRect::zero();
         let mut seen_tiles = HashSet::new();
-        for tile in tiles(
-            prim_rect,
-            visible_rect,
-            device_image_rect,
-            device_tile_size,
-        ) {
+        for tile in tiles(prim_rect, visible_rect, device_image_rect, device_tile_size) {
             // make sure we don't get sent duplicate tiles
             assert!(!seen_tiles.contains(&tile.offset));
             seen_tiles.insert(tile.offset);
@@ -660,13 +648,18 @@ mod tests {
             callback(&tile.rect, tile.offset, tile.edge_flags);
         }
         assert!(prim_rect.contains_rect(&coverage));
-        assert!(coverage.contains_rect(&visible_rect.intersection(&prim_rect).unwrap_or(LayoutRect::zero())));
+        assert!(coverage.contains_rect(
+            &visible_rect
+                .intersection(&prim_rect)
+                .unwrap_or(LayoutRect::zero())
+        ));
     }
 
     #[test]
     fn basic() {
         let mut count = 0;
-        checked_for_each_tile(&rect(0., 0., 1000., 1000.),
+        checked_for_each_tile(
+            &rect(0., 0., 1000., 1000.),
             &rect(75., 75., 400., 400.),
             &rect(0, 0, 400, 400),
             36,
@@ -680,13 +673,14 @@ mod tests {
     #[test]
     fn empty() {
         let mut count = 0;
-        checked_for_each_tile(&rect(0., 0., 74., 74.),
-              &rect(75., 75., 400., 400.),
-              &rect(0, 0, 400, 400),
-              36,
-              &mut |_tile_rect, _tile_offset, _tile_flags| {
+        checked_for_each_tile(
+            &rect(0., 0., 74., 74.),
+            &rect(75., 75., 400., 400.),
+            &rect(0, 0, 400, 400),
+            36,
+            &mut |_tile_rect, _tile_offset, _tile_flags| {
                 count += 1;
-              },
+            },
         );
         assert_eq!(count, 0);
     }
@@ -694,38 +688,38 @@ mod tests {
     #[test]
     fn test_tiles_1d() {
         // Exactly one full tile at positive offset.
-        let result = tiles_1d(64.0, -10000.0..10000.0, 0.0, 0..64, 64);
+        let result = tiles_1d(64.0, -10000.0 .. 10000.0, 0.0, 0 .. 64, 64);
         assert_eq!(result.tile_range.start, 0);
         assert_eq!(result.tile_range.end, 1);
         assert_eq!(result.first_tile_layout_size, 64.0);
         assert_eq!(result.last_tile_layout_size, 64.0);
 
         // Exactly one full tile at negative offset.
-        let result = tiles_1d(64.0, -10000.0..10000.0, -64.0, -64..0, 64);
+        let result = tiles_1d(64.0, -10000.0 .. 10000.0, -64.0, -64 .. 0, 64);
         assert_eq!(result.tile_range.start, -1);
         assert_eq!(result.tile_range.end, 0);
         assert_eq!(result.first_tile_layout_size, 64.0);
         assert_eq!(result.last_tile_layout_size, 64.0);
 
         // Two full tiles at negative and positive offsets.
-        let result = tiles_1d(64.0, -10000.0..10000.0, -64.0, -64..64, 64);
+        let result = tiles_1d(64.0, -10000.0 .. 10000.0, -64.0, -64 .. 64, 64);
         assert_eq!(result.tile_range.start, -1);
         assert_eq!(result.tile_range.end, 1);
         assert_eq!(result.first_tile_layout_size, 64.0);
         assert_eq!(result.last_tile_layout_size, 64.0);
 
         // One partial tile at positive offset, non-zero origin, culled out.
-        let result = tiles_1d(64.0, -100.0..10.0, 64.0, 64..310, 64);
+        let result = tiles_1d(64.0, -100.0 .. 10.0, 64.0, 64 .. 310, 64);
         assert_eq!(result.tile_range.start, result.tile_range.end);
 
         // Two tiles at negative and positive offsets, one of which is culled out.
         // The remaining tile is partially culled but it should still generate a full tile.
-        let result = tiles_1d(64.0, 10.0..10000.0, -64.0, -64..64, 64);
+        let result = tiles_1d(64.0, 10.0 .. 10000.0, -64.0, -64 .. 64, 64);
         assert_eq!(result.tile_range.start, 0);
         assert_eq!(result.tile_range.end, 1);
         assert_eq!(result.first_tile_layout_size, 64.0);
         assert_eq!(result.last_tile_layout_size, 64.0);
-        let result = tiles_1d(64.0, -10000.0..-10.0, -64.0, -64..64, 64);
+        let result = tiles_1d(64.0, -10000.0 .. -10.0, -64.0, -64 .. 64, 64);
         assert_eq!(result.tile_range.start, -1);
         assert_eq!(result.tile_range.end, 0);
         assert_eq!(result.first_tile_layout_size, 64.0);
@@ -733,21 +727,21 @@ mod tests {
 
         // Stretched tile in layout space device tile size is 64 and layout tile size is 128.
         // So the resulting tile sizes in layout space should be multiplied by two.
-        let result = tiles_1d(128.0, -10000.0..10000.0, -64.0, -64..32, 64);
+        let result = tiles_1d(128.0, -10000.0 .. 10000.0, -64.0, -64 .. 32, 64);
         assert_eq!(result.tile_range.start, -1);
         assert_eq!(result.tile_range.end, 1);
         assert_eq!(result.first_tile_layout_size, 128.0);
         assert_eq!(result.last_tile_layout_size, 64.0);
 
         // Two visible tiles (the rest is culled out).
-        let result = tiles_1d(10.0, 0.0..20.0, 0.0, 0..64, 64);
+        let result = tiles_1d(10.0, 0.0 .. 20.0, 0.0, 0 .. 64, 64);
         assert_eq!(result.tile_range.start, 0);
         assert_eq!(result.tile_range.end, 1);
         assert_eq!(result.first_tile_layout_size, 10.0);
         assert_eq!(result.last_tile_layout_size, 10.0);
 
         // Two visible tiles at negative layout offsets (the rest is culled out).
-        let result = tiles_1d(10.0, -20.0..0.0, -20.0, 0..64, 64);
+        let result = tiles_1d(10.0, -20.0 .. 0.0, -20.0, 0 .. 64, 64);
         assert_eq!(result.tile_range.start, 0);
         assert_eq!(result.tile_range.end, 1);
         assert_eq!(result.first_tile_layout_size, 10.0);
@@ -756,21 +750,21 @@ mod tests {
 
     #[test]
     fn test_tile_range_1d() {
-        assert_eq!(tile_range_1d(&(0..256), 256), 0..1);
-        assert_eq!(tile_range_1d(&(0..257), 256), 0..2);
-        assert_eq!(tile_range_1d(&(-1..257), 256), -1..2);
-        assert_eq!(tile_range_1d(&(-256..256), 256), -1..1);
-        assert_eq!(tile_range_1d(&(-20..-10), 6), -4..-1);
-        assert_eq!(tile_range_1d(&(20..100), 256), 0..1);
+        assert_eq!(tile_range_1d(&(0 .. 256), 256), 0 .. 1);
+        assert_eq!(tile_range_1d(&(0 .. 257), 256), 0 .. 2);
+        assert_eq!(tile_range_1d(&(-1 .. 257), 256), -1 .. 2);
+        assert_eq!(tile_range_1d(&(-256 .. 256), 256), -1 .. 1);
+        assert_eq!(tile_range_1d(&(-20 .. -10), 6), -4 .. -1);
+        assert_eq!(tile_range_1d(&(20 .. 100), 256), 0 .. 1);
     }
 
     #[test]
     fn test_first_last_tile_size_1d() {
-        assert_eq!(first_tile_size_1d(&(0..10), 64), 10);
-        assert_eq!(first_tile_size_1d(&(-20..0), 64), 20);
+        assert_eq!(first_tile_size_1d(&(0 .. 10), 64), 10);
+        assert_eq!(first_tile_size_1d(&(-20 .. 0), 64), 20);
 
-        assert_eq!(last_tile_size_1d(&(0..10), 64), 10);
-        assert_eq!(last_tile_size_1d(&(-20..0), 64), 20);
+        assert_eq!(last_tile_size_1d(&(0 .. 10), 64), 10);
+        assert_eq!(last_tile_size_1d(&(-20 .. 0), 64), 20);
     }
 
     #[test]
@@ -779,15 +773,14 @@ mod tests {
         // align with the tile grid.
         // This can only happen when we have a single non-aligned partial tile and no regular
         // tiles.
-        assert_eq!(first_tile_size_1d(&(300..310), 64), 10);
-        assert_eq!(first_tile_size_1d(&(-20..-10), 64), 10);
+        assert_eq!(first_tile_size_1d(&(300 .. 310), 64), 10);
+        assert_eq!(first_tile_size_1d(&(-20 .. -10), 64), 10);
 
-        assert_eq!(last_tile_size_1d(&(300..310), 64), 10);
-        assert_eq!(last_tile_size_1d(&(-20..-10), 64), 10);
-
+        assert_eq!(last_tile_size_1d(&(300 .. 310), 64), 10);
+        assert_eq!(last_tile_size_1d(&(-20 .. -10), 64), 10);
 
         // One partial tile at positve offset, non-zero origin.
-        let result = tiles_1d(64.0, -10000.0..10000.0, 0.0, 300..310, 64);
+        let result = tiles_1d(64.0, -10000.0 .. 10000.0, 0.0, 300 .. 310, 64);
         assert_eq!(result.tile_range.start, 4);
         assert_eq!(result.tile_range.end, 5);
         assert_eq!(result.first_tile_layout_size, 10.0);
@@ -796,22 +789,14 @@ mod tests {
 
     #[test]
     fn smaller_than_tile_size_at_origin() {
-        let r = compute_tile_rect(
-            &rect(0, 0, 80, 80),
-            256,
-            point2(0, 0),
-        );
+        let r = compute_tile_rect(&rect(0, 0, 80, 80), 256, point2(0, 0));
 
         assert_eq!(r, rect(0, 0, 80, 80));
     }
 
     #[test]
     fn smaller_than_tile_size_with_offset() {
-        let r = compute_tile_rect(
-            &rect(20, 20, 80, 80),
-            256,
-            point2(0, 0),
-        );
+        let r = compute_tile_rect(&rect(20, 20, 80, 80), 256, point2(0, 0));
 
         assert_eq!(r, rect(20, 20, 80, 80));
     }

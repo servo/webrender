@@ -3,16 +3,19 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::ColorF;
-use api::units::{DeviceRect, DeviceIntSize, DeviceIntRect, DeviceIntPoint, WorldRect, DevicePixelScale, DevicePoint};
+use api::units::{
+    DeviceRect, DeviceIntSize, DeviceIntRect, DeviceIntPoint, WorldRect, DevicePixelScale,
+    DevicePoint,
+};
 use crate::gpu_types::{ZBufferId, ZBufferIdGenerator};
 use crate::picture::{ResolvedSurfaceTexture, TileId, TileCacheInstance, TileSurface};
 use crate::resource_cache::ResourceCache;
 use std::{ops, u64};
 
 /*
- Types and definitions related to compositing picture cache tiles
- and/or OS compositor integration.
- */
+Types and definitions related to compositing picture cache tiles
+and/or OS compositor integration.
+*/
 
 /// Describes details of an operation to apply to a native surface
 #[derive(Debug, Clone)]
@@ -32,7 +35,7 @@ pub enum NativeSurfaceOperationDetails {
     },
     DestroyTile {
         id: NativeTileId,
-    }
+    },
 }
 
 /// Describes an operation to apply to a native surface
@@ -49,12 +52,8 @@ pub struct NativeSurfaceOperation {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum CompositeTileSurface {
-    Texture {
-        surface: ResolvedSurfaceTexture,
-    },
-    Color {
-        color: ColorF,
-    },
+    Texture { surface: ResolvedSurfaceTexture },
+    Color { color: ColorF },
     Clear,
 }
 
@@ -91,7 +90,7 @@ pub enum CompositorConfig {
         max_update_rects: usize,
         /// A client provided interface to a native / OS compositor.
         compositor: Box<dyn Compositor>,
-    }
+    },
 }
 
 impl Default for CompositorConfig {
@@ -235,26 +234,15 @@ impl CompositeState {
 
     /// Register an occluder during picture cache updates that can be
     /// used during frame building to occlude tiles.
-    pub fn register_occluder(
-        &mut self,
-        slice: usize,
-        rect: WorldRect,
-    ) {
+    pub fn register_occluder(&mut self, slice: usize, rect: WorldRect) {
         let device_rect = (rect * self.global_device_pixel_scale).round().to_i32();
 
-        self.occluders.push(Occluder {
-            device_rect,
-            slice,
-        });
+        self.occluders.push(Occluder { device_rect, slice });
     }
 
     /// Returns true if a tile with the specified rectangle and slice
     /// is occluded by an opaque surface in front of it.
-    pub fn is_tile_occluded(
-        &self,
-        slice: usize,
-        rect: WorldRect,
-    ) -> bool {
+    pub fn is_tile_occluded(&self, slice: usize, rect: WorldRect) -> bool {
         // It's often the case that a tile is only occluded by considering multiple
         // picture caches in front of it (for example, the background tiles are
         // often occluded by a combination of the content slice + the scrollbar slices).
@@ -307,9 +295,7 @@ impl CompositeState {
                 TileSurface::Color { color } => {
                     (CompositeTileSurface::Color { color: *color }, true)
                 }
-                TileSurface::Clear => {
-                    (CompositeTileSurface::Clear, false)
-                }
+                TileSurface::Clear => (CompositeTileSurface::Clear, false),
                 TileSurface::Texture { descriptor, .. } => {
                     let surface = descriptor.resolve(resource_cache, tile_cache.current_tile_size);
                     (
@@ -332,23 +318,17 @@ impl CompositeState {
         }
 
         if visible_tile_count > 0 {
-            self.descriptor.surfaces.push(
-                CompositeSurfaceDescriptor {
-                    slice: tile_cache.slice,
-                    surface_id: tile_cache.native_surface_id,
-                    offset: tile_cache.device_position,
-                    clip_rect: device_clip_rect,
-                }
-            );
+            self.descriptor.surfaces.push(CompositeSurfaceDescriptor {
+                slice: tile_cache.slice,
+                surface_id: tile_cache.native_surface_id,
+                offset: tile_cache.device_position,
+                clip_rect: device_clip_rect,
+            });
         }
     }
 
     /// Add a tile to the appropriate array, depending on tile properties and compositor mode.
-    fn push_tile(
-        &mut self,
-        tile: CompositeTile,
-        is_opaque: bool,
-    ) {
+    fn push_tile(&mut self, tile: CompositeTile, is_opaque: bool) {
         match tile.surface {
             CompositeTileSurface::Color { .. } => {
                 // Color tiles are, by definition, opaque. We might support non-opaque color
@@ -429,11 +409,7 @@ pub struct NativeSurfaceInfo {
 /// composited by the OS compositor, rather than drawn via WR batches.
 pub trait Compositor {
     /// Create a new OS compositor surface with the given properties.
-    fn create_surface(
-        &mut self,
-        id: NativeSurfaceId,
-        tile_size: DeviceIntSize,
-    );
+    fn create_surface(&mut self, id: NativeSurfaceId, tile_size: DeviceIntSize);
 
     /// Destroy the surface with the specified id. WR may call this
     /// at any time the surface is no longer required (including during
@@ -441,23 +417,13 @@ pub trait Compositor {
     /// to ensure that the surface is only freed once the GPU is
     /// no longer using the surface (if this isn't already handled
     /// by the operating system).
-    fn destroy_surface(
-        &mut self,
-        id: NativeSurfaceId,
-    );
+    fn destroy_surface(&mut self, id: NativeSurfaceId);
 
     /// Create a new OS compositor tile with the given properties.
-    fn create_tile(
-        &mut self,
-        id: NativeTileId,
-        is_opaque: bool,
-    );
+    fn create_tile(&mut self, id: NativeTileId, is_opaque: bool);
 
     /// Destroy an existing compositor tile.
-    fn destroy_tile(
-        &mut self,
-        id: NativeTileId,
-    );
+    fn destroy_tile(&mut self, id: NativeTileId);
 
     /// Bind this surface such that WR can issue OpenGL commands
     /// that will target the surface. Returns an (x, y) offset
@@ -470,17 +436,11 @@ pub trait Compositor {
     /// relevant to compositors that store surfaces in a texture
     /// atlas (that is, WR expects that the dirty rect doesn't
     /// affect the coordinates of the returned origin).
-    fn bind(
-        &mut self,
-        id: NativeTileId,
-        dirty_rect: DeviceIntRect,
-    ) -> NativeSurfaceInfo;
+    fn bind(&mut self, id: NativeTileId, dirty_rect: DeviceIntRect) -> NativeSurfaceInfo;
 
     /// Unbind the surface. This is called by WR when it has
     /// finished issuing OpenGL commands on the current surface.
-    fn unbind(
-        &mut self,
-    );
+    fn unbind(&mut self);
 
     /// Begin the frame
     fn begin_frame(&mut self);
@@ -510,11 +470,7 @@ pub trait Compositor {
 
 /// Return the total area covered by a set of occluders, accounting for
 /// overlapping areas between those rectangles.
-fn area_of_occluders(
-    occluders: &[Occluder],
-    slice: usize,
-    clip_rect: &DeviceIntRect,
-) -> i32 {
+fn area_of_occluders(occluders: &[Occluder], slice: usize, clip_rect: &DeviceIntRect) -> i32 {
     // This implementation is based on the article https://leetcode.com/articles/rectangle-area-ii/.
     // This is not a particularly efficient implementation (it skips building segment trees), however
     // we typically use this where the length of the rectangles array is < 10, so simplicity is more important.
@@ -540,10 +496,7 @@ fn area_of_occluders(
         fn new(y: i32, kind: EventKind, x0: i32, x1: i32) -> Self {
             Event {
                 y,
-                x_range: ops::Range {
-                    start: x0,
-                    end: x1,
-                },
+                x_range: ops::Range { start: x0, end: x1 },
                 kind,
             }
         }
@@ -560,7 +513,12 @@ fn area_of_occluders(
                 let x0 = rect.origin.x;
                 let x1 = x0 + rect.size.width;
                 events.push(Event::new(rect.origin.y, EventKind::Begin, x0, x1));
-                events.push(Event::new(rect.origin.y + rect.size.height, EventKind::End, x0, x1));
+                events.push(Event::new(
+                    rect.origin.y + rect.size.height,
+                    EventKind::End,
+                    x0,
+                    x1,
+                ));
             }
         }
     }

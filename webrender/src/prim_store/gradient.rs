@@ -3,8 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{
-    ColorF, ColorU, ExtendMode, GradientStop,
-    PremultipliedColorF, LineOrientation, PrimitiveFlags,
+    ColorF, ColorU, ExtendMode, GradientStop, PremultipliedColorF, LineOrientation, PrimitiveFlags,
 };
 use api::units::{LayoutPoint, LayoutSize, LayoutVector2D};
 use crate::scene_building::IsVisible;
@@ -18,7 +17,10 @@ use crate::prim_store::{PrimitiveInstanceKind, PrimitiveOpacity, PrimitiveSceneD
 use crate::prim_store::{PrimKeyCommonData, PrimTemplateCommonData, PrimitiveStore};
 use crate::prim_store::{NinePatchDescriptor, PointKey, SizeKey, InternablePrimitive};
 use crate::render_task_cache::RenderTaskCacheEntryHandle;
-use std::{hash, ops::{Deref, DerefMut}};
+use std::{
+    hash,
+    ops::{Deref, DerefMut},
+};
 use crate::util::pack_as_float;
 
 /// The maximum number of stops a gradient may have to use the fast path.
@@ -77,11 +79,7 @@ pub struct LinearGradientKey {
 }
 
 impl LinearGradientKey {
-    pub fn new(
-        flags: PrimitiveFlags,
-        prim_size: LayoutSize,
-        linear_grad: LinearGradient,
-    ) -> Self {
+    pub fn new(flags: PrimitiveFlags, prim_size: LayoutSize, linear_grad: LinearGradient) -> Self {
         LinearGradientKey {
             common: PrimKeyCommonData {
                 flags,
@@ -169,25 +167,29 @@ impl From<LinearGradientKey> for LinearGradientTemplate {
         let mut prev_offset = None;
         // Convert the stops to more convenient representation
         // for the current gradient builder.
-        let stops: Vec<GradientStop> = item.stops.iter().map(|stop| {
-            let color: ColorF = stop.color.into();
-            min_alpha = min_alpha.min(color.a);
+        let stops: Vec<GradientStop> = item
+            .stops
+            .iter()
+            .map(|stop| {
+                let color: ColorF = stop.color.into();
+                min_alpha = min_alpha.min(color.a);
 
-            // The fast path doesn't support hard color stops, yet.
-            // Since the length of the gradient is a fixed size (512 device pixels), if there
-            // is a hard stop you will see bilinear interpolation with this method, instead
-            // of an abrupt color change.
-            if prev_offset == Some(stop.offset) {
-                supports_caching = false;
-            }
+                // The fast path doesn't support hard color stops, yet.
+                // Since the length of the gradient is a fixed size (512 device pixels), if there
+                // is a hard stop you will see bilinear interpolation with this method, instead
+                // of an abrupt color change.
+                if prev_offset == Some(stop.offset) {
+                    supports_caching = false;
+                }
 
-            prev_offset = Some(stop.offset);
+                prev_offset = Some(stop.offset);
 
-            GradientStop {
-                offset: stop.offset,
-                color,
-            }
-        }).collect();
+                GradientStop {
+                    offset: stop.offset,
+                    color,
+                }
+            })
+            .collect();
 
         let mut brush_segments = Vec::new();
 
@@ -222,12 +224,11 @@ impl LinearGradientTemplate {
     /// times per frame, by each primitive reference that refers to this interned
     /// template. The initial request call to the GPU cache ensures that work is only
     /// done if the cache entry is invalid (due to first use or eviction).
-    pub fn update(
-        &mut self,
-        frame_state: &mut FrameBuildingState,
-    ) {
-        if let Some(mut request) =
-            frame_state.gpu_cache.request(&mut self.common.gpu_cache_handle) {
+    pub fn update(&mut self, frame_state: &mut FrameBuildingState) {
+        if let Some(mut request) = frame_state
+            .gpu_cache
+            .request(&mut self.common.gpu_cache_handle)
+        {
             // write_prim_gpu_blocks
             request.push([
                 self.start_point.x,
@@ -245,19 +246,12 @@ impl LinearGradientTemplate {
             // write_segment_gpu_blocks
             for segment in &self.brush_segments {
                 // has to match VECS_PER_SEGMENT
-                request.write_segment(
-                    segment.local_rect,
-                    segment.extra_data,
-                );
+                request.write_segment(segment.local_rect, segment.extra_data);
             }
         }
 
         if let Some(mut request) = frame_state.gpu_cache.request(&mut self.stops_handle) {
-            GradientGpuBlockBuilder::build(
-                self.reverse_stops,
-                &mut request,
-                &self.stops,
-            );
+            GradientGpuBlockBuilder::build(self.reverse_stops, &mut request, &self.stops);
         }
 
         self.opacity = {
@@ -267,11 +261,12 @@ impl LinearGradientTemplate {
             // then we just assume the gradient is translucent for now.
             // (In the future we could consider segmenting in some cases).
             let stride = self.stretch_size + self.tile_spacing;
-            if stride.width >= self.common.prim_size.width &&
-               stride.height >= self.common.prim_size.height {
+            if stride.width >= self.common.prim_size.width
+                && stride.height >= self.common.prim_size.height
+            {
                 self.stops_opacity
             } else {
-               PrimitiveOpacity::translucent()
+                PrimitiveOpacity::translucent()
             }
         }
     }
@@ -300,15 +295,8 @@ impl Internable for LinearGradient {
 }
 
 impl InternablePrimitive for LinearGradient {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> LinearGradientKey {
-        LinearGradientKey::new(
-            info.flags,
-            info.rect.size,
-            self
-        )
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> LinearGradientKey {
+        LinearGradientKey::new(info.flags, info.rect.size, self)
     }
 
     fn make_instance_kind(
@@ -380,11 +368,7 @@ pub struct RadialGradientKey {
 }
 
 impl RadialGradientKey {
-    pub fn new(
-        flags: PrimitiveFlags,
-        prim_size: LayoutSize,
-        radial_grad: RadialGradient,
-    ) -> Self {
+    pub fn new(flags: PrimitiveFlags, prim_size: LayoutSize, radial_grad: RadialGradient) -> Self {
         RadialGradientKey {
             common: PrimKeyCommonData {
                 flags,
@@ -440,12 +424,14 @@ impl From<RadialGradientKey> for RadialGradientTemplate {
             brush_segments = nine_patch.create_segments(common.prim_size);
         }
 
-        let stops = item.stops.iter().map(|stop| {
-            GradientStop {
+        let stops = item
+            .stops
+            .iter()
+            .map(|stop| GradientStop {
                 offset: stop.offset,
                 color: stop.color.into(),
-            }
-        }).collect();
+            })
+            .collect();
 
         RadialGradientTemplate {
             common,
@@ -466,12 +452,11 @@ impl RadialGradientTemplate {
     /// times per frame, by each primitive reference that refers to this interned
     /// template. The initial request call to the GPU cache ensures that work is only
     /// done if the cache entry is invalid (due to first use or eviction).
-    pub fn update(
-        &mut self,
-        frame_state: &mut FrameBuildingState,
-    ) {
-        if let Some(mut request) =
-            frame_state.gpu_cache.request(&mut self.common.gpu_cache_handle) {
+    pub fn update(&mut self, frame_state: &mut FrameBuildingState) {
+        if let Some(mut request) = frame_state
+            .gpu_cache
+            .request(&mut self.common.gpu_cache_handle)
+        {
             // write_prim_gpu_blocks
             request.push([
                 self.center.x,
@@ -489,19 +474,12 @@ impl RadialGradientTemplate {
             // write_segment_gpu_blocks
             for segment in &self.brush_segments {
                 // has to match VECS_PER_SEGMENT
-                request.write_segment(
-                    segment.local_rect,
-                    segment.extra_data,
-                );
+                request.write_segment(segment.local_rect, segment.extra_data);
             }
         }
 
         if let Some(mut request) = frame_state.gpu_cache.request(&mut self.stops_handle) {
-            GradientGpuBlockBuilder::build(
-                false,
-                &mut request,
-                &self.stops,
-            );
+            GradientGpuBlockBuilder::build(false, &mut request, &self.stops);
         }
 
         self.opacity = PrimitiveOpacity::translucent();
@@ -530,15 +508,8 @@ impl Internable for RadialGradient {
 }
 
 impl InternablePrimitive for RadialGradient {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> RadialGradientKey {
-        RadialGradientKey::new(
-            info.flags,
-            info.rect.size,
-            self,
-        )
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> RadialGradientKey {
+        RadialGradientKey::new(info.flags, info.rect.size, self)
     }
 
     fn make_instance_kind(
@@ -633,17 +604,13 @@ impl GradientGpuBlockBuilder {
     /// function maps offsets from [0, 1] to indices in [GRADIENT_DATA_TABLE_BEGIN, GRADIENT_DATA_TABLE_END].
     #[inline]
     fn get_index(offset: f32) -> usize {
-        (offset.max(0.0).min(1.0) * GRADIENT_DATA_TABLE_SIZE as f32 +
-            GRADIENT_DATA_TABLE_BEGIN as f32)
+        (offset.max(0.0).min(1.0) * GRADIENT_DATA_TABLE_SIZE as f32
+            + GRADIENT_DATA_TABLE_BEGIN as f32)
             .round() as usize
     }
 
     // Build the gradient data from the supplied stops, reversing them if necessary.
-    fn build(
-        reverse_stops: bool,
-        request: &mut GpuDataRequest,
-        src_stops: &[GradientStop],
-    ) {
+    fn build(reverse_stops: bool, request: &mut GpuDataRequest, src_stops: &[GradientStop]) {
         // Preconditions (should be ensured by DisplayListBuilder):
         // * we have at least two stops
         // * first stop has offset 0.0
@@ -703,7 +670,10 @@ impl GradientGpuBlockBuilder {
                 cur_color = next_color;
             }
             if cur_idx != GRADIENT_DATA_TABLE_BEGIN {
-                error!("Gradient stops abruptly at {}, auto-completing to white", cur_idx);
+                error!(
+                    "Gradient stops abruptly at {}, auto-completing to white",
+                    cur_idx
+                );
             }
 
             // Fill in the last entry (for reversed stops) with the last color stop
@@ -746,7 +716,10 @@ impl GradientGpuBlockBuilder {
                 cur_color = next_color;
             }
             if cur_idx != GRADIENT_DATA_TABLE_END {
-                error!("Gradient stops abruptly at {}, auto-completing to white", cur_idx);
+                error!(
+                    "Gradient stops abruptly at {}, auto-completing to white",
+                    cur_idx
+                );
             }
 
             // Fill in the last entry with the last color stop
@@ -776,11 +749,35 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<LinearGradient>(), 72, "LinearGradient size changed");
-    assert_eq!(mem::size_of::<LinearGradientTemplate>(), 112, "LinearGradientTemplate size changed");
-    assert_eq!(mem::size_of::<LinearGradientKey>(), 80, "LinearGradientKey size changed");
+    assert_eq!(
+        mem::size_of::<LinearGradient>(),
+        72,
+        "LinearGradient size changed"
+    );
+    assert_eq!(
+        mem::size_of::<LinearGradientTemplate>(),
+        112,
+        "LinearGradientTemplate size changed"
+    );
+    assert_eq!(
+        mem::size_of::<LinearGradientKey>(),
+        80,
+        "LinearGradientKey size changed"
+    );
 
-    assert_eq!(mem::size_of::<RadialGradient>(), 72, "RadialGradient size changed");
-    assert_eq!(mem::size_of::<RadialGradientTemplate>(), 120, "RadialGradientTemplate size changed");
-    assert_eq!(mem::size_of::<RadialGradientKey>(), 88, "RadialGradientKey size changed");
+    assert_eq!(
+        mem::size_of::<RadialGradient>(),
+        72,
+        "RadialGradient size changed"
+    );
+    assert_eq!(
+        mem::size_of::<RadialGradientTemplate>(),
+        120,
+        "RadialGradientTemplate size changed"
+    );
+    assert_eq!(
+        mem::size_of::<RadialGradientKey>(),
+        88,
+        "RadialGradientKey size changed"
+    );
 }

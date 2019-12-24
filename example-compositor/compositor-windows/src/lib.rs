@@ -6,22 +6,22 @@ use std::os::raw::{c_void, c_char};
 
 /*
 
-  This is a very simple (and unsafe!) rust wrapper for the DirectComposite / D3D11 / ANGLE
-  implementation in lib.cpp.
+ This is a very simple (and unsafe!) rust wrapper for the DirectComposite / D3D11 / ANGLE
+ implementation in lib.cpp.
 
-  It just proxies the calls from the Compositor impl to the C99 code. This is very
-  hacky and not suitable for production!
+ It just proxies the calls from the Compositor impl to the C99 code. This is very
+ hacky and not suitable for production!
 
- */
+*/
 
 // Opaque wrapper for the Window type in lib.cpp
 #[repr(C)]
 pub struct Window {
-    _unused: [u8; 0]
+    _unused: [u8; 0],
 }
 
 // C99 functions that do the compositor work
-extern {
+extern "C" {
     fn com_dc_create_window(
         width: i32,
         height: i32,
@@ -33,32 +33,13 @@ extern {
     fn com_dc_get_proc_address(name: *const c_char) -> *const c_void;
     fn com_dc_swap_buffers(window: *mut Window);
 
-    fn com_dc_create_surface(
-        window: *mut Window,
-        id: u64,
-        tile_width: i32,
-        tile_height: i32,
-    );
+    fn com_dc_create_surface(window: *mut Window, id: u64, tile_width: i32, tile_height: i32);
 
-    fn com_dc_create_tile(
-        window: *mut Window,
-        id: u64,
-        x: i32,
-        y: i32,
-        is_opaque: bool,
-    );
+    fn com_dc_create_tile(window: *mut Window, id: u64, x: i32, y: i32, is_opaque: bool);
 
-    fn com_dc_destroy_tile(
-        window: *mut Window,
-        id: u64,
-        x: i32,
-        y: i32,
-    );
+    fn com_dc_destroy_tile(window: *mut Window, id: u64, x: i32, y: i32);
 
-    fn com_dc_destroy_surface(
-        window: *mut Window,
-        id: u64,
-    );
+    fn com_dc_destroy_surface(window: *mut Window, id: u64);
 
     fn com_dc_bind_surface(
         window: *mut Window,
@@ -96,9 +77,7 @@ pub fn create_window(
     enable_compositor: bool,
     sync_mode: i32,
 ) -> *mut Window {
-    unsafe {
-        com_dc_create_window(width, height, enable_compositor, sync_mode)
-    }
+    unsafe { com_dc_create_window(width, height, enable_compositor, sync_mode) }
 }
 
 pub fn destroy_window(window: *mut Window) {
@@ -108,77 +87,27 @@ pub fn destroy_window(window: *mut Window) {
 }
 
 pub fn tick(window: *mut Window) -> bool {
-    unsafe {
-        com_dc_tick(window)
-    }
+    unsafe { com_dc_tick(window) }
 }
 
 pub fn get_proc_address(name: *const c_char) -> *const c_void {
-    unsafe {
-        com_dc_get_proc_address(name)
-    }
+    unsafe { com_dc_get_proc_address(name) }
 }
 
-pub fn create_surface(
-    window: *mut Window,
-    id: u64,
-    tile_width: i32,
-    tile_height: i32,
-) {
-    unsafe {
-        com_dc_create_surface(
-            window,
-            id,
-            tile_width,
-            tile_height,
-        )
-    }
+pub fn create_surface(window: *mut Window, id: u64, tile_width: i32, tile_height: i32) {
+    unsafe { com_dc_create_surface(window, id, tile_width, tile_height) }
 }
 
-pub fn create_tile(
-    window: *mut Window,
-    id: u64,
-    x: i32,
-    y: i32,
-    is_opaque: bool,
-) {
-    unsafe {
-        com_dc_create_tile(
-            window,
-            id,
-            x,
-            y,
-            is_opaque,
-        )
-    }
+pub fn create_tile(window: *mut Window, id: u64, x: i32, y: i32, is_opaque: bool) {
+    unsafe { com_dc_create_tile(window, id, x, y, is_opaque) }
 }
 
-pub fn destroy_tile(
-    window: *mut Window,
-    id: u64,
-    x: i32,
-    y: i32,
-) {
-    unsafe {
-        com_dc_destroy_tile(
-            window,
-            id,
-            x,
-            y,
-        )
-    }
+pub fn destroy_tile(window: *mut Window, id: u64, x: i32, y: i32) {
+    unsafe { com_dc_destroy_tile(window, id, x, y) }
 }
 
-pub fn destroy_surface(
-    window: *mut Window,
-    id: u64,
-) {
-    unsafe {
-        com_dc_destroy_surface(
-            window,
-            id,
-        )
-    }
+pub fn destroy_surface(window: *mut Window, id: u64) {
+    unsafe { com_dc_destroy_surface(window, id) }
 }
 
 pub fn bind_surface(
@@ -222,36 +151,19 @@ pub fn add_surface(
     clip_w: i32,
     clip_h: i32,
 ) {
-    unsafe {
-        com_dc_add_surface(
-            window,
-            id,
-            x,
-            y,
-            clip_x,
-            clip_y,
-            clip_w,
-            clip_h,
-        )
-    }
+    unsafe { com_dc_add_surface(window, id, x, y, clip_x, clip_y, clip_w, clip_h) }
 }
 
 pub fn begin_transaction(window: *mut Window) {
-    unsafe {
-        com_dc_begin_transaction(window)
-    }
+    unsafe { com_dc_begin_transaction(window) }
 }
 
 pub fn unbind_surface(window: *mut Window) {
-    unsafe {
-        com_dc_unbind_surface(window)
-    }
+    unsafe { com_dc_unbind_surface(window) }
 }
 
 pub fn end_transaction(window: *mut Window) {
-    unsafe {
-        com_dc_end_transaction(window)
-    }
+    unsafe { com_dc_end_transaction(window) }
 }
 
 pub fn swap_buffers(window: *mut Window) {

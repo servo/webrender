@@ -22,7 +22,6 @@ use crate::api::IdNamespace;
 use crate::color::ColorU;
 use crate::units::LayoutPoint;
 
-
 #[cfg(not(target_os = "macos"))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NativeFontHandle {
@@ -40,10 +39,7 @@ impl Serialize for NativeFontHandle {
     where
         S: Serializer,
     {
-        self.0
-            .postscript_name()
-            .to_string()
-            .serialize(serializer)
+        self.0.postscript_name().to_string().serialize(serializer)
     }
 }
 
@@ -75,7 +71,9 @@ pub struct GlyphDimensions {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, Ord, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, Serialize, Ord, PartialOrd,
+)]
 pub struct FontKey(pub IdNamespace, pub u32);
 
 impl FontKey {
@@ -98,7 +96,20 @@ pub enum FontTemplate {
 }
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone, Hash, Eq, MallocSizeOf, PartialEq, Serialize, Deserialize, Ord, PartialOrd, PeekPoke)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    Hash,
+    Eq,
+    MallocSizeOf,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Ord,
+    PartialOrd,
+    PeekPoke,
+)]
 pub enum FontRenderMode {
     Mono = 0,
     Alpha,
@@ -130,15 +141,15 @@ pub struct FontVariation {
 
 impl Ord for FontVariation {
     fn cmp(&self, other: &FontVariation) -> Ordering {
-        self.tag.cmp(&other.tag)
+        self.tag
+            .cmp(&other.tag)
             .then(self.value.to_bits().cmp(&other.value.to_bits()))
     }
 }
 
 impl PartialEq for FontVariation {
     fn eq(&self, other: &FontVariation) -> bool {
-        self.tag == other.tag &&
-        self.value.to_bits() == other.value.to_bits()
+        self.tag == other.tag && self.value.to_bits() == other.value.to_bits()
     }
 }
 
@@ -152,7 +163,9 @@ impl Hash for FontVariation {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize, PeekPoke)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize, PeekPoke,
+)]
 pub struct GlyphOptions {
     pub render_mode: FontRenderMode,
     pub flags: FontInstanceFlags,
@@ -204,8 +217,7 @@ impl Default for FontInstanceFlags {
 
     #[cfg(target_os = "macos")]
     fn default() -> FontInstanceFlags {
-        FontInstanceFlags::SUBPIXEL_POSITION |
-        FontInstanceFlags::FONT_SMOOTHING
+        FontInstanceFlags::SUBPIXEL_POSITION | FontInstanceFlags::FONT_SMOOTHING
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -214,9 +226,10 @@ impl Default for FontInstanceFlags {
     }
 }
 
-
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Hash, Eq, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize,
+)]
 pub struct SyntheticItalics {
     // Angle in degrees (-90..90) for synthetic italics in 8.8 fixed-point.
     pub angle: i16,
@@ -226,7 +239,9 @@ impl SyntheticItalics {
     pub const ANGLE_SCALE: f32 = 256.0;
 
     pub fn from_degrees(degrees: f32) -> Self {
-        SyntheticItalics { angle: (degrees.max(-89.0).min(89.0) * Self::ANGLE_SCALE) as i16 }
+        SyntheticItalics {
+            angle: (degrees.max(-89.0).min(89.0) * Self::ANGLE_SCALE) as i16,
+        }
     }
 
     pub fn to_degrees(self) -> f32 {
@@ -285,10 +300,12 @@ impl Default for FontInstanceOptions {
 
 #[cfg(target_os = "windows")]
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Hash, Eq, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize,
+)]
 pub struct FontInstancePlatformOptions {
-    pub gamma: u16, // percent
-    pub contrast: u8, // percent
+    pub gamma: u16,          // percent
+    pub contrast: u8,        // percent
     pub cleartype_level: u8, // percent
 }
 
@@ -305,7 +322,9 @@ impl Default for FontInstancePlatformOptions {
 
 #[cfg(target_os = "macos")]
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Hash, Eq, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize,
+)]
 pub struct FontInstancePlatformOptions {
     pub unused: u32,
 }
@@ -313,15 +332,15 @@ pub struct FontInstancePlatformOptions {
 #[cfg(target_os = "macos")]
 impl Default for FontInstancePlatformOptions {
     fn default() -> FontInstancePlatformOptions {
-        FontInstancePlatformOptions {
-            unused: 0,
-        }
+        FontInstancePlatformOptions { unused: 0 }
     }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize,
+)]
 pub enum FontLCDFilter {
     None,
     Default,
@@ -331,7 +350,9 @@ pub enum FontLCDFilter {
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, Hash, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize,
+)]
 pub enum FontHinting {
     None,
     Mono,
@@ -342,7 +363,9 @@ pub enum FontHinting {
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Hash, Eq, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize,
+)]
 pub struct FontInstancePlatformOptions {
     pub lcd_filter: FontLCDFilter,
     pub hinting: FontHinting,
@@ -359,8 +382,21 @@ impl Default for FontInstancePlatformOptions {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Ord, PartialOrd, MallocSizeOf, PeekPoke)]
-#[derive(Deserialize, Serialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Eq,
+    Hash,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    MallocSizeOf,
+    PeekPoke,
+    Deserialize,
+    Serialize,
+)]
 pub struct FontInstanceKey(pub IdNamespace, pub u32);
 
 impl FontInstanceKey {

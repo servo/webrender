@@ -54,7 +54,8 @@ fn string_to_color(color: &str) -> Option<ColorF> {
         "yellow" => Some(ColorF::new(1.0, 1.0, 0.0, 1.0)),
         "transparent" => Some(ColorF::new(1.0, 1.0, 1.0, 0.0)),
         s => {
-            let items: Vec<f32> = s.split_whitespace()
+            let items: Vec<f32> = s
+                .split_whitespace()
                 .map(|s| f32::from_str(s).unwrap())
                 .collect();
             if items.len() == 3 {
@@ -156,13 +157,7 @@ define_string_enum!(
     ]
 );
 
-define_string_enum!(
-    ColorSpace,
-    [
-        Srgb = "srgb",
-        LinearRgb = "linear-rgb"
-    ]
-);
+define_string_enum!(ColorSpace, [Srgb = "srgb", LinearRgb = "linear-rgb"]);
 
 // Rotate around `axis` by `degrees` angle
 fn make_rotation(
@@ -179,24 +174,22 @@ fn make_rotation(
     let transform =
         LayoutTransform::identity().pre_rotate(axis_x, axis_y, axis_z, Angle::radians(theta));
 
-    pre_transform.pre_transform(&transform).pre_transform(&post_transform)
+    pre_transform
+        .pre_transform(&transform)
+        .pre_transform(&post_transform)
 }
 
-pub fn make_perspective(
-    origin: LayoutPoint,
-    perspective: f32,
-) -> LayoutTransform {
+pub fn make_perspective(origin: LayoutPoint, perspective: f32) -> LayoutTransform {
     let pre_transform = LayoutTransform::create_translation(origin.x, origin.y, 0.0);
     let post_transform = LayoutTransform::create_translation(-origin.x, -origin.y, -0.0);
     let transform = LayoutTransform::create_perspective(perspective);
-    pre_transform.pre_transform(&transform).pre_transform(&post_transform)
+    pre_transform
+        .pre_transform(&transform)
+        .pre_transform(&post_transform)
 }
 
 // Create a skew matrix, specified in degrees.
-fn make_skew(
-    skew_x: f32,
-    skew_y: f32,
-) -> LayoutTransform {
+fn make_skew(skew_x: f32, skew_y: f32) -> LayoutTransform {
     let alpha = Angle::radians(skew_x.to_radians());
     let beta = Angle::radians(skew_y.to_radians());
     LayoutTransform::create_skew(alpha, beta)
@@ -221,11 +214,13 @@ impl YamlHelper for Yaml {
 
     fn as_vec_f32(&self) -> Option<Vec<f32>> {
         match *self {
-            Yaml::String(ref s) | Yaml::Real(ref s) => s.split_whitespace()
+            Yaml::String(ref s) | Yaml::Real(ref s) => s
+                .split_whitespace()
                 .map(|v| f32::from_str(v))
                 .collect::<Result<Vec<_>, _>>()
                 .ok(),
-            Yaml::Array(ref v) => v.iter()
+            Yaml::Array(ref v) => v
+                .iter()
                 .map(|v| match *v {
                     Yaml::Integer(k) => Ok(k as f32),
                     Yaml::String(ref k) | Yaml::Real(ref k) => f32::from_str(k).map_err(|_| false),
@@ -334,22 +329,8 @@ impl YamlHelper for Yaml {
         if let Some(nums) = self.as_vec_f32() {
             assert_eq!(nums.len(), 16, "expected 16 floats, got '{:?}'", self);
             Some(LayoutTransform::row_major(
-                nums[0],
-                nums[1],
-                nums[2],
-                nums[3],
-                nums[4],
-                nums[5],
-                nums[6],
-                nums[7],
-                nums[8],
-                nums[9],
-                nums[10],
-                nums[11],
-                nums[12],
-                nums[13],
-                nums[14],
-                nums[15],
+                nums[0], nums[1], nums[2], nums[3], nums[4], nums[5], nums[6], nums[7], nums[8],
+                nums[9], nums[10], nums[11], nums[12], nums[13], nums[14], nums[15],
             ))
         } else {
             None
@@ -408,12 +389,8 @@ impl YamlHelper for Yaml {
                             let skew_y = args.get(1).and_then(|a| a.parse().ok()).unwrap_or(0.0);
                             make_skew(args[0].parse().unwrap(), skew_y)
                         }
-                        "skew-x" if args.len() == 1 => {
-                            make_skew(args[0].parse().unwrap(), 0.0)
-                        }
-                        "skew-y" if args.len() == 1 => {
-                            make_skew(0.0, args[0].parse().unwrap())
-                        }
+                        "skew-x" if args.len() == 1 => make_skew(args[0].parse().unwrap(), 0.0),
+                        "skew-y" if args.len() == 1 => make_skew(0.0, args[0].parse().unwrap()),
                         "perspective" if args.len() == 1 => {
                             LayoutTransform::create_perspective(args[0].parse().unwrap())
                         }
@@ -427,13 +404,13 @@ impl YamlHelper for Yaml {
                 Some(transform)
             }
             Yaml::Array(ref array) => {
-                let transform = array.iter().fold(
-                    LayoutTransform::identity(),
-                    |u, yaml| match yaml.as_transform(transform_origin) {
-                        Some(ref transform) => u.pre_transform(transform),
-                        None => u,
-                    },
-                );
+                let transform =
+                    array.iter().fold(LayoutTransform::identity(), |u, yaml| {
+                        match yaml.as_transform(transform_origin) {
+                            Some(ref transform) => u.pre_transform(transform),
+                            None => u,
+                        }
+                    });
                 Some(transform)
             }
             Yaml::BadValue => None,
@@ -455,9 +432,11 @@ impl YamlHelper for Yaml {
             if nums.len() == 3 {
                 nums.push(1.0);
             }
-            assert!(nums[3] >= 0.0 && nums[3] <= 1.0,
-                    "alpha value should be in the 0-1 range, got {:?}",
-                    nums[3]);
+            assert!(
+                nums[3] >= 0.0 && nums[3] <= 1.0,
+                "alpha value should be in the 0-1 range, got {:?}",
+                nums[3]
+            );
             return Some(ColorF::new(
                 nums[0] / 255.0,
                 nums[1] / 255.0,
@@ -547,17 +526,13 @@ impl YamlHelper for Yaml {
     }
 
     fn as_raster_space(&self) -> Option<RasterSpace> {
-        self.as_str().and_then(|s| {
-            match parse_function(s) {
-                ("screen", _, _) => {
-                    Some(RasterSpace::Screen)
-                }
-                ("local", ref args, _) if args.len() == 1 => {
-                    Some(RasterSpace::Local(args[0].parse().unwrap()))
-                }
-                f => {
-                    panic!("error parsing raster space {:?}", f);
-                }
+        self.as_str().and_then(|s| match parse_function(s) {
+            ("screen", _, _) => Some(RasterSpace::Screen),
+            ("local", ref args, _) if args.len() == 1 => {
+                Some(RasterSpace::Local(args[0].parse().unwrap()))
+            }
+            f => {
+                panic!("error parsing raster space {:?}", f);
             }
         })
     }
@@ -573,12 +548,8 @@ impl YamlHelper for Yaml {
     fn as_filter_op(&self) -> Option<FilterOp> {
         if let Some(s) = self.as_str() {
             match parse_function(s) {
-                ("identity", _, _) => {
-                    Some(FilterOp::Identity)
-                }
-                ("component-transfer", _, _) => {
-                    Some(FilterOp::ComponentTransfer)
-                }
+                ("identity", _, _) => Some(FilterOp::Identity),
+                ("component-transfer", _, _) => Some(FilterOp::ComponentTransfer),
                 ("blur", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Blur(args[0].parse().unwrap()))
                 }
@@ -607,16 +578,20 @@ impl YamlHelper for Yaml {
                 ("sepia", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Sepia(args[0].parse().unwrap()))
                 }
-                ("srgb-to-linear", _, _)  => Some(FilterOp::SrgbToLinear),
-                ("linear-to-srgb", _, _)  => Some(FilterOp::LinearToSrgb),
+                ("srgb-to-linear", _, _) => Some(FilterOp::SrgbToLinear),
+                ("linear-to-srgb", _, _) => Some(FilterOp::LinearToSrgb),
                 ("drop-shadow", ref args, _) if args.len() == 3 => {
-                    let str = format!("---\noffset: {}\nblur-radius: {}\ncolor: {}\n", args[0], args[1], args[2]);
-                    let mut yaml_doc = YamlLoader::load_from_str(&str).expect("Failed to parse drop-shadow");
+                    let str = format!(
+                        "---\noffset: {}\nblur-radius: {}\ncolor: {}\n",
+                        args[0], args[1], args[2]
+                    );
+                    let mut yaml_doc =
+                        YamlLoader::load_from_str(&str).expect("Failed to parse drop-shadow");
                     let yaml = yaml_doc.pop().unwrap();
                     Some(FilterOp::DropShadow(Shadow {
                         offset: yaml["offset"].as_vector().unwrap(),
                         blur_radius: yaml["blur-radius"].as_f32().unwrap(),
-                        color: yaml["color"].as_colorf().unwrap()
+                        color: yaml["color"].as_colorf().unwrap(),
                     }))
                 }
                 ("color-matrix", ref args, _) if args.len() == 20 => {
@@ -627,7 +602,8 @@ impl YamlHelper for Yaml {
                 }
                 ("flood", ref args, _) if args.len() == 1 => {
                     let str = format!("---\ncolor: {}\n", args[0]);
-                    let mut yaml_doc = YamlLoader::load_from_str(&str).expect("Failed to parse flood");
+                    let mut yaml_doc =
+                        YamlLoader::load_from_str(&str).expect("Failed to parse flood");
                     let yaml = yaml_doc.pop().unwrap();
                     Some(FilterOp::Flood(yaml["color"].as_colorf().unwrap()))
                 }
@@ -651,17 +627,25 @@ impl YamlHelper for Yaml {
         // The remaining entries are arrays of floats.
         if let Yaml::Array(ref array) = *self {
             if array.len() != 5 {
-                panic!("Invalid filter data specified, base array doesn't have five entries: {:?}", self);
+                panic!(
+                    "Invalid filter data specified, base array doesn't have five entries: {:?}",
+                    self
+                );
             }
             if let Some(func_types_p) = array[0].as_vec_string() {
                 if func_types_p.len() != 4 {
                     panic!("Invalid filter data specified, func type array doesn't have five entries: {:?}", self);
                 }
-                let func_types: Vec<ComponentTransferFuncType> =
-                    func_types_p.into_iter().map(|x| { match StringEnum::from_str(&x) {
+                let func_types: Vec<ComponentTransferFuncType> = func_types_p
+                    .into_iter()
+                    .map(|x| match StringEnum::from_str(&x) {
                         Some(y) => y,
-                        None => panic!("Invalid filter data specified, invalid func type name: {:?}", self),
-                    }}).collect();
+                        None => panic!(
+                            "Invalid filter data specified, invalid func type name: {:?}",
+                            self
+                        ),
+                    })
+                    .collect();
                 if let Some(r_values_p) = array[1].as_vec_f32() {
                     if let Some(g_values_p) = array[2].as_vec_f32() {
                         if let Some(b_values_p) = array[3].as_vec_f32() {
@@ -676,7 +660,7 @@ impl YamlHelper for Yaml {
                                     func_a_type: func_types[3],
                                     a_values: a_values_p,
                                 };
-                                return Some(filter_data)
+                                return Some(filter_data);
                             }
                         }
                     }
@@ -715,35 +699,25 @@ impl YamlHelper for Yaml {
     fn as_filter_primitive(&self) -> Option<FilterPrimitive> {
         if let Some(filter_type) = self["type"].as_str() {
             let kind = match filter_type {
-                "identity" => {
-                    FilterPrimitiveKind::Identity(IdentityPrimitive {
-                        input: self["in"].as_filter_input().unwrap(),
-                    })
-                }
-                "blend" => {
-                    FilterPrimitiveKind::Blend(BlendPrimitive {
-                        input1: self["in1"].as_filter_input().unwrap(),
-                        input2: self["in2"].as_filter_input().unwrap(),
-                        mode: self["blend-mode"].as_mix_blend_mode().unwrap(),
-                    })
-                }
-                "flood" => {
-                    FilterPrimitiveKind::Flood(FloodPrimitive {
-                        color: self["color"].as_colorf().unwrap(),
-                    })
-                }
-                "blur" => {
-                    FilterPrimitiveKind::Blur(BlurPrimitive {
-                        input: self["in"].as_filter_input().unwrap(),
-                        radius: self["radius"].as_f32().unwrap(),
-                    })
-                }
-                "opacity" => {
-                    FilterPrimitiveKind::Opacity(OpacityPrimitive {
-                        input: self["in"].as_filter_input().unwrap(),
-                        opacity: self["opacity"].as_f32().unwrap(),
-                    })
-                }
+                "identity" => FilterPrimitiveKind::Identity(IdentityPrimitive {
+                    input: self["in"].as_filter_input().unwrap(),
+                }),
+                "blend" => FilterPrimitiveKind::Blend(BlendPrimitive {
+                    input1: self["in1"].as_filter_input().unwrap(),
+                    input2: self["in2"].as_filter_input().unwrap(),
+                    mode: self["blend-mode"].as_mix_blend_mode().unwrap(),
+                }),
+                "flood" => FilterPrimitiveKind::Flood(FloodPrimitive {
+                    color: self["color"].as_colorf().unwrap(),
+                }),
+                "blur" => FilterPrimitiveKind::Blur(BlurPrimitive {
+                    input: self["in"].as_filter_input().unwrap(),
+                    radius: self["radius"].as_f32().unwrap(),
+                }),
+                "opacity" => FilterPrimitiveKind::Opacity(OpacityPrimitive {
+                    input: self["in"].as_filter_input().unwrap(),
+                    opacity: self["opacity"].as_f32().unwrap(),
+                }),
                 "color-matrix" => {
                     let m: Vec<f32> = self["matrix"].as_vec_f32().unwrap();
                     let mut matrix: [f32; 20] = [0.0; 20];
@@ -754,27 +728,23 @@ impl YamlHelper for Yaml {
                         matrix,
                     })
                 }
-                "drop-shadow" => {
-                    FilterPrimitiveKind::DropShadow(DropShadowPrimitive {
-                        input: self["in"].as_filter_input().unwrap(),
-                        shadow: Shadow {
-                            offset: self["offset"].as_vector().unwrap(),
-                            color: self["color"].as_colorf().unwrap(),
-                            blur_radius: self["radius"].as_f32().unwrap(),
-                        }
-                    })
-                }
+                "drop-shadow" => FilterPrimitiveKind::DropShadow(DropShadowPrimitive {
+                    input: self["in"].as_filter_input().unwrap(),
+                    shadow: Shadow {
+                        offset: self["offset"].as_vector().unwrap(),
+                        color: self["color"].as_colorf().unwrap(),
+                        blur_radius: self["radius"].as_f32().unwrap(),
+                    },
+                }),
                 "component-transfer" => {
                     FilterPrimitiveKind::ComponentTransfer(ComponentTransferPrimitive {
                         input: self["in"].as_filter_input().unwrap(),
                     })
                 }
-                "offset" => {
-                    FilterPrimitiveKind::Offset(OffsetPrimitive {
-                        input: self["in"].as_filter_input().unwrap(),
-                        offset: self["offset"].as_vector().unwrap(),
-                    })
-                }
+                "offset" => FilterPrimitiveKind::Offset(OffsetPrimitive {
+                    input: self["in"].as_filter_input().unwrap(),
+                    offset: self["offset"].as_vector().unwrap(),
+                }),
                 "composite" => {
                     let operator = match self["operator"].as_str().unwrap() {
                         "over" => CompositeOperator::Over,
@@ -785,7 +755,10 @@ impl YamlHelper for Yaml {
                         "lighter" => CompositeOperator::Lighter,
                         "arithmetic" => {
                             let k_vals = self["k-values"].as_vec_f32().unwrap();
-                            assert!(k_vals.len() == 4, "Must be 4 k values for arithmetic composite operator");
+                            assert!(
+                                k_vals.len() == 4,
+                                "Must be 4 k values for arithmetic composite operator"
+                            );
                             let k_vals = [k_vals[0], k_vals[1], k_vals[2], k_vals[3]];
                             CompositeOperator::Arithmetic(k_vals)
                         }
@@ -802,7 +775,9 @@ impl YamlHelper for Yaml {
 
             Some(FilterPrimitive {
                 kind,
-                color_space: self["color-space"].as_color_space().unwrap_or(ColorSpace::LinearRgb),
+                color_space: self["color-space"]
+                    .as_color_space()
+                    .unwrap_or(ColorSpace::LinearRgb),
             })
         } else {
             None

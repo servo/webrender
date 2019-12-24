@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-
 use api::{ImageDescriptor, ImageDescriptorFlags, DirtyRect};
 use api::units::*;
 use crate::border::BorderSegmentCacheKey;
@@ -78,10 +77,7 @@ impl RenderTaskCache {
         self.cache_entries.clear();
     }
 
-    pub fn begin_frame(
-        &mut self,
-        texture_cache: &mut TextureCache,
-    ) {
+    pub fn begin_frame(&mut self, texture_cache: &mut TextureCache) {
         // Drop any items from the cache that have been
         // evicted from the texture cache.
         //
@@ -98,9 +94,7 @@ impl RenderTaskCache {
         let cache_entries = &mut self.cache_entries;
 
         self.map.retain(|_, handle| {
-            let retain = texture_cache.is_allocated(
-                &cache_entries.get(handle).handle,
-            );
+            let retain = texture_cache.is_allocated(&cache_entries.get(handle).handle);
             if !retain {
                 let handle = mem::replace(handle, FreeListHandle::invalid());
                 cache_entries.free(handle);
@@ -117,9 +111,9 @@ impl RenderTaskCache {
     ) {
         // Find out what size to alloc in the texture cache.
         let size = match render_task.location {
-            RenderTaskLocation::Fixed(..) |
-            RenderTaskLocation::PictureCache { .. } |
-            RenderTaskLocation::TextureCache { .. } => {
+            RenderTaskLocation::Fixed(..)
+            | RenderTaskLocation::PictureCache { .. }
+            | RenderTaskLocation::TextureCache { .. } => {
                 panic!("BUG: dynamic task was expected");
             }
             RenderTaskLocation::Dynamic(_, size) => size,
@@ -137,12 +131,7 @@ impl RenderTaskCache {
             ImageDescriptorFlags::empty()
         };
 
-        let descriptor = ImageDescriptor::new(
-            size.width,
-            size.height,
-            image_format,
-            flags,
-        );
+        let descriptor = ImageDescriptor::new(size.width, size.height, image_format, flags);
 
         // Allocate space in the texture cache, but don't supply
         // and CPU-side data to be uploaded.
@@ -228,20 +217,18 @@ impl RenderTaskCache {
         Ok(entry_handle.weak())
     }
 
-    pub fn get_cache_entry(
-        &self,
-        handle: &RenderTaskCacheEntryHandle,
-    ) -> &RenderTaskCacheEntry {
+    pub fn get_cache_entry(&self, handle: &RenderTaskCacheEntryHandle) -> &RenderTaskCacheEntry {
         self.cache_entries
             .get_opt(handle)
             .expect("bug: invalid render task cache handle")
     }
 
     #[allow(dead_code)]
-    pub fn get_cache_item_for_render_task(&self,
-                                          texture_cache: &TextureCache,
-                                          key: &RenderTaskCacheKey)
-                                          -> CacheItem {
+    pub fn get_cache_item_for_render_task(
+        &self,
+        texture_cache: &TextureCache,
+        key: &RenderTaskCacheKey,
+    ) -> CacheItem {
         // Get the texture cache handle for this cache key.
         let handle = self.map.get(key).unwrap();
         let cache_entry = self.cache_entries.get(handle);
@@ -249,10 +236,11 @@ impl RenderTaskCache {
     }
 
     #[allow(dead_code)]
-    pub fn get_allocated_size_for_render_task(&self,
-                                              texture_cache: &TextureCache,
-                                              key: &RenderTaskCacheKey)
-                                              -> Option<usize> {
+    pub fn get_allocated_size_for_render_task(
+        &self,
+        texture_cache: &TextureCache,
+        key: &RenderTaskCacheKey,
+    ) -> Option<usize> {
         let handle = self.map.get(key).unwrap();
         let cache_entry = self.cache_entries.get(handle);
         texture_cache.get_allocated_size(&cache_entry.handle)

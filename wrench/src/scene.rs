@@ -40,10 +40,9 @@ impl SceneProperties {
     ) -> LayoutTransform {
         match *property {
             PropertyBinding::Value(matrix) => matrix,
-            PropertyBinding::Binding(ref key, v) => self.transform_properties
-                .get(&key.id)
-                .cloned()
-                .unwrap_or(v),
+            PropertyBinding::Binding(ref key, v) => {
+                self.transform_properties.get(&key.id).cloned().unwrap_or(v)
+            }
         }
     }
 
@@ -51,10 +50,9 @@ impl SceneProperties {
     pub fn resolve_float(&self, property: &PropertyBinding<f32>) -> f32 {
         match *property {
             PropertyBinding::Value(value) => value,
-            PropertyBinding::Binding(ref key, v) => self.float_properties
-                .get(&key.id)
-                .cloned()
-                .unwrap_or(v),
+            PropertyBinding::Binding(ref key, v) => {
+                self.float_properties.get(&key.id).cloned().unwrap_or(v)
+            }
         }
     }
 }

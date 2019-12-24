@@ -336,10 +336,10 @@ impl<T: MallocSizeOf, U> MallocSizeOf for euclid::Rect<T, U> {
 
 impl<T: MallocSizeOf, U> MallocSizeOf for euclid::SideOffsets2D<T, U> {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-        self.top.size_of(ops) +
-            self.right.size_of(ops) +
-            self.bottom.size_of(ops) +
-            self.left.size_of(ops)
+        self.top.size_of(ops)
+            + self.right.size_of(ops)
+            + self.bottom.size_of(ops)
+            + self.left.size_of(ops)
     }
 }
 
@@ -351,33 +351,33 @@ impl<T: MallocSizeOf, U> MallocSizeOf for euclid::Size2D<T, U> {
 
 impl<T: MallocSizeOf, Src, Dst> MallocSizeOf for euclid::Transform2D<T, Src, Dst> {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-        self.m11.size_of(ops) +
-            self.m12.size_of(ops) +
-            self.m21.size_of(ops) +
-            self.m22.size_of(ops) +
-            self.m31.size_of(ops) +
-            self.m32.size_of(ops)
+        self.m11.size_of(ops)
+            + self.m12.size_of(ops)
+            + self.m21.size_of(ops)
+            + self.m22.size_of(ops)
+            + self.m31.size_of(ops)
+            + self.m32.size_of(ops)
     }
 }
 
 impl<T: MallocSizeOf, Src, Dst> MallocSizeOf for euclid::Transform3D<T, Src, Dst> {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-        self.m11.size_of(ops) +
-            self.m12.size_of(ops) +
-            self.m13.size_of(ops) +
-            self.m14.size_of(ops) +
-            self.m21.size_of(ops) +
-            self.m22.size_of(ops) +
-            self.m23.size_of(ops) +
-            self.m24.size_of(ops) +
-            self.m31.size_of(ops) +
-            self.m32.size_of(ops) +
-            self.m33.size_of(ops) +
-            self.m34.size_of(ops) +
-            self.m41.size_of(ops) +
-            self.m42.size_of(ops) +
-            self.m43.size_of(ops) +
-            self.m44.size_of(ops)
+        self.m11.size_of(ops)
+            + self.m12.size_of(ops)
+            + self.m13.size_of(ops)
+            + self.m14.size_of(ops)
+            + self.m21.size_of(ops)
+            + self.m22.size_of(ops)
+            + self.m23.size_of(ops)
+            + self.m24.size_of(ops)
+            + self.m31.size_of(ops)
+            + self.m32.size_of(ops)
+            + self.m33.size_of(ops)
+            + self.m34.size_of(ops)
+            + self.m41.size_of(ops)
+            + self.m42.size_of(ops)
+            + self.m43.size_of(ops)
+            + self.m44.size_of(ops)
     }
 }
 

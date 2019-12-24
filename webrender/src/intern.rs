@@ -141,9 +141,7 @@ pub struct DataStore<I: Internable> {
 
 impl<I: Internable> Default for DataStore<I> {
     fn default() -> Self {
-        DataStore {
-            items: Vec::new(),
-        }
+        DataStore { items: Vec::new() }
     }
 }
 
@@ -160,9 +158,7 @@ impl<I: Internable> DataStore<I> {
             match update.kind {
                 UpdateKind::Insert => {
                     let value = data_iter.next().unwrap().into();
-                    self.items
-                        .entry(update.index)
-                        .set(Some(value));
+                    self.items.entry(update.index).set(Some(value));
                 }
                 UpdateKind::Remove => {
                     self.items[update.index] = None;
@@ -181,7 +177,9 @@ impl<I: Internable> DataStore<I> {
 impl<I: Internable> ops::Index<Handle<I>> for DataStore<I> {
     type Output = I::StoreData;
     fn index(&self, handle: Handle<I>) -> &I::StoreData {
-        self.items[handle.index as usize].as_ref().expect("Bad datastore lookup")
+        self.items[handle.index as usize]
+            .as_ref()
+            .expect("Bad datastore lookup")
     }
 }
 
@@ -189,7 +187,9 @@ impl<I: Internable> ops::Index<Handle<I>> for DataStore<I> {
 /// Retrieve an item from the store via handle
 impl<I: Internable> ops::IndexMut<Handle<I>> for DataStore<I> {
     fn index_mut(&mut self, handle: Handle<I>) -> &mut I::StoreData {
-        self.items[handle.index as usize].as_mut().expect("Bad datastore lookup")
+        self.items[handle.index as usize]
+            .as_mut()
+            .expect("Bad datastore lookup")
     }
 }
 
@@ -238,11 +238,10 @@ impl<I: Internable> Interner<I> {
     /// The provided closure is invoked to build the
     /// local data about an interned structure if the
     /// key isn't already interned.
-    pub fn intern<F>(
-        &mut self,
-        data: &I::Key,
-        fun: F,
-    ) -> Handle<I> where F: FnOnce() -> I::InternData {
+    pub fn intern<F>(&mut self, data: &I::Key, fun: F) -> Handle<I>
+    where
+        F: FnOnce() -> I::InternData,
+    {
         // Use get_mut rather than entry here to avoid
         // cloning the (sometimes large) key in the common
         // case, where the data already exists in the interner.
@@ -321,10 +320,7 @@ impl<I: Internable> Interner<I> {
 
             true
         });
-        let updates = UpdateList {
-            updates,
-            data,
-        };
+        let updates = UpdateList { updates, data };
 
         // Begin the next epoch
         self.current_epoch = Epoch(self.current_epoch.0 + 1);
@@ -363,7 +359,14 @@ use self::dummy::Deserialize as InternDeserialize;
 
 /// Implement `Internable` for a type that wants to participate in interning.
 pub trait Internable: MallocSizeOf {
-    type Key: Eq + Hash + Clone + Debug + MallocSizeOf + InternDebug + InternSerialize + for<'a> InternDeserialize<'a>;
+    type Key: Eq
+        + Hash
+        + Clone
+        + Debug
+        + MallocSizeOf
+        + InternDebug
+        + InternSerialize
+        + for<'a> InternDeserialize<'a>;
     type StoreData: From<Self::Key> + MallocSizeOf + InternSerialize + for<'a> InternDeserialize<'a>;
     type InternData: MallocSizeOf + InternSerialize + for<'a> InternDeserialize<'a>;
 }

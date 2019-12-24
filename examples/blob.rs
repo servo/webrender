@@ -16,7 +16,9 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
-use webrender::api::{self, DisplayListBuilder, DocumentId, PipelineId, PrimitiveFlags, RenderApi, Transaction};
+use webrender::api::{
+    self, DisplayListBuilder, DocumentId, PipelineId, PrimitiveFlags, RenderApi, Transaction,
+};
 use webrender::api::{ColorF, CommonItemProperties, SpaceAndClipInfo, ImageDescriptorFlags};
 use webrender::api::units::*;
 use webrender::euclid::size2;
@@ -70,8 +72,8 @@ fn render_blob(
     let [w, h] = descriptor.rect.size.to_array();
     let offset = descriptor.rect.origin;
 
-    for y in 0..h {
-        for x in 0..w {
+    for y in 0 .. h {
+        for x in 0 .. w {
             // Apply the tile's offset. This is important: all drawing commands should be
             // translated by this offset to give correct results with tiled blob images.
             let x2 = x + offset.x;
@@ -97,9 +99,9 @@ fn render_blob(
                     texels.push(color.a * checker + tc);
                 }
                 _ => {
-                    return Err(api::BlobImageError::Other(
-                        format!("Unsupported image format"),
-                    ));
+                    return Err(api::BlobImageError::Other(format!(
+                        "Unsupported image format"
+                    )));
                 }
             }
         }
@@ -136,14 +138,24 @@ impl CheckerboardRenderer {
 }
 
 impl api::BlobImageHandler for CheckerboardRenderer {
-    fn add(&mut self, key: api::BlobImageKey, cmds: Arc<api::BlobImageData>,
-           _visible_rect: &DeviceIntRect, _: Option<api::TileSize>) {
+    fn add(
+        &mut self,
+        key: api::BlobImageKey,
+        cmds: Arc<api::BlobImageData>,
+        _visible_rect: &DeviceIntRect,
+        _: Option<api::TileSize>,
+    ) {
         self.image_cmds
             .insert(key, Arc::new(deserialize_blob(&cmds[..]).unwrap()));
     }
 
-    fn update(&mut self, key: api::BlobImageKey, cmds: Arc<api::BlobImageData>,
-              _visible_rect: &DeviceIntRect, _dirty_rect: &BlobDirtyRect) {
+    fn update(
+        &mut self,
+        key: api::BlobImageKey,
+        cmds: Arc<api::BlobImageData>,
+        _visible_rect: &DeviceIntRect,
+        _dirty_rect: &BlobDirtyRect,
+    ) {
         // Here, updating is just replacing the current version of the commands with
         // the new one (no incremental updates).
         self.image_cmds
@@ -158,7 +170,8 @@ impl api::BlobImageHandler for CheckerboardRenderer {
         &mut self,
         _services: &dyn api::BlobImageResources,
         _requests: &[api::BlobImageParams],
-    ) {}
+    ) {
+    }
 
     fn delete_font(&mut self, _font: api::FontKey) {}
     fn delete_font_instance(&mut self, _instance: api::FontInstanceKey) {}
@@ -180,16 +193,23 @@ impl api::AsyncBlobImageRasterizer for Rasterizer {
     fn rasterize(
         &mut self,
         requests: &[api::BlobImageParams],
-        _low_priority: bool
+        _low_priority: bool,
     ) -> Vec<(api::BlobImageRequest, api::BlobImageResult)> {
-        let requests: Vec<(&api::BlobImageParams, Arc<ImageRenderingCommands>)> = requests.into_iter().map(|params| {
-            (params, Arc::clone(&self.image_cmds[&params.request.key]))
-        }).collect();
+        let requests: Vec<(&api::BlobImageParams, Arc<ImageRenderingCommands>)> = requests
+            .into_iter()
+            .map(|params| (params, Arc::clone(&self.image_cmds[&params.request.key])))
+            .collect();
 
         self.workers.install(|| {
-            requests.into_par_iter().map(|(params, commands)| {
-                (params.request, render_blob(commands, &params.descriptor, params.request.tile))
-            }).collect()
+            requests
+                .into_par_iter()
+                .map(|(params, commands)| {
+                    (
+                        params.request,
+                        render_blob(commands, &params.descriptor, params.request.tile),
+                    )
+                })
+                .collect()
         })
     }
 }
@@ -267,9 +287,9 @@ impl Example for App {
 }
 
 fn main() {
-    let workers =
-        ThreadPoolBuilder::new().thread_name(|idx| format!("WebRender:Worker#{}", idx))
-                                .build();
+    let workers = ThreadPoolBuilder::new()
+        .thread_name(|idx| format!("WebRender:Worker#{}", idx))
+        .build();
 
     let workers = Arc::new(workers.unwrap());
 
