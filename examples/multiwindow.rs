@@ -39,11 +39,13 @@ impl RenderNotifier for Notifier {
         let _ = self.events_proxy.wakeup();
     }
 
-    fn new_frame_ready(&self,
-                       _: DocumentId,
-                       _scrolled: bool,
-                       _composite_needed: bool,
-                       _render_time: Option<u64>) {
+    fn new_frame_ready(
+        &self,
+        _: DocumentId,
+        _scrolled: bool,
+        _composite_needed: bool,
+        _render_time: Option<u64>,
+    ) {
         self.wake_up();
     }
 }
@@ -104,7 +106,8 @@ impl Window {
             DeviceIntSize::new(size.width as i32, size.height as i32)
         };
         let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
-        let (renderer, sender) = webrender::Renderer::new(gl.clone(), notifier, opts, None, device_size).unwrap();
+        let (renderer, sender) =
+            webrender::Renderer::new(gl.clone(), notifier, opts, None, device_size).unwrap();
         let api = sender.create_api();
         let document_id = api.add_document(device_size, 0);
 
@@ -117,7 +120,14 @@ impl Window {
         txn.add_raw_font(font_key, font_bytes, 0);
 
         let font_instance_key = api.generate_font_instance_key();
-        txn.add_font_instance(font_instance_key, font_key, Au::from_px(32), None, None, Vec::new());
+        txn.add_font_instance(
+            font_instance_key,
+            font_key,
+            Au::from_px(32),
+            None,
+            None,
+            Vec::new(),
+        );
 
         api.send_transaction(document_id, txn);
 
@@ -140,35 +150,36 @@ impl Window {
         let renderer = &mut self.renderer;
         let api = &mut self.api;
 
-        self.events_loop.poll_events(|global_event| match global_event {
-            winit::Event::WindowEvent { event, .. } => match event {
-                winit::WindowEvent::CloseRequested |
-                winit::WindowEvent::KeyboardInput {
-                    input: winit::KeyboardInput {
-                        virtual_keycode: Some(winit::VirtualKeyCode::Escape),
+        self.events_loop
+            .poll_events(|global_event| match global_event {
+                winit::Event::WindowEvent { event, .. } => match event {
+                    winit::WindowEvent::CloseRequested
+                    | winit::WindowEvent::KeyboardInput {
+                        input:
+                            winit::KeyboardInput {
+                                virtual_keycode: Some(winit::VirtualKeyCode::Escape),
+                                ..
+                            },
                         ..
-                    },
-                    ..
-                } => {
-                    do_exit = true
-                }
-                winit::WindowEvent::KeyboardInput {
-                    input: winit::KeyboardInput {
-                        state: winit::ElementState::Pressed,
-                        virtual_keycode: Some(winit::VirtualKeyCode::P),
+                    } => do_exit = true,
+                    winit::WindowEvent::KeyboardInput {
+                        input:
+                            winit::KeyboardInput {
+                                state: winit::ElementState::Pressed,
+                                virtual_keycode: Some(winit::VirtualKeyCode::P),
+                                ..
+                            },
                         ..
-                    },
-                    ..
-                } => {
-                    println!("set flags {}", my_name);
-                    api.send_debug_cmd(DebugCommand::SetFlags(DebugFlags::PROFILER_DBG))
-                }
+                    } => {
+                        println!("set flags {}", my_name);
+                        api.send_debug_cmd(DebugCommand::SetFlags(DebugFlags::PROFILER_DBG))
+                    }
+                    _ => {}
+                },
                 _ => {}
-            }
-            _ => {}
-        });
+            });
         if do_exit {
-            return true
+            return true;
         }
 
         let context = unsafe { self.context.take().unwrap().make_current().unwrap() };
@@ -201,12 +212,11 @@ impl Window {
                 ),
                 space_and_clip,
             ),
-            ColorF::new(0.0, 1.0, 0.0, 1.0));
-
-        let text_bounds = LayoutRect::new(
-            LayoutPoint::new(100.0, 50.0),
-            LayoutSize::new(700.0, 200.0)
+            ColorF::new(0.0, 1.0, 0.0, 1.0),
         );
+
+        let text_bounds =
+            LayoutRect::new(LayoutPoint::new(100.0, 50.0), LayoutSize::new(700.0, 200.0));
         let glyphs = vec![
             GlyphInstance {
                 index: 48,
@@ -259,10 +269,7 @@ impl Window {
         ];
 
         builder.push_text(
-            &CommonItemProperties::new(
-                text_bounds,
-                space_and_clip,
-            ),
+            &CommonItemProperties::new(text_bounds, space_and_clip),
             text_bounds,
             &glyphs,
             self.font_instance_key,
@@ -272,13 +279,7 @@ impl Window {
 
         builder.pop_stacking_context();
 
-        txn.set_display_list(
-            self.epoch,
-            None,
-            layout_size,
-            builder.finalize(),
-            true,
-        );
+        txn.set_display_list(self.epoch, None, layout_size, builder.finalize(), true);
         txn.set_root_pipeline(self.pipeline_id);
         txn.generate_frame();
         api.send_transaction(self.document_id, txn);

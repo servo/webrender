@@ -98,32 +98,28 @@ impl Filter {
                     shadow.blur_radius = shadow.blur_radius.min(MAX_BLUR_RADIUS);
                 }
             }
-            _ => {},
+            _ => {}
         }
     }
 
     pub fn is_visible(&self) -> bool {
         match *self {
-            Filter::Identity |
-            Filter::Blur(..) |
-            Filter::Brightness(..) |
-            Filter::Contrast(..) |
-            Filter::Grayscale(..) |
-            Filter::HueRotate(..) |
-            Filter::Invert(..) |
-            Filter::Saturate(..) |
-            Filter::Sepia(..) |
-            Filter::DropShadows(..) |
-            Filter::ColorMatrix(..) |
-            Filter::SrgbToLinear |
-            Filter::LinearToSrgb |
-            Filter::ComponentTransfer  => true,
-            Filter::Opacity(_, amount) => {
-                amount > OPACITY_EPSILON
-            },
-            Filter::Flood(color) => {
-                color.a > OPACITY_EPSILON
-            }
+            Filter::Identity
+            | Filter::Blur(..)
+            | Filter::Brightness(..)
+            | Filter::Contrast(..)
+            | Filter::Grayscale(..)
+            | Filter::HueRotate(..)
+            | Filter::Invert(..)
+            | Filter::Saturate(..)
+            | Filter::Sepia(..)
+            | Filter::DropShadows(..)
+            | Filter::ColorMatrix(..)
+            | Filter::SrgbToLinear
+            | Filter::LinearToSrgb
+            | Filter::ComponentTransfer => true,
+            Filter::Opacity(_, amount) => amount > OPACITY_EPSILON,
+            Filter::Flood(color) => color.a > OPACITY_EPSILON,
         }
     }
 
@@ -141,7 +137,8 @@ impl Filter {
             Filter::Sepia(amount) => amount == 0.0,
             Filter::DropShadows(ref shadows) => {
                 for shadow in shadows {
-                    if shadow.offset.x != 0.0 || shadow.offset.y != 0.0 || shadow.blur_radius != 0.0 {
+                    if shadow.offset.x != 0.0 || shadow.offset.y != 0.0 || shadow.blur_radius != 0.0
+                    {
                         return false;
                     }
                 }
@@ -149,18 +146,16 @@ impl Filter {
                 true
             }
             Filter::ColorMatrix(ref matrix) => {
-                **matrix == [
-                    1.0, 0.0, 0.0, 0.0,
-                    0.0, 1.0, 0.0, 0.0,
-                    0.0, 0.0, 1.0, 0.0,
-                    0.0, 0.0, 0.0, 1.0,
-                    0.0, 0.0, 0.0, 0.0
-                ]
+                **matrix
+                    == [
+                        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0,
+                        1.0, 0.0, 0.0, 0.0, 0.0,
+                    ]
             }
-            Filter::SrgbToLinear |
-            Filter::LinearToSrgb |
-            Filter::ComponentTransfer |
-            Filter::Flood(..) => false,
+            Filter::SrgbToLinear
+            | Filter::LinearToSrgb
+            | Filter::ComponentTransfer
+            | Filter::Flood(..) => false,
         }
     }
 }
@@ -294,7 +289,9 @@ pub enum TextureUpdateSource {
         id: ExternalImageId,
         channel_index: u8,
     },
-    Bytes { data: Arc<Vec<u8>> },
+    Bytes {
+        data: Arc<Vec<u8>>,
+    },
     /// Clears the target area, rather than uploading any pixels. Used when the
     /// texture cache debug display is active.
     DebugClear,
@@ -389,10 +386,7 @@ impl TextureUpdateList {
     /// Pushes an update operation onto the list.
     #[inline]
     pub fn push_update(&mut self, id: CacheTextureId, update: TextureCacheUpdate) {
-        self.updates
-            .entry(id)
-            .or_default()
-            .push(update);
+        self.updates.entry(id).or_default().push(update);
     }
 
     /// Sends a command to the Renderer to clear the portion of the shared region
@@ -404,20 +398,22 @@ impl TextureUpdateList {
         origin: DeviceIntPoint,
         width: i32,
         height: i32,
-        layer_index: usize
+        layer_index: usize,
     ) {
         let size = DeviceIntSize::new(width, height);
         let rect = DeviceIntRect::new(origin, size);
-        self.push_update(id, TextureCacheUpdate {
-            rect,
-            stride: None,
-            offset: 0,
-            layer_index: layer_index as i32,
-            format_override: None,
-            source: TextureUpdateSource::DebugClear,
-        });
+        self.push_update(
+            id,
+            TextureCacheUpdate {
+                rect,
+                stride: None,
+                offset: 0,
+                layer_index: layer_index as i32,
+                format_override: None,
+                source: TextureUpdateSource::DebugClear,
+            },
+        );
     }
-
 
     /// Pushes an allocation operation onto the list.
     pub fn push_alloc(&mut self, id: CacheTextureId, info: TextureCacheAllocInfo) {
@@ -441,7 +437,7 @@ impl TextureUpdateList {
                 TextureCacheAllocationKind::Reset(ref mut i) => *i = info,
                 TextureCacheAllocationKind::Free => panic!("Reallocating freed texture"),
             }
-            return
+            return;
         }
 
         self.allocations.push(TextureCacheAllocation {
@@ -466,7 +462,7 @@ impl TextureUpdateList {
                     cur.kind = TextureCacheAllocationKind::Reset(info);
                 }
             }
-            return
+            return;
         }
 
         self.allocations.push(TextureCacheAllocation {
@@ -488,11 +484,11 @@ impl TextureUpdateList {
         let idx = self.allocations.iter().position(|x| x.id == id);
         let removed_kind = idx.map(|i| self.allocations.remove(i).kind);
         match removed_kind {
-            Some(TextureCacheAllocationKind::Alloc(..)) => { /* no-op! */ },
+            Some(TextureCacheAllocationKind::Alloc(..)) => { /* no-op! */ }
             Some(TextureCacheAllocationKind::Free) => panic!("Double free"),
-            Some(TextureCacheAllocationKind::Realloc(..)) |
-            Some(TextureCacheAllocationKind::Reset(..)) |
-            None => {
+            Some(TextureCacheAllocationKind::Realloc(..))
+            | Some(TextureCacheAllocationKind::Reset(..))
+            | None => {
                 self.allocations.push(TextureCacheAllocation {
                     id,
                     kind: TextureCacheAllocationKind::Free,
@@ -569,9 +565,7 @@ pub struct ResourceCacheError {
 
 impl ResourceCacheError {
     pub fn new(description: String) -> ResourceCacheError {
-        ResourceCacheError {
-            description,
-        }
+        ResourceCacheError { description }
     }
 }
 

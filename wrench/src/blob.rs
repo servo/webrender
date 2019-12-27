@@ -42,8 +42,7 @@ fn render_blob(
 ) -> BlobImageResult {
     // Allocate storage for the result. Right now the resource cache expects the
     // tiles to have have no stride or offset.
-    let buf_size = descriptor.rect.size.area() *
-        descriptor.format.bytes_per_pixel();
+    let buf_size = descriptor.rect.size.area() * descriptor.format.bytes_per_pixel();
     let mut texels = vec![0u8; (buf_size) as usize];
 
     // Generate a per-tile pattern to see it in the demo. For a real use case it would not
@@ -89,9 +88,10 @@ fn render_blob(
                     texels[(y * descriptor.rect.size.width + x) as usize] = color.a * checker + tc;
                 }
                 _ => {
-                    return Err(BlobImageError::Other(
-                        format!("Unsupported image format {:?}", descriptor.format),
-                    ));
+                    return Err(BlobImageError::Other(format!(
+                        "Unsupported image format {:?}",
+                        descriptor.format
+                    )));
                 }
             }
         }
@@ -111,7 +111,9 @@ pub struct BlobCallbacks {
 
 impl BlobCallbacks {
     pub fn new() -> Self {
-        BlobCallbacks { request: Box::new(|_|()) }
+        BlobCallbacks {
+            request: Box::new(|_| ()),
+        }
     }
 }
 
@@ -130,14 +132,24 @@ impl CheckerboardRenderer {
 }
 
 impl BlobImageHandler for CheckerboardRenderer {
-    fn add(&mut self, key: BlobImageKey, cmds: Arc<BlobImageData>,
-           _visible_rect: &DeviceIntRect, tile_size: Option<TileSize>) {
+    fn add(
+        &mut self,
+        key: BlobImageKey,
+        cmds: Arc<BlobImageData>,
+        _visible_rect: &DeviceIntRect,
+        tile_size: Option<TileSize>,
+    ) {
         self.image_cmds
             .insert(key, (deserialize_blob(&cmds[..]).unwrap(), tile_size));
     }
 
-    fn update(&mut self, key: BlobImageKey, cmds: Arc<BlobImageData>,
-              _visible_rect: &DeviceIntRect, _dirty_rect: &BlobDirtyRect) {
+    fn update(
+        &mut self,
+        key: BlobImageKey,
+        cmds: Arc<BlobImageData>,
+        _visible_rect: &DeviceIntRect,
+        _dirty_rect: &BlobDirtyRect,
+    ) {
         // Here, updating is just replacing the current version of the commands with
         // the new one (no incremental updates).
         self.image_cmds.get_mut(&key).unwrap().0 = deserialize_blob(&cmds[..]).unwrap();
@@ -164,7 +176,9 @@ impl BlobImageHandler for CheckerboardRenderer {
     }
 
     fn create_blob_rasterizer(&mut self) -> Box<dyn AsyncBlobImageRasterizer> {
-        Box::new(Rasterizer { image_cmds: self.image_cmds.clone() })
+        Box::new(Rasterizer {
+            image_cmds: self.image_cmds.clone(),
+        })
     }
 }
 
@@ -184,10 +198,11 @@ impl AsyncBlobImageRasterizer for Rasterizer {
     fn rasterize(
         &mut self,
         requests: &[BlobImageParams],
-        _low_priority: bool
+        _low_priority: bool,
     ) -> Vec<(BlobImageRequest, BlobImageResult)> {
-        let requests: Vec<Command> = requests.into_iter().map(
-            |item| {
+        let requests: Vec<Command> = requests
+            .into_iter()
+            .map(|item| {
                 let (color, tile_size) = self.image_cmds[&item.request.key];
 
                 let tile = item.request.tile.map(|tile| (tile_size.unwrap(), tile));
@@ -199,11 +214,17 @@ impl AsyncBlobImageRasterizer for Rasterizer {
                     descriptor: item.descriptor,
                     dirty_rect: item.dirty_rect,
                 }
-            }
-        ).collect();
+            })
+            .collect();
 
-        requests.iter().map(|cmd| {
-            (cmd.request, render_blob(cmd.color, &cmd.descriptor, cmd.tile, &cmd.dirty_rect))
-        }).collect()
+        requests
+            .iter()
+            .map(|cmd| {
+                (
+                    cmd.request,
+                    render_blob(cmd.color, &cmd.descriptor, cmd.tile, &cmd.dirty_rect),
+                )
+            })
+            .collect()
     }
 }

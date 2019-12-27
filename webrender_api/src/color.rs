@@ -24,9 +24,24 @@ pub struct PremultipliedColorF {
 
 #[allow(missing_docs)]
 impl PremultipliedColorF {
-    pub const BLACK: PremultipliedColorF = PremultipliedColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
-    pub const TRANSPARENT: PremultipliedColorF = PremultipliedColorF { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
-    pub const WHITE: PremultipliedColorF = PremultipliedColorF { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+    pub const BLACK: PremultipliedColorF = PremultipliedColorF {
+        r: 0.0,
+        g: 0.0,
+        b: 0.0,
+        a: 1.0,
+    };
+    pub const TRANSPARENT: PremultipliedColorF = PremultipliedColorF {
+        r: 0.0,
+        g: 0.0,
+        b: 0.0,
+        a: 0.0,
+    };
+    pub const WHITE: PremultipliedColorF = PremultipliedColorF {
+        r: 1.0,
+        g: 1.0,
+        b: 1.0,
+        a: 1.0,
+    };
 
     pub fn to_array(&self) -> [f32; 4] {
         [self.r, self.g, self.b, self.a]
@@ -48,9 +63,24 @@ pub struct ColorF {
 
 #[allow(missing_docs)]
 impl ColorF {
-    pub const BLACK: ColorF = ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
-    pub const TRANSPARENT: ColorF = ColorF { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
-    pub const WHITE: ColorF = ColorF { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+    pub const BLACK: ColorF = ColorF {
+        r: 0.0,
+        g: 0.0,
+        b: 0.0,
+        a: 1.0,
+    };
+    pub const TRANSPARENT: ColorF = ColorF {
+        r: 0.0,
+        g: 0.0,
+        b: 0.0,
+        a: 0.0,
+    };
+    pub const WHITE: ColorF = ColorF {
+        r: 1.0,
+        g: 1.0,
+        b: 1.0,
+        a: 1.0,
+    };
 
     /// Constructs a new `ColorF` from its components.
     pub fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
@@ -84,7 +114,12 @@ impl ColorF {
     /// Multiply the RGB components with the alpha channel.
     pub fn premultiplied(&self) -> PremultipliedColorF {
         let c = self.scale_rgb(self.a);
-        PremultipliedColorF { r: c.r, g: c.g, b: c.b, a: c.a }
+        PremultipliedColorF {
+            r: c.r,
+            g: c.g,
+            b: c.b,
+            a: c.a,
+        }
     }
 }
 
@@ -109,7 +144,9 @@ impl Hash for PremultipliedColorF {
 ///
 /// If the alpha value `a` is 255 the color is opaque.
 #[repr(C)]
-#[derive(Clone, Copy, Hash, Eq, Debug, Deserialize, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize)]
+#[derive(
+    Clone, Copy, Hash, Eq, Debug, Deserialize, MallocSizeOf, PartialEq, PartialOrd, Ord, Serialize,
+)]
 pub struct ColorU {
     pub r: u8,
     pub g: u8,

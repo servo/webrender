@@ -43,9 +43,7 @@ impl SceneProperties {
 
     /// Add to the current property list for this display list.
     pub fn add_properties(&mut self, properties: DynamicProperties) {
-        let mut pending_properties = self.pending_properties
-            .take()
-            .unwrap_or_default();
+        let mut pending_properties = self.pending_properties.take().unwrap_or_default();
 
         pending_properties.transforms.extend(properties.transforms);
         pending_properties.floats.extend(properties.floats);
@@ -95,26 +93,17 @@ impl SceneProperties {
         match *property {
             PropertyBinding::Value(value) => value,
             PropertyBinding::Binding(ref key, v) => {
-                self.transform_properties
-                    .get(&key.id)
-                    .cloned()
-                    .unwrap_or(v)
+                self.transform_properties.get(&key.id).cloned().unwrap_or(v)
             }
         }
     }
 
     /// Get the current value for a float property.
-    pub fn resolve_float(
-        &self,
-        property: &PropertyBinding<f32>
-    ) -> f32 {
+    pub fn resolve_float(&self, property: &PropertyBinding<f32>) -> f32 {
         match *property {
             PropertyBinding::Value(value) => value,
             PropertyBinding::Binding(ref key, v) => {
-                self.float_properties
-                    .get(&key.id)
-                    .cloned()
-                    .unwrap_or(v)
+                self.float_properties.get(&key.id).cloned().unwrap_or(v)
             }
         }
     }
@@ -214,7 +203,6 @@ impl StackingContextHelpers for StackingContext {
     }
 }
 
-
 /// WebRender's internal representation of the scene.
 pub struct BuiltScene {
     pub has_root_pipeline: bool,
@@ -270,10 +258,7 @@ impl BuiltScene {
         }
     }
 
-    pub fn create_hit_tester(
-        &mut self,
-        clip_data_store: &ClipDataStore,
-    ) -> HitTester {
+    pub fn create_hit_tester(&mut self, clip_data_store: &ClipDataStore) -> HitTester {
         HitTester::new(
             Arc::clone(&self.hit_testing_scene),
             &self.clip_scroll_tree,

@@ -19,9 +19,7 @@ pub struct SharedEglThings {
 }
 
 fn cast_attributes(slice: &[types::EGLenum]) -> &EGLint {
-    unsafe {
-        &*(slice.as_ptr() as *const EGLint)
-    }
+    unsafe { &*(slice.as_ptr() as *const EGLint) }
 }
 
 macro_rules! attributes {
@@ -35,18 +33,17 @@ macro_rules! attributes {
 
 impl SharedEglThings {
     pub unsafe fn new(d3d_device: *mut ID3D11Device) -> Rc<Self> {
-        let device = eglCreateDeviceANGLE(
-            D3D11_DEVICE_ANGLE,
-            d3d_device as *mut c_void,
-            ptr::null(),
-        ).check();
+        let device =
+            eglCreateDeviceANGLE(D3D11_DEVICE_ANGLE, d3d_device as *mut c_void, ptr::null())
+                .check();
         let display = GetPlatformDisplayEXT(
             PLATFORM_DEVICE_EXT,
             device,
             attributes! [
                 EXPERIMENTAL_PRESENT_PATH_ANGLE => EXPERIMENTAL_PRESENT_PATH_FAST_ANGLE,
             ],
-        ).check();
+        )
+        .check();
         Initialize(display, ptr::null_mut(), ptr::null_mut()).check();
 
         // Adapted from
@@ -66,18 +63,27 @@ impl SharedEglThings {
             configs.as_mut_ptr(),
             configs.len() as i32,
             &mut num_configs,
-        ).check();
-        let config = pick_config(&configs[..num_configs as usize]);
+        )
+        .check();
+        let config = pick_config(&configs[.. num_configs as usize]);
 
         let context = CreateContext(
-            display, config, NO_CONTEXT,
+            display,
+            config,
+            NO_CONTEXT,
             attributes![
                  CONTEXT_CLIENT_VERSION => 3,
-            ]
-        ).check();
+            ],
+        )
+        .check();
         MakeCurrent(display, NO_SURFACE, NO_SURFACE, context).check();
 
-        Rc::new(SharedEglThings { device, display, config, context })
+        Rc::new(SharedEglThings {
+            device,
+            display,
+            config,
+            context,
+        })
     }
 }
 
@@ -105,9 +111,12 @@ pub struct PerVisualEglThings {
 }
 
 impl PerVisualEglThings {
-    pub unsafe fn new(shared: Rc<SharedEglThings>, buffer: *const ID3D11Texture2D,
-           width: u32, height: u32)
-           -> Self {
+    pub unsafe fn new(
+        shared: Rc<SharedEglThings>,
+        buffer: *const ID3D11Texture2D,
+        width: u32,
+        height: u32,
+    ) -> Self {
         let surface = CreatePbufferFromClientBuffer(
             shared.display,
             D3D_TEXTURE_ANGLE,
@@ -118,14 +127,21 @@ impl PerVisualEglThings {
                 HEIGHT => height,
                 FLEXIBLE_SURFACE_COMPATIBILITY_SUPPORTED_ANGLE => TRUE,
             ],
-        ).check();
+        )
+        .check();
 
         PerVisualEglThings { shared, surface }
     }
 
     pub fn make_current(&self) {
         unsafe {
-            MakeCurrent(self.shared.display, self.surface, self.surface, self.shared.context).check();
+            MakeCurrent(
+                self.shared.display,
+                self.surface,
+                self.surface,
+                self.shared.context,
+            )
+            .check();
         }
     }
 }

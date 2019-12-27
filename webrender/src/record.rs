@@ -68,26 +68,34 @@ pub struct LogRecorder {
 
 impl LogRecorder {
     pub fn new(dest: &PathBuf) -> Option<Box<LogRecorder>> {
-        Some(Box::new(LogRecorder { file: File::create(dest).ok()? }))
+        Some(Box::new(LogRecorder {
+            file: File::create(dest).ok()?,
+        }))
     }
 }
 
 impl ApiRecordingReceiver for LogRecorder {
     fn write_msg(&mut self, _: u32, msg: &ApiMsg) {
         let current_time = time::now_utc();
-        writeln!(self.file, "{}:{}ms - {:?}", current_time.rfc3339(), current_time.tm_nsec / 1000000, msg).unwrap();
+        writeln!(
+            self.file,
+            "{}:{}ms - {:?}",
+            current_time.rfc3339(),
+            current_time.tm_nsec / 1000000,
+            msg
+        )
+        .unwrap();
         match *msg {
             ApiMsg::UpdateDocuments(_, ref msgs) => {
                 for msg in msgs {
                     writeln!(self.file, "\tTransaction: {:?}", msg).unwrap();
                 }
             }
-            _ => {},
+            _ => {}
         }
     }
 
-    fn write_payload(&mut self, _: u32, _data: &[u8]) {
-    }
+    fn write_payload(&mut self, _: u32, _data: &[u8]) {}
 }
 
 fn should_record_transaction_msg(msgs: &TransactionMsg) -> bool {
@@ -97,16 +105,14 @@ fn should_record_transaction_msg(msgs: &TransactionMsg) -> bool {
 
     for msg in &msgs.scene_ops {
         match *msg {
-            SceneMsg::SetDisplayList { .. } |
-            SceneMsg::SetRootPipeline { .. } => return true,
+            SceneMsg::SetDisplayList { .. } | SceneMsg::SetRootPipeline { .. } => return true,
             _ => {}
         }
     }
 
     for msg in &msgs.frame_ops {
         match *msg {
-            FrameMsg::GetScrollNodeState(..) |
-            FrameMsg::HitTest(..) => {}
+            FrameMsg::GetScrollNodeState(..) | FrameMsg::HitTest(..) => {}
             _ => return true,
         }
     }
@@ -116,9 +122,9 @@ fn should_record_transaction_msg(msgs: &TransactionMsg) -> bool {
 
 pub fn should_record_msg(msg: &ApiMsg) -> bool {
     match *msg {
-        ApiMsg::UpdateResources(..) |
-        ApiMsg::AddDocument { .. } |
-        ApiMsg::DeleteDocument(..) => true,
+        ApiMsg::UpdateResources(..) | ApiMsg::AddDocument { .. } | ApiMsg::DeleteDocument(..) => {
+            true
+        }
         ApiMsg::UpdateDocuments(_, ref msgs) => {
             for msg in msgs {
                 if should_record_transaction_msg(msg) {

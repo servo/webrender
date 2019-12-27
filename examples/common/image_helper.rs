@@ -13,7 +13,12 @@ pub fn make_checkerboard(width: u32, height: u32) -> (ImageDescriptor, ImageData
         }
     }
     (
-        ImageDescriptor::new(width as i32, height as i32, ImageFormat::BGRA8, ImageDescriptorFlags::IS_OPAQUE),
-        ImageData::new(image_data)
+        ImageDescriptor::new(
+            width as i32,
+            height as i32,
+            ImageFormat::BGRA8,
+            ImageDescriptorFlags::IS_OPAQUE,
+        ),
+        ImageData::new(image_data),
     )
 }

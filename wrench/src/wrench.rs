@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-
 use crate::blob;
 use crossbeam::sync::chase_lev;
 #[cfg(windows)]
@@ -28,8 +27,13 @@ use crate::{WindowWrapper, NotifierEvent};
 //           use better types for things like the style and stretch.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum FontDescriptor {
-    Path { path: PathBuf, font_index: u32 },
-    Family { name: String },
+    Path {
+        path: PathBuf,
+        font_index: u32,
+    },
+    Family {
+        name: String,
+    },
     Properties {
         family: String,
         weight: u32,
@@ -107,10 +111,13 @@ impl RenderNotifier for Notifier {
         self.update(false);
     }
 
-    fn new_frame_ready(&self, _: DocumentId,
-                       scrolled: bool,
-                       _composite_needed: bool,
-                       _render_time: Option<u64>) {
+    fn new_frame_ready(
+        &self,
+        _: DocumentId,
+        scrolled: bool,
+        _composite_needed: bool,
+        _render_time: Option<u64>,
+    ) {
         self.update(!scrolled);
     }
 }
@@ -186,14 +193,13 @@ impl Wrench {
         println!("Shader override path: {:?}", shader_override_path);
 
         let recorder = save_type.map(|save_type| match save_type {
-            SaveType::Yaml => Box::new(
-                YamlFrameWriterReceiver::new(&PathBuf::from("yaml_frames")),
-            ) as Box<dyn webrender::ApiRecordingReceiver>,
-            SaveType::Ron => Box::new(RonFrameWriter::new(&PathBuf::from("ron_frames"))) as
-                Box<dyn webrender::ApiRecordingReceiver>,
-            SaveType::Binary => Box::new(webrender::BinaryRecorder::new(
-                &PathBuf::from("wr-record.bin"),
-            )) as Box<dyn webrender::ApiRecordingReceiver>,
+            SaveType::Yaml => Box::new(YamlFrameWriterReceiver::new(&PathBuf::from("yaml_frames")))
+                as Box<dyn webrender::ApiRecordingReceiver>,
+            SaveType::Ron => Box::new(RonFrameWriter::new(&PathBuf::from("ron_frames")))
+                as Box<dyn webrender::ApiRecordingReceiver>,
+            SaveType::Binary => Box::new(webrender::BinaryRecorder::new(&PathBuf::from(
+                "wr-record.bin",
+            ))) as Box<dyn webrender::ApiRecordingReceiver>,
         });
 
         let mut debug_flags = DebugFlags::ECHO_DRIVER_MESSAGES;
@@ -234,17 +240,16 @@ impl Wrench {
 
         let (timing_sender, timing_receiver) = chase_lev::deque();
         let notifier = notifier.unwrap_or_else(|| {
-            let data = Arc::new(Mutex::new(NotifierData::new(proxy, timing_receiver, verbose)));
+            let data = Arc::new(Mutex::new(NotifierData::new(
+                proxy,
+                timing_receiver,
+                verbose,
+            )));
             Box::new(Notifier(data))
         });
 
-        let (renderer, sender) = webrender::Renderer::new(
-            window.clone_gl(),
-            notifier,
-            opts,
-            None,
-            size,
-        ).unwrap();
+        let (renderer, sender) =
+            webrender::Renderer::new(window.clone_gl(), notifier, opts, None, size).unwrap();
 
         let api = sender.create_api();
         let document_id = api.add_document(size, 0);
@@ -313,7 +318,8 @@ impl Wrench {
     ) -> (Vec<u32>, Vec<LayoutPoint>, LayoutRect) {
         // Map the string codepoints to glyph indices in this font.
         // Just drop any glyph that isn't present in this font.
-        let indices: Vec<u32> = self.api
+        let indices: Vec<u32> = self
+            .api
             .get_glyph_indices(font_key, text)
             .iter()
             .filter_map(|idx| *idx)
@@ -329,11 +335,19 @@ impl Wrench {
         let direction = if flags.contains(FontInstanceFlags::TRANSPOSE) {
             LayoutVector2D::new(
                 0.0,
-                if flags.contains(FontInstanceFlags::FLIP_Y) { -1.0 } else { 1.0 },
+                if flags.contains(FontInstanceFlags::FLIP_Y) {
+                    -1.0
+                } else {
+                    1.0
+                },
             )
         } else {
             LayoutVector2D::new(
-                if flags.contains(FontInstanceFlags::FLIP_X) { -1.0 } else { 1.0 },
+                if flags.contains(FontInstanceFlags::FLIP_X) {
+                    -1.0
+                } else {
+                    1.0
+                },
                 0.0,
             )
         };
@@ -343,8 +357,11 @@ impl Wrench {
             match metric {
                 Some(metric) => {
                     let glyph_rect = LayoutRect::new(
-                        LayoutPoint::new(cursor.x + metric.left as f32, cursor.y - metric.top as f32),
-                        LayoutSize::new(metric.width as f32, metric.height as f32)
+                        LayoutPoint::new(
+                            cursor.x + metric.left as f32,
+                            cursor.y - metric.top as f32,
+                        ),
+                        LayoutSize::new(metric.width as f32, metric.height as f32),
                     );
                     bounding_rect = bounding_rect.union(&glyph_rect);
                     cursor += direction * metric.advance;
@@ -495,7 +512,8 @@ impl Wrench {
         key
     }
 
-    pub fn add_font_instance(&mut self,
+    pub fn add_font_instance(
+        &mut self,
         font_key: FontKey,
         size: Au,
         flags: FontInstanceFlags,
@@ -624,9 +642,13 @@ impl Wrench {
 
         loop {
             match rx.recv() {
-                Ok(NotifierEvent::ShutDown) => { break; }
+                Ok(NotifierEvent::ShutDown) => {
+                    break;
+                }
                 Ok(_) => {}
-                Err(e) => { panic!("Did not shut down properly: {:?}.", e); }
+                Err(e) => {
+                    panic!("Did not shut down properly: {:?}.", e);
+                }
             }
         }
 

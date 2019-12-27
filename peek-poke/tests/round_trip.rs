@@ -98,7 +98,7 @@ fn test_fixed_size_array() {
 
 #[test]
 fn test_tuple() {
-    the_same((1isize, ));
+    the_same((1isize,));
     the_same((1isize, 2isize, 3isize));
     the_same((1isize, ()));
 }

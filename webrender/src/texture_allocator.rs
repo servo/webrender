@@ -66,20 +66,13 @@ pub struct ArrayAllocationTracker {
 impl ArrayAllocationTracker {
     pub fn new() -> Self {
         ArrayAllocationTracker {
-            bins: [
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            ],
+            bins: [Vec::new(), Vec::new(), Vec::new()],
         }
     }
 
     fn push(&mut self, slice: FreeRectSlice, rect: DeviceIntRect) {
         let id = FreeListBin::for_size(&rect.size).0 as usize;
-        self.bins[id].push(FreeRect {
-            slice,
-            rect,
-        })
+        self.bins[id].push(FreeRect { slice, rect })
     }
 
     /// Find a suitable rect in the free list. We choose the smallest such rect
@@ -89,12 +82,12 @@ impl ArrayAllocationTracker {
         requested_dimensions: &DeviceIntSize,
     ) -> Option<(FreeListBin, FreeListIndex)> {
         let start_bin = FreeListBin::for_size(requested_dimensions);
-        (start_bin.0 .. NUM_BINS as u8)
-            .find_map(|id| if FIND_SMALLEST_AREA {
+        (start_bin.0 .. NUM_BINS as u8).find_map(|id| {
+            if FIND_SMALLEST_AREA {
                 let mut smallest_index_and_area = None;
                 for (candidate_index, candidate) in self.bins[id as usize].iter().enumerate() {
-                    if requested_dimensions.width > candidate.rect.size.width ||
-                        requested_dimensions.height > candidate.rect.size.height
+                    if requested_dimensions.width > candidate.rect.size.width
+                        || requested_dimensions.height > candidate.rect.size.height
                     {
                         continue;
                     }
@@ -106,17 +99,17 @@ impl ArrayAllocationTracker {
                     }
                 }
 
-                smallest_index_and_area
-                    .map(|(index, _)| (FreeListBin(id), FreeListIndex(index)))
+                smallest_index_and_area.map(|(index, _)| (FreeListBin(id), FreeListIndex(index)))
             } else {
                 self.bins[id as usize]
                     .iter()
                     .position(|candidate| {
-                        requested_dimensions.width <= candidate.rect.size.width &&
-                        requested_dimensions.height <= candidate.rect.size.height
+                        requested_dimensions.width <= candidate.rect.size.width
+                            && requested_dimensions.height <= candidate.rect.size.height
                     })
                     .map(|index| (FreeListBin(id), FreeListIndex(index)))
-            })
+            }
+        })
     }
 
     // Split that results in the single largest area (Min Area Split Rule, MINAS).
@@ -175,7 +168,8 @@ impl ArrayAllocationTracker {
     }
 
     pub fn allocate(
-        &mut self, requested_dimensions: &DeviceIntSize
+        &mut self,
+        requested_dimensions: &DeviceIntSize,
     ) -> Option<(FreeRectSlice, DeviceIntPoint)> {
         if requested_dimensions.width == 0 || requested_dimensions.height == 0 {
             return Some((FreeRectSlice(0), DeviceIntPoint::new(0, 0)));
@@ -198,8 +192,11 @@ impl ArrayAllocationTracker {
         requested_dimensions: DeviceIntSize,
     ) {
         self.split_guillotine(
-            &FreeRect { slice, rect: total_size.into() },
-            &requested_dimensions
+            &FreeRect {
+                slice,
+                rect: total_size.into(),
+            },
+            &requested_dimensions,
         );
     }
 }
@@ -234,7 +231,12 @@ fn random_fill(count: usize, texture_size: i32) -> f32 {
         match allocator.allocate(&size) {
             Some((slice, origin)) => {
                 let rect = DeviceIntRect::new(origin, size);
-                assert_eq!(None, slices[slice.0 as usize].iter().find(|r| r.intersects(&rect)));
+                assert_eq!(
+                    None,
+                    slices[slice.0 as usize]
+                        .iter()
+                        .find(|r| r.intersects(&rect))
+                );
                 assert!(total_rect.contains_rect(&rect));
                 slices[slice.0 as usize].push(rect);
             }
@@ -249,7 +251,12 @@ fn random_fill(count: usize, texture_size: i32) -> f32 {
     for (i, free_vecs) in allocator.bins.iter().enumerate() {
         for fr in free_vecs {
             assert_eq!(FreeListBin(i as u8), FreeListBin::for_size(&fr.rect.size));
-            assert_eq!(None, slices[fr.slice.0 as usize].iter().find(|r| r.intersects(&fr.rect)));
+            assert_eq!(
+                None,
+                slices[fr.slice.0 as usize]
+                    .iter()
+                    .find(|r| r.intersects(&fr.rect))
+            );
             assert!(total_rect.contains_rect(&fr.rect));
             slices[fr.slice.0 as usize].push(fr.rect);
         }

@@ -17,7 +17,6 @@ use webrender::api::*;
 use webrender::api::units::*;
 use winit::dpi::LogicalPosition;
 
-
 struct App {
     cursor_position: WorldPoint,
 }
@@ -74,7 +73,10 @@ impl Example for App {
             // and a 50x50 green square next to it with an offset clip
             // to see what that looks like
             let mut info = CommonItemProperties::new(
-                (50, 0).to(100, 50).intersection(&(60, 10).to(110, 60)).unwrap(),
+                (50, 0)
+                    .to(100, 50)
+                    .intersection(&(60, 10).to(110, 60))
+                    .unwrap(),
                 space_and_clip1,
             );
             info.hit_info = Some((0, 3));
@@ -96,10 +98,8 @@ impl Example for App {
 
             // give it a giant gray background just to distinguish it and to easily
             // visually identify the nested scrollbox
-            let mut info = CommonItemProperties::new(
-                (-1000, -1000).to(5000, 5000),
-                space_and_clip2,
-            );
+            let mut info =
+                CommonItemProperties::new((-1000, -1000).to(5000, 5000), space_and_clip2);
             info.hit_info = Some((0, 4));
             builder.push_rect(&info, ColorF::new(0.5, 0.5, 0.5, 1.0));
 
@@ -119,7 +119,7 @@ impl Example for App {
                 SideOffsets2D::new(Some(10.0), None, Some(10.0), None),
                 StickyOffsetBounds::new(-40.0, 60.0),
                 StickyOffsetBounds::new(0.0, 0.0),
-                LayoutVector2D::new(0.0, 0.0)
+                LayoutVector2D::new(0.0, 0.0),
             );
 
             let mut info = CommonItemProperties::new(
@@ -130,17 +130,11 @@ impl Example for App {
                 },
             );
             info.hit_info = Some((0, 6));
-            builder.push_rect(
-                &info,
-                ColorF::new(0.5, 0.5, 1.0, 1.0),
-            );
+            builder.push_rect(&info, ColorF::new(0.5, 0.5, 1.0, 1.0));
 
             // just for good measure add another teal square further down and to
             // the right, which can be scrolled into view by the user
-            let mut info = CommonItemProperties::new(
-                (250, 350).to(300, 400),
-                space_and_clip2,
-            );
+            let mut info = CommonItemProperties::new((250, 350).to(300, 400), space_and_clip2);
             info.hit_info = Some((0, 7));
             builder.push_rect(&info, ColorF::new(0.0, 1.0, 1.0, 1.0));
 
@@ -150,15 +144,21 @@ impl Example for App {
         builder.pop_stacking_context();
     }
 
-    fn on_event(&mut self, event: winit::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {
+    fn on_event(
+        &mut self,
+        event: winit::WindowEvent,
+        api: &RenderApi,
+        document_id: DocumentId,
+    ) -> bool {
         let mut txn = Transaction::new();
         match event {
             winit::WindowEvent::KeyboardInput {
-                input: winit::KeyboardInput {
-                    state: winit::ElementState::Pressed,
-                    virtual_keycode: Some(key),
-                    ..
-                },
+                input:
+                    winit::KeyboardInput {
+                        state: winit::ElementState::Pressed,
+                        virtual_keycode: Some(key),
+                        ..
+                    },
                 ..
             } => {
                 let offset = match key {
@@ -187,7 +187,10 @@ impl Example for App {
                     txn.generate_frame();
                 }
             }
-            winit::WindowEvent::CursorMoved { position: LogicalPosition { x, y }, .. } => {
+            winit::WindowEvent::CursorMoved {
+                position: LogicalPosition { x, y },
+                ..
+            } => {
                 self.cursor_position = WorldPoint::new(x as f32, y as f32);
             }
             winit::WindowEvent::MouseWheel { delta, .. } => {
@@ -208,7 +211,7 @@ impl Example for App {
                     document_id,
                     None,
                     self.cursor_position,
-                    HitTestFlags::FIND_ALL
+                    HitTestFlags::FIND_ALL,
                 );
 
                 println!("Hit test results:");

@@ -150,11 +150,7 @@ impl<'a> SceneBuilder<'a> {
             };
 
             clips.push(ClipItemKey {
-                kind: ClipItemKeyKind::rounded_rect(
-                    final_prim_rect,
-                    clip_radius,
-                    ClipMode::Clip,
-                ),
+                kind: ClipItemKeyKind::rounded_rect(final_prim_rect, clip_radius, ClipMode::Clip),
                 spatial_node_index: clip_and_scroll.spatial_node_index,
             });
 
@@ -174,11 +170,7 @@ impl<'a> SceneBuilder<'a> {
             // Add a normal clip mask to clip out the contents
             // of the surrounding primitive.
             extra_clips.push(ClipItemKey {
-                kind: ClipItemKeyKind::rounded_rect(
-                    prim_info.rect,
-                    border_radius,
-                    prim_clip_mode,
-                ),
+                kind: ClipItemKeyKind::rounded_rect(prim_info.rect, border_radius, prim_clip_mode),
                 spatial_node_index: clip_and_scroll.spatial_node_index,
             });
 
@@ -221,9 +213,10 @@ impl<'a> SceneBuilder<'a> {
                 BoxShadowClipMode::Inset => {
                     // If the inner shadow rect contains the prim
                     // rect, no pixels will be shadowed.
-                    if border_radius.is_zero() && shadow_rect
-                        .inflate(-blur_radius, -blur_radius)
-                        .contains_rect(&prim_info.rect)
+                    if border_radius.is_zero()
+                        && shadow_rect
+                            .inflate(-blur_radius, -blur_radius)
+                            .contains_rect(&prim_info.rect)
                     {
                         return;
                     }
@@ -240,12 +233,7 @@ impl<'a> SceneBuilder<'a> {
                 }
             };
 
-            self.add_primitive(
-                clip_and_scroll,
-                &prim_info,
-                extra_clips,
-                prim,
-            );
+            self.add_primitive(clip_and_scroll, &prim_info, extra_clips, prim);
         }
     }
 }

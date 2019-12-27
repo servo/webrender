@@ -3,8 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{
-    AlphaType, ColorDepth, ColorF, ColorU, PrimitiveFlags,
-    ImageKey as ApiImageKey, ImageRendering,
+    AlphaType, ColorDepth, ColorF, ColorU, PrimitiveFlags, ImageKey as ApiImageKey, ImageRendering,
     PremultipliedColorF, Shadow, YuvColorSpace, ColorRange, YuvFormat,
 };
 use api::units::*;
@@ -14,16 +13,13 @@ use crate::gpu_cache::{GpuCache, GpuDataRequest};
 use crate::intern::{Internable, InternDebug, Handle as InternHandle};
 use crate::internal_types::{LayoutPrimitiveInfo};
 use crate::prim_store::{
-    EdgeAaSegmentMask, OpacityBindingIndex, PrimitiveInstanceKind,
-    PrimitiveOpacity, PrimitiveSceneData, PrimKey, PrimKeyCommonData,
-    PrimTemplate, PrimTemplateCommonData, PrimitiveStore, SegmentInstanceIndex,
-    SizeKey, InternablePrimitive,
+    EdgeAaSegmentMask, OpacityBindingIndex, PrimitiveInstanceKind, PrimitiveOpacity,
+    PrimitiveSceneData, PrimKey, PrimKeyCommonData, PrimTemplate, PrimTemplateCommonData,
+    PrimitiveStore, SegmentInstanceIndex, SizeKey, InternablePrimitive,
 };
 use crate::render_target::RenderTargetKind;
 use crate::render_task::{BlitSource, RenderTask};
-use crate::render_task_cache::{
-    RenderTaskCacheEntryHandle, RenderTaskCacheKey, RenderTaskCacheKeyKind
-};
+use crate::render_task_cache::{RenderTaskCacheEntryHandle, RenderTaskCacheKey, RenderTaskCacheKeyKind};
 use crate::resource_cache::{ImageRequest, ResourceCache};
 use crate::util::pack_as_float;
 
@@ -84,11 +80,7 @@ pub struct Image {
 pub type ImageKey = PrimKey<Image>;
 
 impl ImageKey {
-    pub fn new(
-        flags: PrimitiveFlags,
-        prim_size: LayoutSize,
-        image: Image,
-    ) -> Self {
+    pub fn new(flags: PrimitiveFlags, prim_size: LayoutSize, image: Image) -> Self {
         ImageKey {
             common: PrimKeyCommonData {
                 flags,
@@ -160,9 +152,7 @@ impl ImageData {
         }
 
         common.opacity = {
-            let image_properties = frame_state
-                .resource_cache
-                .get_image_properties(self.key);
+            let image_properties = frame_state.resource_cache.get_image_properties(self.key);
 
             match image_properties {
                 Some(image_properties) => {
@@ -200,11 +190,18 @@ impl ImageData {
                     // time through, and any time the render task output has been
                     // evicted from the texture cache.
                     match self.source {
-                        ImageSource::Cache { ref mut size, ref mut handle } => {
+                        ImageSource::Cache {
+                            ref mut size,
+                            ref mut handle,
+                        } => {
                             let padding = DeviceIntSideOffsets::new(
                                 0,
-                                (self.tile_spacing.width * size.width as f32 / self.stretch_size.width) as i32,
-                                (self.tile_spacing.height * size.height as f32 / self.stretch_size.height) as i32,
+                                (self.tile_spacing.width * size.width as f32
+                                    / self.stretch_size.width)
+                                    as i32,
+                                (self.tile_spacing.height * size.height as f32
+                                    / self.stretch_size.height)
+                                    as i32,
                                 0,
                             );
 
@@ -217,11 +214,12 @@ impl ImageData {
                                 request,
                                 texel_rect: self.sub_rect,
                             };
-                            let target_kind = if image_properties.descriptor.format.bytes_per_pixel() == 1 {
-                                RenderTargetKind::Alpha
-                            } else {
-                                RenderTargetKind::Color
-                            };
+                            let target_kind =
+                                if image_properties.descriptor.format.bytes_per_pixel() == 1 {
+                                    RenderTargetKind::Alpha
+                                } else {
+                                    RenderTargetKind::Color
+                                };
 
                             // Request a pre-rendered image task.
                             *handle = Some(frame_state.resource_cache.request_render_task(
@@ -242,18 +240,23 @@ impl ImageData {
                                         RenderTask::new_blit_with_padding(
                                             *size,
                                             padding,
-                                            BlitSource::Image { key: image_cache_key },
+                                            BlitSource::Image {
+                                                key: image_cache_key,
+                                            },
                                         )
                                     } else {
                                         RenderTask::new_scaling_with_padding(
-                                            BlitSource::Image { key: image_cache_key },
+                                            BlitSource::Image {
+                                                key: image_cache_key,
+                                            },
                                             render_tasks,
                                             target_kind,
                                             *size,
                                             padding,
                                         )
                                     };
-                                    let cache_to_target_task_id = render_tasks.add(cache_to_target_task);
+                                    let cache_to_target_task_id =
+                                        render_tasks.add(cache_to_target_task);
 
                                     // Create a task to blit the rect from the child render
                                     // task above back into the right spot in the persistent
@@ -266,7 +269,7 @@ impl ImageData {
                                     );
 
                                     render_tasks.add(target_to_cache_task)
-                                }
+                                },
                             ));
                         }
                         ImageSource::Default => {}
@@ -278,9 +281,7 @@ impl ImageData {
                         PrimitiveOpacity::translucent()
                     }
                 }
-                None => {
-                    PrimitiveOpacity::opaque()
-                }
+                None => PrimitiveOpacity::opaque(),
             }
         };
     }
@@ -322,15 +323,8 @@ impl Internable for Image {
 }
 
 impl InternablePrimitive for Image {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> ImageKey {
-        ImageKey::new(
-            info.flags,
-            info.rect.size,
-            self
-        )
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> ImageKey {
+        ImageKey::new(info.flags, info.rect.size, self)
     }
 
     fn make_instance_kind(
@@ -392,12 +386,7 @@ pub struct YuvImage {
 pub type YuvImageKey = PrimKey<YuvImage>;
 
 impl YuvImageKey {
-    pub fn new(
-        flags: PrimitiveFlags,
-        prim_size: LayoutSize,
-        yuv_image: YuvImage,
-    ) -> Self {
-
+    pub fn new(flags: PrimitiveFlags, prim_size: LayoutSize, yuv_image: YuvImage) -> Self {
         YuvImageKey {
             common: PrimKeyCommonData {
                 flags,
@@ -477,7 +466,7 @@ impl YuvImageData {
             self.color_depth.rescaling_factor(),
             pack_as_float(self.color_space as u32),
             pack_as_float(self.format as u32),
-            0.0
+            0.0,
         ]);
     }
 }
@@ -504,15 +493,8 @@ impl Internable for YuvImage {
 }
 
 impl InternablePrimitive for YuvImage {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> YuvImageKey {
-        YuvImageKey::new(
-            info.flags,
-            info.rect.size,
-            self,
-        )
+    fn into_key(self, info: &LayoutPrimitiveInfo) -> YuvImageKey {
+        YuvImageKey::new(info.flags, info.rect.size, self)
     }
 
     fn make_instance_kind(
@@ -523,7 +505,7 @@ impl InternablePrimitive for YuvImage {
     ) -> PrimitiveInstanceKind {
         PrimitiveInstanceKind::YuvImage {
             data_handle,
-            segment_instance_index: SegmentInstanceIndex::INVALID
+            segment_instance_index: SegmentInstanceIndex::INVALID,
         }
     }
 }
@@ -545,9 +527,21 @@ fn test_struct_sizes() {
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<Image>(), 52, "Image size changed");
-    assert_eq!(mem::size_of::<ImageTemplate>(), 104, "ImageTemplate size changed");
+    assert_eq!(
+        mem::size_of::<ImageTemplate>(),
+        104,
+        "ImageTemplate size changed"
+    );
     assert_eq!(mem::size_of::<ImageKey>(), 64, "ImageKey size changed");
     assert_eq!(mem::size_of::<YuvImage>(), 32, "YuvImage size changed");
-    assert_eq!(mem::size_of::<YuvImageTemplate>(), 52, "YuvImageTemplate size changed");
-    assert_eq!(mem::size_of::<YuvImageKey>(), 44, "YuvImageKey size changed");
+    assert_eq!(
+        mem::size_of::<YuvImageTemplate>(),
+        52,
+        "YuvImageTemplate size changed"
+    );
+    assert_eq!(
+        mem::size_of::<YuvImageKey>(),
+        44,
+        "YuvImageKey size changed"
+    );
 }

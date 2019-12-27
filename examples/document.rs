@@ -31,11 +31,7 @@ struct App {
 }
 
 impl App {
-    fn init(
-        &mut self,
-        api: &RenderApi,
-        device_pixel_ratio: f32,
-    ) {
+    fn init(&mut self, api: &RenderApi, device_pixel_ratio: f32) {
         let init_data = vec![
             (
                 PipelineId(1, 0),
@@ -97,23 +93,16 @@ impl Example for App {
         _: DocumentId,
     ) {
         if self.documents.is_empty() {
-            let device_pixel_ratio = device_size.width as f32 /
-                base_builder.content_size().width;
+            let device_pixel_ratio = device_size.width as f32 / base_builder.content_size().width;
             // this is the first run, hack around the boilerplate,
             // which assumes an example only needs one document
-            self.init(api,  device_pixel_ratio);
+            self.init(api, device_pixel_ratio);
         }
 
         for doc in &self.documents {
             let space_and_clip = SpaceAndClipInfo::root_scroll(doc.pipeline_id);
-            let mut builder = DisplayListBuilder::new(
-                doc.pipeline_id,
-                doc.content_rect.size,
-            );
-            let local_rect = LayoutRect::new(
-                LayoutPoint::zero(),
-                doc.content_rect.size,
-            );
+            let mut builder = DisplayListBuilder::new(doc.pipeline_id, doc.content_rect.size);
+            let local_rect = LayoutRect::new(LayoutPoint::zero(), doc.content_rect.size);
 
             builder.push_simple_stacking_context(
                 doc.content_rect.origin,

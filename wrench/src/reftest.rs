@@ -23,7 +23,6 @@ use webrender::api::units::*;
 use crate::wrench::{Wrench, WrenchThing};
 use crate::yaml_frame_reader::YamlFrameReader;
 
-
 const OPTION_DISABLE_SUBPX: &str = "disable-subpixel";
 const OPTION_DISABLE_AA: &str = "disable-aa";
 const OPTION_DISABLE_DUAL_SOURCE_BLENDING: &str = "disable-dual-source-blending";
@@ -69,18 +68,18 @@ enum ExtraCheck {
     ColorTargets(usize),
     /// Checks the dirty region when rendering the test at |index| in the
     /// sequence, and compares its serialization to |region|.
-    DirtyRegion { index: usize, region: String },
+    DirtyRegion {
+        index: usize,
+        region: String,
+    },
 }
 
 impl ExtraCheck {
     fn run(&self, results: &[RenderResults]) -> bool {
         match *self {
-            ExtraCheck::DrawCalls(x) =>
-                x == results.last().unwrap().stats.total_draw_calls,
-            ExtraCheck::AlphaTargets(x) =>
-                x == results.last().unwrap().stats.alpha_target_count,
-            ExtraCheck::ColorTargets(x) =>
-                x == results.last().unwrap().stats.color_target_count,
+            ExtraCheck::DrawCalls(x) => x == results.last().unwrap().stats.total_draw_calls,
+            ExtraCheck::AlphaTargets(x) => x == results.last().unwrap().stats.alpha_target_count,
+            ExtraCheck::ColorTargets(x) => x == results.last().unwrap().stats.color_target_count,
             ExtraCheck::DirtyRegion { index, ref region } => {
                 *region == format!("{}", results[index].recorded_dirty_regions[0])
             }
@@ -138,7 +137,8 @@ impl ReftestImage {
 
         for (a, b) in self.data.chunks(4).zip(other.data.chunks(4)) {
             if a != b {
-                let pixel_max = a.iter()
+                let pixel_max = a
+                    .iter()
                     .zip(b.iter())
                     .map(|(x, y)| (*x as isize - *y as isize).abs() as usize)
                     .max()
@@ -178,7 +178,12 @@ impl ReftestImage {
         {
             let encoder = PNGEncoder::new(&mut png);
             encoder
-                .encode(&self.data[..], width as u32, height as u32, ColorType::RGBA(8))
+                .encode(
+                    &self.data[..],
+                    width as u32,
+                    height as u32,
+                    ColorType::RGBA(8),
+                )
                 .expect("Unable to encode PNG!");
         }
         let png_base64 = base64::encode(&png);
@@ -190,7 +195,11 @@ struct ReftestManifest {
     reftests: Vec<Reftest>,
 }
 impl ReftestManifest {
-    fn new(manifest: &Path, environment: &ReftestEnvironment, options: &ReftestOptions) -> ReftestManifest {
+    fn new(
+        manifest: &Path,
+        environment: &ReftestEnvironment,
+        options: &ReftestOptions,
+    ) -> ReftestManifest {
         let dir = manifest.parent().unwrap();
         let f =
             File::open(manifest).expect(&format!("couldn't open manifest: {}", manifest.display()));
@@ -229,7 +238,8 @@ impl ReftestManifest {
                         let include = dir.join(tokens[1]);
 
                         reftests.append(
-                            &mut ReftestManifest::new(include.as_path(), environment, options).reftests,
+                            &mut ReftestManifest::new(include.as_path(), environment, options)
+                                .reftests,
                         );
 
                         break;
@@ -291,7 +301,10 @@ impl ReftestManifest {
                         if args.iter().any(|arg| arg == &OPTION_DISABLE_AA) {
                             font_render_mode = Some(FontRenderMode::Mono);
                         }
-                        if args.iter().any(|arg| arg == &OPTION_DISABLE_DUAL_SOURCE_BLENDING) {
+                        if args
+                            .iter()
+                            .any(|arg| arg == &OPTION_DISABLE_DUAL_SOURCE_BLENDING)
+                        {
                             disable_dual_source_blending = true;
                         }
                         if args.iter().any(|arg| arg == &OPTION_ALLOW_MIPMAPS) {
@@ -380,7 +393,7 @@ impl ReftestEnvironment {
                 if r.matches(v) {
                     return true;
                 }
-            },
+            }
             _ => (),
         };
         let envkey = format!("WRENCH_REFTEST_CONDITION_{}", condition.to_uppercase());
@@ -421,8 +434,10 @@ impl ReftestEnvironment {
             if version_string.chars().filter(|c| *c == '.').count() == 1 {
                 version_string.push_str(".0");
             }
-            Some(semver::Version::parse(&version_string)
-                 .expect(&format!("Failed to parse macOS version {}", version_string)))
+            Some(
+                semver::Version::parse(&version_string)
+                    .expect(&format!("Failed to parse macOS version {}", version_string)),
+            )
         } else {
             None
         }
@@ -444,12 +459,26 @@ pub struct ReftestHarness<'a> {
     environment: ReftestEnvironment,
 }
 impl<'a> ReftestHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper, rx: &'a Receiver<NotifierEvent>) -> Self {
+    pub fn new(
+        wrench: &'a mut Wrench,
+        window: &'a mut WindowWrapper,
+        rx: &'a Receiver<NotifierEvent>,
+    ) -> Self {
         let environment = ReftestEnvironment::new();
-        ReftestHarness { wrench, window, rx, environment }
+        ReftestHarness {
+            wrench,
+            window,
+            rx,
+            environment,
+        }
     }
 
-    pub fn run(mut self, base_manifest: &Path, reftests: Option<&Path>, options: &ReftestOptions) -> usize {
+    pub fn run(
+        mut self,
+        base_manifest: &Path,
+        reftests: Option<&Path>,
+        options: &ReftestOptions,
+    ) -> usize {
         let manifest = ReftestManifest::new(base_manifest, &self.environment, options);
         let reftests = manifest.find(reftests.unwrap_or(&PathBuf::new()));
 
@@ -486,19 +515,13 @@ impl<'a> ReftestHarness<'a> {
 
         self.wrench
             .api
-            .send_debug_cmd(
-                DebugCommand::ClearCaches(ClearCache::all())
-            );
+            .send_debug_cmd(DebugCommand::ClearCaches(ClearCache::all()));
 
         let quality_settings = match t.allow_sacrificing_subpixel_aa {
-            Some(allow_sacrificing_subpixel_aa) => {
-                QualitySettings {
-                    allow_sacrificing_subpixel_aa,
-                }
-            }
-            None => {
-                QualitySettings::default()
-            }
+            Some(allow_sacrificing_subpixel_aa) => QualitySettings {
+                allow_sacrificing_subpixel_aa,
+            },
+            None => QualitySettings::default(),
         };
 
         self.wrench.set_quality_settings(quality_settings);
@@ -507,9 +530,7 @@ impl<'a> ReftestHarness<'a> {
         if t.disable_dual_source_blending {
             self.wrench
                 .api
-                .send_debug_cmd(
-                    DebugCommand::EnableDualSourceBlending(false)
-                );
+                .send_debug_cmd(DebugCommand::EnableDualSourceBlending(false));
         }
 
         let window_size = self.window.get_inner_size();
@@ -531,12 +552,8 @@ impl<'a> ReftestHarness<'a> {
         let mut results = vec![];
 
         for filename in t.test.iter() {
-            let output = self.render_yaml(
-                &filename,
-                test_size,
-                t.font_render_mode,
-                t.allow_mipmaps,
-            );
+            let output =
+                self.render_yaml(&filename, test_size, t.font_render_mode, t.allow_mipmaps);
             images.push(output.image);
             results.push(output.results);
         }
@@ -544,12 +561,8 @@ impl<'a> ReftestHarness<'a> {
         let reference = match reference_image {
             Some(image) => image,
             None => {
-                let output = self.render_yaml(
-                    &t.reference,
-                    test_size,
-                    t.font_render_mode,
-                    t.allow_mipmaps,
-                );
+                let output =
+                    self.render_yaml(&t.reference, test_size, t.font_render_mode, t.allow_mipmaps);
                 output.image
             }
         };
@@ -557,9 +570,7 @@ impl<'a> ReftestHarness<'a> {
         if t.disable_dual_source_blending {
             self.wrench
                 .api
-                .send_debug_cmd(
-                    DebugCommand::EnableDualSourceBlending(true)
-                );
+                .send_debug_cmd(DebugCommand::EnableDualSourceBlending(true));
         }
 
         for extra_check in t.extra_checks.iter() {
@@ -585,27 +596,29 @@ impl<'a> ReftestHarness<'a> {
                     max_difference,
                     count_different,
                 },
-            ) => if max_difference > t.max_difference || count_different > t.num_differences {
-                println!(
-                    "{} | {} | {}: {}, {}: {}",
-                    "REFTEST TEST-UNEXPECTED-FAIL",
-                    t,
-                    "image comparison, max difference",
-                    max_difference,
-                    "number of differing pixels",
-                    count_different
-                );
-                println!("REFTEST   IMAGE 1 (TEST): {}", test.create_data_uri());
-                println!(
-                    "REFTEST   IMAGE 2 (REFERENCE): {}",
-                    reference.create_data_uri()
-                );
-                println!("REFTEST TEST-END | {}", t);
+            ) => {
+                if max_difference > t.max_difference || count_different > t.num_differences {
+                    println!(
+                        "{} | {} | {}: {}, {}: {}",
+                        "REFTEST TEST-UNEXPECTED-FAIL",
+                        t,
+                        "image comparison, max difference",
+                        max_difference,
+                        "number of differing pixels",
+                        count_different
+                    );
+                    println!("REFTEST   IMAGE 1 (TEST): {}", test.create_data_uri());
+                    println!(
+                        "REFTEST   IMAGE 2 (REFERENCE): {}",
+                        reference.create_data_uri()
+                    );
+                    println!("REFTEST TEST-END | {}", t);
 
-                false
-            } else {
-                true
-            },
+                    false
+                } else {
+                    true
+                }
+            }
             (&ReftestOp::NotEqual, ReftestImageComparison::Equal) => {
                 println!("REFTEST TEST-UNEXPECTED-FAIL | {} | image comparison", t);
                 println!("REFTEST TEST-END | {}", t);
@@ -647,8 +660,7 @@ impl<'a> ReftestHarness<'a> {
 
         let window_size = self.window.get_inner_size();
         assert!(
-            size.width <= window_size.width &&
-            size.height <= window_size.height,
+            size.width <= window_size.width && size.height <= window_size.height,
             format!("size={:?} ws={:?}", size, window_size)
         );
 

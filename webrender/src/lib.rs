@@ -109,9 +109,9 @@ mod print_tree;
 mod record;
 mod render_backend;
 mod render_target;
-mod render_task_graph;
-mod render_task_cache;
 mod render_task;
+mod render_task_cache;
+mod render_task_graph;
 mod renderer;
 mod resource_cache;
 mod scene;
@@ -201,7 +201,9 @@ pub extern crate api;
 extern crate webrender_build;
 
 #[doc(hidden)]
-pub use crate::composite::{CompositorConfig, Compositor, NativeSurfaceId, NativeTileId, NativeSurfaceInfo};
+pub use crate::composite::{
+    CompositorConfig, Compositor, NativeSurfaceId, NativeTileId, NativeSurfaceInfo,
+};
 pub use crate::device::{build_shader_strings, UploadMethod, VertexUsageHint, get_gl_target};
 pub use crate::device::{ProgramBinary, ProgramCache, ProgramCacheObserver, FormatDesc};
 pub use crate::device::Device;

@@ -33,8 +33,11 @@ pub enum GlyphCacheEntry {
 }
 
 impl GlyphCacheEntry {
-    fn get_allocated_size(&self, texture_cache: &TextureCache, _: &RenderTaskCache)
-                          -> Option<usize> {
+    fn get_allocated_size(
+        &self,
+        texture_cache: &TextureCache,
+        _: &RenderTaskCache,
+    ) -> Option<usize> {
         match *self {
             GlyphCacheEntry::Cached(ref glyph) => {
                 texture_cache.get_allocated_size(&glyph.texture_cache_handle)
@@ -110,8 +113,9 @@ impl GlyphKeyCache {
     ) -> usize {
         let mut pruned = 0;
         self.retain(|_, entry| {
-            if pruned <= excess_bytes_used &&
-               (!skip_recent || !entry.is_recently_used(texture_cache)) {
+            if pruned <= excess_bytes_used
+                && (!skip_recent || !entry.is_recently_used(texture_cache))
+            {
                 match entry.get_allocated_size(texture_cache, render_task_cache) {
                     Some(size) => {
                         pruned += size;
@@ -133,11 +137,7 @@ impl GlyphKeyCache {
         self.user_data.bytes_used = Self::DIRTY;
     }
 
-    fn clear_evicted(
-        &mut self,
-        texture_cache: &TextureCache,
-        render_task_cache: &RenderTaskCache,
-    ) {
+    fn clear_evicted(&mut self, texture_cache: &TextureCache, render_task_cache: &RenderTaskCache) {
         if self.eviction_notice().check() || self.user_data.bytes_used == Self::DIRTY {
             // If there are evictions, filter out any glyphs evicted from the
             // texture cache from the glyph key cache.
@@ -175,9 +175,10 @@ impl GlyphCache {
     }
 
     pub fn get_glyph_key_cache_for_font_mut(&mut self, font: FontInstance) -> &mut GlyphKeyCache {
-        let cache = self.glyph_key_caches
-                        .entry(font)
-                        .or_insert_with(GlyphKeyCache::new);
+        let cache = self
+            .glyph_key_caches
+            .entry(font)
+            .or_insert_with(GlyphKeyCache::new);
         cache.user_data.last_frame_used = self.current_frame;
         cache
     }
@@ -213,11 +214,7 @@ impl GlyphCache {
     }
 
     /// Clear out evicted entries from glyph key caches.
-    fn clear_evicted(
-        &mut self,
-        texture_cache: &TextureCache,
-        render_task_cache: &RenderTaskCache,
-    ) {
+    fn clear_evicted(&mut self, texture_cache: &TextureCache, render_task_cache: &RenderTaskCache) {
         let mut usage = 0;
         for cache in self.glyph_key_caches.values_mut() {
             // Scan for any glyph key caches that have evictions.
@@ -253,7 +250,9 @@ impl GlyphCache {
         // Usage is above the threshold. Get a last-recently-used ordered list of caches to clear.
         let mut caches: Vec<_> = self.glyph_key_caches.values_mut().collect();
         caches.sort_unstable_by(|a, b| {
-            a.user_data.last_frame_used.cmp(&b.user_data.last_frame_used)
+            a.user_data
+                .last_frame_used
+                .cmp(&b.user_data.last_frame_used)
         });
         // Clear out the oldest caches until below the threshold.
         for cache in caches {
@@ -268,12 +267,8 @@ impl GlyphCache {
             } else {
                 // Otherwise, just clear as little of the cache as needed to remove the excess
                 // and avoid rematerialization costs.
-                self.bytes_used -= cache.prune_glyphs(
-                    recent,
-                    excess,
-                    texture_cache,
-                    render_task_cache,
-                );
+                self.bytes_used -=
+                    cache.prune_glyphs(recent, excess, texture_cache, render_task_cache);
             }
         }
     }

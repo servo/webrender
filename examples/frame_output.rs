@@ -17,7 +17,6 @@ use gleam::gl;
 use webrender::api::*;
 use webrender::api::units::*;
 
-
 // This example demonstrates using the frame output feature to copy
 // the output of a WR framebuffer to a custom texture.
 
@@ -29,18 +28,17 @@ struct Document {
     color: ColorF,
 }
 
-
 struct App {
     external_image_key: Option<ImageKey>,
-    output_document: Option<Document>
+    output_document: Option<Document>,
 }
 
 struct OutputHandler {
-    texture_id: gl::GLuint
+    texture_id: gl::GLuint,
 }
 
 struct ExternalHandler {
-    texture_id: gl::GLuint
+    texture_id: gl::GLuint,
 }
 
 impl OutputImageHandler for OutputHandler {
@@ -56,7 +54,7 @@ impl ExternalImageHandler for ExternalHandler {
         &mut self,
         _key: ExternalImageId,
         _channel_index: u8,
-        _rendering: ImageRendering
+        _rendering: ImageRendering,
     ) -> ExternalImage {
         ExternalImage {
             uv: TexelRect::new(0.0, 0.0, 1.0, 1.0),
@@ -81,11 +79,7 @@ impl App {
         let color = ColorF::new(1., 1., 0., 1.);
         let document_id = api.add_document(device_size, layer);
         api.enable_frame_output(document_id, pipeline_id, true);
-        api.set_document_view(
-            document_id,
-            device_size.into(),
-            device_pixel_ratio,
-        );
+        api.set_document_view(document_id, device_size.into(), device_pixel_ratio);
 
         let document = Document {
             id: document_id,
@@ -101,7 +95,12 @@ impl App {
 
         txn.add_image(
             self.external_image_key.unwrap(),
-            ImageDescriptor::new(100, 100, ImageFormat::BGRA8, ImageDescriptorFlags::IS_OPAQUE),
+            ImageDescriptor::new(
+                100,
+                100,
+                ImageFormat::BGRA8,
+                ImageDescriptorFlags::IS_OPAQUE,
+            ),
             ImageData::External(ExternalImageData {
                 id: ExternalImageId(0),
                 channel_index: 0,
@@ -111,10 +110,7 @@ impl App {
         );
 
         let space_and_clip = SpaceAndClipInfo::root_scroll(pipeline_id);
-        let mut builder = DisplayListBuilder::new(
-            document.pipeline_id,
-            document.content_rect.size,
-        );
+        let mut builder = DisplayListBuilder::new(document.pipeline_id, document.content_rect.size);
 
         builder.push_simple_stacking_context(
             document.content_rect.origin,
@@ -124,7 +120,7 @@ impl App {
 
         builder.push_rect(
             &CommonItemProperties::new(document.content_rect, space_and_clip),
-            ColorF::new(1.0, 1.0, 0.0, 1.0)
+            ColorF::new(1.0, 1.0, 0.0, 1.0),
         );
         builder.pop_stacking_context();
 
@@ -153,8 +149,7 @@ impl Example for App {
         _document_id: DocumentId,
     ) {
         if self.output_document.is_none() {
-            let device_pixel_ratio = device_size.width as f32 /
-                builder.content_size().width;
+            let device_pixel_ratio = device_size.width as f32 / builder.content_size().width;
             self.init_output_document(api, DeviceIntSize::new(200, 200), device_pixel_ratio);
         }
 
@@ -182,8 +177,10 @@ impl Example for App {
     fn get_image_handlers(
         &mut self,
         gl: &dyn gl::Gl,
-    ) -> (Option<Box<dyn ExternalImageHandler>>,
-          Option<Box<dyn OutputImageHandler>>) {
+    ) -> (
+        Option<Box<dyn ExternalImageHandler>>,
+        Option<Box<dyn OutputImageHandler>>,
+    ) {
         let texture_id = gl.gen_textures(1)[0];
 
         gl.bind_texture(gl::TEXTURE_2D, texture_id);
@@ -222,7 +219,7 @@ impl Example for App {
 
         (
             Some(Box::new(ExternalHandler { texture_id })),
-            Some(Box::new(OutputHandler { texture_id }))
+            Some(Box::new(OutputHandler { texture_id })),
         )
     }
 }
@@ -230,7 +227,7 @@ impl Example for App {
 fn main() {
     let mut app = App {
         external_image_key: None,
-        output_document: None
+        output_document: None,
     };
 
     boilerplate::main_wrapper(&mut app, None);

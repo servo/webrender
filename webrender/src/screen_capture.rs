@@ -144,10 +144,7 @@ impl AsyncScreenshotGrabber {
                 let rounded = round_up_to_multiple(stride, device.optimal_pbo_stride());
                 let optimal_width = rounded as i32 / image_format.bytes_per_pixel();
 
-                DeviceIntSize::new(
-                    optimal_width,
-                    screenshot_size.height,
-                )
+                DeviceIntSize::new(optimal_width, screenshot_size.height)
             }
             AsyncScreenshotGrabberMode::CompositionRecorder => buffer_size,
         };
@@ -163,7 +160,7 @@ impl AsyncScreenshotGrabber {
                     reusable_pbo = Some(pbo);
                     break;
                 }
-            };
+            }
 
             reusable_pbo.unwrap_or_else(|| device.create_pbo_with_size(required_size))
         };
@@ -246,7 +243,9 @@ impl AsyncScreenshotGrabber {
 
         // If we haven't created a texture for this level, or the existing
         // texture is the wrong size, then create a new one.
-        if level == self.scaling_textures.len() || self.scaling_textures[level].get_dimensions() != texture_size {
+        if level == self.scaling_textures.len()
+            || self.scaling_textures[level].get_dimensions() != texture_size
+        {
             let texture = device.create_texture(
                 TextureTarget::Default,
                 image_format,

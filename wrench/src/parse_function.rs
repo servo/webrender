@@ -119,7 +119,13 @@ fn test() {
     assert_eq!(parse_function("  rotate  (  40 )").1[0], "40");
     assert_eq!(parse_function("rotate(-40.0)").1[0], "-40.0");
     assert_eq!(parse_function("drop-shadow(0, [1, 2, 3, 4], 5)").1[0], "0");
-    assert_eq!(parse_function("drop-shadow(0, [1, 2, 3, 4], 5)").1[1], "[1, 2, 3, 4]");
+    assert_eq!(
+        parse_function("drop-shadow(0, [1, 2, 3, 4], 5)").1[1],
+        "[1, 2, 3, 4]"
+    );
     assert_eq!(parse_function("drop-shadow(0, [1, 2, 3, 4], 5)").1[2], "5");
-    assert_eq!(parse_function("drop-shadow(0, [1, 2, [3, 4]], 5)").1[1], "[1, 2, [3, 4]]");
+    assert_eq!(
+        parse_function("drop-shadow(0, [1, 2, [3, 4]], 5)").1[1],
+        "[1, 2, [3, 4]]"
+    );
 }

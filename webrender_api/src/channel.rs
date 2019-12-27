@@ -27,7 +27,10 @@ impl Payload {
     /// This is a helper static method working on a slice.
     pub fn construct_data(epoch: Epoch, pipeline_id: PipelineId, dl_data: &[u8]) -> Vec<u8> {
         let mut data = Vec::with_capacity(
-            mem::size_of::<u32>() + 2 * mem::size_of::<u32>() + mem::size_of::<u64>() + dl_data.len(),
+            mem::size_of::<u32>()
+                + 2 * mem::size_of::<u32>()
+                + mem::size_of::<u64>()
+                + dl_data.len(),
         );
         data.write_u32::<LittleEndian>(epoch.0).unwrap();
         data.write_u32::<LittleEndian>(pipeline_id.0).unwrap();
@@ -70,7 +73,6 @@ impl Payload {
         }
     }
 }
-
 
 /// A helper to handle the interface difference between `IpcBytesSender`
 /// and `Sender<Vec<u8>>`.

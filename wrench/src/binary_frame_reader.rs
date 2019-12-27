@@ -39,8 +39,7 @@ impl BinaryFrameReader {
         let mut file = File::open(&file_path).expect("Can't open recording file");
         let header = file.read_u64::<LittleEndian>().unwrap();
         assert_eq!(
-            header,
-            WEBRENDER_RECORDING_HEADER,
+            header, WEBRENDER_RECORDING_HEADER,
             "Binary recording is missing recording header!"
         );
 
@@ -53,8 +52,7 @@ impl BinaryFrameReader {
         if written_apimsg_type_id != apimsg_type_id {
             println!(
                 "Warning: binary file ApiMsg type mismatch: expected 0x{:x}, found 0x{:x}",
-                apimsg_type_id,
-                written_apimsg_type_id
+                apimsg_type_id, written_apimsg_type_id
             );
         }
 
@@ -175,7 +173,9 @@ impl WrenchThing for BinaryFrameReader {
                     // a SetDisplayList and a SetRootPipeline.
                     // After the first frame, any GenerateFrame message marks a new
                     // frame being rendered.
-                    if found_frame_marker && (self.frame_num > 0 || (found_display_list && found_pipeline)) {
+                    if found_frame_marker
+                        && (self.frame_num > 0 || (found_display_list && found_pipeline))
+                    {
                         break;
                     }
                 } else {
@@ -186,8 +186,9 @@ impl WrenchThing for BinaryFrameReader {
                 }
             }
 
-            if self.eof == false &&
-                self.file.seek(SeekFrom::Current(0)).unwrap() == self.file.metadata().unwrap().len()
+            if self.eof == false
+                && self.file.seek(SeekFrom::Current(0)).unwrap()
+                    == self.file.metadata().unwrap().len()
             {
                 self.eof = true;
             }
@@ -200,9 +201,11 @@ impl WrenchThing for BinaryFrameReader {
             let frame_items = self.frame_data.clone();
             for item in frame_items {
                 match item {
-                    Item::Message(msg) => if !self.should_skip_upload_msg(&msg) {
-                        wrench.api.send_message(msg);
-                    },
+                    Item::Message(msg) => {
+                        if !self.should_skip_upload_msg(&msg) {
+                            wrench.api.send_message(msg);
+                        }
+                    }
                     Item::Data(buf) => {
                         wrench.api.send_payload(&buf);
                     }

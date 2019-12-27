@@ -30,9 +30,11 @@ pub const MAX_BLUR_STD_DEVIATION: f32 = 4.0;
 pub const MIN_DOWNSCALING_RT_SIZE: i32 = 8;
 
 fn render_task_sanity_check(size: &DeviceIntSize) {
-    if size.width > RENDER_TASK_SIZE_SANITY_CHECK ||
-        size.height > RENDER_TASK_SIZE_SANITY_CHECK {
-        error!("Attempting to create a render task of size {}x{}", size.width, size.height);
+    if size.width > RENDER_TASK_SIZE_SANITY_CHECK || size.height > RENDER_TASK_SIZE_SANITY_CHECK {
+        error!(
+            "Attempting to create a render task of size {}x{}",
+            size.width, size.height
+        );
         panic!();
     }
 }
@@ -70,7 +72,6 @@ pub enum RenderTaskLocation {
         layer: LayerIndex,
         /// The target region within the above layer.
         rect: DeviceIntRect,
-
     },
     /// This render task will be drawn to a picture cache texture that is
     /// persisted between both frames and scenes, if the content remains valid.
@@ -103,8 +104,12 @@ impl RenderTaskLocation {
     pub fn to_source_rect(&self) -> (DeviceIntRect, LayerIndex) {
         match *self {
             RenderTaskLocation::Fixed(rect) => (rect, 0),
-            RenderTaskLocation::Dynamic(None, _) => panic!("Expected position to be set for the task!"),
-            RenderTaskLocation::Dynamic(Some((origin, layer)), size) => (DeviceIntRect::new(origin, size), layer.0 as LayerIndex),
+            RenderTaskLocation::Dynamic(None, _) => {
+                panic!("Expected position to be set for the task!")
+            }
+            RenderTaskLocation::Dynamic(Some((origin, layer)), size) => {
+                (DeviceIntRect::new(origin, size), layer.0 as LayerIndex)
+            }
             RenderTaskLocation::TextureCache { rect, layer, .. } => (rect, layer),
             RenderTaskLocation::PictureCache { .. } => {
                 panic!("bug: picture cache tasks should never be a source!");
@@ -182,12 +187,8 @@ pub struct ScalingTask {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BlitSource {
-    Image {
-        key: ImageCacheKey,
-    },
-    RenderTask {
-        task_id: RenderTaskId,
-    },
+    Image { key: ImageCacheKey },
+    RenderTask { task_id: RenderTaskId },
 }
 
 #[derive(Debug)]
@@ -324,7 +325,11 @@ pub type BlurTaskCache = FastHashMap<BlurTaskKey, RenderTaskId>;
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum BlurTaskKey {
     DownScale(u32),
-    Blur { downscale_level: u32, stddev_x: u32, stddev_y: u32 },
+    Blur {
+        downscale_level: u32,
+        stddev_x: u32,
+        stddev_y: u32,
+    },
 }
 
 impl BlurTaskKey {
@@ -336,7 +341,11 @@ impl BlurTaskKey {
         const QUANTIZATION_FACTOR: f32 = 1024.0;
         let stddev_x = (blur_stddev.width * QUANTIZATION_FACTOR) as u32;
         let stddev_y = (blur_stddev.height * QUANTIZATION_FACTOR) as u32;
-        BlurTaskKey::Blur { downscale_level, stddev_x, stddev_y }
+        BlurTaskKey::Blur {
+            downscale_level,
+            stddev_x,
+            stddev_y,
+        }
     }
 }
 
@@ -404,8 +413,8 @@ impl RenderTask {
 
         render_task_sanity_check(&size);
 
-        let can_merge = size.width as f32 >= unclipped_size.width &&
-                        size.height as f32 >= unclipped_size.height;
+        let can_merge = size.width as f32 >= unclipped_size.width
+            && size.height as f32 >= unclipped_size.height;
 
         RenderTask {
             location,
@@ -455,10 +464,7 @@ impl RenderTask {
         )
     }
 
-    pub fn new_blit(
-        size: DeviceIntSize,
-        source: BlitSource,
-    ) -> Self {
+    pub fn new_blit(size: DeviceIntSize, source: BlitSource) -> Self {
         RenderTask::new_blit_with_padding(size, DeviceIntSideOffsets::zero(), source)
     }
 
@@ -480,10 +486,7 @@ impl RenderTask {
         RenderTask::with_dynamic_location(
             padded_size,
             children,
-            RenderTaskKind::Blit(BlitTask {
-                source,
-                padding,
-            }),
+            RenderTaskKind::Blit(BlitTask { source, padding }),
             ClearMode::Transparent,
         )
     }
@@ -536,7 +539,8 @@ impl RenderTask {
             let clip_node = &mut clip_data_store[clip_instance.handle];
             match clip_node.item.kind {
                 ClipItemKind::BoxShadow { ref mut source } => {
-                    let (cache_size, cache_key) = source.cache_key
+                    let (cache_size, cache_key) = source
+                        .cache_key
                         .as_ref()
                         .expect("bug: no cache key set")
                         .clone();
@@ -576,11 +580,17 @@ impl RenderTask {
                                 None,
                                 cache_size,
                             )
-                        }
+                        },
                     ));
                 }
-                ClipItemKind::Rectangle { mode: ClipMode::Clip, .. } => {
-                    if !clip_instance.flags.contains(ClipNodeFlags::SAME_COORD_SYSTEM) {
+                ClipItemKind::Rectangle {
+                    mode: ClipMode::Clip,
+                    ..
+                } => {
+                    if !clip_instance
+                        .flags
+                        .contains(ClipNodeFlags::SAME_COORD_SYSTEM)
+                    {
                         // This is conservative - it's only the case that we actually need
                         // a clear here if we end up adding this mask via add_tiled_clip_mask,
                         // but for simplicity we will just clear if any of these are encountered,
@@ -588,9 +598,12 @@ impl RenderTask {
                         needs_clear = true;
                     }
                 }
-                ClipItemKind::Rectangle { mode: ClipMode::ClipOut, .. } |
-                ClipItemKind::RoundedRectangle { .. } |
-                ClipItemKind::Image { .. } => {}
+                ClipItemKind::Rectangle {
+                    mode: ClipMode::ClipOut,
+                    ..
+                }
+                | ClipItemKind::RoundedRectangle { .. }
+                | ClipItemKind::Image { .. } => {}
             }
         }
 
@@ -644,12 +657,16 @@ impl RenderTask {
     // In order to do the blur down-scaling passes without introducing errors, we need the
     // source of each down-scale pass to be a multuple of two. If need be, this inflates
     // the source size so that each down-scale pass will sample correctly.
-    pub fn adjusted_blur_source_size(original_size: DeviceIntSize, mut std_dev: DeviceSize) -> DeviceIntSize {
+    pub fn adjusted_blur_source_size(
+        original_size: DeviceIntSize,
+        mut std_dev: DeviceSize,
+    ) -> DeviceIntSize {
         let mut adjusted_size = original_size;
         let mut scale_factor = 1.0;
         while std_dev.width > MAX_BLUR_STD_DEVIATION && std_dev.height > MAX_BLUR_STD_DEVIATION {
-            if adjusted_size.width < MIN_DOWNSCALING_RT_SIZE ||
-               adjusted_size.height < MIN_DOWNSCALING_RT_SIZE {
+            if adjusted_size.width < MIN_DOWNSCALING_RT_SIZE
+                || adjusted_size.height < MIN_DOWNSCALING_RT_SIZE
+            {
                 break;
             }
             std_dev = std_dev * 0.5;
@@ -697,10 +714,12 @@ impl RenderTask {
         let mut downscaling_src_task_id = src_task_id;
         let mut scale_factor = 1.0;
         let mut n_downscales = 1;
-        while adjusted_blur_std_deviation.width > MAX_BLUR_STD_DEVIATION &&
-              adjusted_blur_std_deviation.height > MAX_BLUR_STD_DEVIATION {
-            if adjusted_blur_target_size.width < MIN_DOWNSCALING_RT_SIZE ||
-               adjusted_blur_target_size.height < MIN_DOWNSCALING_RT_SIZE {
+        while adjusted_blur_std_deviation.width > MAX_BLUR_STD_DEVIATION
+            && adjusted_blur_std_deviation.height > MAX_BLUR_STD_DEVIATION
+        {
+            if adjusted_blur_target_size.width < MIN_DOWNSCALING_RT_SIZE
+                || adjusted_blur_target_size.height < MIN_DOWNSCALING_RT_SIZE
+            {
                 break;
             }
             adjusted_blur_std_deviation = adjusted_blur_std_deviation * 0.5;
@@ -723,12 +742,14 @@ impl RenderTask {
             });
 
             if let Some(ref mut cache) = blur_cache {
-                cache.insert(BlurTaskKey::DownScale(n_downscales), downscaling_src_task_id);
+                cache.insert(
+                    BlurTaskKey::DownScale(n_downscales),
+                    downscaling_src_task_id,
+                );
             }
 
             n_downscales += 1;
         }
-
 
         let blur_key = BlurTaskKey::downscale_and_blur(n_downscales, adjusted_blur_std_deviation);
 
@@ -778,16 +799,11 @@ impl RenderTask {
         blur_task_id
     }
 
-    pub fn new_border_segment(
-        size: DeviceIntSize,
-        instances: Vec<BorderInstance>,
-    ) -> Self {
+    pub fn new_border_segment(size: DeviceIntSize, instances: Vec<BorderInstance>) -> Self {
         RenderTask::with_dynamic_location(
             size,
             Vec::new(),
-            RenderTaskKind::Border(BorderTask {
-                instances,
-            }),
+            RenderTaskKind::Border(BorderTask { instances }),
             ClearMode::Transparent,
         )
     }
@@ -799,7 +815,9 @@ impl RenderTask {
         size: DeviceIntSize,
     ) -> Self {
         Self::new_scaling_with_padding(
-            BlitSource::RenderTask { task_id: src_task_id },
+            BlitSource::RenderTask {
+                task_id: src_task_id,
+            },
             render_tasks,
             target_kind,
             size,
@@ -815,7 +833,9 @@ impl RenderTask {
         padding: DeviceIntSideOffsets,
     ) -> Self {
         let (uv_rect_kind, children, image) = match source {
-            BlitSource::RenderTask { task_id } => (render_tasks[task_id].uv_rect_kind(), vec![task_id], None),
+            BlitSource::RenderTask { task_id } => {
+                (render_tasks[task_id].uv_rect_kind(), vec![task_id], None)
+            }
             BlitSource::Image { key } => (UvRectKind::Rect, vec![], Some(key)),
         };
 
@@ -841,21 +861,18 @@ impl RenderTask {
         original_task_id: RenderTaskId,
         device_pixel_scale: DevicePixelScale,
     ) -> RenderTaskId {
-
         if filter_primitives.is_empty() {
             return original_task_id;
         }
 
         // Resolves the input to a filter primitive
-        let get_task_input = |
-            input: &FilterPrimitiveInput,
-            filter_primitives: &[FilterPrimitive],
-            render_tasks: &mut RenderTaskGraph,
-            cur_index: usize,
-            outputs: &[RenderTaskId],
-            original: RenderTaskId,
-            color_space: ColorSpace,
-        | {
+        let get_task_input = |input: &FilterPrimitiveInput,
+                              filter_primitives: &[FilterPrimitive],
+                              render_tasks: &mut RenderTaskGraph,
+                              cur_index: usize,
+                              outputs: &[RenderTaskId],
+                              original: RenderTaskId,
+                              color_space: ColorSpace| {
             // TODO(cbrewster): Not sure we can assume that the original input is sRGB.
             let (mut task_id, input_color_space) = match input.to_index(cur_index) {
                 Some(index) => (outputs[index], filter_primitives[index].color_space),
@@ -871,7 +888,7 @@ impl RenderTask {
                         SvgFilterInfo::SrgbToLinear,
                     );
                     task_id = render_tasks.add(task);
-                },
+                }
                 (ColorSpace::LinearRgb, ColorSpace::Srgb) => {
                     let task = RenderTask::new_svg_filter_primitive(
                         vec![task_id],
@@ -880,8 +897,8 @@ impl RenderTask {
                         SvgFilterInfo::LinearToSrgb,
                     );
                     task_id = render_tasks.add(task);
-                },
-                _ => {},
+                }
+                _ => {}
             }
 
             task_id
@@ -900,7 +917,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     )
                 }
                 FilterPrimitiveKind::Blend(ref blend) => {
@@ -911,7 +928,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
                     let input_2_task_id = get_task_input(
                         &blend.input2,
@@ -920,7 +937,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     let task = RenderTask::new_svg_filter_primitive(
@@ -930,7 +947,7 @@ impl RenderTask {
                         SvgFilterInfo::Blend(blend.mode),
                     );
                     render_tasks.add(task)
-                },
+                }
                 FilterPrimitiveKind::Flood(ref flood) => {
                     let task = RenderTask::new_svg_filter_primitive(
                         vec![],
@@ -949,7 +966,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     // TODO: This is a hack to ensure that a blur task's input is always in the blur's previous pass.
@@ -978,7 +995,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     let task = RenderTask::new_svg_filter_primitive(
@@ -997,7 +1014,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     let task = RenderTask::new_svg_filter_primitive(
@@ -1016,11 +1033,13 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     let blur_std_deviation = drop_shadow.shadow.blur_radius * device_pixel_scale.0;
-                    let offset = drop_shadow.shadow.offset * LayoutToWorldScale::new(1.0) * device_pixel_scale;
+                    let offset = drop_shadow.shadow.offset
+                        * LayoutToWorldScale::new(1.0)
+                        * device_pixel_scale;
 
                     let offset_task = RenderTask::new_svg_filter_primitive(
                         vec![input_task_id],
@@ -1056,7 +1075,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     let filter_data = &filter_datas[cur_filter_data];
@@ -1081,7 +1100,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     let offset = info.offset * LayoutToWorldScale::new(1.0) * device_pixel_scale;
@@ -1101,7 +1120,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
                     let input_2_task_id = get_task_input(
                         &info.input2,
@@ -1110,7 +1129,7 @@ impl RenderTask {
                         cur_index,
                         &outputs,
                         original_task_id,
-                        primitive.color_space
+                        primitive.color_space,
                     );
 
                     let task = RenderTask::new_svg_filter_primitive(
@@ -1163,35 +1182,25 @@ impl RenderTask {
 
     pub fn uv_rect_kind(&self) -> UvRectKind {
         match self.kind {
-            RenderTaskKind::CacheMask(..) |
-            RenderTaskKind::Readback(..) => {
+            RenderTaskKind::CacheMask(..) | RenderTaskKind::Readback(..) => {
                 unreachable!("bug: unexpected render task");
             }
 
-            RenderTaskKind::Picture(ref task) => {
+            RenderTaskKind::Picture(ref task) => task.uv_rect_kind,
+
+            RenderTaskKind::VerticalBlur(ref task) | RenderTaskKind::HorizontalBlur(ref task) => {
                 task.uv_rect_kind
             }
 
-            RenderTaskKind::VerticalBlur(ref task) |
-            RenderTaskKind::HorizontalBlur(ref task) => {
-                task.uv_rect_kind
-            }
+            RenderTaskKind::Scaling(ref task) => task.uv_rect_kind,
 
-            RenderTaskKind::Scaling(ref task) => {
-                task.uv_rect_kind
-            }
+            RenderTaskKind::SvgFilter(ref task) => task.uv_rect_kind,
 
-            RenderTaskKind::SvgFilter(ref task) => {
-                task.uv_rect_kind
-            }
-
-            RenderTaskKind::ClipRegion(..) |
-            RenderTaskKind::Border(..) |
-            RenderTaskKind::Gradient(..) |
-            RenderTaskKind::LineDecoration(..) |
-            RenderTaskKind::Blit(..) => {
-                UvRectKind::Rect
-            }
+            RenderTaskKind::ClipRegion(..)
+            | RenderTaskKind::Border(..)
+            | RenderTaskKind::Gradient(..)
+            | RenderTaskKind::LineDecoration(..)
+            | RenderTaskKind::Blit(..) => UvRectKind::Rect,
 
             #[cfg(test)]
             RenderTaskKind::Test(..) => {
@@ -1221,45 +1230,29 @@ impl RenderTask {
                     task.content_origin.y as f32,
                 ]
             }
-            RenderTaskKind::CacheMask(ref task) => {
-                [
-                    task.device_pixel_scale.0,
-                    task.actual_rect.origin.x as f32,
-                    task.actual_rect.origin.y as f32,
-                ]
-            }
-            RenderTaskKind::ClipRegion(ref task) => {
-                [
-                    task.device_pixel_scale.0,
-                    0.0,
-                    0.0,
-                ]
-            }
-            RenderTaskKind::VerticalBlur(ref task) |
-            RenderTaskKind::HorizontalBlur(ref task) => {
-                [
-                    task.blur_std_deviation,
-                    task.blur_region.width as f32,
-                    task.blur_region.height as f32,
-                ]
-            }
-            RenderTaskKind::Readback(..) |
-            RenderTaskKind::Scaling(..) |
-            RenderTaskKind::Border(..) |
-            RenderTaskKind::LineDecoration(..) |
-            RenderTaskKind::Gradient(..) |
-            RenderTaskKind::Blit(..) => {
-                [0.0; 3]
-            }
+            RenderTaskKind::CacheMask(ref task) => [
+                task.device_pixel_scale.0,
+                task.actual_rect.origin.x as f32,
+                task.actual_rect.origin.y as f32,
+            ],
+            RenderTaskKind::ClipRegion(ref task) => [task.device_pixel_scale.0, 0.0, 0.0],
+            RenderTaskKind::VerticalBlur(ref task) | RenderTaskKind::HorizontalBlur(ref task) => [
+                task.blur_std_deviation,
+                task.blur_region.width as f32,
+                task.blur_region.height as f32,
+            ],
+            RenderTaskKind::Readback(..)
+            | RenderTaskKind::Scaling(..)
+            | RenderTaskKind::Border(..)
+            | RenderTaskKind::LineDecoration(..)
+            | RenderTaskKind::Gradient(..)
+            | RenderTaskKind::Blit(..) => [0.0; 3],
 
-
-            RenderTaskKind::SvgFilter(ref task) => {
-                match task.info {
-                    SvgFilterInfo::Opacity(opacity) => [opacity, 0.0, 0.0],
-                    SvgFilterInfo::Offset(offset) => [offset.x, offset.y, 0.0],
-                    _ => [0.0; 3]
-                }
-            }
+            RenderTaskKind::SvgFilter(ref task) => match task.info {
+                SvgFilterInfo::Opacity(opacity) => [opacity, 0.0, 0.0],
+                SvgFilterInfo::Offset(offset) => [offset.x, offset.y, 0.0],
+                _ => [0.0; 3],
+            },
 
             #[cfg(test)]
             RenderTaskKind::Test(..) => {
@@ -1285,30 +1278,25 @@ impl RenderTask {
                 data[0],
                 data[1],
                 data[2],
-            ]
+            ],
         }
     }
 
     pub fn get_texture_address(&self, gpu_cache: &GpuCache) -> GpuCacheAddress {
         match self.kind {
-            RenderTaskKind::Picture(ref info) => {
+            RenderTaskKind::Picture(ref info) => gpu_cache.get_address(&info.uv_rect_handle),
+            RenderTaskKind::VerticalBlur(ref info) | RenderTaskKind::HorizontalBlur(ref info) => {
                 gpu_cache.get_address(&info.uv_rect_handle)
             }
-            RenderTaskKind::VerticalBlur(ref info) |
-            RenderTaskKind::HorizontalBlur(ref info) => {
-                gpu_cache.get_address(&info.uv_rect_handle)
-            }
-            RenderTaskKind::SvgFilter(ref info) => {
-                gpu_cache.get_address(&info.uv_rect_handle)
-            }
-            RenderTaskKind::ClipRegion(..) |
-            RenderTaskKind::Readback(..) |
-            RenderTaskKind::Scaling(..) |
-            RenderTaskKind::Blit(..) |
-            RenderTaskKind::Border(..) |
-            RenderTaskKind::CacheMask(..) |
-            RenderTaskKind::Gradient(..) |
-            RenderTaskKind::LineDecoration(..) => {
+            RenderTaskKind::SvgFilter(ref info) => gpu_cache.get_address(&info.uv_rect_handle),
+            RenderTaskKind::ClipRegion(..)
+            | RenderTaskKind::Readback(..)
+            | RenderTaskKind::Scaling(..)
+            | RenderTaskKind::Blit(..)
+            | RenderTaskKind::Border(..)
+            | RenderTaskKind::CacheMask(..)
+            | RenderTaskKind::Gradient(..)
+            | RenderTaskKind::LineDecoration(..) => {
                 panic!("texture handle not supported for this task kind");
             }
             #[cfg(test)]
@@ -1329,9 +1317,7 @@ impl RenderTask {
 
     pub fn get_target_rect(&self) -> (DeviceIntRect, RenderTargetIndex) {
         match self.location {
-            RenderTaskLocation::Fixed(rect) => {
-                (rect, RenderTargetIndex(0))
-            }
+            RenderTaskLocation::Fixed(rect) => (rect, RenderTargetIndex(0)),
             // Previously, we only added render tasks after the entire
             // primitive chain was determined visible. This meant that
             // we could assert any render task in the list was also
@@ -1349,23 +1335,20 @@ impl RenderTask {
             RenderTaskLocation::Dynamic(Some((origin, target_index)), size) => {
                 (DeviceIntRect::new(origin, size), target_index)
             }
-            RenderTaskLocation::Dynamic(None, _) => {
-                (DeviceIntRect::zero(), RenderTargetIndex(0))
-            }
-            RenderTaskLocation::TextureCache {layer, rect, .. } => {
+            RenderTaskLocation::Dynamic(None, _) => (DeviceIntRect::zero(), RenderTargetIndex(0)),
+            RenderTaskLocation::TextureCache { layer, rect, .. } => {
                 (rect, RenderTargetIndex(layer as usize))
             }
-            RenderTaskLocation::PictureCache { ref surface, size, .. } => {
+            RenderTaskLocation::PictureCache {
+                ref surface, size, ..
+            } => {
                 let layer = match surface {
                     ResolvedSurfaceTexture::TextureCache { layer, .. } => *layer,
                     ResolvedSurfaceTexture::Native { .. } => 0,
                 };
 
                 (
-                    DeviceIntRect::new(
-                        DeviceIntPoint::zero(),
-                        size,
-                    ),
+                    DeviceIntRect::new(DeviceIntPoint::zero(), size),
                     RenderTargetIndex(layer as usize),
                 )
             }
@@ -1374,60 +1357,48 @@ impl RenderTask {
 
     pub fn target_kind(&self) -> RenderTargetKind {
         match self.kind {
-            RenderTaskKind::LineDecoration(..) |
-            RenderTaskKind::Readback(..) |
-            RenderTaskKind::Border(..) |
-            RenderTaskKind::Gradient(..) |
-            RenderTaskKind::Picture(..) |
-            RenderTaskKind::Blit(..) |
-            RenderTaskKind::SvgFilter(..) => {
-                RenderTargetKind::Color
-            }
+            RenderTaskKind::LineDecoration(..)
+            | RenderTaskKind::Readback(..)
+            | RenderTaskKind::Border(..)
+            | RenderTaskKind::Gradient(..)
+            | RenderTaskKind::Picture(..)
+            | RenderTaskKind::Blit(..)
+            | RenderTaskKind::SvgFilter(..) => RenderTargetKind::Color,
 
-            RenderTaskKind::ClipRegion(..) |
-            RenderTaskKind::CacheMask(..) => {
+            RenderTaskKind::ClipRegion(..) | RenderTaskKind::CacheMask(..) => {
                 RenderTargetKind::Alpha
             }
 
-            RenderTaskKind::VerticalBlur(ref task_info) |
-            RenderTaskKind::HorizontalBlur(ref task_info) => {
-                task_info.target_kind
-            }
+            RenderTaskKind::VerticalBlur(ref task_info)
+            | RenderTaskKind::HorizontalBlur(ref task_info) => task_info.target_kind,
 
-            RenderTaskKind::Scaling(ref task_info) => {
-                task_info.target_kind
-            }
+            RenderTaskKind::Scaling(ref task_info) => task_info.target_kind,
 
             #[cfg(test)]
             RenderTaskKind::Test(kind) => kind,
         }
     }
 
-    pub fn write_gpu_blocks(
-        &mut self,
-        gpu_cache: &mut GpuCache,
-    ) {
+    pub fn write_gpu_blocks(&mut self, gpu_cache: &mut GpuCache) {
         let (target_rect, target_index) = self.get_target_rect();
 
         let (cache_handle, uv_rect_kind) = match self.kind {
-            RenderTaskKind::HorizontalBlur(ref mut info) |
-            RenderTaskKind::VerticalBlur(ref mut info) => {
+            RenderTaskKind::HorizontalBlur(ref mut info)
+            | RenderTaskKind::VerticalBlur(ref mut info) => {
                 (&mut info.uv_rect_handle, info.uv_rect_kind)
             }
-            RenderTaskKind::Picture(ref mut info) => {
-                (&mut info.uv_rect_handle, info.uv_rect_kind)
-            }
+            RenderTaskKind::Picture(ref mut info) => (&mut info.uv_rect_handle, info.uv_rect_kind),
             RenderTaskKind::SvgFilter(ref mut info) => {
                 (&mut info.uv_rect_handle, info.uv_rect_kind)
             }
-            RenderTaskKind::Readback(..) |
-            RenderTaskKind::Scaling(..) |
-            RenderTaskKind::Blit(..) |
-            RenderTaskKind::ClipRegion(..) |
-            RenderTaskKind::Border(..) |
-            RenderTaskKind::CacheMask(..) |
-            RenderTaskKind::Gradient(..) |
-            RenderTaskKind::LineDecoration(..) => {
+            RenderTaskKind::Readback(..)
+            | RenderTaskKind::Scaling(..)
+            | RenderTaskKind::Blit(..)
+            | RenderTaskKind::ClipRegion(..)
+            | RenderTaskKind::Border(..)
+            | RenderTaskKind::CacheMask(..)
+            | RenderTaskKind::Gradient(..)
+            | RenderTaskKind::LineDecoration(..) => {
                 return;
             }
             #[cfg(test)]
@@ -1452,35 +1423,47 @@ impl RenderTask {
         if let RenderTaskKind::SvgFilter(ref mut filter_task) = self.kind {
             match filter_task.info {
                 SvgFilterInfo::ColorMatrix(ref matrix) => {
-                    let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(|| GpuCacheHandle::new());
+                    let handle = filter_task
+                        .extra_gpu_cache_handle
+                        .get_or_insert_with(|| GpuCacheHandle::new());
                     if let Some(mut request) = gpu_cache.request(handle) {
-                        for i in 0..5 {
-                            request.push([matrix[i*4], matrix[i*4+1], matrix[i*4+2], matrix[i*4+3]]);
+                        for i in 0 .. 5 {
+                            request.push([
+                                matrix[i * 4],
+                                matrix[i * 4 + 1],
+                                matrix[i * 4 + 2],
+                                matrix[i * 4 + 3],
+                            ]);
                         }
                     }
                 }
-                SvgFilterInfo::DropShadow(color) |
-                SvgFilterInfo::Flood(color) => {
-                    let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(|| GpuCacheHandle::new());
+                SvgFilterInfo::DropShadow(color) | SvgFilterInfo::Flood(color) => {
+                    let handle = filter_task
+                        .extra_gpu_cache_handle
+                        .get_or_insert_with(|| GpuCacheHandle::new());
                     if let Some(mut request) = gpu_cache.request(handle) {
                         request.push(color.to_array());
                     }
                 }
                 SvgFilterInfo::ComponentTransfer(ref data) => {
-                    let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(|| GpuCacheHandle::new());
+                    let handle = filter_task
+                        .extra_gpu_cache_handle
+                        .get_or_insert_with(|| GpuCacheHandle::new());
                     if let Some(request) = gpu_cache.request(handle) {
                         data.update(request);
                     }
                 }
                 SvgFilterInfo::Composite(ref operator) => {
                     if let CompositeOperator::Arithmetic(k_vals) = operator {
-                        let handle = filter_task.extra_gpu_cache_handle.get_or_insert_with(|| GpuCacheHandle::new());
+                        let handle = filter_task
+                            .extra_gpu_cache_handle
+                            .get_or_insert_with(|| GpuCacheHandle::new());
                         if let Some(mut request) = gpu_cache.request(handle) {
                             request.push(*k_vals);
                         }
                     }
                 }
-                _ => {},
+                _ => {}
             }
         }
     }
@@ -1492,7 +1475,10 @@ impl RenderTask {
                 pt.new_level(format!("Picture of {:?}", task.pic_index));
             }
             RenderTaskKind::CacheMask(ref task) => {
-                pt.new_level(format!("CacheMask with {} clips", task.clip_node_range.count));
+                pt.new_level(format!(
+                    "CacheMask with {} clips",
+                    task.clip_node_range.count
+                ));
                 pt.add_item(format!("rect: {:?}", task.actual_rect));
             }
             RenderTaskKind::LineDecoration(..) => {
@@ -1553,12 +1539,10 @@ impl RenderTask {
     /// Mark this render task for keeping the results alive up until the end of the frame.
     pub fn mark_for_saving(&mut self) {
         match self.location {
-            RenderTaskLocation::Fixed(..) |
-            RenderTaskLocation::Dynamic(..) => {
+            RenderTaskLocation::Fixed(..) | RenderTaskLocation::Dynamic(..) => {
                 self.saved_index = Some(SavedTargetIndex::PENDING);
             }
-            RenderTaskLocation::TextureCache { .. } |
-            RenderTaskLocation::PictureCache { .. } => {
+            RenderTaskLocation::TextureCache { .. } | RenderTaskLocation::PictureCache { .. } => {
                 panic!("Unable to mark a permanently cached task for saving!");
             }
         }

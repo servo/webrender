@@ -19,7 +19,6 @@ use webrender::ShaderPrecacheFlags;
 use webrender::api::*;
 use webrender::api::units::*;
 
-
 #[derive(Debug)]
 enum Gesture {
     None,
@@ -215,19 +214,22 @@ impl Example for App {
         let complex = ComplexClipRegion::new(
             (50, 50).to(150, 150),
             BorderRadius::uniform(20.0),
-            ClipMode::Clip
+            ClipMode::Clip,
         );
         let clip_id = builder.define_clip(
             &root_space_and_clip,
             content_bounds,
             vec![complex],
-            Some(mask)
+            Some(mask),
         );
 
         builder.push_rect(
             &CommonItemProperties::new(
                 (100, 100).to(200, 200),
-                SpaceAndClipInfo { spatial_id, clip_id },
+                SpaceAndClipInfo {
+                    spatial_id,
+                    clip_id,
+                },
             ),
             ColorF::new(0.0, 1.0, 0.0, 1.0),
         );
@@ -235,7 +237,10 @@ impl Example for App {
         builder.push_rect(
             &CommonItemProperties::new(
                 (250, 100).to(350, 200),
-                SpaceAndClipInfo { spatial_id, clip_id },
+                SpaceAndClipInfo {
+                    spatial_id,
+                    clip_id,
+                },
             ),
             ColorF::new(0.0, 1.0, 0.0, 1.0),
         );
@@ -257,7 +262,10 @@ impl Example for App {
         builder.push_border(
             &CommonItemProperties::new(
                 bounds,
-                SpaceAndClipInfo { spatial_id, clip_id },
+                SpaceAndClipInfo {
+                    spatial_id,
+                    clip_id,
+                },
             ),
             bounds,
             border_widths,
@@ -289,7 +297,12 @@ impl Example for App {
         builder.pop_stacking_context();
     }
 
-    fn on_event(&mut self, event: winit::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {
+    fn on_event(
+        &mut self,
+        event: winit::WindowEvent,
+        api: &RenderApi,
+        document_id: DocumentId,
+    ) -> bool {
         let mut txn = Transaction::new();
         match event {
             winit::WindowEvent::Touch(touch) => match self.touch_state.handle_event(touch) {

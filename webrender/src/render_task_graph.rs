@@ -35,7 +35,9 @@ impl RenderTaskGraph {
         RenderTaskGraph {
             tasks: Vec::with_capacity(counters.tasks_len + extra_items),
             task_data: Vec::with_capacity(counters.task_data_len + extra_items),
-            cacheable_render_tasks: Vec::with_capacity(counters.cacheable_render_tasks_len + extra_items),
+            cacheable_render_tasks: Vec::with_capacity(
+                counters.cacheable_render_tasks_len + extra_items,
+            ),
             next_saved: SavedTargetIndex(0),
             frame_id,
         }
@@ -61,11 +63,7 @@ impl RenderTaskGraph {
 
     /// Express a render task dependency between a parent and child task.
     /// This is used to assign tasks to render passes.
-    pub fn add_dependency(
-        &mut self,
-        parent_id: RenderTaskId,
-        child_id: RenderTaskId,
-    ) {
+    pub fn add_dependency(&mut self, parent_id: RenderTaskId, child_id: RenderTaskId) {
         let parent = &mut self[parent_id];
         parent.children.push(child_id);
     }
@@ -99,7 +97,6 @@ impl RenderTaskGraph {
                 &mut passes,
             );
         }
-
 
         self.resolve_target_conflicts(&mut passes);
 
@@ -145,13 +142,7 @@ impl RenderTaskGraph {
 
             let task = &tasks[task_id.index as usize];
             for child in &task.children {
-                assign_task_depth(
-                    tasks,
-                    *child,
-                    task_depth + 1,
-                    task_max_depths,
-                    max_depth,
-                );
+                assign_task_depth(tasks, *child, task_depth + 1, task_max_depths, max_depth);
             }
         }
 
@@ -173,18 +164,27 @@ impl RenderTaskGraph {
         let offset = passes.len();
 
         passes.reserve(max_depth as usize + 1);
-        for _ in 0..max_depth {
-            passes.push(RenderPass::new_off_screen(screen_size, gpu_supports_fast_clears));
+        for _ in 0 .. max_depth {
+            passes.push(RenderPass::new_off_screen(
+                screen_size,
+                gpu_supports_fast_clears,
+            ));
         }
 
         if for_main_framebuffer {
-            passes.push(RenderPass::new_main_framebuffer(screen_size, gpu_supports_fast_clears));
+            passes.push(RenderPass::new_main_framebuffer(
+                screen_size,
+                gpu_supports_fast_clears,
+            ));
         } else {
-            passes.push(RenderPass::new_off_screen(screen_size, gpu_supports_fast_clears));
+            passes.push(RenderPass::new_off_screen(
+                screen_size,
+                gpu_supports_fast_clears,
+            ));
         }
 
         // Assign tasks to their render passes.
-        for task_index in 0..self.tasks.len() {
+        for task_index in 0 .. self.tasks.len() {
             if task_max_depths[task_index] < 0 {
                 // The task wasn't visited, it means it doesn't contribute to this frame.
                 continue;
@@ -228,13 +228,13 @@ impl RenderTaskGraph {
         let mut task_redirects = vec![None; self.tasks.len()];
 
         let mut task_passes = vec![-1; self.tasks.len()];
-        for pass_index in 0..passes.len() {
+        for pass_index in 0 .. passes.len() {
             for task in &passes[pass_index].tasks {
                 task_passes[task.index as usize] = pass_index as i32;
             }
         }
 
-        for task_index in 0..self.tasks.len() {
+        for task_index in 0 .. self.tasks.len() {
             if task_passes[task_index] < 0 {
                 // The task doesn't contribute to this frame.
                 continue;
@@ -245,7 +245,7 @@ impl RenderTaskGraph {
             // Go through each dependency and check whether they belong
             // to a pass that uses the same targets and/or are more than
             // one pass behind.
-            for nth_child in 0..self.tasks[task_index].children.len() {
+            for nth_child in 0 .. self.tasks[task_index].children.len() {
                 let child_task_index = self.tasks[task_index].children[nth_child].index as usize;
                 let child_pass_index = task_passes[child_task_index];
 
@@ -261,11 +261,12 @@ impl RenderTaskGraph {
                 // Also a surface may be expecting a picture task and not a blit task, so
                 // even if we could update the surface's render task(s), it might cause other issues.
                 // For now we mark the task to be saved rather than trying to redirect to a blit task.
-                let task_is_picture = if let RenderTaskKind::Picture(..) = self.tasks[task_index].kind {
-                    true
-                } else {
-                    false
-                };
+                let task_is_picture =
+                    if let RenderTaskKind::Picture(..) = self.tasks[task_index].kind {
+                        true
+                    } else {
+                        false
+                    };
 
                 if child_pass_index % 2 != pass_index % 2 || task_is_picture {
                     // The tasks and its dependency aren't on the same targets,
@@ -300,7 +301,9 @@ impl RenderTaskGraph {
 
                 let mut blit = RenderTask::new_blit(
                     self.tasks[child_task_index].location.size(),
-                    BlitSource::RenderTask { task_id: child_task_id },
+                    BlitSource::RenderTask {
+                        task_id: child_task_id,
+                    },
                 );
 
                 // Mark for saving if the blit is more than pass appart from
@@ -408,9 +411,7 @@ impl RenderTaskId {
 pub enum RenderPassKind {
     /// The final pass to the main frame buffer, where we have a single color
     /// target for display to the user.
-    MainFramebuffer {
-        main_target: ColorRenderTarget,
-    },
+    MainFramebuffer { main_target: ColorRenderTarget },
     /// An intermediate pass, where we may have multiple targets.
     OffScreen {
         alpha: RenderTargetList<AlphaRenderTarget>,
@@ -447,19 +448,14 @@ impl RenderPass {
     ) -> Self {
         let main_target = ColorRenderTarget::new(screen_size, gpu_supports_fast_clears);
         RenderPass {
-            kind: RenderPassKind::MainFramebuffer {
-                main_target,
-            },
+            kind: RenderPassKind::MainFramebuffer { main_target },
             tasks: vec![],
             screen_size,
         }
     }
 
     /// Creates an intermediate off-screen pass.
-    pub fn new_off_screen(
-        screen_size: DeviceIntSize,
-        gpu_supports_fast_clears: bool,
-    ) -> Self {
+    pub fn new_off_screen(screen_size: DeviceIntSize, gpu_supports_fast_clears: bool) -> Self {
         RenderPass {
             kind: RenderPassKind::OffScreen {
                 color: RenderTargetList::new(
@@ -488,7 +484,12 @@ impl RenderPass {
         target_kind: RenderTargetKind,
         location: &RenderTaskLocation,
     ) {
-        if let RenderPassKind::OffScreen { ref mut color, ref mut alpha, .. } = self.kind {
+        if let RenderPassKind::OffScreen {
+            ref mut color,
+            ref mut alpha,
+            ..
+        } = self.kind
+        {
             // If this will be rendered to a dynamically-allocated region on an
             // off-screen render target, update the max-encountered size. We don't
             // need to do this for things drawn to the texture cache, since those
@@ -548,7 +549,11 @@ pub fn dump_render_tasks_as_svg(
             let tx = rect.x + rect.w / 2.0;
             let ty = rect.y + 10.0;
 
-            let saved = if task.saved_index.is_some() { " (Saved)" } else { "" };
+            let saved = if task.saved_index.is_some() {
+                " (Saved)"
+            } else {
+                ""
+            };
             let label = text(tx, ty, format!("{}{}", task.kind.as_str(), saved));
             let size = text(tx, ty + 12.0, format!("{}", task.location.size()));
 
@@ -564,7 +569,7 @@ pub fn dump_render_tasks_as_svg(
     }
 
     let mut links = Vec::new();
-    for node_index in 0..nodes.len() {
+    for node_index in 0 .. nodes.len() {
         if nodes[node_index].is_none() {
             continue;
         }
@@ -573,7 +578,8 @@ pub fn dump_render_tasks_as_svg(
         for dep in &task.children {
             let dep_index = dep.index as usize;
 
-            if let (&Some(ref node), &Some(ref dep_node)) = (&nodes[node_index], &nodes[dep_index]) {
+            if let (&Some(ref node), &Some(ref dep_node)) = (&nodes[node_index], &nodes[dep_index])
+            {
                 links.push((
                     dep_node.rect.x + dep_node.rect.w,
                     dep_node.rect.y + dep_node.rect.h / 2.0,
@@ -589,7 +595,8 @@ pub fn dump_render_tasks_as_svg(
     writeln!(output, "{}", BeginSvg { w: svg_w, h: svg_h })?;
 
     // Background.
-    writeln!(output,
+    writeln!(
+        output,
         "    {}",
         rectangle(0.0, 0.0, svg_w, svg_h)
             .inflate(1.0, 1.0)
@@ -598,7 +605,8 @@ pub fn dump_render_tasks_as_svg(
 
     // Passes.
     for rect in pass_rects {
-        writeln!(output,
+        writeln!(
+            output,
             "    {}",
             rect.inflate(3.0, 3.0)
                 .border_radius(4.0)
@@ -615,7 +623,8 @@ pub fn dump_render_tasks_as_svg(
     // Tasks.
     for node in &nodes {
         if let Some(node) = node {
-            writeln!(output,
+            writeln!(
+                output,
                 "    {}",
                 node.rect
                     .clone()
@@ -624,7 +633,8 @@ pub fn dump_render_tasks_as_svg(
                     .opacity(0.5)
                     .offset(0.0, 2.0)
             )?;
-            writeln!(output,
+            writeln!(
+                output,
                 "    {}",
                 node.rect
                     .clone()
@@ -633,7 +643,8 @@ pub fn dump_render_tasks_as_svg(
                     .opacity(0.8)
             )?;
 
-            writeln!(output,
+            writeln!(
+                output,
                 "    {}",
                 node.label
                     .clone()
@@ -641,7 +652,8 @@ pub fn dump_render_tasks_as_svg(
                     .align(Align::Center)
                     .color(rgb(50, 50, 50))
             )?;
-            writeln!(output,
+            writeln!(
+                output,
                 "    {}",
                 node.size
                     .clone()
@@ -656,11 +668,7 @@ pub fn dump_render_tasks_as_svg(
 }
 
 #[allow(dead_code)]
-fn dump_task_dependency_link(
-    output: &mut dyn std::io::Write,
-    x1: f32, y1: f32,
-    x2: f32, y2: f32,
-) {
+fn dump_task_dependency_link(output: &mut dyn std::io::Write, x1: f32, y1: f32, x2: f32, y2: f32) {
     use svg_fmt::*;
 
     // If the link is a straight horizontal line and spans over multiple passes, it
@@ -670,23 +678,31 @@ fn dump_task_dependency_link(
 
     let mid_x = (x1 + x2) / 2.0;
     if simple_path {
-        write!(output, "    {}",
-            path().move_to(x1, y1)
+        write!(
+            output,
+            "    {}",
+            path()
+                .move_to(x1, y1)
                 .cubic_bezier_to(mid_x, y1, mid_x, y2, x2, y2)
                 .fill(Fill::None)
                 .stroke(Stroke::Color(rgb(100, 100, 100), 3.0))
-        ).unwrap();
+        )
+        .unwrap();
     } else {
         let ctrl1_x = (mid_x + x1) / 2.0;
         let ctrl2_x = (mid_x + x2) / 2.0;
         let ctrl_y = y1 - 25.0;
-        write!(output, "    {}",
-            path().move_to(x1, y1)
+        write!(
+            output,
+            "    {}",
+            path()
+                .move_to(x1, y1)
                 .cubic_bezier_to(ctrl1_x, y1, ctrl1_x, ctrl_y, mid_x, ctrl_y)
                 .cubic_bezier_to(ctrl2_x, ctrl_y, ctrl2_x, y2, x2, y2)
                 .fill(Fill::None)
                 .stroke(Stroke::Color(rgb(100, 100, 100), 3.0))
-        ).unwrap();
+        )
+        .unwrap();
     }
 }
 
@@ -713,7 +729,11 @@ fn diamond_task_graph() {
     let counters = RenderTaskGraphCounters::new();
     let mut tasks = RenderTaskGraph::new(FrameId::first(), &counters);
 
-    let a = tasks.add(RenderTask::new_test(color, dyn_location(640, 640), Vec::new()));
+    let a = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(640, 640),
+        Vec::new(),
+    ));
     let b1 = tasks.add(RenderTask::new_test(color, dyn_location(320, 320), vec![a]));
     let b2 = tasks.add(RenderTask::new_test(color, dyn_location(320, 320), vec![a]));
 
@@ -750,29 +770,81 @@ fn blur_task_graph() {
     let counters = RenderTaskGraphCounters::new();
     let mut tasks = RenderTaskGraph::new(FrameId::first(), &counters);
 
-    let pic = tasks.add(RenderTask::new_test(color, dyn_location(640, 640), Vec::new()));
-    let scale1 = tasks.add(RenderTask::new_test(color, dyn_location(320, 320), vec![pic]));
-    let scale2 = tasks.add(RenderTask::new_test(color, dyn_location(160, 160), vec![scale1]));
-    let scale3 = tasks.add(RenderTask::new_test(color, dyn_location(80, 80), vec![scale2]));
-    let scale4 = tasks.add(RenderTask::new_test(color, dyn_location(40, 40), vec![scale3]));
+    let pic = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(640, 640),
+        Vec::new(),
+    ));
+    let scale1 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(320, 320),
+        vec![pic],
+    ));
+    let scale2 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(160, 160),
+        vec![scale1],
+    ));
+    let scale3 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(80, 80),
+        vec![scale2],
+    ));
+    let scale4 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(40, 40),
+        vec![scale3],
+    ));
 
-    let vblur1 = tasks.add(RenderTask::new_test(color, dyn_location(40, 40), vec![scale4]));
-    let hblur1 = tasks.add(RenderTask::new_test(color, dyn_location(40, 40), vec![vblur1]));
+    let vblur1 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(40, 40),
+        vec![scale4],
+    ));
+    let hblur1 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(40, 40),
+        vec![vblur1],
+    ));
 
-    let vblur2 = tasks.add(RenderTask::new_test(color, dyn_location(40, 40), vec![scale4]));
-    let hblur2 = tasks.add(RenderTask::new_test(color, dyn_location(40, 40), vec![vblur2]));
+    let vblur2 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(40, 40),
+        vec![scale4],
+    ));
+    let hblur2 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(40, 40),
+        vec![vblur2],
+    ));
 
     // Insert a task that is an even number of passes away from its dependency.
     // This means the source and destination are on the same target and we have to resolve
     // this conflict by automatically inserting a blit task.
-    let vblur3 = tasks.add(RenderTask::new_test(color, dyn_location(80, 80), vec![scale3]));
-    let hblur3 = tasks.add(RenderTask::new_test(color, dyn_location(80, 80), vec![vblur3]));
+    let vblur3 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(80, 80),
+        vec![scale3],
+    ));
+    let hblur3 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(80, 80),
+        vec![vblur3],
+    ));
 
     // Insert a task that is an odd number > 1 of passes away from its dependency.
     // This should force us to mark the dependency "for saving" to keep its content valid
     // until the task can access it.
-    let vblur4 = tasks.add(RenderTask::new_test(color, dyn_location(160, 160), vec![scale2]));
-    let hblur4 = tasks.add(RenderTask::new_test(color, dyn_location(160, 160), vec![vblur4]));
+    let vblur4 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(160, 160),
+        vec![scale2],
+    ));
+    let hblur4 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(160, 160),
+        vec![vblur4],
+    ));
 
     let main_pic = tasks.add(RenderTask::new_test(
         color,
@@ -793,7 +865,9 @@ fn blur_task_graph() {
 
     match tasks[blit].kind {
         RenderTaskKind::Blit(..) => {}
-        _ => { panic!("This should be a blit task."); }
+        _ => {
+            panic!("This should be a blit task.");
+        }
     }
 
     assert_eq!(passes.len(), 8);
@@ -835,12 +909,32 @@ fn culled_tasks() {
     let counters = RenderTaskGraphCounters::new();
     let mut tasks = RenderTaskGraph::new(FrameId::first(), &counters);
 
-    let a1 = tasks.add(RenderTask::new_test(color, dyn_location(640, 640), Vec::new()));
-    let _a2 = tasks.add(RenderTask::new_test(color, dyn_location(320, 320), vec![a1]));
+    let a1 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(640, 640),
+        Vec::new(),
+    ));
+    let _a2 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(320, 320),
+        vec![a1],
+    ));
 
-    let b1 = tasks.add(RenderTask::new_test(color, dyn_location(640, 640), Vec::new()));
-    let b2 = tasks.add(RenderTask::new_test(color, dyn_location(320, 320), vec![b1]));
-    let _b3 = tasks.add(RenderTask::new_test(color, dyn_location(320, 320), vec![b2]));
+    let b1 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(640, 640),
+        Vec::new(),
+    ));
+    let b2 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(320, 320),
+        vec![b1],
+    ));
+    let _b3 = tasks.add(RenderTask::new_test(
+        color,
+        dyn_location(320, 320),
+        vec![b2],
+    ));
 
     let main_pic = tasks.add(RenderTask::new_test(
         color,

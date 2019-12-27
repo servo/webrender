@@ -33,9 +33,14 @@ fn panic_com(hresult: HRESULT) -> ! {
 
 /// Forked from <https://github.com/retep998/wio-rs/blob/44093f7db8/src/com.rs>
 #[derive(PartialEq, Debug)]
-pub struct ComPtr<T>(*mut T) where T: Interface;
+pub struct ComPtr<T>(*mut T)
+where
+    T: Interface;
 
-impl<T> ComPtr<T> where T: Interface {
+impl<T> ComPtr<T>
+where
+    T: Interface,
+{
     /// Creates a `ComPtr` to wrap a raw pointer.
     /// It takes ownership over the pointer which means it does __not__ call `AddRef`.
     /// `T` __must__ be a COM interface that inherits from `IUnknown`.
@@ -47,14 +52,16 @@ impl<T> ComPtr<T> where T: Interface {
     /// For use with APIs that take an interface UUID and
     /// "return" a new COM object through a `*mut *mut c_void` out-parameter.
     pub unsafe fn new_with_uuid<F>(f: F) -> Self
-        where F: FnOnce(&GUID, *mut *mut c_void) -> HRESULT
+    where
+        F: FnOnce(&GUID, *mut *mut c_void) -> HRESULT,
     {
         Self::new_with(|ptr| f(&T::uuidof(), ptr as _))
     }
 
     /// For use with APIs that "return" a new COM object through a `*mut *mut T` out-parameter.
     pub unsafe fn new_with<F>(f: F) -> Self
-        where F: FnOnce(*mut *mut T) -> HRESULT
+    where
+        F: FnOnce(*mut *mut T) -> HRESULT,
     {
         let mut ptr = ptr::null_mut();
         let hresult = f(&mut ptr);
@@ -74,27 +81,34 @@ impl<T> ComPtr<T> where T: Interface {
     }
 
     fn as_unknown(&self) -> &IUnknown {
-        unsafe {
-            &*(self.0 as *mut IUnknown)
-        }
+        unsafe { &*(self.0 as *mut IUnknown) }
     }
 
     /// Performs QueryInterface fun.
-    pub fn cast<U>(&self) -> ComPtr<U> where U: Interface {
+    pub fn cast<U>(&self) -> ComPtr<U>
+    where
+        U: Interface,
+    {
         unsafe {
             ComPtr::<U>::new_with_uuid(|uuid, ptr| self.as_unknown().QueryInterface(uuid, ptr))
         }
     }
 }
 
-impl<T> ops::Deref for ComPtr<T> where T: Interface {
+impl<T> ops::Deref for ComPtr<T>
+where
+    T: Interface,
+{
     type Target = T;
     fn deref(&self) -> &T {
         unsafe { &*self.0 }
     }
 }
 
-impl<T> Clone for ComPtr<T> where T: Interface {
+impl<T> Clone for ComPtr<T>
+where
+    T: Interface,
+{
     fn clone(&self) -> Self {
         unsafe {
             self.as_unknown().AddRef();
@@ -103,7 +117,10 @@ impl<T> Clone for ComPtr<T> where T: Interface {
     }
 }
 
-impl<T> Drop for ComPtr<T> where T: Interface {
+impl<T> Drop for ComPtr<T>
+where
+    T: Interface,
+{
     fn drop(&mut self) {
         unsafe {
             self.as_unknown().Release();

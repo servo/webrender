@@ -10,7 +10,7 @@
 
 use std::vec::Vec;
 
-pub trait VecExt  {
+pub trait VecExt {
     type Item;
     unsafe fn set_end_ptr(&mut self, end: *const Self::Item);
 }

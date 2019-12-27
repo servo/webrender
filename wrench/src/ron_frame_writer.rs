@@ -126,8 +126,7 @@ impl RonFrameWriter {
                         }
                     }
                 }
-                ResourceUpdate::AddBlobImage(..)
-                | ResourceUpdate::UpdateBlobImage(..) => {
+                ResourceUpdate::AddBlobImage(..) | ResourceUpdate::UpdateBlobImage(..) => {
                     println!("Blob images not supported (ignoring command).");
                 }
                 ResourceUpdate::DeleteImage(img) => {

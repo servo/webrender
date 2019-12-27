@@ -16,7 +16,6 @@ use std::mem;
 use webrender::api::*;
 use webrender::api::units::*;
 
-
 struct ImageGenerator {
     patterns: [[u8; 3]; 6],
     next_pattern: usize,
@@ -67,7 +66,7 @@ impl ExternalImageHandler for ImageGenerator {
         &mut self,
         _key: ExternalImageId,
         channel_index: u8,
-        _rendering: ImageRendering
+        _rendering: ImageRendering,
     ) -> ExternalImage {
         self.generate_image(channel_index as i32);
         ExternalImage {
@@ -116,7 +115,12 @@ impl Example for App {
             self.image_generator.generate_image(128);
             txn.add_image(
                 key0,
-                ImageDescriptor::new(128, 128, ImageFormat::BGRA8, ImageDescriptorFlags::IS_OPAQUE),
+                ImageDescriptor::new(
+                    128,
+                    128,
+                    ImageFormat::BGRA8,
+                    ImageDescriptorFlags::IS_OPAQUE,
+                ),
                 ImageData::new(self.image_generator.take()),
                 None,
             );
@@ -124,7 +128,12 @@ impl Example for App {
             self.image_generator.generate_image(128);
             txn.add_image(
                 key1,
-                ImageDescriptor::new(128, 128, ImageFormat::BGRA8, ImageDescriptorFlags::IS_OPAQUE),
+                ImageDescriptor::new(
+                    128,
+                    128,
+                    ImageFormat::BGRA8,
+                    ImageDescriptorFlags::IS_OPAQUE,
+                ),
                 ImageData::new(self.image_generator.take()),
                 None,
             );
@@ -197,11 +206,12 @@ impl Example for App {
     ) -> bool {
         match event {
             winit::WindowEvent::KeyboardInput {
-                input: winit::KeyboardInput {
-                    state: winit::ElementState::Pressed,
-                    virtual_keycode: Some(key),
-                    ..
-                },
+                input:
+                    winit::KeyboardInput {
+                        state: winit::ElementState::Pressed,
+                        virtual_keycode: Some(key),
+                        ..
+                    },
                 ..
             } => {
                 let mut txn = Transaction::new();
@@ -234,20 +244,29 @@ impl Example for App {
                             }
                         }
                     }
-                    winit::VirtualKeyCode::D => if let Some(image_key) = self.image_key.take() {
-                        txn.delete_image(image_key);
-                    },
-                    winit::VirtualKeyCode::U => if let Some(image_key) = self.image_key {
-                        let size = 128;
-                        self.image_generator.generate_image(size);
+                    winit::VirtualKeyCode::D => {
+                        if let Some(image_key) = self.image_key.take() {
+                            txn.delete_image(image_key);
+                        }
+                    }
+                    winit::VirtualKeyCode::U => {
+                        if let Some(image_key) = self.image_key {
+                            let size = 128;
+                            self.image_generator.generate_image(size);
 
-                        txn.update_image(
-                            image_key,
-                            ImageDescriptor::new(size, size, ImageFormat::BGRA8, ImageDescriptorFlags::IS_OPAQUE),
-                            ImageData::new(self.image_generator.take()),
-                            &DirtyRect::All,
-                        );
-                    },
+                            txn.update_image(
+                                image_key,
+                                ImageDescriptor::new(
+                                    size,
+                                    size,
+                                    ImageFormat::BGRA8,
+                                    ImageDescriptorFlags::IS_OPAQUE,
+                                ),
+                                ImageData::new(self.image_generator.take()),
+                                &DirtyRect::All,
+                            );
+                        }
+                    }
                     winit::VirtualKeyCode::E => {
                         if let Some(image_key) = self.image_key.take() {
                             txn.delete_image(image_key);
@@ -264,7 +283,12 @@ impl Example for App {
 
                         txn.add_image(
                             image_key,
-                            ImageDescriptor::new(size, size, ImageFormat::BGRA8, ImageDescriptorFlags::IS_OPAQUE),
+                            ImageDescriptor::new(
+                                size,
+                                size,
+                                ImageFormat::BGRA8,
+                                ImageDescriptorFlags::IS_OPAQUE,
+                            ),
                             ImageData::External(image_data),
                             None,
                         );
@@ -282,7 +306,12 @@ impl Example for App {
 
                         txn.add_image(
                             image_key,
-                            ImageDescriptor::new(size, size, ImageFormat::BGRA8, ImageDescriptorFlags::IS_OPAQUE),
+                            ImageDescriptor::new(
+                                size,
+                                size,
+                                ImageFormat::BGRA8,
+                                ImageDescriptorFlags::IS_OPAQUE,
+                            ),
                             ImageData::new(self.image_generator.take()),
                             None,
                         );
@@ -304,8 +333,10 @@ impl Example for App {
     fn get_image_handlers(
         &mut self,
         _gl: &dyn gl::Gl,
-    ) -> (Option<Box<dyn ExternalImageHandler>>,
-          Option<Box<dyn OutputImageHandler>>) {
+    ) -> (
+        Option<Box<dyn ExternalImageHandler>>,
+        Option<Box<dyn OutputImageHandler>>,
+    ) {
         (Some(Box::new(ImageGenerator::new())), None)
     }
 }

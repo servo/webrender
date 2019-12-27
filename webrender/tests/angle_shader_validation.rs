@@ -22,7 +22,7 @@ const BRUSH_FEATURES: &[&str] = &["", "ALPHA_PASS"];
 const CLIP_FEATURES: &[&str] = &[""];
 const FAST_CLIP_FEATURES: &[&str] = &["FAST_PATH"];
 const CACHE_FEATURES: &[&str] = &[""];
-const GRADIENT_FEATURES: &[&str] = &[ "", "DITHERING", "ALPHA_PASS", "DITHERING,ALPHA_PASS" ];
+const GRADIENT_FEATURES: &[&str] = &["", "DITHERING", "ALPHA_PASS", "DITHERING,ALPHA_PASS"];
 const PRIM_FEATURES: &[&str] = &[""];
 
 const SHADERS: &[Shader] = &[
@@ -46,7 +46,7 @@ const SHADERS: &[Shader] = &[
     // Cache shaders
     Shader {
         name: "cs_blur",
-        features: &[ "ALPHA_TARGET", "COLOR_TARGET" ],
+        features: &["ALPHA_TARGET", "COLOR_TARGET"],
     },
     Shader {
         name: "cs_border_segment",
@@ -75,7 +75,7 @@ const SHADERS: &[Shader] = &[
     },
     Shader {
         name: "ps_text_run",
-        features: &[ "", "GLYPH_TRANSFORM" ],
+        features: &["", "GLYPH_TRANSFORM"],
     },
     // Brush shaders
     Shader {
@@ -149,8 +149,12 @@ fn validate_shaders() {
 fn validate(validator: &ShaderValidator, name: &str, source: String) {
     // Check for each `switch` to have a `default`, see
     // https://github.com/servo/webrender/wiki/Driver-issues#lack-of-default-case-in-a-switch
-    assert_eq!(source.matches("switch").count(), source.matches("default:").count(),
-        "Shader '{}' doesn't have all `switch` covered with `default` cases", name);
+    assert_eq!(
+        source.matches("switch").count(),
+        source.matches("default:").count(),
+        "Shader '{}' doesn't have all `switch` covered with `default` cases",
+        name
+    );
     // Run Angle validator
     match validator.compile_and_translate(&[&source]) {
         Ok(_) => {

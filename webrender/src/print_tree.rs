@@ -8,7 +8,7 @@ use std::io::{stdout, Stdout, Write};
 /// can be visually scanned more easily.
 pub struct PrintTree<W>
 where
-    W: Write
+    W: Write,
 {
     /// The current level of recursion.
     level: u32,
@@ -38,7 +38,7 @@ impl PrintTree<Stdout> {
 
 impl<W> PrintTree<W>
 where
-    W: Write
+    W: Write,
 {
     pub fn new_with_sink(title: &str, mut sink: W) -> Self {
         writeln!(sink, "\u{250c} {}", title).unwrap();
@@ -66,7 +66,7 @@ where
 // The default `println!` based printer
 impl<W> PrintTreePrinter for PrintTree<W>
 where
-    W: Write
+    W: Write,
 {
     /// Descend one level in the tree with the given title.
     fn new_level(&mut self, title: String) {
@@ -93,7 +93,7 @@ where
 
 impl<W> Drop for PrintTree<W>
 where
-    W: Write
+    W: Write,
 {
     fn drop(&mut self) {
         self.flush_queued_item("\u{9492}\u{9472}");

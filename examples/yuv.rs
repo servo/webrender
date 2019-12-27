@@ -15,7 +15,6 @@ use gleam::gl;
 use webrender::api::*;
 use webrender::api::units::*;
 
-
 fn init_gl_texture(
     id: gl::GLuint,
     internal: gl::GLenum,
@@ -24,10 +23,26 @@ fn init_gl_texture(
     gl: &dyn gl::Gl,
 ) {
     gl.bind_texture(gl::TEXTURE_2D, id);
-    gl.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as gl::GLint);
-    gl.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as gl::GLint);
-    gl.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as gl::GLint);
-    gl.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as gl::GLint);
+    gl.tex_parameter_i(
+        gl::TEXTURE_2D,
+        gl::TEXTURE_MAG_FILTER,
+        gl::LINEAR as gl::GLint,
+    );
+    gl.tex_parameter_i(
+        gl::TEXTURE_2D,
+        gl::TEXTURE_MIN_FILTER,
+        gl::LINEAR as gl::GLint,
+    );
+    gl.tex_parameter_i(
+        gl::TEXTURE_2D,
+        gl::TEXTURE_WRAP_S,
+        gl::CLAMP_TO_EDGE as gl::GLint,
+    );
+    gl.tex_parameter_i(
+        gl::TEXTURE_2D,
+        gl::TEXTURE_WRAP_T,
+        gl::CLAMP_TO_EDGE as gl::GLint,
+    );
     gl.tex_image_2d(
         gl::TEXTURE_2D,
         0,
@@ -55,9 +70,7 @@ impl YuvImageProvider {
         init_gl_texture(texture_ids[2], gl::RED, gl::RED, &[127; 100 * 100], gl);
         init_gl_texture(texture_ids[3], gl::RED, gl::RED, &[127; 100 * 100], gl);
 
-        YuvImageProvider {
-            texture_ids
-        }
+        YuvImageProvider { texture_ids }
     }
 }
 
@@ -66,7 +79,7 @@ impl ExternalImageHandler for YuvImageProvider {
         &mut self,
         key: ExternalImageId,
         _channel_index: u8,
-        _rendering: ImageRendering
+        _rendering: ImageRendering,
     ) -> ExternalImage {
         let id = self.texture_ids[key.0 as usize];
         ExternalImage {
@@ -74,8 +87,7 @@ impl ExternalImageHandler for YuvImageProvider {
             source: ExternalImageSource::NativeTexture(id),
         }
     }
-    fn unlock(&mut self, _key: ExternalImageId, _channel_index: u8) {
-    }
+    fn unlock(&mut self, _key: ExternalImageId, _channel_index: u8) {}
 }
 
 struct App {
@@ -112,9 +124,7 @@ impl Example for App {
             ImageData::External(ExternalImageData {
                 id: ExternalImageId(0),
                 channel_index: 0,
-                image_type: ExternalImageType::TextureHandle(
-                    TextureTarget::Default,
-                ),
+                image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
             }),
             None,
         );
@@ -124,9 +134,7 @@ impl Example for App {
             ImageData::External(ExternalImageData {
                 id: ExternalImageId(1),
                 channel_index: 0,
-                image_type: ExternalImageType::TextureHandle(
-                    TextureTarget::Default,
-                ),
+                image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
             }),
             None,
         );
@@ -136,9 +144,7 @@ impl Example for App {
             ImageData::External(ExternalImageData {
                 id: ExternalImageId(2),
                 channel_index: 0,
-                image_type: ExternalImageType::TextureHandle(
-                    TextureTarget::Default,
-                ),
+                image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
             }),
             None,
         );
@@ -148,9 +154,7 @@ impl Example for App {
             ImageData::External(ExternalImageData {
                 id: ExternalImageId(3),
                 channel_index: 0,
-                image_type: ExternalImageType::TextureHandle(
-                    TextureTarget::Default,
-                ),
+                image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
             }),
             None,
         );
@@ -198,15 +202,23 @@ impl Example for App {
     fn get_image_handlers(
         &mut self,
         gl: &dyn gl::Gl,
-    ) -> (Option<Box<dyn ExternalImageHandler>>,
-          Option<Box<dyn OutputImageHandler>>) {
+    ) -> (
+        Option<Box<dyn ExternalImageHandler>>,
+        Option<Box<dyn OutputImageHandler>>,
+    ) {
         let provider = YuvImageProvider::new(gl);
         self.texture_id = provider.texture_ids[0];
         (Some(Box::new(provider)), None)
     }
 
     fn draw_custom(&mut self, gl: &dyn gl::Gl) {
-        init_gl_texture(self.texture_id, gl::RED, gl::RED, &[self.current_value; 100 * 100], gl);
+        init_gl_texture(
+            self.texture_id,
+            gl::RED,
+            gl::RED,
+            &[self.current_value; 100 * 100],
+            gl,
+        );
         self.current_value = self.current_value.wrapping_add(1);
     }
 }
@@ -218,7 +230,8 @@ fn main() {
     };
 
     let opts = webrender::RendererOptions {
-        debug_flags: webrender::DebugFlags::NEW_FRAME_INDICATOR | webrender::DebugFlags::NEW_SCENE_INDICATOR,
+        debug_flags: webrender::DebugFlags::NEW_FRAME_INDICATOR
+            | webrender::DebugFlags::NEW_SCENE_INDICATOR,
         ..Default::default()
     };
 
