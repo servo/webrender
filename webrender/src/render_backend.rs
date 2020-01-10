@@ -456,11 +456,10 @@ impl Document {
                     }
                 };
 
-                if self.hit_tester.is_some() {
-                    if self.scroll_nearest_scrolling_ancestor(delta, node_index) {
-                        self.hit_tester_is_valid = false;
-                        self.frame_is_valid = false;
-                    }
+                if self.hit_tester.is_some()
+                    && self.scroll_nearest_scrolling_ancestor(delta, node_index) {
+                    self.hit_tester_is_valid = false;
+                    self.frame_is_valid = false;
                 }
 
                 return DocumentOps {
@@ -1633,19 +1632,19 @@ impl RenderBackend {
         serde_json::to_string(&debug_root).unwrap()
     }
 
-    fn report_memory(&mut self, tx: MsgSender<MemoryReport>) {
-        let mut report = MemoryReport::default();
+    fn report_memory(&mut self, tx: MsgSender<Box<MemoryReport>>) {
+        let mut report = Box::new(MemoryReport::default());
         let ops = self.size_of_ops.as_mut().unwrap();
         let op = ops.size_of_op;
         report.gpu_cache_metadata = self.gpu_cache.size_of(ops);
-        for (_id, doc) in &self.documents {
+        for doc in self.documents.values() {
             report.clip_stores += doc.scene.clip_store.size_of(ops);
             report.hit_testers += doc.hit_tester.size_of(ops);
 
             doc.data_stores.report_memory(ops, &mut report)
         }
 
-        report += self.resource_cache.report_memory(op);
+        (*report) += self.resource_cache.report_memory(op);
 
         // Send a message to report memory on the scene-builder thread, which
         // will add its report to this one and send the result back to the original
@@ -1886,7 +1885,7 @@ impl RenderBackend {
 
             scenes_to_build.push(LoadScene {
                 document_id: id,
-                scene: scene,
+                scene,
                 view: view.clone(),
                 config: self.frame_config.clone(),
                 output_pipelines: doc.output_pipelines.clone(),

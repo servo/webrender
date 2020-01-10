@@ -2027,11 +2027,11 @@ impl Renderer {
 
         let dither_matrix_texture = if options.enable_dithering {
             let dither_matrix: [u8; 64] = [
-                00,
+                0,
                 48,
                 12,
                 60,
-                03,
+                3,
                 51,
                 15,
                 63,
@@ -2043,13 +2043,13 @@ impl Renderer {
                 19,
                 47,
                 31,
-                08,
+                8,
                 56,
-                04,
+                4,
                 52,
                 11,
                 59,
-                07,
+                7,
                 55,
                 40,
                 24,
@@ -2059,11 +2059,11 @@ impl Renderer {
                 27,
                 39,
                 23,
-                02,
+                2,
                 50,
                 14,
                 62,
-                01,
+                1,
                 49,
                 13,
                 61,
@@ -2077,11 +2077,11 @@ impl Renderer {
                 29,
                 10,
                 58,
-                06,
+                6,
                 54,
-                09,
+                9,
                 57,
-                05,
+                5,
                 53,
                 42,
                 26,
@@ -3131,7 +3131,7 @@ impl Renderer {
                     doc_index == 0,
                 );
 
-                if let Some(_) = device_size {
+                if device_size.is_some() {
                     self.draw_frame_debug_items(&frame.debug_items);
                 }
                 if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
@@ -3366,7 +3366,7 @@ impl Renderer {
 
         let mut upload_time = TimeProfileCounter::new("GPU cache upload time", false, Some(0.0..2.0));
         let updated_rows = upload_time.profile(|| {
-            return self.gpu_cache_texture.flush(&mut self.device);
+            self.gpu_cache_texture.flush(&mut self.device)
         });
         self.gpu_cache_upload_time += upload_time.get();
 
@@ -3930,7 +3930,7 @@ impl Renderer {
                 .iter()
                 .rev()
                 {
-                    if should_skip_batch(&batch.key.kind, &self.debug_flags) {
+                    if should_skip_batch(&batch.key.kind, self.debug_flags) {
                         continue;
                     }
 
@@ -3981,7 +3981,7 @@ impl Renderer {
             }
 
             for batch in &alpha_batch_container.alpha_batches {
-                if should_skip_batch(&batch.key.kind, &self.debug_flags) {
+                if should_skip_batch(&batch.key.kind, self.debug_flags) {
                     continue;
                 }
 
@@ -4566,7 +4566,7 @@ impl Renderer {
             let _gm2 = self.gpu_profile.start_marker("box-shadows");
             let textures = BatchTextures {
                 colors: [
-                    mask_texture_id.clone(),
+                    *mask_texture_id,
                     TextureSource::Invalid,
                     TextureSource::Invalid,
                 ],
@@ -4586,7 +4586,7 @@ impl Renderer {
             let _gm2 = self.gpu_profile.start_marker("clip images");
             let textures = BatchTextures {
                 colors: [
-                    mask_texture_id.clone(),
+                    *mask_texture_id,
                     TextureSource::Invalid,
                     TextureSource::Invalid,
                 ],
@@ -5496,7 +5496,7 @@ impl Renderer {
         self.device.enable_pixel_local_storage(false);
     }
 
-    pub fn debug_renderer<'b>(&'b mut self) -> Option<&'b mut DebugRenderer> {
+    pub fn debug_renderer(&mut self) -> Option<&mut DebugRenderer> {
         self.debug.get_mut(&mut self.device)
     }
 
@@ -5838,7 +5838,7 @@ impl Renderer {
 
         let margin = 10.0;
         debug_renderer.add_quad(
-            &x0 - margin,
+            x0 - margin,
             y0 - margin,
             x0 + text_width + margin,
             y + margin,
@@ -6761,9 +6761,7 @@ impl Renderer {
     }
 }
 
-fn get_vao<'a>(vertex_array_kind: VertexArrayKind,
-               vaos: &'a RendererVAOs)
-               -> &'a VAO {
+fn get_vao(vertex_array_kind: VertexArrayKind, vaos: &RendererVAOs) -> &VAO {
     match vertex_array_kind {
         VertexArrayKind::Primitive => &vaos.prim_vao,
         VertexArrayKind::Clip => &vaos.clip_vao,
@@ -6784,7 +6782,7 @@ enum FramebufferKind {
     Other,
 }
 
-fn should_skip_batch(kind: &BatchKind, flags: &DebugFlags) -> bool {
+fn should_skip_batch(kind: &BatchKind, flags: DebugFlags) -> bool {
     match kind {
         BatchKind::TextRun(_) => {
             flags.contains(DebugFlags::DISABLE_TEXT_PRIMS)
