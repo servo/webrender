@@ -58,6 +58,7 @@ pub enum BrushBatchKind {
     YuvImage(ImageBufferKind, YuvFormat, ColorDepth, YuvColorSpace, ColorRange),
     RadialGradient,
     LinearGradient,
+    Opacity,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -79,6 +80,7 @@ impl BatchKind {
             BatchKind::Brush(BrushBatchKind::Blend) => BrushShaderKind::Blend,
             BatchKind::Brush(BrushBatchKind::MixBlend { .. }) => BrushShaderKind::MixBlend,
             BatchKind::Brush(BrushBatchKind::YuvImage(..)) => BrushShaderKind::Yuv,
+            BatchKind::Brush(BrushBatchKind::Opacity) => BrushShaderKind::Opacity,
             BatchKind::TextRun(..) => BrushShaderKind::Text,
             _ => BrushShaderKind::None,
         }
@@ -1366,25 +1368,44 @@ impl BatchBuilder {
                                             prim_vis_mask,
                                         );
                                     }
+                                    Filter::Opacity(_, amount) => {
+                                        let amount = (amount * 65536.0) as i32;
+
+                                        let (uv_rect_address, textures) = render_tasks.resolve_surface(
+                                            surface_task.expect("bug: surface must be allocated by now"),
+                                            gpu_cache,
+                                        );
+
+                                        let key = BatchKey::new(
+                                            BatchKind::Brush(BrushBatchKind::Opacity),
+                                            BlendMode::PremultipliedAlpha,
+                                            textures,
+                                        );
+
+                                        let prim_header_index = prim_headers.push(&prim_header, z_id, [
+                                            uv_rect_address.as_int(),
+                                            amount,
+                                            0,
+                                            0,
+                                        ]);
+
+                                        self.add_brush_instance_to_batches(
+                                            key,
+                                            batch_features,
+                                            bounding_rect,
+                                            z_id,
+                                            INVALID_SEGMENT_INDEX,
+                                            EdgeAaSegmentMask::empty(),
+                                            clip_task_address.unwrap(),
+                                            brush_flags,
+                                            prim_header_index,
+                                            0,
+                                            prim_vis_mask,
+                                        );
+                                    }
                                     _ => {
-                                        let filter_mode = match filter {
-                                            Filter::Identity => 1, // matches `Contrast(1)`
-                                            Filter::Blur(..) => 0,
-                                            Filter::Contrast(..) => 1,
-                                            Filter::Grayscale(..) => 2,
-                                            Filter::HueRotate(..) => 3,
-                                            Filter::Invert(..) => 4,
-                                            Filter::Saturate(..) => 5,
-                                            Filter::Sepia(..) => 6,
-                                            Filter::Brightness(..) => 7,
-                                            Filter::Opacity(..) => 8,
-                                            Filter::DropShadows(..) => 9,
-                                            Filter::ColorMatrix(..) => 10,
-                                            Filter::SrgbToLinear => 11,
-                                            Filter::LinearToSrgb => 12,
-                                            Filter::ComponentTransfer => unreachable!(),
-                                            Filter::Flood(..) => 14,
-                                        };
+                                        // Must be kept in sync with brush_blend.glsl
+                                        let filter_mode = filter.as_int();
 
                                         let user_data = match filter {
                                             Filter::Identity => 0x10000i32, // matches `Contrast(1)`
@@ -1393,26 +1414,25 @@ impl BatchBuilder {
                                             Filter::Invert(amount) |
                                             Filter::Saturate(amount) |
                                             Filter::Sepia(amount) |
-                                            Filter::Brightness(amount) |
-                                            Filter::Opacity(_, amount) => {
+                                            Filter::Brightness(amount) => {
                                                 (amount * 65536.0) as i32
                                             }
                                             Filter::SrgbToLinear | Filter::LinearToSrgb => 0,
                                             Filter::HueRotate(angle) => {
                                                 (0.01745329251 * angle * 65536.0) as i32
                                             }
-                                            // Go through different paths
-                                            Filter::Blur(..) |
-                                            Filter::DropShadows(..) => {
-                                                unreachable!();
-                                            }
                                             Filter::ColorMatrix(_) => {
                                                 picture.extra_gpu_data_handles[0].as_int(gpu_cache)
                                             }
-                                            Filter::ComponentTransfer => unreachable!(),
                                             Filter::Flood(_) => {
                                                 picture.extra_gpu_data_handles[0].as_int(gpu_cache)
                                             }
+
+                                            // These filters are handled via different paths.
+                                            Filter::ComponentTransfer |
+                                            Filter::Blur(..) |
+                                            Filter::DropShadows(..) |
+                                            Filter::Opacity(..) => unreachable!(),
                                         };
 
                                         let (uv_rect_address, textures) = render_tasks.resolve_surface(
@@ -1454,7 +1474,7 @@ impl BatchBuilder {
                                 // except we store a little more data in the filter mode and
                                 // a gpu cache handle in the user data.
                                 let filter_data = &ctx.data_stores.filter_data[handle];
-                                let filter_mode : i32 = 13 |
+                                let filter_mode : i32 = Filter::ComponentTransfer.as_int() |
                                     ((filter_data.data.r_func.to_int() << 28 |
                                       filter_data.data.g_func.to_int() << 24 |
                                       filter_data.data.b_func.to_int() << 20 |
