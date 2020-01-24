@@ -94,6 +94,19 @@ pub enum CompositorConfig {
     }
 }
 
+impl CompositorConfig {
+    pub fn compositor(&mut self) -> Option<&mut Box<dyn Compositor>> {
+        match self {
+            CompositorConfig::Native { ref mut compositor, .. } => {
+                Some(compositor)
+            }
+            CompositorConfig::Draw { .. } => {
+                None
+            }
+        }
+    }
+}
+
 impl Default for CompositorConfig {
     /// Default compositor config is full present without partial present.
     fn default() -> Self {
@@ -299,7 +312,7 @@ impl CompositeState {
 
             visible_tile_count += 1;
 
-            let device_rect = (tile.world_rect * global_device_pixel_scale).round();
+            let device_rect = (tile.world_tile_rect * global_device_pixel_scale).round();
             let dirty_rect = (tile.world_dirty_rect * global_device_pixel_scale).round();
             let surface = tile.surface.as_ref().expect("no tile surface set!");
 
@@ -506,6 +519,9 @@ pub trait Compositor {
     /// this once when all surface and visual updates are complete, to signal
     /// that the OS composite transaction should be applied.
     fn end_frame(&mut self);
+
+    /// Enable/disable native compositor usage
+    fn enable_native_compositor(&mut self, enable: bool);
 }
 
 /// Return the total area covered by a set of occluders, accounting for
