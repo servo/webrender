@@ -105,7 +105,7 @@ use smallvec::SmallVec;
 use std::{mem, u8, marker, u32};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::texture_cache::TextureCacheHandle;
-use crate::util::{TransformedRectKind, MatrixHelpers, MaxRect, scale_factors, VecHelper, RectHelpers};
+use crate::util::{MaxRect, scale_factors, VecHelper, RectHelpers};
 use crate::filterdata::{FilterDataHandle};
 #[cfg(any(feature = "capture", feature = "replay"))]
 use ron;
@@ -136,6 +136,7 @@ use std::fs::File;
 use std::io::prelude::*;
 #[cfg(feature = "capture")]
 use std::path::PathBuf;
+use crate::scene_building::{SliceFlags};
 
 /// Specify whether a surface allows subpixel AA text rendering.
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -1768,6 +1769,8 @@ pub struct TileCacheInstance {
     /// between display lists - this seems very unlikely to occur on most pages, but
     /// can be revisited if we ever notice that.
     pub slice: usize,
+    /// Propagated information about the slice
+    pub slice_flags: SliceFlags,
     /// The currently selected tile size to use for this cache
     pub current_tile_size: DeviceIntSize,
     /// The positioning node for this tile cache.
@@ -1858,6 +1861,7 @@ pub struct TileCacheInstance {
 impl TileCacheInstance {
     pub fn new(
         slice: usize,
+        slice_flags: SliceFlags,
         spatial_node_index: SpatialNodeIndex,
         background_color: Option<ColorF>,
         shared_clips: Vec<ClipDataHandle>,
@@ -1865,6 +1869,7 @@ impl TileCacheInstance {
     ) -> Self {
         TileCacheInstance {
             slice,
+            slice_flags,
             spatial_node_index,
             tiles: FastHashMap::default(),
             old_tiles: FastHashMap::default(),
@@ -2063,7 +2068,6 @@ impl TileCacheInstance {
         // changing near a threshold value.
         if self.frames_until_size_eval == 0 ||
            self.tile_size_override != frame_context.config.tile_size_override {
-            const TILE_SIZE_TINY: f32 = 32.0;
 
             // Work out what size tile is appropriate for this picture cache.
             let desired_tile_size = match frame_context.config.tile_size_override {
@@ -2071,13 +2075,12 @@ impl TileCacheInstance {
                     tile_size_override
                 }
                 None => {
-                    // There's no need to check the other dimension. If we encounter a picture
-                    // that is small on one dimension, it's a reasonable choice to use a scrollbar
-                    // sized tile configuration regardless of the other dimension.
-                    if pic_rect.size.width <= TILE_SIZE_TINY {
-                        TILE_SIZE_SCROLLBAR_VERTICAL
-                    } else if pic_rect.size.height <= TILE_SIZE_TINY {
-                        TILE_SIZE_SCROLLBAR_HORIZONTAL
+                    if self.slice_flags.contains(SliceFlags::IS_SCROLLBAR) {
+                        if pic_rect.size.width <= pic_rect.size.height {
+                            TILE_SIZE_SCROLLBAR_VERTICAL
+                        } else {
+                            TILE_SIZE_SCROLLBAR_HORIZONTAL
+                        }
                     } else {
                         TILE_SIZE_DEFAULT
                     }
@@ -3843,7 +3846,6 @@ impl PicturePrimitive {
                             &transform,
                             &device_rect,
                             device_pixel_scale,
-                            true,
                         );
 
                         let picture_task_id = frame_state.render_tasks.add().init(
@@ -3906,7 +3908,6 @@ impl PicturePrimitive {
                             &transform,
                             &device_rect,
                             device_pixel_scale,
-                            true,
                         );
 
                         let picture_task_id = frame_state.render_tasks.add().init({
@@ -3955,7 +3956,6 @@ impl PicturePrimitive {
                             &transform,
                             &clipped,
                             device_pixel_scale,
-                            true,
                         );
 
                         let readback_task_id = frame_state.render_tasks.add().init(
@@ -3991,7 +3991,6 @@ impl PicturePrimitive {
                             &transform,
                             &clipped,
                             device_pixel_scale,
-                            true,
                         );
 
                         let render_task_id = frame_state.render_tasks.add().init(
@@ -4016,7 +4015,6 @@ impl PicturePrimitive {
                             &transform,
                             &clipped,
                             device_pixel_scale,
-                            true,
                         );
 
                         let render_task_id = frame_state.render_tasks.add().init(
@@ -4276,19 +4274,11 @@ impl PicturePrimitive {
                     }
                     PictureCompositeMode::MixBlend(..) |
                     PictureCompositeMode::Blit(_) => {
-                        // The SplitComposite shader used for 3d contexts doesn't snap
-                        // to pixels, so we shouldn't snap our uv coordinates either.
-                        let supports_snapping = match self.context_3d {
-                            Picture3DContext::In{ .. } => false,
-                            _ => true,
-                        };
-
                         let uv_rect_kind = calculate_uv_rect_kind(
                             &pic_rect,
                             &transform,
                             &clipped,
                             device_pixel_scale,
-                            supports_snapping,
                         );
 
                         let render_task_id = frame_state.render_tasks.add().init(
@@ -4313,7 +4303,6 @@ impl PicturePrimitive {
                             &transform,
                             &clipped,
                             device_pixel_scale,
-                            true,
                         );
 
                         let picture_task_id = frame_state.render_tasks.add().init(
@@ -5010,32 +4999,14 @@ fn calculate_screen_uv(
     transform: &PictureToRasterTransform,
     rendered_rect: &DeviceRect,
     device_pixel_scale: DevicePixelScale,
-    supports_snapping: bool,
 ) -> DeviceHomogeneousVector {
     let raster_pos = transform.transform_point2d_homogeneous(*local_pos);
 
-    let mut device_vec = DeviceHomogeneousVector::new(
-        raster_pos.x * device_pixel_scale.0,
-        raster_pos.y * device_pixel_scale.0,
+    DeviceHomogeneousVector::new(
+        (raster_pos.x * device_pixel_scale.0 - rendered_rect.origin.x * raster_pos.w) / rendered_rect.size.width,
+        (raster_pos.y * device_pixel_scale.0 - rendered_rect.origin.y * raster_pos.w) / rendered_rect.size.height,
         0.0,
         raster_pos.w,
-    );
-
-    // Apply snapping for axis-aligned scroll nodes, as per prim_shared.glsl.
-    if transform.transform_kind() == TransformedRectKind::AxisAligned && supports_snapping {
-        device_vec = DeviceHomogeneousVector::new(
-            (device_vec.x / device_vec.w + 0.5).floor(),
-            (device_vec.y / device_vec.w + 0.5).floor(),
-            0.0,
-            1.0,
-        );
-    }
-
-    DeviceHomogeneousVector::new(
-        (device_vec.x - rendered_rect.origin.x * device_vec.w) / rendered_rect.size.width,
-        (device_vec.y - rendered_rect.origin.y * device_vec.w) / rendered_rect.size.height,
-        0.0,
-        device_vec.w,
     )
 }
 
@@ -5046,7 +5017,6 @@ fn calculate_uv_rect_kind(
     transform: &PictureToRasterTransform,
     rendered_rect: &DeviceIntRect,
     device_pixel_scale: DevicePixelScale,
-    supports_snapping: bool,
 ) -> UvRectKind {
     let rendered_rect = rendered_rect.to_f32();
 
@@ -5055,7 +5025,6 @@ fn calculate_uv_rect_kind(
         transform,
         &rendered_rect,
         device_pixel_scale,
-        supports_snapping,
     );
 
     let top_right = calculate_screen_uv(
@@ -5063,7 +5032,6 @@ fn calculate_uv_rect_kind(
         transform,
         &rendered_rect,
         device_pixel_scale,
-        supports_snapping,
     );
 
     let bottom_left = calculate_screen_uv(
@@ -5071,7 +5039,6 @@ fn calculate_uv_rect_kind(
         transform,
         &rendered_rect,
         device_pixel_scale,
-        supports_snapping,
     );
 
     let bottom_right = calculate_screen_uv(
@@ -5079,7 +5046,6 @@ fn calculate_uv_rect_kind(
         transform,
         &rendered_rect,
         device_pixel_scale,
-        supports_snapping,
     );
 
     UvRectKind::Quad {
