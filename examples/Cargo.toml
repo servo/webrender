@@ -62,7 +62,7 @@ app_units = "0.7"
 env_logger = "0.5"
 euclid = "0.20"
 gleam = "0.8.0"
-glutin = "0.21"
+glutin = "0.23"
 rayon = "1"
 webrender = { path = "../webrender" }
 winit = "0.19"
