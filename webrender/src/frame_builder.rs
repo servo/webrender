@@ -262,7 +262,6 @@ impl FrameBuilder {
         texture_cache_profile: &mut TextureCacheProfileCounters,
         composite_state: &mut CompositeState,
         tile_cache_logger: &mut TileCacheLogger,
-        config: FrameBuilderConfig,
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
 
@@ -349,7 +348,7 @@ impl FrameBuilder {
                 surfaces,
                 debug_flags,
                 scene_properties,
-                config,
+                config: scene.config,
             };
 
             let mut visibility_state = FrameVisibilityState {
@@ -375,6 +374,12 @@ impl FrameBuilder {
                 &visibility_context,
                 &mut visibility_state,
             );
+
+            // When there are tiles that are left remaining in the `retained_tiles`,
+            // dirty rects are not valid.
+            if !visibility_state.retained_tiles.caches.is_empty() {
+              visibility_state.composite_state.dirty_rects_are_valid = false;
+            }
 
             // When a new display list is processed by WR, the existing tiles from
             // any picture cache are stored in the `retained_tiles` field above. This
@@ -498,7 +503,6 @@ impl FrameBuilder {
         render_task_counters: &mut RenderTaskGraphCounters,
         debug_flags: DebugFlags,
         tile_cache_logger: &mut TileCacheLogger,
-        config: FrameBuilderConfig,
     ) -> Frame {
         profile_scope!("build");
         profile_marker!("BuildFrame");
@@ -569,7 +573,6 @@ impl FrameBuilder {
             &mut resource_profile.texture_cache,
             &mut composite_state,
             tile_cache_logger,
-            config,
         );
 
         let mut passes;

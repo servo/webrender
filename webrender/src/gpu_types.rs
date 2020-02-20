@@ -2,15 +2,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DocumentLayer, PremultipliedColorF};
+use api::{DocumentLayer, PremultipliedColorF, AlphaType};
 use api::units::*;
 use crate::spatial_tree::{SpatialTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
 use crate::gpu_cache::{GpuCacheAddress, GpuDataRequest};
 use crate::internal_types::FastHashMap;
 use crate::prim_store::EdgeAaSegmentMask;
 use crate::render_task::RenderTaskAddress;
+use crate::renderer::ShaderColorMode;
 use std::i32;
 use crate::util::{TransformedRectKind, MatrixHelpers};
+use crate::glyph_rasterizer::SubpixelDirection;
 
 // Contains type that must exactly match the same structures declared in GLSL.
 
@@ -364,13 +366,24 @@ impl GlyphInstance {
     // TODO(gw): Some of these fields can be moved to the primitive
     //           header since they are constant, and some can be
     //           compressed to a smaller size.
-    pub fn build(&self, data0: i32, data1: i32, resource_address: i32) -> PrimitiveInstanceData {
+    pub fn build(&self,
+        render_task: RenderTaskAddress,
+        clip_task: RenderTaskAddress,
+        subpx_dir: SubpixelDirection,
+        glyph_index_in_text_run: i32,
+        glyph_uv_rect: GpuCacheAddress,
+        color_mode: ShaderColorMode,
+    ) -> PrimitiveInstanceData {
         PrimitiveInstanceData {
             data: [
                 self.prim_header_index.0 as i32,
-                data0,
-                data1,
-                resource_address | ((BrushShaderKind::Text as i32) << 24),
+                ((render_task.0 as i32) << 16)
+                | clip_task.0 as i32,
+                (subpx_dir as u32 as i32) << 24
+                | (color_mode as u32 as i32) << 16
+                | glyph_index_in_text_run,
+                glyph_uv_rect.as_int()
+                | ((BrushShaderKind::Text as i32) << 24),
             ],
         }
     }
@@ -449,6 +462,27 @@ impl From<BrushInstance> for PrimitiveInstanceData {
                 | ((instance.brush_kind as i32) << 24),
             ]
         }
+    }
+}
+
+/// Convenience structure to encode into the image brush's user data.
+#[derive(Copy, Clone, Debug)]
+pub struct ImageBrushData {
+    pub color_mode: ShaderColorMode,
+    pub alpha_type: AlphaType,
+    pub raster_space: RasterizationSpace,
+    pub opacity: f32,
+}
+
+impl ImageBrushData {
+    #[inline]
+    pub fn encode(&self) -> [i32; 4] {
+        [
+            self.color_mode as i32 | ((self.alpha_type as i32) << 16),
+            self.raster_space as i32,
+            get_shader_opacity(self.opacity),
+            0,
+        ]
     }
 }
 
@@ -719,4 +753,8 @@ fn register_transform(
         transforms.push(data);
         index
     }
+}
+
+pub fn get_shader_opacity(opacity: f32) -> i32 {
+    (opacity * 65535.0).round() as i32
 }

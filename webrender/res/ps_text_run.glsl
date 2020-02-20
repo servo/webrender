@@ -90,6 +90,28 @@ TextRun fetch_text_run(int address) {
     return TextRun(data[0], data[1]);
 }
 
+vec2 get_snap_bias(int subpx_dir) {
+    // In subpixel mode, the subpixel offset has already been
+    // accounted for while rasterizing the glyph. However, we
+    // must still round with a subpixel bias rather than rounding
+    // to the nearest whole pixel, depending on subpixel direciton.
+    switch (subpx_dir) {
+        case SUBPX_DIR_NONE:
+        default:
+            return vec2(0.5);
+        case SUBPX_DIR_HORIZONTAL:
+            // Glyphs positioned [-0.125, 0.125] get a
+            // subpx position of zero. So include that
+            // offset in the glyph position to ensure
+            // we round to the correct whole position.
+            return vec2(0.125, 0.5);
+        case SUBPX_DIR_VERTICAL:
+            return vec2(0.5, 0.125);
+        case SUBPX_DIR_MIXED:
+            return vec2(0.125);
+    }
+}
+
 void main(void) {
     Instance instance = decode_instance_attributes();
 
@@ -118,30 +140,7 @@ void main(void) {
 
     GlyphResource res = fetch_glyph_resource(instance.resource_address);
 
-    vec2 snap_bias;
-    // In subpixel mode, the subpixel offset has already been
-    // accounted for while rasterizing the glyph. However, we
-    // must still round with a subpixel bias rather than rounding
-    // to the nearest whole pixel, depending on subpixel direciton.
-    switch (subpx_dir) {
-        case SUBPX_DIR_NONE:
-        default:
-            snap_bias = vec2(0.5);
-            break;
-        case SUBPX_DIR_HORIZONTAL:
-            // Glyphs positioned [-0.125, 0.125] get a
-            // subpx position of zero. So include that
-            // offset in the glyph position to ensure
-            // we round to the correct whole position.
-            snap_bias = vec2(0.125, 0.5);
-            break;
-        case SUBPX_DIR_VERTICAL:
-            snap_bias = vec2(0.5, 0.125);
-            break;
-        case SUBPX_DIR_MIXED:
-            snap_bias = vec2(0.125);
-            break;
-    }
+    vec2 snap_bias = get_snap_bias(subpx_dir);
 
     // Glyph space refers to the pixel space used by glyph rasterization during frame
     // building. If a non-identity transform was used, WR_FEATURE_GLYPH_TRANSFORM will
@@ -220,26 +219,22 @@ void main(void) {
     vec2 local_pos = glyph_rect.p0 + glyph_rect.size * aPosition.xy;
 #endif
 
-    // Clamp to the local clip rect.
-    local_pos = clamp_rect(local_pos, ph.local_clip_rect);
-
-    // Map the clamped local space corner into device space.
-    vec4 world_pos = transform.m * vec4(local_pos, 0.0, 1.0);
-    vec2 device_pos = world_pos.xy * task.device_pixel_scale;
-
-    // Apply offsets for the render task to get correct screen location.
-    vec2 final_offset = -task.content_origin + task.common_data.task_rect.p0;
-
-    gl_Position = uTransform * vec4(device_pos + final_offset * world_pos.w, ph.z * world_pos.w, world_pos.w);
+    VertexInfo vi = write_vertex(
+        local_pos,
+        ph.local_clip_rect,
+        ph.z,
+        transform,
+        task
+    );
 
 #ifdef WR_FEATURE_GLYPH_TRANSFORM
-    vec2 f = (glyph_transform * local_pos - glyph_rect.p0) / glyph_rect.size;
+    vec2 f = (glyph_transform * vi.local_pos - glyph_rect.p0) / glyph_rect.size;
     V_UV_CLIP = vec4(f, 1.0 - f);
 #else
-    vec2 f = (local_pos - glyph_rect.p0) / glyph_rect.size;
+    vec2 f = (vi.local_pos - glyph_rect.p0) / glyph_rect.size;
 #endif
 
-    write_clip(world_pos, clip_area);
+    write_clip(vi.world_pos, clip_area);
 
     switch (color_mode) {
         case COLOR_MODE_ALPHA:
@@ -278,24 +273,41 @@ void main(void) {
 #endif
 
 #ifdef WR_FRAGMENT_SHADER
-void main(void) {
+
+Fragment text_brush_fs(void) {
+    Fragment frag;
+
     vec3 tc = vec3(clamp(V_UV, V_UV_BOUNDS.xy, V_UV_BOUNDS.zw), V_LAYER);
     vec4 mask = texture(sColor0, tc);
     mask.rgb = mask.rgb * V_MASK_SWIZZLE.x + mask.aaa * V_MASK_SWIZZLE.y;
 
-    float alpha = do_clip();
-#ifdef WR_FEATURE_GLYPH_TRANSFORM
-    alpha *= float(all(greaterThanEqual(V_UV_CLIP, vec4(0.0))));
-#endif
+    #ifdef WR_FEATURE_GLYPH_TRANSFORM
+        mask *= float(all(greaterThanEqual(V_UV_CLIP, vec4(0.0))));
+    #endif
 
-#if defined(WR_FEATURE_DEBUG_OVERDRAW)
-    oFragColor = WR_DEBUG_OVERDRAW_COLOR;
-#elif defined(WR_FEATURE_DUAL_SOURCE_BLENDING)
-    vec4 alpha_mask = mask * alpha;
-    oFragColor = V_COLOR * alpha_mask;
-    oFragBlend = alpha_mask * V_COLOR.a;
-#else
-    write_output(V_COLOR * mask * alpha);
-#endif
+    frag.color = V_COLOR * mask;
+
+    #ifdef WR_FEATURE_DUAL_SOURCE_BLENDING
+        frag.blend = V_COLOR.a * mask;
+    #endif
+
+    return frag;
 }
-#endif
+
+void main(void) {
+    Fragment frag = text_brush_fs();
+
+    float clip_mask = do_clip();
+    frag.color *= clip_mask;
+
+    #if defined(WR_FEATURE_DEBUG_OVERDRAW)
+        oFragColor = WR_DEBUG_OVERDRAW_COLOR;
+    #elif defined(WR_FEATURE_DUAL_SOURCE_BLENDING)
+        oFragColor = frag.color;
+        oFragBlend = frag.blend * clip_mask;
+    #else
+        write_output(frag.color);
+    #endif
+}
+
+#endif // WR_FRAGMENT_SHADER

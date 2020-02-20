@@ -1969,6 +1969,10 @@ impl Renderer {
         shaders: Option<&mut WrShaders>,
         start_size: DeviceIntSize,
     ) -> Result<(Self, RenderApiSender), RendererError> {
+        if !wr_has_been_initialized() {
+            register_thread_with_profiler("Compositor".to_owned());
+        }
+
         HAS_BEEN_INITIALIZED.store(true, Ordering::SeqCst);
 
         let (api_tx, api_rx) = channel::msg_channel()?;
@@ -2027,8 +2031,6 @@ impl Renderer {
         }
         let max_texture_size = device.max_texture_size();
         let max_texture_layers = device.max_texture_layers();
-
-        register_thread_with_profiler("Compositor".to_owned());
 
         device.begin_frame();
 
@@ -2884,6 +2886,7 @@ impl Renderer {
             | DebugCommand::SimulateLongSceneBuild(_)
             | DebugCommand::SimulateLongLowPrioritySceneBuild(_)
             | DebugCommand::EnableNativeCompositor(_)
+            | DebugCommand::SetBatchingLookback(_)
             | DebugCommand::EnableMultithreading(_) => {}
             DebugCommand::InvalidateGpuCache => {
                 match self.gpu_cache_texture.bus {
