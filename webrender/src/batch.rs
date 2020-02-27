@@ -895,14 +895,18 @@ impl BatchBuilder {
                 // The local prim rect is only informative for text primitives, as
                 // thus is not directly necessary for any drawing of the text run.
                 // However the glyph offsets are relative to the prim rect origin
-                // less the unsnapped reference frame offset. In the prim header,
-                // we only have room to store the snapped reference frame offset,
-                // which we cannot recalculate because it ignores the animated
-                // components for the transform. As such, we adjust the prim rect
-                // origin here, so that the shader does not need to know the
-                // unsnapped offset as well.
+                // less the unsnapped reference frame offset. We also want the
+                // the snapped reference frame offset, because cannot recalculate
+                // it as it ignores the animated components for the transform. As
+                // such, we adjust the prim rect origin here, and replace the size
+                // with the unsnapped and snapped offsets respectively. This has
+                // the added bonus of avoiding quantization effects when storing
+                // floats in the extra header integers.
                 let prim_header = PrimitiveHeader {
-                    local_rect: prim_rect.translate(-run.reference_frame_relative_offset),
+                    local_rect: LayoutRect::new(
+                        prim_rect.origin - run.reference_frame_relative_offset,
+                        run.snapped_reference_frame_relative_offset.to_size(),
+                    ),
                     local_clip_rect: prim_info.combined_local_clip_rect,
                     specific_prim_address: prim_cache_address,
                     transform_id,
@@ -914,9 +918,9 @@ impl BatchBuilder {
                     &prim_header,
                     z_id,
                     [
-                        (run.snapped_reference_frame_relative_offset.x * 256.0) as i32,
-                        (run.snapped_reference_frame_relative_offset.y * 256.0) as i32,
                         (raster_scale * 65535.0).round() as i32,
+                        0,
+                        0,
                         0,
                     ],
                 );
@@ -1231,6 +1235,8 @@ impl BatchBuilder {
                                     z_id,
                                     ctx.global_device_pixel_scale,
                                     ctx.resource_cache,
+                                    gpu_cache,
+                                    deferred_resolves,
                                 );
                             }
                             PictureCompositeMode::Filter(ref filter) => {
@@ -1874,7 +1880,61 @@ impl BatchBuilder {
                     ctx,
                 );
             }
-            PrimitiveInstanceKind::YuvImage { data_handle, segment_instance_index, .. } => {
+            PrimitiveInstanceKind::YuvImage { data_handle, segment_instance_index, is_compositor_surface, .. } => {
+                // If this YUV image is being drawn as a compositor surface, we don't want
+                // to draw the YUV surface itself into the tile. Instead, we draw a transparent
+                // rectangle that writes to the z-buffer where this compositor surface is.
+                // That ensures we 'cut out' the part of the tile that has the compositor
+                // surface on it, allowing us to draw this tile as an overlay on top of
+                // the compositor surface.
+                // TODO(gw): There's a slight performance cost to doing this cutout rectangle
+                //           if we end up not needing to use overlay mode. Consider skipping
+                //           the cutout completely in this path.
+                if is_compositor_surface {
+                    let batch_params = BrushBatchParameters::shared(
+                        BrushBatchKind::Solid,
+                        BatchTextures::no_texture(),
+                        [get_shader_opacity(0.0), 0, 0, 0],
+                        0,
+                    );
+
+                    let prim_cache_address = gpu_cache.get_address(
+                        &ctx.globals.default_transparent_rect_handle,
+                    );
+
+                    let prim_header = PrimitiveHeader {
+                        local_rect: prim_rect,
+                        local_clip_rect: prim_info.combined_local_clip_rect,
+                        specific_prim_address: prim_cache_address,
+                        transform_id,
+                    };
+
+                    let prim_header_index = prim_headers.push(
+                        &prim_header,
+                        z_id,
+                        batch_params.prim_user_data,
+                    );
+
+                    self.add_segmented_prim_to_batch(
+                        None,
+                        PrimitiveOpacity::translucent(),
+                        &batch_params,
+                        BlendMode::None,
+                        BlendMode::None,
+                        batch_features,
+                        prim_header_index,
+                        bounding_rect,
+                        transform_kind,
+                        render_tasks,
+                        z_id,
+                        prim_info.clip_task_index,
+                        prim_vis_mask,
+                        ctx,
+                    );
+
+                    return;
+                }
+
                 let yuv_image_data = &ctx.data_stores.yuv_image[data_handle].kind;
                 let mut textures = BatchTextures::no_texture();
                 let mut uv_rect_addresses = [0; 3];
@@ -3223,7 +3283,8 @@ impl ClipBatcher {
     }
 }
 
-fn get_buffer_kind(texture: TextureSource) -> ImageBufferKind {
+// TODO(gw): This should probably be a method on TextureSource
+pub fn get_buffer_kind(texture: TextureSource) -> ImageBufferKind {
     match texture {
         TextureSource::External(ext_image) => {
             match ext_image.image_type {

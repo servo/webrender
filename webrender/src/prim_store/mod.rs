@@ -1410,6 +1410,7 @@ pub enum PrimitiveInstanceKind {
         /// Handle to the common interned data for this primitive.
         data_handle: YuvImageDataHandle,
         segment_instance_index: SegmentInstanceIndex,
+        is_compositor_surface: bool,
     },
     Image {
         /// Handle to the common interned data for this primitive.
@@ -2136,6 +2137,9 @@ impl PrimitiveStore {
                         );
 
                     if let Some(ref mut tile_cache) = frame_state.tile_cache {
+                        // TODO(gw): Refactor how tile_cache is stored in frame_state
+                        //           so that we can pass frame_state directly to
+                        //           update_prim_dependencies, rather than splitting borrows.
                         if !tile_cache.update_prim_dependencies(
                             prim_instance,
                             cluster.spatial_node_index,
@@ -2149,6 +2153,7 @@ impl PrimitiveStore {
                             &self.opacity_bindings,
                             &self.images,
                             &frame_state.surface_stack,
+                            &frame_state.composite_state,
                         ) {
                             prim_instance.visibility_info = PrimitiveVisibilityIndex::INVALID;
                             // Ensure the primitive clip is popped - perhaps we can use
@@ -2685,7 +2690,7 @@ impl PrimitiveStore {
                         pic_context.surface_spatial_node_index,
                         pic_context.raster_spatial_node_index,
                         pic_context.surface_index,
-                        pic_context.subpixel_mode,
+                        &pic_context.subpixel_mode,
                         frame_state,
                         frame_context,
                         scratch,
@@ -2941,16 +2946,18 @@ impl PrimitiveStore {
                 let pic = &self.pictures[pic_context.pic_index.0];
                 let raster_space = pic.get_raster_space(frame_context.spatial_tree);
                 let surface = &frame_state.surfaces[pic_context.surface_index.0];
+                let prim_info = &scratch.prim_info[prim_instance.visibility_info.0 as usize];
 
                 run.request_resources(
                     prim_offset,
+                    prim_info.clip_chain.pic_clip_rect,
                     &prim_data.font,
                     &prim_data.glyphs,
                     &transform.to_transform().with_destination::<_>(),
                     surface,
                     prim_spatial_node_index,
                     raster_space,
-                    pic_context.subpixel_mode,
+                    &pic_context.subpixel_mode,
                     frame_state.resource_cache,
                     frame_state.gpu_cache,
                     frame_state.render_tasks,
@@ -3827,7 +3834,18 @@ impl PrimitiveInstance {
                 });
             }
 
-            if segments.is_empty() {
+            // If only a single segment is produced, there is no benefit to writing
+            // a segment instance array. Instead, just use the main primitive rect
+            // written into the GPU cache.
+            // TODO(gw): This is (sortof) a bandaid - due to a limitation in the current
+            //           brush encoding, we can only support a total of up to 2^16 segments.
+            //           This should be (more than) enough for any real world case, so for
+            //           now we can handle this by skipping cases where we were generating
+            //           segments where there is no benefit. The long term / robust fix
+            //           for this is to move the segment building to be done as a more
+            //           limited nine-patch system during scene building, removing arbitrary
+            //           segmentation during frame-building (see bug #1617491).
+            if segments.len() <= 1 {
                 *segment_instance_index = SegmentInstanceIndex::UNUSED;
             } else {
                 let segments_range = segments_store.extend(segments);

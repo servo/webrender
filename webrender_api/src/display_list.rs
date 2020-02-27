@@ -10,7 +10,7 @@ use serde::de::Deserializer;
 #[cfg(feature = "serialize")]
 use serde::ser::{Serializer, SerializeSeq};
 use serde::{Deserialize, Serialize};
-use std::io::{stdout, Write};
+use std::io::Write;
 use std::marker::PhantomData;
 use std::ops::Range;
 use std::mem;
@@ -658,8 +658,8 @@ impl<'a> BuiltDisplayListIter<'a> {
     pub fn as_ref<'b>(&'b self) -> DisplayItemRef<'a, 'b> {
         let cached_item = match self.cur_item {
             di::DisplayItem::ReuseItem(key) => {
-                debug_assert!(self.cache.is_some(), "Cache marker without cache!");
-                self.cache.and_then(|c| c.get_item(key))
+                let cache = self.cache.expect("Cache marker without cache!");
+                cache.get_item(key)
             }
             _ => None
         };
@@ -925,6 +925,7 @@ pub struct DisplayListBuilder {
     save_state: Option<SaveState>,
 
     cache_size: usize,
+    serialized_content_buffer: Option<String>,
 }
 
 impl DisplayListBuilder {
@@ -954,6 +955,7 @@ impl DisplayListBuilder {
             content_size,
             save_state: None,
             cache_size: 0,
+            serialized_content_buffer: None,
         }
     }
 
@@ -993,11 +995,6 @@ impl DisplayListBuilder {
     /// Discards the builder's save (indicating the attempted operation was successful).
     pub fn clear_save(&mut self) {
         self.save_state.take().expect("No save to clear in DisplayListBuilder");
-    }
-
-    /// Print the display items in the list to stdout.
-    pub fn print_display_list(&mut self) {
-        self.emit_display_list(0, Range { start: None, end: None }, stdout());
     }
 
     /// Emits a debug representation of display items in the list, for debugging
@@ -1046,6 +1043,11 @@ impl DisplayListBuilder {
         }
     }
 
+    /// Print the display items in the list to stdout.
+    pub fn dump_serialized_display_list(&mut self) {
+        self.serialized_content_buffer = Some(String::new());
+    }
+
     /// Add an item to the display list.
     ///
     /// NOTE: It is usually preferable to use the specialized methods to push
@@ -1054,6 +1056,11 @@ impl DisplayListBuilder {
     #[inline]
     pub fn push_item(&mut self, item: &di::DisplayItem) {
         poke_into_vec(item, self.active_buffer());
+
+        if let Some(ref mut content) = self.serialized_content_buffer {
+            use std::fmt::Write;
+            write!(content, "{:?}\n", item).expect("DL dump write failed.");
+        }
     }
 
     fn push_iter_impl<I>(data: &mut Vec<u8>, iter_source: I)
@@ -1730,10 +1737,10 @@ impl DisplayListBuilder {
         self.extra_data_chunk_len = self.extra_data.len();
     }
 
-    // Returns the amount of bytes written to extra data buffer.
-    pub fn end_extra_data_chunk(&mut self) -> usize {
+    /// Returns true, if any bytes were written to extra data buffer.
+    pub fn end_extra_data_chunk(&mut self) -> bool {
         self.writing_extra_data_chunk = false;
-        self.extra_data.len() - self.extra_data_chunk_len
+        (self.extra_data.len() - self.extra_data_chunk_len) > 0
     }
 
     pub fn push_reuse_item(
@@ -1753,6 +1760,11 @@ impl DisplayListBuilder {
 
     pub fn finalize(mut self) -> (PipelineId, LayoutSize, BuiltDisplayList) {
         assert!(self.save_state.is_none(), "Finalized DisplayListBuilder with a pending save");
+
+        if let Some(content) = self.serialized_content_buffer.take() {
+            println!("-- WebRender display list for {:?} --\n{}",
+                self.pipeline_id, content);
+        }
 
         // Add `DisplayItem::max_size` zone of zeroes to the end of display list
         // so there is at least this amount available in the display list during
