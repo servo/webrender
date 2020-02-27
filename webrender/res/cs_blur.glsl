@@ -57,9 +57,6 @@ void main(void) {
 
     // Ensure that the support is an even number of pixels to simplify the
     // fragment shader logic.
-    //
-    // TODO(pcwalton): Actually make use of this fact and use the texture
-    // hardware for linear filtering.
     vSupport = int(ceil(1.5 * blur_task.blur_radius)) * 2;
 
     switch (aBlurDirection) {
