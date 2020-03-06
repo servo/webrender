@@ -31,7 +31,7 @@ use crate::prim_store::{register_prim_chase_id, get_line_decoration_size};
 use crate::prim_store::{SpaceSnapper};
 use crate::prim_store::backdrop::Backdrop;
 use crate::prim_store::borders::{ImageBorder, NormalBorderPrim};
-use crate::prim_store::gradient::{GradientStopKey, LinearGradient, RadialGradient, RadialGradientParams, ConicGradient, ConicGradientAngle};
+use crate::prim_store::gradient::{GradientStopKey, LinearGradient, RadialGradient, RadialGradientParams, ConicGradient, ConicGradientParams};
 use crate::prim_store::image::{Image, YuvImage};
 use crate::prim_store::line_dec::{LineDecoration, LineDecorationCacheKey};
 use crate::prim_store::picture::{Picture, PictureCompositeKey, PictureKey};
@@ -1214,7 +1214,7 @@ impl<'a> SceneBuilder<'a> {
                 self.add_solid_rectangle(
                     clip_and_scroll,
                     &layout,
-                    ColorF::TRANSPARENT,
+                    PropertyBinding::Value(ColorF::TRANSPARENT),
                 );
             }
             DisplayItem::ClearRectangle(ref info) => {
@@ -1326,6 +1326,8 @@ impl<'a> SceneBuilder<'a> {
                     &layout,
                     info.gradient.center,
                     info.gradient.angle,
+                    info.gradient.start_offset,
+                    info.gradient.end_offset,
                     item.gradient_stops(),
                     info.gradient.extend_mode,
                     tile_size,
@@ -2749,13 +2751,19 @@ impl<'a> SceneBuilder<'a> {
         &mut self,
         clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayoutPrimitiveInfo,
-        color: ColorF,
+        color: PropertyBinding<ColorF>,
     ) {
-        if color.a == 0.0 {
-            // Don't add transparent rectangles to the draw list, but do consider them for hit
-            // testing. This allows specifying invisible hit testing areas.
-            self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
-            return;
+        match color {
+            PropertyBinding::Value(value) => {
+                if value.a == 0.0 {
+                    // Don't add transparent rectangles to the draw list,
+                    // but do consider them for hit testing. This allows
+                    // specifying invisible hit testing areas.
+                    self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
+                    return;
+                }
+            },
+            PropertyBinding::Binding(..) => {},
         }
 
         self.add_primitive(
@@ -2934,6 +2942,8 @@ impl<'a> SceneBuilder<'a> {
                             &info,
                             gradient.center,
                             gradient.angle,
+                            gradient.start_offset,
+                            gradient.end_offset,
                             gradient_stops,
                             gradient.extend_mode,
                             LayoutSize::new(border.height as f32, border.width as f32),
@@ -3066,6 +3076,8 @@ impl<'a> SceneBuilder<'a> {
         info: &LayoutPrimitiveInfo,
         center: LayoutPoint,
         angle: f32,
+        start_offset: f32,
+        end_offset: f32,
         stops: ItemRange<GradientStop>,
         extend_mode: ExtendMode,
         stretch_size: LayoutSize,
@@ -3085,7 +3097,7 @@ impl<'a> SceneBuilder<'a> {
         ConicGradient {
             extend_mode,
             center: center.into(),
-            angle: ConicGradientAngle { angle },
+            params: ConicGradientParams { angle, start_offset, end_offset },
             stretch_size: stretch_size.into(),
             tile_spacing: tile_spacing.into(),
             nine_patch,

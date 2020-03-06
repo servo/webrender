@@ -23,7 +23,7 @@ pub const VECS_PER_TRANSFORM: usize = 8;
 #[repr(C)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct ZBufferId(i32);
+pub struct ZBufferId(pub i32);
 
 // We get 24 bits of Z value - use up 22 bits of it to give us
 // 4 bits to account for GPU issues. This seems to manifest on
@@ -255,7 +255,7 @@ pub struct CompositeInstance {
     yuv_rescale: f32,
 
     // UV rectangles (pixel space) for color / yuv texture planes
-    uv_rects: [DeviceRect; 3],
+    uv_rects: [TexelRect; 3],
 
     // Texture array layers for color / yuv texture planes
     texture_layers: [f32; 3],
@@ -278,7 +278,7 @@ impl CompositeInstance {
             yuv_format: 0.0,
             yuv_rescale: 0.0,
             texture_layers: [layer, 0.0, 0.0],
-            uv_rects: [DeviceRect::zero(); 3],
+            uv_rects: [TexelRect::invalid(); 3],
         }
     }
 
@@ -290,7 +290,7 @@ impl CompositeInstance {
         yuv_format: YuvFormat,
         yuv_rescale: f32,
         texture_layers: [f32; 3],
-        uv_rects: [DeviceRect; 3],
+        uv_rects: [TexelRect; 3],
     ) -> Self {
         CompositeInstance {
             rect,
