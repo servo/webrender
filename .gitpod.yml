@@ -1,0 +1,14 @@
+image: gitpod/workspace-full-vnc
+
+ports:
+  - port: 6080
+    onOpen: open-preview
+
+github:
+  prebuilds:
+    # enable for the master/default branch (defaults to true)
+    master: true
+
+tasks:
+  - init: cargo build --manifest-path="$GITPOD_REPO_ROOT/examples/Cargo.toml"
+    command: cargo run --bin animation
