@@ -211,5 +211,7 @@ fn main() {
         angle1: 0.0,
         angle2: 0.0,
     };
+
+    println!("Press arrows for the GUI to move");
     boilerplate::main_wrapper(&mut app, None);
 }
