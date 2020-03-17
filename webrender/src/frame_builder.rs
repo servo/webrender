@@ -15,7 +15,7 @@ use crate::gpu_types::TransformData;
 use crate::internal_types::{FastHashMap, PlaneSplitter, SavedTargetIndex};
 use crate::picture::{PictureUpdateState, SurfaceInfo, ROOT_SURFACE_INDEX, SurfaceIndex, RecordedDirtyRegion};
 use crate::picture::{RetainedTiles, TileCacheInstance, DirtyRegion, SurfaceRenderTasks, SubpixelMode};
-use crate::picture::{TileCacheLogger};
+use crate::picture::{BackdropKind, TileCacheLogger};
 use crate::prim_store::{SpaceMapper, PictureIndex, PrimitiveDebugId, PrimitiveScratchBuffer};
 use crate::prim_store::{DeferredResolve, PrimitiveVisibilityMask};
 use crate::profiler::{FrameProfileCounters, TextureCacheProfileCounters, ResourceProfileCounters};
@@ -66,6 +66,7 @@ pub struct FrameBuilderConfig {
     pub background_color: Option<ColorF>,
     pub compositor_kind: CompositorKind,
     pub tile_size_override: Option<DeviceIntSize>,
+    pub max_depth_ids: i32,
 }
 
 /// A set of common / global resources that are retained between
@@ -569,6 +570,7 @@ impl FrameBuilder {
             scene.config.compositor_kind,
             picture_caching_is_enabled,
             global_device_pixel_scale,
+            scene.config.max_depth_ids,
         );
 
         let main_render_task_id = self.build_layer_screen_rects_and_cull_layers(
@@ -605,7 +607,7 @@ impl FrameBuilder {
             );
 
             // Used to generated a unique z-buffer value per primitive.
-            let mut z_generator = ZBufferIdGenerator::new(layer);
+            let mut z_generator = ZBufferIdGenerator::new(layer, scene.config.max_depth_ids);
             let use_dual_source_blending = scene.config.dual_source_blending_is_enabled &&
                                            scene.config.dual_source_blending_is_supported;
 
@@ -881,13 +883,18 @@ pub fn build_render_pass(
                     Some(color) => color.a >= 1.0,
                     None => false,
                 };
-                // TODO(gw): Once we have multiple slices enabled, take advantage of
-                //           option to skip clears if the slice is opaque.
-                let clear_color = if forced_opaque {
+                let mut clear_color = if forced_opaque {
                     Some(ColorF::WHITE)
                 } else {
                     Some(ColorF::TRANSPARENT)
                 };
+
+                // If this picture cache has a valid color backdrop, we will use
+                // that as the clear color, skipping the draw of the backdrop
+                // primitive (and anything prior to it) during batching.
+                if let Some(BackdropKind::Color { color }) = tile_cache.backdrop.kind {
+                    clear_color = Some(color);
+                }
 
                 // Create an alpha batcher for each of the tasks of this picture.
                 let mut batchers = Vec::new();
