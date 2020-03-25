@@ -3164,6 +3164,9 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
     );
     declare_function(state, "cos", None, Type::new(Float), vec![Type::new(Float)]);
     declare_function(state, "sin", None, Type::new(Float), vec![Type::new(Float)]);
+    declare_function(state, "tan", None, Type::new(Float), vec![Type::new(Float)]);
+    declare_function(state, "atan", None, Type::new(Float), vec![Type::new(Float)]);
+    declare_function(state, "atan", None, Type::new(Float), vec![Type::new(Float), Type::new(Float)]);
     declare_function(
         state,
         "clamp",
@@ -3374,14 +3377,14 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
         "texture",
         None,
         Type::new(Vec4),
-        vec![Type::new(Sampler2D), Type::new(Vec3)],
+        vec![Type::new(Sampler2D), Type::new(Vec2)],
     );
     declare_function(
         state,
         "texture",
         None,
         Type::new(Vec4),
-        vec![Type::new(Sampler2D), Type::new(Vec2)],
+        vec![Type::new(Sampler2DRect), Type::new(Vec2)],
     );
     declare_function(
         state,
@@ -3410,6 +3413,13 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
         None,
         Type::new(IVec2),
         vec![Type::new(Sampler2D), Type::new(Int)],
+    );
+    declare_function(
+        state,
+        "textureSize",
+        None,
+        Type::new(IVec2),
+        vec![Type::new(Sampler2DRect), Type::new(Int)],
     );
 
     declare_function(

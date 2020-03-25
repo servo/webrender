@@ -427,6 +427,10 @@ vec2_scalar make_vec2(float n) { return vec2_scalar{n, n}; }
 
 vec2_scalar make_vec2(float x, float y) { return vec2_scalar{x, y}; }
 
+vec2_scalar make_vec2(int32_t x, int32_t y) {
+  return vec2_scalar{float(x), float(y)};
+}
+
 template <typename N>
 vec2 make_vec2(const N& n) {
   return vec2(n);
@@ -1763,6 +1767,9 @@ typedef isampler2D_impl* isampler2D;
 struct isampler2DRGBA32I_impl : isampler2D_impl {};
 typedef isampler2DRGBA32I_impl* isampler2DRGBA32I;
 
+struct sampler2DRect_impl : samplerCommon, samplerFilter {};
+typedef sampler2DRect_impl* sampler2DRect;
+
 struct mat4_scalar;
 
 struct mat2_scalar {
@@ -2270,6 +2277,13 @@ vec4_scalar texelFetch(sampler2DR8 sampler, ivec2_scalar P, int lod) {
       0.0f, 0.0f};
 }
 
+vec4 texelFetch(sampler2DRect sampler, ivec2 P) {
+  P = clamp2D(P, sampler);
+  assert(sampler->format == TextureFormat::RGBA8);
+  I32 offset = P.x + P.y * sampler->stride;
+  return fetchOffsetsRGBA8(sampler, offset);
+}
+
 vec4 texelFetch(sampler2DArray sampler, ivec3 P, int lod) {
   P = clamp2DArray(P, sampler);
   if (sampler->format == TextureFormat::RGBA32F) {
@@ -2643,6 +2657,17 @@ vec4 texture(sampler2D sampler, vec2 P) {
   }
 }
 
+vec4 texture(sampler2DRect sampler, vec2 P) {
+  assert(sampler->format == TextureFormat::RGBA8);
+  if (sampler->filter == TextureFilter::LINEAR) {
+    return textureLinearRGBA8(sampler,
+                              P * vec2_scalar{1.0f / sampler->width, 1.0f / sampler->height});
+  } else {
+    ivec2 coord(roundto(P.x, 1.0f), roundto(P.y, 1.0f));
+    return texelFetch(sampler, coord);
+  }
+}
+
 vec4 texture(sampler2DArray sampler, vec3 P, Float layer) {
   assert(0);
   return vec4();
@@ -2679,6 +2704,10 @@ ivec3_scalar textureSize(sampler2DArray sampler, int) {
 }
 
 ivec2_scalar textureSize(sampler2D sampler, int) {
+  return ivec2_scalar{int32_t(sampler->width), int32_t(sampler->height)};
+}
+
+ivec2_scalar textureSize(sampler2DRect sampler) {
   return ivec2_scalar{int32_t(sampler->width), int32_t(sampler->height)};
 }
 
@@ -2764,15 +2793,34 @@ float dot(vec2_scalar a, vec2_scalar b) { return a.x * b.x + a.y * b.y; }
 Float dot(vec2 a, vec2 b) { return a.x * b.x + a.y * b.y; }
 
 #define sin __glsl_sin
-#define cos __glsl_cos
 
 float sin(float x) { return sinf(x); }
 
 Float sin(Float v) { return {sinf(v.x), sinf(v.y), sinf(v.z), sinf(v.w)}; }
 
+#define cos __glsl_cos
+
 float cos(float x) { return cosf(x); }
 
 Float cos(Float v) { return {cosf(v.x), cosf(v.y), cosf(v.z), cosf(v.w)}; }
+
+#define tan __glsl_tan
+
+float tan(float x) { return tanf(x); }
+
+Float tan(Float v) { return {tanf(v.x), tanf(v.y), tanf(v.z), tanf(v.w)}; }
+
+#define atan __glsl_atan
+
+float atan(float x) { return atanf(x); }
+
+Float atan(Float v) { return {atanf(v.x), atanf(v.y), atanf(v.z), atanf(v.w)}; }
+
+float atan(float a, float b) { return atan2f(a, b); }
+
+Float atan(Float a, Float b) {
+    return {atan2f(a.x, b.x), atan2f(a.y, b.y), atan2f(a.z, b.z), atan2f(a.w, b.w)};
+}
 
 bvec4 notEqual(ivec4 a, ivec4 b) {
   return bvec4(a.x != b.x, a.y != b.y, a.z != b.z, a.w != b.w);

@@ -41,7 +41,7 @@ const TEXTURE_REGION_PIXELS: usize =
 
 // The minimum number of bytes that we must be able to reclaim in order
 // to justify clearing the entire shared cache in order to shrink it.
-const RECLAIM_THRESHOLD_BYTES: usize = 5 * 1024 * 1024;
+const RECLAIM_THRESHOLD_BYTES: usize = 16 * 512 * 512 * 4;
 
 /// Items in the texture cache can either be standalone textures,
 /// or a sub-rect inside the shared cache.
@@ -280,7 +280,7 @@ impl SharedTextures {
             array_alpha8_linear: TextureArray::new(
                 TextureFormatPair::from(ImageFormat::R8),
                 TextureFilter::Linear,
-                1,
+                4,
             ),
             // Used for experimental hdr yuv texture support, but not used in
             // production Firefox.
@@ -315,11 +315,11 @@ impl SharedTextures {
     }
 
     /// Returns the cumulative number of GPU bytes consumed by empty regions.
-    fn empty_region_bytes(&self) -> usize {
-        self.array_alpha8_linear.empty_region_bytes() +
-        self.array_alpha16_linear.empty_region_bytes() +
-        self.array_color8_linear.empty_region_bytes() +
-        self.array_color8_nearest.empty_region_bytes()
+    fn reclaimable_region_bytes(&self) -> usize {
+        self.array_alpha8_linear.reclaimable_region_bytes() +
+        self.array_alpha16_linear.reclaimable_region_bytes() +
+        self.array_color8_linear.reclaimable_region_bytes() +
+        self.array_color8_nearest.reclaimable_region_bytes()
     }
 
     /// Clears each texture in the set, with the given set of pending updates.
@@ -904,7 +904,7 @@ impl TextureCache {
         // self.require_frame_build flag which is set if we end up calling
         // clear_shared.
         debug_assert!(!self.now.is_valid());
-        if self.shared_textures.empty_region_bytes() >= RECLAIM_THRESHOLD_BYTES {
+        if self.shared_textures.reclaimable_region_bytes() >= RECLAIM_THRESHOLD_BYTES {
             self.reached_reclaim_threshold.get_or_insert(time);
         } else {
             self.reached_reclaim_threshold = None;
@@ -912,6 +912,7 @@ impl TextureCache {
         if let Some(t) = self.reached_reclaim_threshold {
             let dur = time.duration_since(t).unwrap_or_default();
             if dur >= Duration::from_secs(5) {
+                println!("#n !! reclaim shared memory");
                 self.clear_shared();
                 self.reached_reclaim_threshold = None;
             }
@@ -935,6 +936,7 @@ impl TextureCache {
         let do_periodic_gc = time_since_last_gc >= Duration::from_secs(5) &&
             self.shared_textures.size_in_bytes() >= RECLAIM_THRESHOLD_BYTES * 2;
         if do_periodic_gc {
+            println!("#n ######## periodic GC");
             let threshold = EvictionThresholdBuilder::new(self.now)
                 .max_frames(1)
                 .max_time_s(10)
@@ -956,6 +958,11 @@ impl TextureCache {
         let threshold = self.default_eviction();
         self.expire_old_entries(EntryKind::Standalone, threshold);
         self.expire_old_entries(EntryKind::Picture, threshold);
+
+        self.shared_textures.array_alpha8_linear.release_empty_textures(&mut self.pending_updates);
+        self.shared_textures.array_alpha16_linear.release_empty_textures(&mut self.pending_updates);
+        self.shared_textures.array_color8_linear.release_empty_textures(&mut self.pending_updates);
+        self.shared_textures.array_color8_nearest.release_empty_textures(&mut self.pending_updates);
 
         self.shared_textures.array_alpha8_linear
             .update_profile(&mut texture_cache_profile.pages_alpha8_linear);
@@ -1731,6 +1738,10 @@ impl TextureArrayUnit {
             region.slab_size == slab_size && !region.free_slots.is_empty()
         })
     }
+
+    fn is_empty(&self) -> bool {
+        self.empty_regions == self.regions.len()
+    }
 }
 
 /// A texture array contains a number of textures, each with a number of
@@ -1766,7 +1777,7 @@ impl TextureArray {
     }
 
     /// Returns the number of GPU bytes consumed by empty regions.
-    fn empty_region_bytes(&self) -> usize {
+    fn reclaimable_region_bytes(&self) -> usize {
         let bpp = self.formats.internal.bytes_per_pixel() as usize;
         let empty_regions: usize = self.units.iter().map(|u| u.empty_regions).sum();
         empty_regions * TEXTURE_REGION_PIXELS * bpp
@@ -1776,6 +1787,18 @@ impl TextureArray {
         for unit in self.units.drain() {
             updates.push_free(unit.texture_id);
         }
+    }
+
+    fn release_empty_textures(&mut self, updates: &mut TextureUpdateList) {
+        self.units.retain(|unit| {
+            if unit.is_empty() {
+                updates.push_free(unit.texture_id);
+
+                false
+            } else {
+                true
+            }
+        });
     }
 
     fn update_profile(&self, counter: &mut ResourceProfileCounter) {
