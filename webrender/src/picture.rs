@@ -4630,6 +4630,7 @@ impl PicturePrimitive {
                 /// font size, etc. need to be scaled accordingly.
                 fn adjust_scale_for_max_surface_size(
                     raster_config: &RasterConfig,
+                    max_target_size: i32,
                     pic_rect: PictureRect,
                     map_pic_to_raster: &SpaceMapper<PicturePixel, RasterPixel>,
                     map_raster_to_world: &SpaceMapper<RasterPixel, WorldPixel>,
@@ -4638,13 +4639,15 @@ impl PicturePrimitive {
                     device_rect: &mut DeviceIntRect,
                     unclipped: &mut DeviceRect) -> Option<f32>
                 {
-                    if raster_config.establishes_raster_root &&
-                        (device_rect.size.width  > (MAX_SURFACE_SIZE as i32) ||
-                        device_rect.size.height > (MAX_SURFACE_SIZE as i32))
-                    {
+                    let limit = if raster_config.establishes_raster_root {
+                        MAX_SURFACE_SIZE as i32
+                    } else {
+                        max_target_size
+                    };
+                    if device_rect.size.width  > limit || device_rect.size.height > limit {
                         // round_out will grow by 1 integer pixel if origin is on a
                         // fractional position, so keep that margin for error with -1:
-                        let scale = (MAX_SURFACE_SIZE as f32 - 1.0) /
+                        let scale = (limit as f32 - 1.0) /
                                     (i32::max(device_rect.size.width, device_rect.size.height) as f32);
                         *device_pixel_scale = *device_pixel_scale * Scale::new(scale);
                         let new_device_rect = device_rect.to_f32() * Scale::new(scale);
@@ -4717,10 +4720,11 @@ impl PicturePrimitive {
                         );
 
                         if let Some(scale) = adjust_scale_for_max_surface_size(
-                                                raster_config, pic_rect, &map_pic_to_raster, &map_raster_to_world,
-                                                clipped_prim_bounding_rect,
-                                                &mut device_pixel_scale, &mut device_rect, &mut unclipped)
-                        {
+                            raster_config, frame_context.fb_config.max_target_size,
+                            pic_rect, &map_pic_to_raster, &map_raster_to_world,
+                            clipped_prim_bounding_rect,
+                            &mut device_pixel_scale, &mut device_rect, &mut unclipped,
+                        ) {
                             blur_std_deviation = blur_std_deviation * scale;
                             original_size = (original_size.to_f32() * scale).try_cast::<i32>().unwrap();
                             raster_config.root_scaling_factor = scale;
@@ -4791,10 +4795,11 @@ impl PicturePrimitive {
                         );
 
                         if let Some(scale) = adjust_scale_for_max_surface_size(
-                            raster_config, pic_rect, &map_pic_to_raster, &map_raster_to_world,
+                            raster_config, frame_context.fb_config.max_target_size,
+                            pic_rect, &map_pic_to_raster, &map_raster_to_world,
                             clipped_prim_bounding_rect,
-                            &mut device_pixel_scale, &mut device_rect, &mut unclipped)
-                        {
+                            &mut device_pixel_scale, &mut device_rect, &mut unclipped,
+                        ) {
                             // std_dev adjusts automatically from using device_pixel_scale
                             raster_config.root_scaling_factor = scale;
                         }
@@ -4889,10 +4894,11 @@ impl PicturePrimitive {
                     PictureCompositeMode::Filter(..) => {
 
                         if let Some(scale) = adjust_scale_for_max_surface_size(
-                            raster_config, pic_rect, &map_pic_to_raster, &map_raster_to_world,
+                            raster_config, frame_context.fb_config.max_target_size,
+                            pic_rect, &map_pic_to_raster, &map_raster_to_world,
                             clipped_prim_bounding_rect,
-                            &mut device_pixel_scale, &mut clipped, &mut unclipped)
-                        {
+                            &mut device_pixel_scale, &mut clipped, &mut unclipped,
+                        ) {
                             raster_config.root_scaling_factor = scale;
                         }
 
@@ -4922,10 +4928,11 @@ impl PicturePrimitive {
                     }
                     PictureCompositeMode::ComponentTransferFilter(..) => {
                         if let Some(scale) = adjust_scale_for_max_surface_size(
-                            raster_config, pic_rect, &map_pic_to_raster, &map_raster_to_world,
+                            raster_config, frame_context.fb_config.max_target_size,
+                            pic_rect, &map_pic_to_raster, &map_raster_to_world,
                             clipped_prim_bounding_rect,
-                            &mut device_pixel_scale, &mut clipped, &mut unclipped)
-                        {
+                            &mut device_pixel_scale, &mut clipped, &mut unclipped,
+                        ) {
                             raster_config.root_scaling_factor = scale;
                         }
 
@@ -4965,37 +4972,56 @@ impl PicturePrimitive {
                         let device_clip_rect = (world_clip_rect * frame_context.global_device_pixel_scale).round();
 
                         for tile in tile_cache.tiles.values_mut() {
-                            if !tile.is_visible {
-                                continue;
-                            }
 
-                            // Get the world space rect that this tile will actually occupy on screem
-                            let device_draw_rect = match device_clip_rect.intersection(&tile.device_valid_rect) {
-                                Some(rect) => rect,
-                                None => {
-                                    tile.is_visible = false;
-                                    continue;
-                                }
-                            };
+                            // Only check for occlusion on visible tiles that are fixed position.
+                            if tile.is_visible && tile_cache.spatial_node_index == ROOT_SPATIAL_NODE_INDEX {
+                                // Get the world space rect that this tile will actually occupy on screem
+                                let device_draw_rect = device_clip_rect.intersection(&tile.device_valid_rect);
 
-                            // If that draw rect is occluded by some set of tiles in front of it,
-                            // then mark it as not visible and skip drawing. When it's not occluded
-                            // it will fail this test, and get rasterized by the render task setup
-                            // code below.
-                            if frame_state.composite_state.is_tile_occluded(tile.z_id, device_draw_rect) {
-                                // If this tile has an allocated native surface, free it, since it's completely
-                                // occluded. We will need to re-allocate this surface if it becomes visible,
-                                // but that's likely to be rare (e.g. when there is no content display list
-                                // for a frame or two during a tab switch).
-                                let surface = tile.surface.as_mut().expect("no tile surface set!");
+                                // If that draw rect is occluded by some set of tiles in front of it,
+                                // then mark it as not visible and skip drawing. When it's not occluded
+                                // it will fail this test, and get rasterized by the render task setup
+                                // code below.
+                                match device_draw_rect {
+                                    Some(device_draw_rect) => {
+                                        if frame_state.composite_state.is_tile_occluded(tile.z_id, device_draw_rect) {
+                                            // If this tile has an allocated native surface, free it, since it's completely
+                                            // occluded. We will need to re-allocate this surface if it becomes visible,
+                                            // but that's likely to be rare (e.g. when there is no content display list
+                                            // for a frame or two during a tab switch).
+                                            let surface = tile.surface.as_mut().expect("no tile surface set!");
 
-                                if let TileSurface::Texture { descriptor: SurfaceTextureDescriptor::Native { id, .. }, .. } = surface {
-                                    if let Some(id) = id.take() {
-                                        frame_state.resource_cache.destroy_compositor_tile(id);
+                                            if let TileSurface::Texture { descriptor: SurfaceTextureDescriptor::Native { id, .. }, .. } = surface {
+                                                if let Some(id) = id.take() {
+                                                    frame_state.resource_cache.destroy_compositor_tile(id);
+                                                }
+                                            }
+
+                                            tile.is_visible = false;
+                                            continue;
+                                        }
+                                    }
+                                    None => {
+                                        tile.is_visible = false;
                                     }
                                 }
+                            }
 
-                                tile.is_visible = false;
+                            // If we get here, we want to ensure that the surface remains valid in the texture
+                            // cache, _even if_ it's not visible due to clipping or being scrolled off-screen.
+                            // This ensures that we retain valid tiles that are off-screen, but still in the
+                            // display port of this tile cache instance.
+                            if let Some(TileSurface::Texture { descriptor, .. }) = tile.surface.as_ref() {
+                                if let SurfaceTextureDescriptor::TextureCache { ref handle, .. } = descriptor {
+                                    frame_state.resource_cache.texture_cache.request(
+                                        handle,
+                                        frame_state.gpu_cache,
+                                    );
+                                }
+                            }
+
+                            // If the tile has been found to be off-screen / clipped, skip any further processing.
+                            if !tile.is_visible {
                                 continue;
                             }
 
@@ -5228,10 +5254,11 @@ impl PicturePrimitive {
                     PictureCompositeMode::MixBlend(..) |
                     PictureCompositeMode::Blit(_) => {
                         if let Some(scale) = adjust_scale_for_max_surface_size(
-                            raster_config, pic_rect, &map_pic_to_raster, &map_raster_to_world,
+                            raster_config, frame_context.fb_config.max_target_size,
+                            pic_rect, &map_pic_to_raster, &map_raster_to_world,
                             clipped_prim_bounding_rect,
-                            &mut device_pixel_scale, &mut clipped, &mut unclipped)
-                        {
+                            &mut device_pixel_scale, &mut clipped, &mut unclipped,
+                        ) {
                             raster_config.root_scaling_factor = scale;
                         }
 
@@ -5262,10 +5289,11 @@ impl PicturePrimitive {
                     PictureCompositeMode::SvgFilter(ref primitives, ref filter_datas) => {
 
                         if let Some(scale) = adjust_scale_for_max_surface_size(
-                            raster_config, pic_rect, &map_pic_to_raster, &map_raster_to_world,
+                            raster_config, frame_context.fb_config.max_target_size,
+                            pic_rect, &map_pic_to_raster, &map_raster_to_world,
                             clipped_prim_bounding_rect,
-                            &mut device_pixel_scale, &mut clipped, &mut unclipped)
-                        {
+                            &mut device_pixel_scale, &mut clipped, &mut unclipped,
+                        ) {
                             raster_config.root_scaling_factor = scale;
                         }
 
