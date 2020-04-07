@@ -1129,6 +1129,9 @@ struct vec3_scalar {
     return vec2_scalar_ref(select(c1), select(c2));
   }
 
+  friend vec3_scalar operator*(vec3_scalar a, vec3_scalar b) {
+    return vec3_scalar{a.x * b.x, a.y * b.y, a.z * b.z};
+  }
   friend vec3_scalar operator*(vec3_scalar a, float b) {
     return vec3_scalar{a.x * b, a.y * b, a.z * b};
   }
@@ -1142,6 +1145,13 @@ struct vec3_scalar {
 
   friend vec3_scalar operator/(vec3_scalar a, float b) {
     return vec3_scalar{a.x / b, a.y / b, a.z / b};
+  }
+
+  vec3_scalar operator+=(vec3_scalar a) {
+    x += a.x;
+    y += a.y;
+    z += a.z;
+    return *this;
   }
 
   friend bool operator==(const vec3_scalar& l, const vec3_scalar& r) {
@@ -1361,6 +1371,7 @@ struct vec4_scalar {
   constexpr vec4_scalar(float a) : x(a), y(a), z(a), w(a) {}
   constexpr vec4_scalar(float x, float y, float z, float w)
       : x(x), y(y), z(z), w(w) {}
+  vec4_scalar(vec3_scalar xyz, float w) : x(xyz.x), y(xyz.y), z(xyz.z), w(w) {}
 
   float& select(XYZW c) {
     switch (c) {
@@ -1414,6 +1425,15 @@ struct vec4_scalar {
   friend vec4_scalar operator/(vec4_scalar a, vec4_scalar b) {
     return vec4_scalar{a.x / b.x, a.y / b.y, a.z / b.z, a.w / b.w};
   }
+
+  vec4_scalar& operator+=(vec4_scalar a) {
+    x += a.x;
+    y += a.y;
+    z += a.z;
+    w += a.w;
+    return *this;
+  }
+
   vec4_scalar& operator/=(vec4_scalar a) {
     x /= a.x;
     y /= a.y;
@@ -2691,11 +2711,6 @@ vec4 texture(sampler2DRect sampler, vec2 P) {
   }
 }
 
-vec4 texture(sampler2DArray sampler, vec3 P, Float layer) {
-  assert(0);
-  return vec4();
-}
-
 vec4 texture(sampler2DArray sampler, vec3 P) {
   if (sampler->filter == TextureFilter::LINEAR) {
     I32 zoffset =
@@ -2714,6 +2729,11 @@ vec4 texture(sampler2DArray sampler, vec3 P) {
                 roundeven(P.z, 1.0f));
     return texelFetch(sampler, coord, 0);
   }
+}
+
+vec4 texture(sampler2DArray sampler, vec3 P, float bias) {
+  assert(bias == 0.0);
+  return texture(sampler, P);
 }
 
 vec4 textureLod(sampler2DArray sampler, vec3 P, float lod) {
