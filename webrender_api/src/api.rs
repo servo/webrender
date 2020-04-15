@@ -6,7 +6,6 @@
 
 extern crate serde_bytes;
 
-use crate::channel::{self, MsgReceiver, MsgSender, Payload, PayloadSender};
 use peek_poke::PeekPoke;
 use std::cell::Cell;
 use std::fmt;
@@ -15,6 +14,7 @@ use std::os::raw::c_void;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::u32;
+use std::sync::mpsc::{Sender, Receiver, channel};
 // local imports
 use crate::{display_item as di, font};
 use crate::color::{ColorU, ColorF};
@@ -128,9 +128,6 @@ pub struct Transaction {
     /// Operations affecting the generation of frames (applied after scene building).
     frame_ops: Vec<FrameMsg>,
 
-    /// Additional display list data.
-    payloads: Vec<Payload>,
-
     notifications: Vec<NotificationRequest>,
 
     /// Persistent resource updates to apply as part of this transaction.
@@ -156,7 +153,6 @@ impl Transaction {
             scene_ops: Vec::new(),
             frame_ops: Vec::new(),
             resource_updates: Vec::new(),
-            payloads: Vec::new(),
             notifications: Vec::new(),
             use_scene_builder_thread: true,
             generate_frame: false,
@@ -254,7 +250,7 @@ impl Transaction {
         (pipeline_id, content_size, display_list): (PipelineId, LayoutSize, BuiltDisplayList),
         preserve_frame_state: bool,
     ) {
-        let (display_list_data, list_descriptor) = display_list.into_data();
+        let (list_data, list_descriptor) = display_list.into_data();
         self.scene_ops.push(
             SceneMsg::SetDisplayList {
                 epoch,
@@ -263,10 +259,10 @@ impl Transaction {
                 viewport_size,
                 content_size,
                 list_descriptor,
+                list_data,
                 preserve_frame_state,
             }
         );
-        self.payloads.push(Payload { epoch, pipeline_id, display_list_data });
     }
 
     /// Add a set of persistent resource updates to apply as part of this transaction.
@@ -392,20 +388,17 @@ impl Transaction {
         self.frame_ops
     }
 
-    fn finalize(self) -> (TransactionMsg, Vec<Payload>) {
-        (
-            TransactionMsg {
-                scene_ops: self.scene_ops,
-                frame_ops: self.frame_ops,
-                resource_updates: self.resource_updates,
-                notifications: self.notifications,
-                use_scene_builder_thread: self.use_scene_builder_thread,
-                generate_frame: self.generate_frame,
-                invalidate_rendered_frame: self.invalidate_rendered_frame,
-                low_priority: self.low_priority,
-            },
-            self.payloads,
-        )
+    fn finalize(self) -> TransactionMsg {
+        TransactionMsg {
+            scene_ops: self.scene_ops,
+            frame_ops: self.frame_ops,
+            resource_updates: self.resource_updates,
+            notifications: self.notifications,
+            use_scene_builder_thread: self.use_scene_builder_thread,
+            generate_frame: self.generate_frame,
+            invalidate_rendered_frame: self.invalidate_rendered_frame,
+            low_priority: self.low_priority,
+        }
     }
 
     /// See `ResourceUpdate::AddImage`.
@@ -817,6 +810,8 @@ pub enum SceneMsg {
     SetDisplayList {
         ///
         list_descriptor: BuiltDisplayListDescriptor,
+        /// The serialized display list.
+        list_data: Vec<u8>,
         ///
         epoch: Epoch,
         ///
@@ -850,9 +845,11 @@ pub enum FrameMsg {
     ///
     UpdateEpoch(PipelineId, Epoch),
     ///
-    HitTest(Option<PipelineId>, WorldPoint, HitTestFlags, MsgSender<HitTestResult>),
+    #[serde(skip_serializing, skip_deserializing)]
+    HitTest(Option<PipelineId>, WorldPoint, HitTestFlags, Sender<HitTestResult>),
     ///
-    RequestHitTester(MsgSender<Arc<dyn ApiHitTester>>),
+    #[serde(skip_serializing, skip_deserializing)]
+    RequestHitTester(Sender<Arc<dyn ApiHitTester>>),
     ///
     SetPan(DeviceIntPoint),
     ///
@@ -860,7 +857,8 @@ pub enum FrameMsg {
     ///
     ScrollNodeWithId(LayoutPoint, di::ExternalScrollId, ScrollClamping),
     ///
-    GetScrollNodeState(MsgSender<Vec<ScrollNodeState>>),
+    #[serde(skip_serializing, skip_deserializing)]
+    GetScrollNodeState(Sender<Vec<ScrollNodeState>>),
     ///
     UpdateDynamicProperties(DynamicProperties),
     ///
@@ -970,7 +968,8 @@ pub enum DebugCommand {
     /// Save a capture of all the documents state.
     SaveCapture(PathBuf, CaptureBits),
     /// Load a capture of all the documents state.
-    LoadCapture(PathBuf, MsgSender<CapturedDocument>),
+    #[serde(skip_serializing, skip_deserializing)]
+    LoadCapture(PathBuf, Sender<CapturedDocument>),
     /// Clear cached resources, forcing them to be re-uploaded from templates.
     ClearCaches(ClearCache),
     /// Enable/disable native compositor usage
@@ -999,15 +998,18 @@ pub enum ApiMsg {
     /// Add/remove/update images and fonts.
     UpdateResources(Vec<ResourceUpdate>),
     /// Gets the glyph dimensions
+    #[serde(skip_serializing, skip_deserializing)]
     GetGlyphDimensions(
         font::FontInstanceKey,
         Vec<font::GlyphIndex>,
-        MsgSender<Vec<Option<font::GlyphDimensions>>>,
+        Sender<Vec<Option<font::GlyphDimensions>>>,
     ),
     /// Gets the glyph indices from a string
-    GetGlyphIndices(font::FontKey, String, MsgSender<Vec<Option<u32>>>),
+    #[serde(skip_serializing, skip_deserializing)]
+    GetGlyphIndices(font::FontKey, String, Sender<Vec<Option<u32>>>),
     /// Adds a new document namespace.
-    CloneApi(MsgSender<IdNamespace>),
+    #[serde(skip_serializing, skip_deserializing)]
+    CloneApi(Sender<IdNamespace>),
     /// Adds a new document namespace.
     CloneApiByClient(IdNamespace),
     /// Adds a new document with given initial size.
@@ -1025,7 +1027,8 @@ pub enum ApiMsg {
     /// Flush from the caches anything that isn't necessary, to free some memory.
     MemoryPressure,
     /// Collects a memory report.
-    ReportMemory(MsgSender<Box<MemoryReport>>),
+    #[serde(skip_serializing, skip_deserializing)]
+    ReportMemory(Sender<Box<MemoryReport>>),
     /// Change debugging options.
     DebugCommand(DebugCommand),
     /// Wakes the render backend's event loop up. Needed when an event is communicated
@@ -1036,9 +1039,11 @@ pub enum ApiMsg {
     /// Block until a round-trip to the scene builder thread has completed. This
     /// ensures that any transactions (including ones deferred to the scene
     /// builder thread) have been processed.
-    FlushSceneBuilder(MsgSender<()>),
+    #[serde(skip_serializing, skip_deserializing)]
+    FlushSceneBuilder(Sender<()>),
     /// Shut the WebRender instance down.
-    ShutDown(Option<MsgSender<()>>),
+    #[serde(skip_serializing, skip_deserializing)]
+    ShutDown(Option<Sender<()>>),
 }
 
 impl fmt::Debug for ApiMsg {
@@ -1298,25 +1303,23 @@ pub enum ScrollClamping {
 ///
 /// This object is created along with the `Renderer` and it's main use from a
 /// user perspective is to create one or several `RenderApi` objects.
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone)]
 pub struct RenderApiSender {
-    api_sender: MsgSender<ApiMsg>,
-    payload_sender: PayloadSender,
+    api_sender: Sender<ApiMsg>,
+
 }
 
 impl RenderApiSender {
     /// Used internally by the `Renderer`.
-    pub fn new(api_sender: MsgSender<ApiMsg>, payload_sender: PayloadSender) -> Self {
+    pub fn new(api_sender: Sender<ApiMsg>) -> Self {
         RenderApiSender {
             api_sender,
-            payload_sender,
         }
     }
 
     /// Creates a new resource API object with a dedicated namespace.
     pub fn create_api(&self) -> RenderApi {
-        let (sync_tx, sync_rx) =
-            channel::msg_channel().expect("Failed to create channel");
+        let (sync_tx, sync_rx) = channel();
         let msg = ApiMsg::CloneApi(sync_tx);
         self.api_sender.send(msg).expect("Failed to send CloneApi message");
         let namespace_id = match sync_rx.recv() {
@@ -1333,7 +1336,6 @@ impl RenderApiSender {
         };
         RenderApi {
             api_sender: self.api_sender.clone(),
-            payload_sender: self.payload_sender.clone(),
             namespace_id,
             next_id: Cell::new(ResourceId(0)),
         }
@@ -1349,7 +1351,6 @@ impl RenderApiSender {
         self.api_sender.send(msg).expect("Failed to send CloneApiByClient message");
         RenderApi {
             api_sender: self.api_sender.clone(),
-            payload_sender: self.payload_sender.clone(),
             namespace_id,
             next_id: Cell::new(ResourceId(0)),
         }
@@ -1440,8 +1441,7 @@ bitflags! {
 
 /// The main entry point to interact with WebRender.
 pub struct RenderApi {
-    api_sender: MsgSender<ApiMsg>,
-    payload_sender: PayloadSender,
+    api_sender: Sender<ApiMsg>,
     namespace_id: IdNamespace,
     next_id: Cell<ResourceId>,
 }
@@ -1454,7 +1454,7 @@ impl RenderApi {
 
     ///
     pub fn clone_sender(&self) -> RenderApiSender {
-        RenderApiSender::new(self.api_sender.clone(), self.payload_sender.clone())
+        RenderApiSender::new(self.api_sender.clone())
     }
 
     /// Add a document to the WebRender instance.
@@ -1508,7 +1508,7 @@ impl RenderApi {
         font: font::FontInstanceKey,
         glyph_indices: Vec<font::GlyphIndex>,
     ) -> Vec<Option<font::GlyphDimensions>> {
-        let (tx, rx) = channel::msg_channel().unwrap();
+        let (tx, rx) = channel();
         let msg = ApiMsg::GetGlyphDimensions(font, glyph_indices, tx);
         self.api_sender.send(msg).unwrap();
         rx.recv().unwrap()
@@ -1517,7 +1517,7 @@ impl RenderApi {
     /// Gets the glyph indices for the supplied string. These
     /// can be used to construct GlyphKeys.
     pub fn get_glyph_indices(&self, font_key: font::FontKey, text: &str) -> Vec<Option<u32>> {
-        let (tx, rx) = channel::msg_channel().unwrap();
+        let (tx, rx) = channel();
         let msg = ApiMsg::GetGlyphIndices(font_key, text.to_string(), tx);
         self.api_sender.send(msg).unwrap();
         rx.recv().unwrap()
@@ -1560,7 +1560,7 @@ impl RenderApi {
 
     /// Synchronously requests memory report.
     pub fn report_memory(&self) -> MemoryReport {
-        let (tx, rx) = channel::msg_channel().unwrap();
+        let (tx, rx) = channel();
         self.api_sender.send(ApiMsg::ReportMemory(tx)).unwrap();
         *rx.recv().unwrap()
     }
@@ -1574,7 +1574,7 @@ impl RenderApi {
     /// Shut the WebRender instance down.
     pub fn shut_down(&self, synchronously: bool) {
         if synchronously {
-            let (tx, rx) = channel::msg_channel().unwrap();
+            let (tx, rx) = channel();
             self.api_sender.send(ApiMsg::ShutDown(Some(tx))).unwrap();
             rx.recv().unwrap();
         } else {
@@ -1608,14 +1608,6 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
     }
 
-    // For use in Wrench only
-    #[doc(hidden)]
-    pub fn send_payload(&self, data: &[u8]) {
-        self.payload_sender
-            .send(Payload::from_data(data))
-            .unwrap();
-    }
-
     /// A helper method to send document messages.
     fn send_scene_msg(&self, document_id: DocumentId, msg: SceneMsg) {
         // This assertion fails on Servo use-cases, because it creates different
@@ -1638,28 +1630,17 @@ impl RenderApi {
 
     /// Send a transaction to WebRender.
     pub fn send_transaction(&self, document_id: DocumentId, transaction: Transaction) {
-        let (msg, payloads) = transaction.finalize();
-        for payload in payloads {
-            self.payload_sender.send(payload).unwrap();
-        }
+        let msg = transaction.finalize();
         self.api_sender.send(ApiMsg::UpdateDocuments(vec![document_id], vec![msg])).unwrap();
     }
 
     /// Send multiple transactions.
     pub fn send_transactions(&self, document_ids: Vec<DocumentId>, mut transactions: Vec<Transaction>) {
         debug_assert!(document_ids.len() == transactions.len());
-        let length = document_ids.len();
-        let (msgs, mut document_payloads) = transactions.drain(..)
-            .fold((Vec::with_capacity(length), Vec::with_capacity(length)),
-                |(mut msgs, mut document_payloads), transaction| {
-                    let (msg, payloads) = transaction.finalize();
-                    msgs.push(msg);
-                    document_payloads.push(payloads);
-                    (msgs, document_payloads)
-                });
-        for payload in document_payloads.drain(..).flatten() {
-            self.payload_sender.send(payload).unwrap();
-        }
+        let msgs = transactions.drain(..)
+            .map(|txn| txn.finalize())
+            .collect();
+
         self.api_sender.send(ApiMsg::UpdateDocuments(document_ids, msgs)).unwrap();
     }
 
@@ -1675,7 +1656,7 @@ impl RenderApi {
                     point: WorldPoint,
                     flags: HitTestFlags)
                     -> HitTestResult {
-        let (tx, rx) = channel::msg_channel().unwrap();
+        let (tx, rx) = channel();
 
         self.send_frame_msg(
             document_id,
@@ -1686,7 +1667,7 @@ impl RenderApi {
 
     /// Synchronously request an object that can perform fast hit testing queries.
     pub fn request_hit_tester(&self, document_id: DocumentId) -> HitTesterRequest {
-        let (tx, rx) = channel::msg_channel().unwrap();
+        let (tx, rx) = channel();
         self.send_frame_msg(
             document_id,
             FrameMsg::RequestHitTester(tx)
@@ -1725,7 +1706,7 @@ impl RenderApi {
 
     ///
     pub fn get_scroll_node_state(&self, document_id: DocumentId) -> Vec<ScrollNodeState> {
-        let (tx, rx) = channel::msg_channel().unwrap();
+        let (tx, rx) = channel();
         self.send_frame_msg(document_id, FrameMsg::GetScrollNodeState(tx));
         rx.recv().unwrap()
     }
@@ -1741,7 +1722,7 @@ impl RenderApi {
     /// ensures that any transactions (including ones deferred to the scene
     /// builder thread) have been processed.
     pub fn flush_scene_builder(&self) {
-        let (tx, rx) = channel::msg_channel().unwrap();
+        let (tx, rx) = channel();
         self.send_message(ApiMsg::FlushSceneBuilder(tx));
         rx.recv().unwrap(); // block until done
     }
@@ -1758,7 +1739,7 @@ impl RenderApi {
         // the capture we are about to load.
         self.flush_scene_builder();
 
-        let (tx, rx) = channel::msg_channel().unwrap();
+        let (tx, rx) = channel();
         let msg = ApiMsg::DebugCommand(DebugCommand::LoadCapture(path, tx));
         self.send_message(msg);
 
@@ -1787,7 +1768,7 @@ impl Drop for RenderApi {
 ///
 /// The request should be resolved as late as possible to reduce the likelihood of blocking.
 pub struct HitTesterRequest {
-    rx: MsgReceiver<Arc<dyn ApiHitTester>>,
+    rx: Receiver<Arc<dyn ApiHitTester>>,
 }
 
 impl HitTesterRequest {

@@ -14,8 +14,8 @@ use api::{IdNamespace, MemoryReport, PipelineId, RenderNotifier, SceneMsg, Scrol
 use api::{ScrollLocation, TransactionMsg, ResourceUpdate, BlobImageKey};
 use api::{NotificationRequest, Checkpoint, QualitySettings};
 use api::{ClipIntern, FilterDataIntern, PrimitiveKeyKind};
+use api::channel::Payload;
 use api::units::*;
-use api::channel::{MsgReceiver, MsgSender, Payload};
 #[cfg(feature = "capture")]
 use api::CaptureBits;
 #[cfg(feature = "replay")]
@@ -150,7 +150,7 @@ impl ::std::ops::Sub<usize> for FrameId {
 
 enum RenderBackendStatus {
     Continue,
-    ShutDown(Option<MsgSender<()>>),
+    ShutDown(Option<Sender<()>>),
 }
 
 /// Identifier to track a sequence of frames.
@@ -749,14 +749,11 @@ struct PlainRenderBackend {
 ///
 /// The render backend operates on its own thread.
 pub struct RenderBackend {
-    api_rx: MsgReceiver<ApiMsg>,
-    payload_rx: Receiver<Payload>,
+    api_rx: Receiver<ApiMsg>,
     result_tx: Sender<ResultMsg>,
     scene_tx: Sender<SceneBuilderRequest>,
     low_priority_scene_tx: Sender<SceneBuilderRequest>,
     scene_rx: Receiver<SceneBuilderResult>,
-
-    payload_buffer: Vec<Payload>,
 
     default_device_pixel_ratio: f32,
 
@@ -781,8 +778,7 @@ pub struct RenderBackend {
 
 impl RenderBackend {
     pub fn new(
-        api_rx: MsgReceiver<ApiMsg>,
-        payload_rx: Receiver<Payload>,
+        api_rx: Receiver<ApiMsg>,
         result_tx: Sender<ResultMsg>,
         scene_tx: Sender<SceneBuilderRequest>,
         low_priority_scene_tx: Sender<SceneBuilderRequest>,
@@ -799,12 +795,10 @@ impl RenderBackend {
     ) -> RenderBackend {
         RenderBackend {
             api_rx,
-            payload_rx,
             result_tx,
             scene_tx,
             low_priority_scene_tx,
             scene_rx,
-            payload_buffer: Vec::new(),
             default_device_pixel_ratio,
             resource_cache,
             gpu_cache: GpuCache::new(),
@@ -856,31 +850,21 @@ impl RenderBackend {
                 viewport_size,
                 content_size,
                 list_descriptor,
+                list_data,
                 preserve_frame_state,
             } => {
                 profile_scope!("SetDisplayList");
 
-                let data = if let Some(idx) = self.payload_buffer.iter().position(|data|
-                    data.epoch == epoch && data.pipeline_id == pipeline_id
-                ) {
-                    self.payload_buffer.swap_remove(idx)
-                } else {
-                    loop {
-                        let data = self.payload_rx.recv().unwrap();
-                        if data.epoch == epoch && data.pipeline_id == pipeline_id {
-                            break data;
-                        } else {
-                            self.payload_buffer.push(data);
-                        }
-                    }
-                };
-
                 if let Some(ref mut r) = self.recorder {
-                    r.write_payload(frame_counter, &data.to_data());
+                    r.write_payload(frame_counter, &Payload::construct_data(
+                        epoch,
+                        pipeline_id,
+                        &list_data,
+                    ));
                 }
 
                 let built_display_list =
-                    BuiltDisplayList::from_data(data.display_list_data, list_descriptor);
+                    BuiltDisplayList::from_data(list_data, list_descriptor);
 
                 if !preserve_frame_state {
                     doc.discard_frame_state_for_pipeline(pipeline_id);
@@ -1258,6 +1242,7 @@ impl RenderBackend {
                                 let pipeline = &doc.loaded_scene.pipelines[&pipeline_id];
                                 let scene_msg = SceneMsg::SetDisplayList {
                                     list_descriptor: pipeline.display_list.descriptor().clone(),
+                                    list_data: pipeline.display_list.data().to_vec(),
                                     epoch,
                                     pipeline_id,
                                     background: pipeline.background_color,
@@ -1747,7 +1732,7 @@ impl RenderBackend {
         serde_json::to_string(&debug_root).unwrap()
     }
 
-    fn report_memory(&mut self, tx: MsgSender<Box<MemoryReport>>) {
+    fn report_memory(&mut self, tx: Sender<Box<MemoryReport>>) {
         let mut report = Box::new(MemoryReport::default());
         let ops = self.size_of_ops.as_mut().unwrap();
         let op = ops.size_of_op;

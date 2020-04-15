@@ -42,10 +42,8 @@ use api::{DebugCommand, MemoryReport, VoidPtrToSizeFn, PremultipliedColorF};
 use api::{RenderApiSender, RenderNotifier, TextureTarget};
 #[cfg(feature = "replay")]
 use api::ExternalImage;
-use api::channel;
 use api::units::*;
 pub use api::DebugFlags;
-use api::channel::MsgSender;
 use crate::batch::{AlphaBatchContainer, BatchKind, BatchFeatures, BatchTextures, BrushBatchKind, ClipBatchList};
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
@@ -110,7 +108,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
 use std::cell::RefCell;
 use tracy_rs::register_thread_with_profiler;
@@ -1100,16 +1098,21 @@ impl TextureResolver {
             self.return_to_pool(device, target);
         }
 
-        // GC the render target pool.
+        // GC the render target pool, if it's currently > 32 MB in size.
         //
         // We use a simple scheme whereby we drop any texture that hasn't been used
-        // in the last 30 frames. This should generally prevent any sustained build-
-        // up of unused textures, unless we don't generate frames for a long period.
-        // This can happen when the window is minimized, and we probably want to
-        // flush all the WebRender caches in that case [1].
+        // in the last 60 frames, until we are below the size threshold. This should
+        // generally prevent any sustained build-up of unused textures, unless we don't
+        // generate frames for a long period. This can happen when the window is
+        // minimized, and we probably want to flush all the WebRender caches in that case [1].
         //
         // [1] https://bugzilla.mozilla.org/show_bug.cgi?id=1494099
-        self.retain_targets(device, |texture| texture.used_recently(frame_id, 30));
+        self.gc_targets(
+            device,
+            frame_id,
+            32 * 1024 * 1024,
+            60,
+        );
     }
 
     /// Transfers ownership of a render target back to the pool.
@@ -1118,18 +1121,59 @@ impl TextureResolver {
         self.render_target_pool.push(target);
     }
 
-    /// Drops all targets from the render target pool that do not satisfy the predicate.
-    pub fn retain_targets<F: Fn(&Texture) -> bool>(&mut self, device: &mut Device, f: F) {
-        // We can't just use retain() because `Texture` requires manual cleanup.
-        let mut tmp = SmallVec::<[Texture; 8]>::new();
+    /// Frees any memory possible, in the event of a memory pressure signal.
+    fn on_memory_pressure(
+        &mut self,
+        device: &mut Device,
+    ) {
+        // Clear all textures in the render target pool
         for target in self.render_target_pool.drain(..) {
-            if f(&target) {
-                tmp.push(target);
-            } else {
+            device.delete_texture(target);
+        }
+    }
+
+    /// Drops all targets from the render target pool that do not satisfy the predicate.
+    pub fn gc_targets(
+        &mut self,
+        device: &mut Device,
+        current_frame_id: GpuFrameId,
+        total_bytes_threshold: usize,
+        frames_threshold: usize,
+    ) {
+        // Get the total GPU memory size used by the current render target pool
+        let mut rt_pool_size_in_bytes: usize = self.render_target_pool
+            .iter()
+            .map(|t| t.size_in_bytes())
+            .sum();
+
+        // If the total size of the pool is less than the threshold, don't bother
+        // trying to GC any targets
+        if rt_pool_size_in_bytes <= total_bytes_threshold {
+            return;
+        }
+
+        // Sort the current pool by age, so that we remove oldest textures first
+        self.render_target_pool.sort_by_key(|t| t.last_frame_used());
+
+        // We can't just use retain() because `Texture` requires manual cleanup.
+        let mut retained_targets = SmallVec::<[Texture; 8]>::new();
+
+        for target in self.render_target_pool.drain(..) {
+            // Drop oldest textures until we are under the allowed size threshold.
+            // However, if it's been used in very recently, it is always kept around,
+            // which ensures we don't thrash texture allocations on pages that do
+            // require a very large render target pool and are regularly changing.
+            if rt_pool_size_in_bytes > total_bytes_threshold &&
+               !target.used_recently(current_frame_id, frames_threshold)
+            {
+                rt_pool_size_in_bytes -= target.size_in_bytes();
                 device.delete_texture(target);
+            } else {
+                retained_targets.push(target);
             }
         }
-        self.render_target_pool.extend(tmp);
+
+        self.render_target_pool.extend(retained_targets);
     }
 
     fn end_pass(
@@ -2143,8 +2187,7 @@ impl Renderer {
 
         HAS_BEEN_INITIALIZED.store(true, Ordering::SeqCst);
 
-        let (api_tx, api_rx) = channel::msg_channel()?;
-        let (payload_tx, payload_rx) = channel::payload_channel()?;
+        let (api_tx, api_rx) = channel();
         let (result_tx, result_rx) = channel();
         let gl_type = gl.get_type();
 
@@ -2385,7 +2428,6 @@ impl Renderer {
 
         let device_pixel_ratio = options.device_pixel_ratio;
         let debug_flags = options.debug_flags;
-        let payload_rx_for_backend = payload_rx.to_mpsc_receiver();
         let size_of_op = options.size_of_op;
         let enclosing_size_of_op = options.enclosing_size_of_op;
         let make_size_of_ops =
@@ -2510,7 +2552,6 @@ impl Renderer {
 
             let mut backend = RenderBackend::new(
                 api_rx,
-                payload_rx_for_backend,
                 result_tx,
                 scene_tx,
                 low_priority_scene_tx,
@@ -2629,7 +2670,7 @@ impl Renderer {
         // to ensure any potential transition when enabling a flag is run.
         renderer.set_debug_flags(debug_flags);
 
-        let sender = RenderApiSender::new(api_tx, payload_tx);
+        let sender = RenderApiSender::new(api_tx);
         Ok((renderer, sender))
     }
 
@@ -2661,8 +2702,8 @@ impl Renderer {
         self.device.preferred_color_formats().external
     }
 
-    pub fn optimal_texture_stride_alignment(&self) -> usize {
-        self.device.optimal_pbo_stride().get()
+    pub fn optimal_texture_stride_alignment(&self, format: ImageFormat) -> usize {
+        self.device.optimal_pbo_stride().num_bytes(format).get()
     }
 
     pub fn flush_pipeline_info(&mut self) -> PipelineInfo {
@@ -2799,7 +2840,9 @@ impl Renderer {
                     // the device module asserts if we delete textures while
                     // not in a frame.
                     if memory_pressure {
-                        self.texture_resolver.retain_targets(&mut self.device, |_| false);
+                        self.texture_resolver.on_memory_pressure(
+                            &mut self.device,
+                        );
                     }
 
                     self.device.end_frame();
@@ -6793,7 +6836,7 @@ pub trait DebugServer {
 struct NoopDebugServer;
 
 impl NoopDebugServer {
-    fn new(_: MsgSender<ApiMsg>) -> Self {
+    fn new(_: Sender<ApiMsg>) -> Self {
         NoopDebugServer
     }
 }
@@ -6803,7 +6846,7 @@ impl DebugServer for NoopDebugServer {
 }
 
 #[cfg(feature = "debugger")]
-fn new_debug_server(enable: bool, api_tx: MsgSender<ApiMsg>) -> Box<dyn DebugServer> {
+fn new_debug_server(enable: bool, api_tx: Sender<ApiMsg>) -> Box<dyn DebugServer> {
     if enable {
         Box::new(debug_server::DebugServerImpl::new(api_tx))
     } else {
@@ -6812,7 +6855,7 @@ fn new_debug_server(enable: bool, api_tx: MsgSender<ApiMsg>) -> Box<dyn DebugSer
 }
 
 #[cfg(not(feature = "debugger"))]
-fn new_debug_server(_enable: bool, api_tx: MsgSender<ApiMsg>) -> Box<dyn DebugServer> {
+fn new_debug_server(_enable: bool, api_tx: Sender<ApiMsg>) -> Box<dyn DebugServer> {
     Box::new(NoopDebugServer::new(api_tx))
 }
 
