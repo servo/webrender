@@ -4,7 +4,7 @@
 
 use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayListIter, PrimitiveFlags};
 use api::{ClipId, ColorF, CommonItemProperties, ComplexClipRegion, ComponentTransferFuncType, RasterSpace};
-use api::{DisplayItem, DisplayItemRef, ExtendMode, ExternalScrollId, FilterData};
+use api::{DisplayItem, DisplayItemRef, ExtendMode, ExternalScrollId, FilterData, SharedFontInstanceMap};
 use api::{FilterOp, FilterPrimitive, FontInstanceKey, GlyphInstance, GlyphOptions, GradientStop};
 use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, ColorDepth, QualitySettings};
 use api::{LineOrientation, LineStyle, NinePatchBorderSource, PipelineId, MixBlendMode};
@@ -37,7 +37,7 @@ use crate::prim_store::line_dec::{LineDecoration, LineDecorationCacheKey};
 use crate::prim_store::picture::{Picture, PictureCompositeKey, PictureKey};
 use crate::prim_store::text_run::TextRun;
 use crate::render_backend::{DocumentView};
-use crate::resource_cache::{FontInstanceMap, ImageRequest};
+use crate::resource_cache::ImageRequest;
 use crate::scene::{Scene, BuiltScene, SceneStats, StackingContextHelpers};
 use crate::scene_builder_thread::Interners;
 use crate::spatial_node::{StickyFrameInfo, ScrollFrameKind};
@@ -315,7 +315,7 @@ pub struct SceneBuilder<'a> {
     scene: &'a Scene,
 
     /// The map of all font instances.
-    font_instances: FontInstanceMap,
+    font_instances: SharedFontInstanceMap,
 
     /// A set of pipelines that the caller has requested be made available as
     /// output textures.
@@ -388,13 +388,15 @@ pub struct SceneBuilder<'a> {
 impl<'a> SceneBuilder<'a> {
     pub fn build(
         scene: &Scene,
-        font_instances: FontInstanceMap,
+        font_instances: SharedFontInstanceMap,
         view: &DocumentView,
         output_pipelines: &FastHashSet<PipelineId>,
         frame_builder_config: &FrameBuilderConfig,
         interners: &mut Interners,
         stats: &SceneStats,
     ) -> BuiltScene {
+        profile_scope!("build_scene");
+
         // We checked that the root pipeline is available on the render backend.
         let root_pipeline_id = scene.root_pipeline_id.unwrap();
         let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
@@ -3101,7 +3103,7 @@ impl<'a> SceneBuilder<'a> {
         let offset = self.current_offset(clip_and_scroll.spatial_node_index);
 
         let text_run = {
-            let instance_map = self.font_instances.read().unwrap();
+            let instance_map = self.font_instances.lock().unwrap();
             let font_instance = match instance_map.get(font_instance_key) {
                 Some(instance) => instance,
                 None => {

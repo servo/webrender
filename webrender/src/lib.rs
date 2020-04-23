@@ -109,7 +109,6 @@ mod internal_types;
 mod picture;
 mod prim_store;
 mod print_tree;
-mod record;
 mod render_backend;
 mod render_target;
 mod render_task_graph;
@@ -132,8 +131,6 @@ mod util;
 mod shader_source {
     include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
 }
-
-pub use crate::record::{ApiRecordingReceiver, BinaryRecorder, WEBRENDER_RECORDING_HEADER};
 
 mod platform {
     #[cfg(target_os = "macos")]
@@ -205,7 +202,7 @@ extern crate webrender_build;
 #[doc(hidden)]
 pub use crate::composite::{CompositorConfig, Compositor, CompositorCapabilities};
 pub use crate::composite::{NativeSurfaceId, NativeTileId, NativeSurfaceInfo};
-pub use crate::device::{build_shader_strings, UploadMethod, VertexUsageHint, get_gl_target};
+pub use crate::device::{UploadMethod, VertexUsageHint, get_gl_target, get_unoptimized_shader_source};
 pub use crate::device::{ProgramBinary, ProgramCache, ProgramCacheObserver, FormatDesc};
 pub use crate::device::Device;
 pub use crate::frame_builder::ChasePrimitive;
