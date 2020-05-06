@@ -371,8 +371,6 @@ struct Program {
 
   ~Program() {
     delete impl;
-    delete vert_impl;
-    delete frag_impl;
   }
 };
 
@@ -605,7 +603,6 @@ struct Context {
   }
 };
 static Context* ctx = nullptr;
-static ProgramImpl* program_impl = nullptr;
 static VertexShaderImpl* vertex_shader = nullptr;
 static FragmentShaderImpl* fragment_shader = nullptr;
 static BlendKey blend_key = BLEND_KEY_NONE;
@@ -775,7 +772,6 @@ void load_flat_attrib(T& attrib, VertexAttrib& va, uint32_t start, int instance,
 
 void setup_program(GLuint program) {
   if (!program) {
-    program_impl = nullptr;
     vertex_shader = nullptr;
     fragment_shader = nullptr;
     return;
@@ -784,7 +780,6 @@ void setup_program(GLuint program) {
   assert(p.impl);
   assert(p.vert_impl);
   assert(p.frag_impl);
-  program_impl = p.impl;
   vertex_shader = p.vert_impl;
   fragment_shader = p.frag_impl;
 }
@@ -1677,22 +1672,17 @@ GLboolean UnmapBuffer(GLenum target) {
 
 void Uniform1i(GLint location, GLint V0) {
   // debugf("tex: %d\n", (int)ctx->textures.size);
-  if (!program_impl->set_sampler(location, V0)) {
-    vertex_shader->set_uniform_1i(location, V0);
-    fragment_shader->set_uniform_1i(location, V0);
-  }
+  vertex_shader->set_uniform_1i(location, V0);
 }
 void Uniform4fv(GLint location, GLsizei count, const GLfloat* v) {
   assert(count == 1);
   vertex_shader->set_uniform_4fv(location, v);
-  fragment_shader->set_uniform_4fv(location, v);
 }
 void UniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose,
                       const GLfloat* value) {
   assert(count == 1);
   assert(!transpose);
   vertex_shader->set_uniform_matrix4fv(location, value);
-  fragment_shader->set_uniform_matrix4fv(location, value);
 }
 
 void FramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget,
@@ -2412,8 +2402,7 @@ static inline WideRGBA8 blend_pixels_RGBA8(PackedRGBA8 pdst, WideRGBA8 src) {
 }
 
 template <bool DISCARD>
-static inline void commit_output(uint32_t* buf, PackedRGBA8 mask) {
-  fragment_shader->run();
+static inline void discard_output(uint32_t* buf, PackedRGBA8 mask) {
   PackedRGBA8 dst = unaligned_load<PackedRGBA8>(buf);
   WideRGBA8 r = pack_pixels_RGBA8();
   if (blend_key) r = blend_pixels_RGBA8(dst, r);
@@ -2422,57 +2411,23 @@ static inline void commit_output(uint32_t* buf, PackedRGBA8 mask) {
 }
 
 template <bool DISCARD>
-static inline void commit_output(uint32_t* buf) {
-  commit_output<DISCARD>(buf, 0);
+static inline void discard_output(uint32_t* buf) {
+  discard_output<DISCARD>(buf, 0);
 }
 
 template <>
-inline void commit_output<false>(uint32_t* buf) {
-  fragment_shader->run();
+inline void discard_output<false>(uint32_t* buf) {
   WideRGBA8 r = pack_pixels_RGBA8();
   if (blend_key) r = blend_pixels_RGBA8(unaligned_load<PackedRGBA8>(buf), r);
   unaligned_store(buf, pack(r));
-}
-
-static inline void commit_span(uint32_t* buf, PackedRGBA8 r) {
-  if (blend_key)
-    r = pack(blend_pixels_RGBA8(unaligned_load<PackedRGBA8>(buf), unpack(r)));
-  unaligned_store(buf, r);
-}
-
-UNUSED static inline void commit_solid_span(uint32_t* buf, PackedRGBA8 r,
-                                            int len) {
-  if (blend_key) {
-    auto src = unpack(r);
-    for (uint32_t* end = &buf[len]; buf < end; buf += 4) {
-      unaligned_store(
-          buf, pack(blend_pixels_RGBA8(unaligned_load<PackedRGBA8>(buf), src)));
-    }
-  } else {
-    fill_n(buf, len, bit_cast<U32>(r).x);
-  }
-}
-
-UNUSED static inline void commit_texture_span(uint32_t* buf, uint32_t* src,
-                                              int len) {
-  if (blend_key) {
-    for (uint32_t* end = &buf[len]; buf < end; buf += 4, src += 4) {
-      PackedRGBA8 r = unaligned_load<PackedRGBA8>(src);
-      unaligned_store(buf, pack(blend_pixels_RGBA8(
-                               unaligned_load<PackedRGBA8>(buf), unpack(r))));
-    }
-  } else {
-    memcpy(buf, src, len * sizeof(uint32_t));
-  }
 }
 
 static inline PackedRGBA8 span_mask_RGBA8(int span) {
   return bit_cast<PackedRGBA8>(I32(span) < I32{1, 2, 3, 4});
 }
 
-template <bool DISCARD>
-static inline void commit_output(uint32_t* buf, int span) {
-  commit_output<DISCARD>(buf, span_mask_RGBA8(span));
+static inline PackedRGBA8 span_mask(uint32_t*, int span) {
+  return span_mask_RGBA8(span);
 }
 
 static inline WideR8 pack_pixels_R8(Float c) {
@@ -2507,8 +2462,7 @@ static inline WideR8 blend_pixels_R8(WideR8 dst, WideR8 src) {
 }
 
 template <bool DISCARD>
-static inline void commit_output(uint8_t* buf, WideR8 mask) {
-  fragment_shader->run();
+static inline void discard_output(uint8_t* buf, WideR8 mask) {
   WideR8 dst = unpack(unaligned_load<PackedR8>(buf));
   WideR8 r = pack_pixels_R8();
   if (blend_key) r = blend_pixels_R8(dst, r);
@@ -2517,16 +2471,96 @@ static inline void commit_output(uint8_t* buf, WideR8 mask) {
 }
 
 template <bool DISCARD>
-static inline void commit_output(uint8_t* buf) {
-  commit_output<DISCARD>(buf, 0);
+static inline void discard_output(uint8_t* buf) {
+  discard_output<DISCARD>(buf, 0);
 }
 
 template <>
-inline void commit_output<false>(uint8_t* buf) {
-  fragment_shader->run();
+inline void discard_output<false>(uint8_t* buf) {
   WideR8 r = pack_pixels_R8();
   if (blend_key) r = blend_pixels_R8(unpack(unaligned_load<PackedR8>(buf)), r);
   unaligned_store(buf, pack(r));
+}
+
+static inline WideR8 span_mask_R8(int span) {
+  return bit_cast<WideR8>(WideR8(span) < WideR8{1, 2, 3, 4});
+}
+
+static inline WideR8 span_mask(uint8_t*, int span) {
+  return span_mask_R8(span);
+}
+
+template <bool DISCARD, bool W, typename P, typename M>
+static inline void commit_output(P* buf, M mask) {
+  fragment_shader->run<W>();
+  discard_output<DISCARD>(buf, mask);
+}
+
+template <bool DISCARD, bool W, typename P>
+static inline void commit_output(P* buf) {
+  fragment_shader->run<W>();
+  discard_output<DISCARD>(buf);
+}
+
+template <bool DISCARD, bool W, typename P>
+static inline void commit_output(P* buf, int span) {
+  commit_output<DISCARD, W>(buf, span_mask(buf, span));
+}
+
+template <bool DISCARD, bool W, typename P, typename Z>
+static inline void commit_output(P* buf, Z z, uint16_t* zbuf) {
+  ZMask4 zmask;
+  if (check_depth4<true, DISCARD>(z, zbuf, zmask)) {
+    commit_output<DISCARD, W>(buf, unpack(zmask, buf));
+    if (DISCARD) {
+      discard_depth(z, zbuf, zmask);
+    }
+  } else {
+    fragment_shader->skip<W>();
+  }
+}
+
+template <bool DISCARD, bool W, typename P, typename Z>
+static inline void commit_output(P* buf, Z z, uint16_t* zbuf, int span) {
+  ZMask4 zmask;
+  if (check_depth4<false, DISCARD>(z, zbuf, zmask, span)) {
+    commit_output<DISCARD, W>(buf, unpack(zmask, buf));
+    if (DISCARD) {
+      discard_depth(z, zbuf, zmask);
+    }
+  }
+}
+
+static inline void commit_span(uint32_t* buf, PackedRGBA8 r) {
+  if (blend_key)
+    r = pack(blend_pixels_RGBA8(unaligned_load<PackedRGBA8>(buf), unpack(r)));
+  unaligned_store(buf, r);
+}
+
+UNUSED static inline void commit_solid_span(uint32_t* buf, PackedRGBA8 r,
+                                            int len) {
+  if (blend_key) {
+    auto src = unpack(r);
+    for (uint32_t* end = &buf[len]; buf < end; buf += 4) {
+      unaligned_store(
+          buf, pack(blend_pixels_RGBA8(unaligned_load<PackedRGBA8>(buf), src)));
+    }
+  } else {
+    fill_n(buf, len, bit_cast<U32>(r).x);
+  }
+}
+
+UNUSED static inline void commit_texture_span(uint32_t* buf, uint32_t* src,
+                                              int len) {
+  if (blend_key) {
+    for (uint32_t* end = &buf[len]; buf < end; buf += 4, src += 4) {
+      PackedRGBA8 r = unaligned_load<PackedRGBA8>(src);
+      unaligned_store(buf, pack(blend_pixels_RGBA8(
+                               unaligned_load<PackedRGBA8>(buf), unpack(r))));
+    }
+  } else {
+    memcpy(buf, src, len * sizeof(uint32_t));
+  }
 }
 
 static inline void commit_span(uint8_t* buf, PackedR8 r) {
@@ -2547,54 +2581,14 @@ UNUSED static inline void commit_solid_span(uint8_t* buf, PackedR8 r, int len) {
   }
 }
 
-static inline WideR8 span_mask_R8(int span) {
-  return bit_cast<WideR8>(WideR8(span) < WideR8{1, 2, 3, 4});
-}
-
-template <bool DISCARD>
-static inline void commit_output(uint8_t* buf, int span) {
-  commit_output<DISCARD>(buf, span_mask_R8(span));
-}
-
-template <bool DISCARD, typename P, typename Z>
-static inline void commit_output(P* buf, Z z, uint16_t* zbuf) {
-  ZMask4 zmask;
-  if (check_depth4<true, DISCARD>(z, zbuf, zmask)) {
-    commit_output<DISCARD>(buf, unpack(zmask, buf));
-    if (DISCARD) {
-      discard_depth(z, zbuf, zmask);
-    }
-  } else {
-    fragment_shader->skip();
-  }
-}
-
-template <bool DISCARD, typename P, typename Z>
-static inline void commit_output(P* buf, Z z, uint16_t* zbuf, int span) {
-  ZMask4 zmask;
-  if (check_depth4<false, DISCARD>(z, zbuf, zmask, span)) {
-    commit_output<DISCARD>(buf, unpack(zmask, buf));
-    if (DISCARD) {
-      discard_depth(z, zbuf, zmask);
-    }
-  }
-}
-
-static const size_t MAX_FLATS = 64;
-typedef float Flats[MAX_FLATS];
-
-static const size_t MAX_INTERPOLANTS = 16;
-typedef VectorType<float, MAX_INTERPOLANTS> Interpolants;
-
-template <typename S, typename P>
-static ALWAYS_INLINE void dispatch_draw_span(S* shader, P* buf, int len) {
-  int drawn = shader->draw_span(buf, len);
-  if (drawn) shader->step_interp_inputs(drawn >> 2);
-  for (buf += drawn; drawn < len; drawn += 4, buf += 4) {
-    S::run(shader);
-    commit_span(buf, pack_span(buf));
-  }
-}
+#define DISPATCH_DRAW_SPAN(self, buf, len) do {           \
+  int drawn = self->draw_span(buf, len);                  \
+  if (drawn) self->step_interp_inputs(drawn >> 2);        \
+  for (buf += drawn; drawn < len; drawn += 4, buf += 4) { \
+    run(self);                                            \
+    commit_span(buf, pack_span(buf));                     \
+  }                                                       \
+} while (0)
 
 #include "texture.h"
 
@@ -2602,6 +2596,7 @@ static ALWAYS_INLINE void dispatch_draw_span(S* shader, P* buf, int len) {
 #pragma GCC diagnostic ignored "-Wuninitialized"
 #pragma GCC diagnostic ignored "-Wunused-function"
 #pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wunused-private-field"
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
 #ifndef __clang__
@@ -2610,81 +2605,8 @@ static ALWAYS_INLINE void dispatch_draw_span(S* shader, P* buf, int len) {
 #include "load_shader.h"
 #pragma GCC diagnostic pop
 
-template <int FUNC, bool MASK, typename P>
-static inline void draw_depth_span(uint16_t z, P* buf, uint16_t* depth,
-                                   int span) {
-  int skip = 0;
-  if (fragment_shader->has_draw_span(buf)) {
-    int len = 0;
-    do {
-      ZMask8 zmask;
-      switch (check_depth8<FUNC, MASK>(z, depth, zmask)) {
-        case 0:
-          if (len) {
-            fragment_shader->draw_span(buf - len, len);
-            len = 0;
-          }
-          skip += 2;
-          break;
-        case -1:
-          if (skip) {
-            fragment_shader->skip(skip);
-            skip = 0;
-          }
-          len += 8;
-          break;
-        default:
-          if (len) {
-            fragment_shader->draw_span(buf - len, len);
-            len = 0;
-          } else if (skip) {
-            fragment_shader->skip(skip);
-            skip = 0;
-          }
-          commit_output<false>(buf, unpack(lowHalf(zmask), buf));
-          commit_output<false>(buf + 4, unpack(highHalf(zmask), buf));
-          break;
-      }
-      buf += 8;
-      depth += 8;
-      span -= 8;
-    } while (span >= 8);
-    if (len) {
-      fragment_shader->draw_span(buf - len, len);
-    }
-  } else {
-    do {
-      ZMask8 zmask;
-      switch (check_depth8<FUNC, MASK>(z, depth, zmask)) {
-        case 0:
-          skip += 2;
-          break;
-        case -1:
-          if (skip) {
-            fragment_shader->skip(skip);
-            skip = 0;
-          }
-          commit_output<false>(buf);
-          commit_output<false>(buf + 4);
-          break;
-        default:
-          if (skip) {
-            fragment_shader->skip(skip);
-            skip = 0;
-          }
-          commit_output<false>(buf, unpack(lowHalf(zmask), buf));
-          commit_output<false>(buf + 4, unpack(highHalf(zmask), buf));
-          break;
-      }
-      buf += 8;
-      depth += 8;
-      span -= 8;
-    } while (span >= 8);
-  }
-  if (skip) {
-    fragment_shader->skip(skip);
-  }
-}
+static const size_t MAX_INTERPOLANTS = 16;
+typedef VectorType<float, MAX_INTERPOLANTS> Interpolants;
 
 typedef vec2_scalar Point2D;
 typedef vec4_scalar Point3D;
@@ -2700,6 +2622,10 @@ struct ClipRect {
 
   template <typename P>
   bool overlaps(int nump, const P* p) const {
+    // Generate a mask of which side of the clip rect all of a polygon's points
+    // fall inside of. This is a cheap conservative estimate of whether the
+    // bounding box of the polygon might overlap the clip rect, rather than an
+    // exact test that would require multiple slower line intersections.
     int sides = 0;
     for (int i = 0; i < nump; i++) {
       sides |= p[i].x < x1 ? (p[i].x > x0 ? 1 | 2 : 1) : 2;
@@ -2709,116 +2635,327 @@ struct ClipRect {
   }
 };
 
+// Helper function for drawing 8-pixel wide chunks of a span with depth buffer.
+// Using 8-pixel chunks maximizes use of 16-bit depth values in 128-bit wide
+// SIMD register. However, since fragment shaders process only 4 pixels per
+// invocation, we need to run fragment shader twice for every 8 pixel batch
+// of results we get from the depth test. Perspective is not supported.
+template <int FUNC, bool MASK, typename P>
+static inline void draw_depth_span(uint16_t z, P* buf, uint16_t* depth,
+                                   int span) {
+  int skip = 0;
+  // Check if the fragment shader has an optimized draw specialization.
+  if (fragment_shader->has_draw_span(buf)) {
+    // The loop tries to accumulate runs of pixels that passed (len) and
+    // runs of pixels that failed (skip). This allows it to pass the largest
+    // possible span in between changes in depth pass or fail status to the
+    // fragment shader's draw specialer.
+    int len = 0;
+    do {
+      ZMask8 zmask;
+      // Process depth in 8-pixel chunks.
+      switch (check_depth8<FUNC, MASK>(z, depth, zmask)) {
+        case 0: // All pixels failed the depth test.
+          if (len) {
+            // Flush out passed pixels.
+            fragment_shader->draw_span(buf - len, len);
+            len = 0;
+          }
+          // Accumulate 2 skipped chunks.
+          skip += 2;
+          break;
+        case -1: // All pixels passed the depth test.
+          if (skip) {
+            // Flushed out any skipped chunks.
+            fragment_shader->skip(skip);
+            skip = 0;
+          }
+          // Accumulate 8 passed pixels.
+          len += 8;
+          break;
+        default: // Mixture of pass and fail results.
+          if (len) {
+            // Flush out any passed pixels.
+            fragment_shader->draw_span(buf - len, len);
+            len = 0;
+          } else if (skip) {
+            // Flush out any skipped chunks.
+            fragment_shader->skip(skip);
+            skip = 0;
+          }
+          // Run fragment shader on first 4 depth results.
+          commit_output<false, false>(buf, unpack(lowHalf(zmask), buf));
+          // Run fragment shader on next 4 depth results.
+          commit_output<false, false>(buf + 4, unpack(highHalf(zmask), buf));
+          break;
+      }
+      // Advance to next 8 pixels...
+      buf += 8;
+      depth += 8;
+      span -= 8;
+    } while (span >= 8);
+    // Flush out any remaining passed pixels.
+    if (len) {
+      fragment_shader->draw_span(buf - len, len);
+    }
+  } else {
+    // No draw specialization, so we can use a simpler loop here that just
+    // accumulates depth failures, but otherwise invokes fragment shader
+    // immediately on depth pass.
+    do {
+      ZMask8 zmask;
+      // Process depth in 8-pixel chunks.
+      switch (check_depth8<FUNC, MASK>(z, depth, zmask)) {
+        case 0: // All pixels failed the depth test.
+          // Accumulate 2 skipped chunks.
+          skip += 2;
+          break;
+        case -1: // All pixels passed the depth test.
+          if (skip) {
+            // Flush out any skipped chunks.
+            fragment_shader->skip(skip);
+            skip = 0;
+          }
+          // Run the fragment shader for two 4-pixel chunks.
+          commit_output<false, false>(buf);
+          commit_output<false, false>(buf + 4);
+          break;
+        default: // Mixture of pass and fail results.
+          if (skip) {
+            // Flush out any skipped chunks.
+            fragment_shader->skip(skip);
+            skip = 0;
+          }
+          // Run fragment shader on first 4 depth results.
+          commit_output<false, false>(buf, unpack(lowHalf(zmask), buf));
+          // Run fragment shader on next 4 depth results.
+          commit_output<false, false>(buf + 4, unpack(highHalf(zmask), buf));
+          break;
+      }
+      // Advance to next 8 pixels...
+      buf += 8;
+      depth += 8;
+      span -= 8;
+    } while (span >= 8);
+  }
+  // Flush out any remaining skipped chunks.
+  if (skip) {
+    fragment_shader->skip(skip);
+  }
+}
+
+// Draw a simple span in 4-pixel wide chunks, optionally using depth.
+template <bool DISCARD, bool W, typename P, typename Z>
+static ALWAYS_INLINE void draw_span(P* buf, uint16_t* depth, int span, Z z) {
+  if (depth) {
+    // Depth testing is enabled. If perspective is used, Z values will vary
+    // across the span, we use packDepth to generate 16-bit Z values suitable
+    // for depth testing based on current values from gl_FragCoord.z.
+    // Otherwise, for the no-perspective case, we just use the provided Z.
+    // Process 4-pixel chunks first.
+    for (; span >= 4; span -= 4, buf += 4, depth += 4) {
+      commit_output<DISCARD, W>(buf, z(), depth);
+    }
+    // If there are any remaining pixels, do a partial chunk.
+    if (span > 0) {
+      commit_output<DISCARD, W>(buf, z(), depth, span);
+    }
+  } else {
+    // Process 4-pixel chunks first.
+    for (; span >= 4; span -= 4, buf += 4) {
+      commit_output<DISCARD, W>(buf);
+    }
+    // If there are any remaining pixels, do a partial chunk.
+    if (span > 0) {
+      commit_output<DISCARD, W>(buf, span);
+    }
+  }
+}
+
+// Draw spans for each row of a given quad (or triangle) with a constant Z
+// value. The quad is assumed convex. It is clipped to fall within the given
+// clip rect. In short, this function rasterizes a quad by first finding a
+// top most starting point and then from there tracing down the left and right
+// sides of this quad until it hits the bottom, outputting a span between the
+// current left and right positions at each row along the way. Points are
+// assumed to be ordered in either CW or CCW to support this, but currently
+// both orders (CW and CCW) are supported and equivalent.
 template <typename P>
 static inline void draw_quad_spans(int nump, Point2D p[4], uint16_t z,
                                    Interpolants interp_outs[4],
                                    Texture& colortex, int layer,
                                    Texture& depthtex,
                                    const ClipRect& clipRect) {
+  // Only triangles and convex quads supported.
+  assert(nump == 3 || nump == 4);
   Point2D l0, r0, l1, r1;
   int l0i, r0i, l1i, r1i;
   {
+    // Find the index of the top-most (smallest Y) point from which
+    // rasterization can start.
     int top = nump > 3 && p[3].y < p[2].y
                   ? (p[0].y < p[1].y ? (p[0].y < p[3].y ? 0 : 3)
                                      : (p[1].y < p[3].y ? 1 : 3))
                   : (p[0].y < p[1].y ? (p[0].y < p[2].y ? 0 : 2)
                                      : (p[1].y < p[2].y ? 1 : 2));
+    // Helper to find next index in the points array, walking forward.
 #define NEXT_POINT(idx)   \
   ({                      \
     int cur = (idx) + 1;  \
     cur < nump ? cur : 0; \
   })
+    // Helper to find the previous index in the points array, walking backward.
 #define PREV_POINT(idx)        \
   ({                           \
     int cur = (idx)-1;         \
     cur >= 0 ? cur : nump - 1; \
   })
+    // Start looking for "left"-side and "right"-side descending edges starting
+    // from the determined top point.
     int next = NEXT_POINT(top);
     int prev = PREV_POINT(top);
     if (p[top].y == p[next].y) {
+      // If the next point is on the same row as the top, then advance one more
+      // time to the next point and use that as the "left" descending edge.
       l0i = next;
       l1i = NEXT_POINT(next);
+      // Assume top and prev form a descending "right" edge, as otherwise this
+      // will be a collapsed polygon and harmlessly bail out down below.
       r0i = top;
       r1i = prev;
     } else if (p[top].y == p[prev].y) {
+      // If the prev point is on the same row as the top, then advance to the
+      // prev again and use that as the "right" descending edge.
+      // Assume top and next form a non-empty descending "left" edge.
       l0i = top;
       l1i = next;
       r0i = prev;
       r1i = PREV_POINT(prev);
     } else {
+      // Both next and prev are on distinct rows from top, so both "left" and
+      // "right" edges are non-empty/descending.
       l0i = r0i = top;
       l1i = next;
       r1i = prev;
     }
-    l0 = p[l0i];
-    r0 = p[r0i];
-    l1 = p[l1i];
-    r1 = p[r1i];
+    // Load the points from the indices.
+    l0 = p[l0i]; // Start of left edge
+    r0 = p[r0i]; // End of left edge
+    l1 = p[l1i]; // Start of right edge
+    r1 = p[r1i]; // End of right edge
     //    debugf("l0: %d(%f,%f), r0: %d(%f,%f) -> l1: %d(%f,%f), r1:
     //    %d(%f,%f)\n", l0i, l0.x, l0.y, r0i, r0.x, r0.y, l1i, l1.x, l1.y, r1i,
     //    r1.x, r1.y);
   }
 
-  float lx = l0.x;
-  float lk = 1.0f / (l1.y - l0.y);
-  float lm = (l1.x - l0.x) * lk;
-  float rx = r0.x;
-  float rk = 1.0f / (r1.y - r0.y);
-  float rm = (r1.x - r0.x) * rk;
+  struct Edge
+  {
+    float yScale;
+    float xSlope;
+    float x;
+    Interpolants interpSlope;
+    Interpolants interp;
+
+    Edge(float y, const Point2D& p0, const Point2D& p1,
+         const Interpolants& i0, const Interpolants& i1) :
+      // Inverse Y scale for slope calculations. Avoid divide on 0-length edge.
+      // Later checks below ensure that Y <= p1.y, or otherwise we don't use
+      // this edge. We just need to guard against Y == p1.y == p0.y. In that
+      // case, Y - p0.y == 0 and will cancel out the slopes below, except if
+      // yScale is Inf for some reason (or worse, NaN), which 1/(p1.y-p0.y)
+      // might produce if we don't bound it.
+      yScale(1.0f / max(p1.y - p0.y, 1.0f / 256)),
+      // Calculate dX/dY slope
+      xSlope((p1.x - p0.x) * yScale),
+      // Initialize current X based on Y and slope
+      x(p0.x + (y - p0.y) * xSlope),
+      // Calculate change in interpolants per change in Y
+      interpSlope((i1 - i0) * yScale),
+      // Initialize current interpolants based on Y and slope
+      interp(i0 + (y - p0.y) * interpSlope)
+    {}
+
+    void nextRow() {
+      // step current X and interpolants to next row from slope
+      x += xSlope;
+      interp += interpSlope;
+    }
+  };
+
+  // Vertex selection above should result in equal left and right start rows
   assert(l0.y == r0.y);
+  // Find the start y, clip to within the clip rect, and round to row center.
   float y = floor(max(l0.y, clipRect.y0) + 0.5f) + 0.5f;
-  lx += (y - l0.y) * lm;
-  rx += (y - r0.y) * rm;
-  Interpolants lo = interp_outs[l0i];
-  Interpolants lom = (interp_outs[l1i] - lo) * lk;
-  lo = lo + lom * (y - l0.y);
-  Interpolants ro = interp_outs[r0i];
-  Interpolants rom = (interp_outs[r1i] - ro) * rk;
-  ro = ro + rom * (y - r0.y);
+  // Initialize left and right edges from end points and start Y
+  Edge left(y, l0, l1, interp_outs[l0i], interp_outs[l1i]);
+  Edge right(y, r0, r1, interp_outs[r0i], interp_outs[r1i]);
+  // Get pointer to color buffer and depth buffer at current Y
   P* fbuf = (P*)colortex.sample_ptr(0, int(y), layer, sizeof(P));
   uint16_t* fdepth =
     (uint16_t*)depthtex.sample_ptr(0, int(y), 0, sizeof(uint16_t));
-  while (y < clipRect.y1) {
-    if (y > l1.y) {
-      l0i = l1i;
-      l0 = l1;
-      l1i = NEXT_POINT(l1i);
-      l1 = p[l1i];
-      if (l1.y <= l0.y) break;
-      lk = 1.0f / (l1.y - l0.y);
-      lm = (l1.x - l0.x) * lk;
-      lx = l0.x + (y - l0.y) * lm;
-      lo = interp_outs[l0i];
-      lom = (interp_outs[l1i] - lo) * lk;
-      lo += lom * (y - l0.y);
+  // Loop along advancing Ys, rasterizing spans at each row
+  float checkY = min(min(l1.y, r1.y), clipRect.y1);
+  for (;;) {
+    // Check if we maybe passed edge ends or outside clip rect...
+    if (y > checkY) {
+      // If we're outside the clip rect, we're done.
+      if (y > clipRect.y1) break;
+      // Helper to find the next non-duplicate vertex that doesn't loop back.
+#define STEP_EDGE(e0i, e0, e1i, e1, STEP_POINT, end)                   \
+      for (;;) {                                                       \
+        /* Set new start of edge to be end of old edge */              \
+        e0i = e1i;                                                     \
+        e0 = e1;                                                       \
+        /* Set new end of edge to next point */                        \
+        e1i = STEP_POINT(e1i);                                         \
+        e1 = p[e1i];                                                   \
+        /* If the edge is descending, use it. */                       \
+        if (e1.y > e0.y) break;                                        \
+        /* If the edge is ascending or crossed the end, we're done. */ \
+        if (e1.y < e0.y || e0i == end) return;                         \
+        /* Otherwise, it's a duplicate, so keep searching. */          \
+      }
+      // Check if Y advanced past the end of the left edge
+      if (y > l1.y) {
+        // Step to next left edge past Y and reset edge interpolants.
+        do { STEP_EDGE(l0i, l0, l1i, l1, NEXT_POINT, r1i); } while (y > l1.y);
+        left = Edge(y, l0, l1, interp_outs[l0i], interp_outs[l1i]);
+      }
+      // Check if Y advanced past the end of the right edge
+      if (y > r1.y) {
+        // Step to next right edge past Y and reset edge interpolants.
+        do { STEP_EDGE(r0i, r0, r1i, r1, PREV_POINT, l1i); } while (y > r1.y);
+        right = Edge(y, r0, r1, interp_outs[r0i], interp_outs[r1i]);
+      }
+      // Reset check condition for next time around.
+      checkY = min(min(l1.y, r1.y), clipRect.y1);
     }
-    if (y > r1.y) {
-      r0i = r1i;
-      r0 = r1;
-      r1i = PREV_POINT(r1i);
-      r1 = p[r1i];
-      if (r1.y <= r0.y) break;
-      rk = 1.0f / (r1.y - r0.y);
-      rm = (r1.x - r0.x) * rk;
-      rx = r0.x + (y - r0.y) * rm;
-      ro = interp_outs[r0i];
-      rom = (interp_outs[r1i] - ro) * rk;
-      ro += rom * (y - r0.y);
-    }
-    int startx = int(max(min(lx, rx), clipRect.x0) + 0.5f);
-    int endx = int(min(max(lx, rx), clipRect.x1) + 0.5f);
+    // lx..rx form the bounds of the span. WR does not use backface culling,
+    // so we need to use min/max to support the span in either orientation.
+    // Clip the span to fall within the clip rect and then round to nearest
+    // column.
+    int startx = int(max(min(left.x, right.x), clipRect.x0) + 0.5f);
+    int endx = int(min(max(left.x, right.x), clipRect.x1) + 0.5f);
+    // Check if span is non-empty.
     int span = endx - startx;
     if (span > 0) {
       ctx->shaded_rows++;
       ctx->shaded_pixels += span;
+      // Advance color/depth buffer pointers to the start of the span.
       P* buf = fbuf + startx;
-      uint16_t* depth = fdepth + startx;
-      bool use_depth = depthtex.buf != nullptr;
+      // Check if the we will need to use depth-buffer or discard on this span.
+      uint16_t* depth = depthtex.buf != nullptr ? fdepth + startx : nullptr;
       bool use_discard = fragment_shader->use_discard();
       if (depthtex.delay_clear) {
+        // Delayed clear is enabled for the depth buffer. Check if this row
+        // needs to be cleared.
         int yi = int(y);
         uint32_t& mask = depthtex.cleared_rows[yi / 32];
         if ((mask & (1 << (yi & 31))) == 0) {
+          // The depth buffer is unitialized on this row, but we know it will
+          // thus be cleared entirely to the clear value. This lets us quickly
+          // check the constant Z value of the quad against the clear Z to know
+          // if the entire span passes or fails the depth test all at once.
           switch (ctx->depthfunc) {
             case GL_LESS:
               if (int16_t(z) < int16_t(depthtex.clear_val))
@@ -2831,47 +2968,73 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint16_t z,
               else
                 goto next_span;
           }
+          // If we got here, we passed the depth test.
           if (ctx->depthmask) {
+            // Depth writes are enabled, so we need to initialize depth.
             mask |= 1 << (yi & 31);
             depthtex.delay_clear--;
             if (use_discard) {
+              // if discard is enabled, we don't know what pixels may be
+              // written to, so we have to clear the entire row.
               force_clear_row<uint16_t>(depthtex, yi);
             } else {
+              // Otherwise, we only need to clear the pixels that fall outside
+              // the current span on this row.
               if (startx > 0 || endx < depthtex.width) {
                 force_clear_row<uint16_t>(depthtex, yi, startx, endx);
               }
+              // Fill in the span's Z values with constant Z.
               clear_buffer<uint16_t>(depthtex, z, 0,
                                      IntRect{startx, yi, endx, yi + 1});
-              use_depth = false;
+              // We already passed the depth test, so no need to test depth
+              // any more.
+              depth = nullptr;
             }
           } else {
-            use_depth = false;
+            // No depth writes, so don't clear anything, and no need to test.
+            depth = nullptr;
           }
         }
       }
       if (colortex.delay_clear) {
+        // Delayed clear is enabled for the color buffer. Check if needs clear.
         int yi = int(y);
         uint32_t& mask = colortex.cleared_rows[yi / 32];
         if ((mask & (1 << (yi & 31))) == 0) {
           mask |= 1 << (yi & 31);
           colortex.delay_clear--;
-          if (use_depth || blend_key || use_discard) {
+          if (depth || blend_key || use_discard) {
+            // If depth test, blending, or discard is used, old color values
+            // might be sampled, so we need to clear the entire row to fill it.
             force_clear_row<P>(colortex, yi);
           } else if (startx > 0 || endx < colortex.width) {
+            // Otherwise, we only need to clear the row outside of the span.
+            // The fragment shader will fill the row within the span itself.
             force_clear_row<P>(colortex, yi, startx, endx);
           }
         }
       }
+      // Initialize fragment shader interpolants to current span position.
       fragment_shader->gl_FragCoord.x = init_interp(startx + 0.5f, 1);
       fragment_shader->gl_FragCoord.y = y;
       {
-        Interpolants step = (ro - lo) * (1.0f / (rx - lx));
-        Interpolants o = lo + step * (startx + 0.5f - lx);
+        // Change in interpolants is difference between current right and left
+        // edges per the change in right and left X.
+        Interpolants step =
+            (right.interp - left.interp) * (1.0f / (right.x - left.x));
+        // Advance current interpolants to X at start of span.
+        Interpolants o = left.interp + step * (startx + 0.5f - left.x);
         fragment_shader->init_span(&o, &step, 4.0f);
       }
       if (!use_discard) {
-        if (use_depth) {
+        // Fast paths for the case where fragment discard is not used.
+        if (depth) {
+          // If depth is used, we want to process spans in 8-pixel chunks to
+          // maximize sampling and testing 16-bit depth values within the 128-
+          // bit width of a SIMD register.
           if (span >= 8) {
+            // Specializations for supported depth functions depending on
+            // whether depth writes are enabled.
             if (ctx->depthfunc == GL_LEQUAL) {
               if (ctx->depthmask)
                 draw_depth_span<GL_LEQUAL, true>(z, buf, depth, span);
@@ -2883,64 +3046,45 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint16_t z,
               else
                 draw_depth_span<GL_LESS, false>(z, buf, depth, span);
             }
+            // Advance buffers past processed chunks.
             buf += span & ~7;
             depth += span & ~7;
             span &= 7;
           }
-          for (; span >= 4; span -= 4, buf += 4, depth += 4) {
-            commit_output<false>(buf, z, depth);
-          }
-          if (span > 0) {
-            commit_output<false>(buf, z, depth, span);
-          }
         } else {
-          if (span >= 4) {
-            if (fragment_shader->has_draw_span(buf)) {
-              int len = span & ~3;
-              fragment_shader->draw_span(buf, len);
-              buf += len;
-              span &= 3;
-            } else {
-              do {
-                commit_output<false>(buf);
-                buf += 4;
-                span -= 4;
-              } while (span >= 4);
-            }
-          }
-          if (span > 0) {
-            commit_output<false>(buf, span);
+          // Check if the fragment shader has an optimized draw specialization.
+          if (span >= 4 && fragment_shader->has_draw_span(buf)) {
+            // Draw specialization expects 4-pixel chunks.
+            int len = span & ~3;
+            fragment_shader->draw_span(buf, len);
+            buf += len;
+            span &= 3;
           }
         }
+        draw_span<false, false>(buf, depth, span, [=]{ return z; });
       } else {
-        if (use_depth) {
-          for (; span >= 4; span -= 4, buf += 4, depth += 4) {
-            commit_output<true>(buf, z, depth);
-          }
-          if (span > 0) {
-            commit_output<true>(buf, z, depth, span);
-          }
-        } else {
-          for (; span >= 4; span -= 4, buf += 4) {
-            commit_output<true>(buf);
-          }
-          if (span > 0) {
-            commit_output<true>(buf, span);
-          }
-        }
+        // If discard is used, then use slower fallbacks. This should be rare.
+        // Just needs to work, doesn't need to be too fast yet...
+        draw_span<true, false>(buf, depth, span, [=]{ return z; });
       }
     }
   next_span:
-    lx += lm;
-    rx += rm;
+    // Advance Y and edge interpolants to next row.
     y++;
-    lo += lom;
-    ro += rom;
+    left.nextRow();
+    right.nextRow();
+    // Advance buffers to next row.
     fbuf += colortex.stride(sizeof(P)) / sizeof(P);
     fdepth += depthtex.stride(sizeof(uint16_t)) / sizeof(uint16_t);
   }
 }
 
+// Draw perspective-correct spans for a convex quad that has been clipped to
+// the near and far Z planes, possibly producing a clipped convex polygon with
+// more than 4 sides. This assumes the Z value will vary across the spans and
+// requires interpolants to factor in W values. This tends to be slower than
+// the simpler 2D draw_quad_spans above, especially since we can't optimize the
+// depth test easily when Z values, and should be used only rarely if possible.
 template <typename P>
 static inline void draw_perspective_spans(int nump, Point3D* p,
                                           Interpolants* interp_outs,
@@ -2950,14 +3094,17 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
   Point3D l0, r0, l1, r1;
   int l0i, r0i, l1i, r1i;
   {
-    // find a top point
+    // Find the index of the top-most point (smallest Y) from which
+    // rasterization can start.
     int top = 0;
     for (int i = 1; i < nump; i++) {
       if (p[i].y < p[top].y) {
         top = i;
       }
     }
-    // find left-most top point
+    // Find left-most top point, the start of the left descending edge.
+    // Advance forward in the points array, searching at most nump points
+    // in case the polygon is flat.
     l0i = top;
     for (int i = top + 1; i < nump && p[i].y == p[top].y; i++) {
       l0i = i;
@@ -2967,7 +3114,8 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
         l0i = i;
       }
     }
-    // find right-most top point
+    // Find right-most top point, the start of the right descending edge.
+    // Advance backward in the points array, searching at most nump points.
     r0i = top;
     for (int i = top - 1; i >= 0 && p[i].y == p[top].y; i--) {
       r0i = i;
@@ -2977,144 +3125,174 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
         r0i = i;
       }
     }
+    // End of left edge is next point after left edge start.
     l1i = NEXT_POINT(l0i);
+    // End of right edge is prev point after right edge start.
     r1i = PREV_POINT(r0i);
-    l0 = p[l0i];
-    r0 = p[r0i];
-    l1 = p[l1i];
-    r1 = p[r1i];
+    l0 = p[l0i]; // Start of left edge
+    r0 = p[r0i]; // End of left edge
+    l1 = p[l1i]; // Start of right edge
+    r1 = p[r1i]; // End of right edge
   }
 
-  Point3D lc = l0;
-  float lk = 1.0f / (l1.y - l0.y);
-  Point3D lm = (l1 - l0) * lk;
-  Point3D rc = r0;
-  float rk = 1.0f / (r1.y - r0.y);
-  Point3D rm = (r1 - r0) * rk;
+  struct Edge
+  {
+    float yScale;
+    // Current coordinates for edge. Where in the 2D case of draw_quad_spans,
+    // it is enough to just track the X coordinate as we advance along the rows,
+    // for the perspective case we also need to keep track of Z and W. For
+    // simplicity, we just use the full 3D point to track all these coordinates.
+    Point3D pSlope;
+    Point3D p;
+    Interpolants interpSlope;
+    Interpolants interp;
+
+    Edge(float y, const Point3D& p0, const Point3D& p1,
+         const Interpolants& i0, const Interpolants& i1) :
+      // Inverse Y scale for slope calculations. Avoid divide on 0-length edge.
+      yScale(1.0f / max(p1.y - p0.y, 1.0f / 256)),
+      // Calculate dX/dY slope
+      pSlope((p1 - p0) * yScale),
+      // Initialize current coords based on Y and slope
+      p(p0 + (y - p0.y) * pSlope),
+      // Crucially, these interpolants must be scaled by the point's 1/w value,
+      // which allows linear interpolation in a perspective-correct manner.
+      // This will be canceled out inside the fragment shader later.
+      // Calculate change in interpolants per change in Y
+      interpSlope((i1 * p1.w - i0 * p0.w) * yScale),
+      // Initialize current interpolants based on Y and slope
+      interp(i0 * p0.w + (y - p0.y) * interpSlope)
+    {}
+
+    float x() const { return p.x; }
+    vec2_scalar zw() const { return {p.z, p.w}; }
+
+    void nextRow() {
+      // step current coords and interpolants to next row from slope
+      p += pSlope;
+      interp += interpSlope;
+    }
+  };
+
+  // Vertex selection above should result in equal left and right start rows
   assert(l0.y == r0.y);
+  // Find the start y, clip to within the clip rect, and round to row center.
   float y = floor(max(l0.y, clipRect.y0) + 0.5f) + 0.5f;
-  lc += (y - l0.y) * lm;
-  rc += (y - r0.y) * rm;
-  Interpolants lo = interp_outs[l0i] * l0.w;
-  Interpolants lom = (interp_outs[l1i] * l1.w - lo) * lk;
-  lo = lo + lom * (y - l0.y);
-  Interpolants ro = interp_outs[r0i] * r0.w;
-  Interpolants rom = (interp_outs[r1i] * r1.w - ro) * rk;
-  ro = ro + rom * (y - r0.y);
+  // Initialize left and right edges from end points and start Y
+  Edge left(y, l0, l1, interp_outs[l0i], interp_outs[l1i]);
+  Edge right(y, r0, r1, interp_outs[r0i], interp_outs[r1i]);
+  // Get pointer to color buffer and depth buffer at current Y
   P* fbuf = (P*)colortex.sample_ptr(0, int(y), layer, sizeof(P));
   uint16_t* fdepth =
     (uint16_t*)depthtex.sample_ptr(0, int(y), 0, sizeof(uint16_t));
-  while (y < clipRect.y1) {
-    if (y > l1.y) {
-      l0i = l1i;
-      l0 = l1;
-      l1i = NEXT_POINT(l1i);
-      l1 = p[l1i];
-      if (l1.y <= l0.y) break;
-      lk = 1.0f / (l1.y - l0.y);
-      lm = (l1 - l0) * lk;
-      lc = l0 + (y - l0.y) * lm;
-      lo = interp_outs[l0i] * l0.w;
-      lom = (interp_outs[l1i] * l1.w - lo) * lk;
-      lo += lom * (y - l0.y);
+  // Loop along advancing Ys, rasterizing spans at each row
+  float checkY = min(min(l1.y, r1.y), clipRect.y1);
+  for (;;) {
+    // Check if we maybe passed edge ends or outside clip rect...
+    if (y > checkY) {
+      // If we're outside the clip rect, we're done.
+      if (y > clipRect.y1) break;
+      // Check if Y advanced past the end of the left edge
+      if (y > l1.y) {
+        // Step to next left edge past Y and reset edge interpolants.
+        do { STEP_EDGE(l0i, l0, l1i, l1, NEXT_POINT, r1i); } while (y > l1.y);
+        left = Edge(y, l0, l1, interp_outs[l0i], interp_outs[l1i]);
+      }
+      // Check if Y advanced past the end of the right edge
+      if (y > r1.y) {
+        // Step to next right edge past Y and reset edge interpolants.
+        do { STEP_EDGE(r0i, r0, r1i, r1, PREV_POINT, l1i); } while (y > r1.y);
+        right = Edge(y, r0, r1, interp_outs[r0i], interp_outs[r1i]);
+      }
+      // Reset check condition for next time around.
+      checkY = min(min(l1.y, r1.y), clipRect.y1);
     }
-    if (y > r1.y) {
-      r0i = r1i;
-      r0 = r1;
-      r1i = PREV_POINT(r1i);
-      r1 = p[r1i];
-      if (r1.y <= r0.y) break;
-      rk = 1.0f / (r1.y - r0.y);
-      rm = (r1 - r0) * rk;
-      rc = r0 + (y - r0.y) * rm;
-      ro = interp_outs[r0i] * r0.w;
-      rom = (interp_outs[r1i] * r1.w - ro) * rk;
-      ro += rom * (y - r0.y);
-    }
-    int startx = int(max(min(lc.x, rc.x), clipRect.x0) + 0.5f);
-    int endx = int(min(max(lc.x, rc.x), clipRect.x1) + 0.5f);
+    // lx..rx form the bounds of the span. WR does not use backface culling,
+    // so we need to use min/max to support the span in either orientation.
+    // Clip the span to fall within the clip rect and then round to nearest
+    // column.
+    int startx = int(max(min(left.x(), right.x()), clipRect.x0) + 0.5f);
+    int endx = int(min(max(left.x(), right.x()), clipRect.x1) + 0.5f);
+    // Check if span is non-empty.
     int span = endx - startx;
     if (span > 0) {
       ctx->shaded_rows++;
       ctx->shaded_pixels += span;
+      // Advance color/depth buffer pointers to the start of the span.
       P* buf = fbuf + startx;
-      uint16_t* depth = fdepth + startx;
-      bool use_depth = depthtex.buf != nullptr;
+      // Check if the we will need to use depth-buffer or discard on this span.
+      uint16_t* depth = depthtex.buf != nullptr ? fdepth + startx : nullptr;
       bool use_discard = fragment_shader->use_discard();
       if (depthtex.delay_clear) {
+        // Delayed clear is enabled for the depth buffer. Check if this row
+        // needs to be cleared.
         int yi = int(y);
         uint32_t& mask = depthtex.cleared_rows[yi / 32];
         if ((mask & (1 << (yi & 31))) == 0) {
           mask |= 1 << (yi & 31);
           depthtex.delay_clear--;
+          // Since Z varies across the span, it's easier to just clear the
+          // row and rely on later depth testing. If necessary, this could be
+          // optimized to test against the start and end Z values of the span
+          // here.
           force_clear_row<uint16_t>(depthtex, yi);
         }
       }
       if (colortex.delay_clear) {
+        // Delayed clear is enabled for the color buffer. Check if needs clear.
         int yi = int(y);
         uint32_t& mask = colortex.cleared_rows[yi / 32];
         if ((mask & (1 << (yi & 31))) == 0) {
           mask |= 1 << (yi & 31);
           colortex.delay_clear--;
-          if (use_depth || blend_key || use_discard) {
+          if (depth || blend_key || use_discard) {
+            // If depth test, blending, or discard is used, old color values
+            // might be sampled, so we need to clear the entire row to fill it.
             force_clear_row<P>(colortex, yi);
           } else if (startx > 0 || endx < colortex.width) {
+            // Otherwise, we only need to clear the row outside of the span.
+            // The fragment shader will fill the row within the span itself.
             force_clear_row<P>(colortex, yi, startx, endx);
           }
         }
       }
+      // Initialize fragment shader interpolants to current span position.
       fragment_shader->gl_FragCoord.x = init_interp(startx + 0.5f, 1);
       fragment_shader->gl_FragCoord.y = y;
       {
+        // Calculate the fragment Z and W change per change in fragment X step.
         vec2_scalar stepZW =
-            (rc.sel(Z, W) - lc.sel(Z, W)) * (1.0f / (rc.x - lc.x));
-        vec2_scalar zw = lc.sel(Z, W) + stepZW * (startx + 0.5f - lc.x);
+            (right.zw() - left.zw()) * (1.0f / (right.x() - left.x()));
+        // Calculate initial Z and W values for span start.
+        vec2_scalar zw = left.zw() + stepZW * (startx + 0.5f - left.x());
+        // Set fragment shader's Z and W values so that it can use them to
+        // cancel out the 1/w baked into the interpolants.
         fragment_shader->gl_FragCoord.z = init_interp(zw.x, stepZW.x);
         fragment_shader->gl_FragCoord.w = init_interp(zw.y, stepZW.y);
         fragment_shader->stepZW = stepZW * 4.0f;
-        Interpolants step = (ro - lo) * (1.0f / (rc.x - lc.x));
-        Interpolants o = lo + step * (startx + 0.5f - lc.x);
-        fragment_shader->init_span(&o, &step, 4.0f);
+        // Change in interpolants is difference between current right and left
+        // edges per the change in right and left X. The left and right
+        // interpolant values were previously multipled by 1/w, so the step and
+        // initial span values take this into account.
+        Interpolants step =
+            (right.interp - left.interp) * (1.0f / (right.x() - left.x()));
+        // Advance current interpolants to X at start of span.
+        Interpolants o = left.interp + step * (startx + 0.5f - left.x());
+        fragment_shader->init_span<true>(&o, &step, 4.0f);
       }
       if (!use_discard) {
-        if (use_depth) {
-          for (; span >= 4; span -= 4, buf += 4, depth += 4) {
-            commit_output<false>(buf, packDepth(), depth);
-          }
-          if (span > 0) {
-            commit_output<false>(buf, packDepth(), depth, span);
-          }
-        } else {
-          for (; span >= 4; span -= 4, buf += 4) {
-            commit_output<false>(buf);
-          }
-          if (span > 0) {
-            commit_output<false>(buf, span);
-          }
-        }
+        // No discard is used. Common case.
+        draw_span<false, true>(buf, depth, span, packDepth);
       } else {
-        if (use_depth) {
-          for (; span >= 4; span -= 4, buf += 4, depth += 4) {
-            commit_output<true>(buf, packDepth(), depth);
-          }
-          if (span > 0) {
-            commit_output<true>(buf, packDepth(), depth, span);
-          }
-        } else {
-          for (; span >= 4; span -= 4, buf += 4) {
-            commit_output<true>(buf);
-          }
-          if (span > 0) {
-            commit_output<true>(buf, span);
-          }
-        }
+        // Discard is used. Rare.
+        draw_span<true, true>(buf, depth, span, packDepth);
       }
     }
-    lc += lm;
-    rc += rm;
+    // Advance Y and edge interpolants to next row.
     y++;
-    lo += lom;
-    ro += rom;
+    left.nextRow();
+    right.nextRow();
+    // Advance buffers to next row.
     fbuf += colortex.stride(sizeof(P)) / sizeof(P);
     fdepth += depthtex.stride(sizeof(uint16_t)) / sizeof(uint16_t);
   }
@@ -3131,15 +3309,21 @@ static int clip_near_far(int nump, Point3D* p, Interpolants* interp) {
   Point3D prev = p[nump - 1];
   Interpolants prevInterp = interp[nump - 1];
   float prevDist = SIDE * prev.z - prev.w;
+  // Loop through points, finding edges that cross the plane by evaluating
+  // the plane equation at each point.
   for (int i = 0; i < nump; i++) {
     Point3D cur = p[i];
     Interpolants curInterp = interp[i];
     float curDist = SIDE * cur.z - cur.w;
     if (curDist < 0.0f && prevDist < 0.0f) {
+      // The edge is inside the plane, so output point unmodified.
       p[numClip] = cur;
       interp[numClip] = curInterp;
       numClip++;
     } else if (curDist < 0.0f || prevDist < 0.0f) {
+      // One of the edge's end points is outside the plane with the other
+      // inside the plane. Find the offset where it crosses the plane and
+      // adjust the point and interpolants to there.
       float k = prevDist / (prevDist - curDist);
       p[numClip] = prev + (cur - prev) * k;
       interp[numClip] = prevInterp + (curInterp - prevInterp) * k;
@@ -3163,16 +3347,11 @@ static int clip_near_far(int nump, Point3D* p, Interpolants* interp) {
 // by W again to produce the final correct attribute value for each fragment.
 // This process is expensive and should be avoided if possible for primitive
 // batches that are known ahead of time to not need perspective-correction.
-// To trigger this path, the shader should use the PERSPECTIVE feature so that
-// the glsl-to-cxx compiler can generate the appropriate interpolation code
-// needed to participate with SWGL's perspective-correction.
-static void draw_perspective(int nump, Texture& colortex, int layer,
+static void draw_perspective(int nump,
+                             Interpolants interp_outs[6],
+                             Texture& colortex, int layer,
                              Texture& depthtex) {
-  Flats flat_outs;
-  Interpolants interp_outs[6] = {0};
-  vertex_shader->run((char*)flat_outs, (char*)interp_outs,
-                     sizeof(Interpolants));
-
+  // Convert output of vertex shader to screen space.
   Point3D p[6];
   vec4 pos = vertex_shader->gl_Position;
   vec3_scalar scale =
@@ -3180,6 +3359,8 @@ static void draw_perspective(int nump, Texture& colortex, int layer,
   vec3_scalar offset =
     vec3_scalar(ctx->viewport.x0, ctx->viewport.y0, 0.0f) + scale;
   if (test_none(pos.z < -pos.w || pos.z > pos.w)) {
+    // No points cross the near or far planes, so no clipping required.
+    // Just divide coords by W and convert to viewport.
     Float w = 1.0f / pos.w;
     vec3 screen = pos.sel(X, Y, Z) * w * scale + offset;
     p[0] = Point3D(screen.x.x, screen.y.x, screen.z.x, w.x);
@@ -3187,31 +3368,35 @@ static void draw_perspective(int nump, Texture& colortex, int layer,
     p[2] = Point3D(screen.x.z, screen.y.z, screen.z.z, w.z);
     p[3] = Point3D(screen.x.w, screen.y.w, screen.z.w, w.w);
   } else {
+    // Points cross the near or far planes, so we need to clip...
     p[0] = Point3D(pos.x.x, pos.y.x, pos.z.x, pos.w.x);
     p[1] = Point3D(pos.x.y, pos.y.y, pos.z.y, pos.w.y);
     p[2] = Point3D(pos.x.z, pos.y.z, pos.z.z, pos.w.z);
     p[3] = Point3D(pos.x.w, pos.y.w, pos.z.w, pos.w.w);
+    // Clip against near plane.
     nump = clip_near_far<-1>(nump, p, interp_outs);
     if (nump < 3) {
       return;
     }
+    // Clip against far plane.
     nump = clip_near_far<1>(nump, p, interp_outs);
     if (nump < 3) {
       return;
     }
+    // Divide coords by W and convert to viewport.
     for (int i = 0; i < nump; i++) {
       float w = 1.0f / p[i].w;
       p[i] = Point3D(p[i].sel(X, Y, Z) * w * scale + offset, w);
     }
   }
 
+  // If polygon is ouside clip rect, nothing to draw.
   ClipRect clipRect(colortex);
   if (!clipRect.overlaps(nump, p)) {
     return;
   }
 
-  fragment_shader->init_primitive(flat_outs);
-
+  // Finally draw perspective-correct spans for the polygon.
   if (colortex.internal_format == GL_RGBA8) {
     draw_perspective_spans<uint32_t>(nump, p, interp_outs, colortex, layer,
                                      depthtex, clipRect);
@@ -3225,17 +3410,20 @@ static void draw_perspective(int nump, Texture& colortex, int layer,
 
 static void draw_quad(int nump, Texture& colortex, int layer,
                       Texture& depthtex) {
-  if (fragment_shader->use_perspective()) {
-    draw_perspective(nump, colortex, layer, depthtex);
+  // Run vertex shader once for the primitive's vertices.
+  // Reserve space for 6 sets of interpolants, in case we need to clip against
+  // near and far planes in the perspective case.
+  Interpolants interp_outs[6] = {0};
+  vertex_shader->run_primitive((char*)interp_outs, sizeof(Interpolants));
+  vec4 pos = vertex_shader->gl_Position;
+  // Check if any vertex W is different from another. If so, use perspective.
+  if (test_any(pos.w != pos.w.x)) {
+    draw_perspective(nump, interp_outs, colortex, layer, depthtex);
     return;
   }
 
-  Flats flat_outs;
-  Interpolants interp_outs[4] = {0};
-  vertex_shader->run((char*)flat_outs, (char*)interp_outs,
-                     sizeof(Interpolants));
-
-  vec4 pos = vertex_shader->gl_Position;
+  // Convert output of vertex shader to screen space.
+  // Divide coords by W and convert to viewport.
   float w = 1.0f / pos.w.x;
   vec2 screen =
       (pos.sel(X, Y) * w + 1) * 0.5f *
@@ -3246,22 +3434,27 @@ static void draw_quad(int nump, Texture& colortex, int layer,
                   {screen.x.z, screen.y.z},
                   {screen.x.w, screen.y.w}};
 
+  // If quad is ouside clip rect, nothing to draw.
   ClipRect clipRect(colortex);
   if (!clipRect.overlaps(nump, p)) {
     return;
   }
 
-  float screenZ = (vertex_shader->gl_Position.z.x * w + 1) * 0.5f;
+  // Since the quad is assumed 2D, Z is constant across the quad.
+  float screenZ = (pos.z.x * w + 1) * 0.5f;
   if (screenZ < 0 || screenZ > 1) {
+    // Z values would cross the near or far plane, so just bail.
     return;
   }
+  // Since Z doesn't need to be interpolated, just set the fragment shader's
+  // Z and W values here, once and for all fragment shader invocations.
   // SSE2 does not support unsigned comparison, so bias Z to be negative.
   uint16_t z = uint16_t(0xFFFF * screenZ) - 0x8000;
   fragment_shader->gl_FragCoord.z = screenZ;
   fragment_shader->gl_FragCoord.w = w;
 
-  fragment_shader->init_primitive(flat_outs);
-
+  // Finally draw 2D spans for the quad. Currently only supports drawing to
+  // RGBA8 and R8 color buffers.
   if (colortex.internal_format == GL_RGBA8) {
     draw_quad_spans<uint32_t>(nump, p, z, interp_outs, colortex, layer,
                               depthtex, clipRect);
@@ -3307,11 +3500,10 @@ static inline void draw_elements(GLsizei count, GLsizei instancecount,
     // Fast path - since there is only a single quad, we only load per-vertex
     // attribs once for all instances, as they won't change across instances
     // or within an instance.
-    vertex_shader->load_attribs(program_impl, v.attribs, indices[0], 0, 4);
+    vertex_shader->load_attribs(v.attribs, indices[0], 0, 4);
     draw_quad(4, colortex, layer, depthtex);
     for (GLsizei instance = 1; instance < instancecount; instance++) {
-      vertex_shader->load_attribs(program_impl, v.attribs, indices[0],
-                                  instance, 0);
+      vertex_shader->load_attribs(v.attribs, indices[0], instance, 0);
       draw_quad(4, colortex, layer, depthtex);
     }
   } else {
@@ -3328,8 +3520,7 @@ static inline void draw_elements(GLsizei count, GLsizei instancecount,
           nump = 4;
           i += 3;
         }
-        vertex_shader->load_attribs(program_impl, v.attribs, indices[i],
-                                    instance, nump);
+        vertex_shader->load_attribs(v.attribs, indices[i], instance, nump);
         draw_quad(nump, colortex, layer, depthtex);
       }
     }
@@ -3381,8 +3572,7 @@ void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type,
   ctx->shaded_rows = 0;
   ctx->shaded_pixels = 0;
 
-  vertex_shader->init_batch(program_impl);
-  fragment_shader->init_batch(program_impl);
+  vertex_shader->init_batch();
 
   if (type == GL_UNSIGNED_SHORT) {
     draw_elements<uint16_t>(count, instancecount, indices_buf, offset, v,
