@@ -984,8 +984,6 @@ pub enum DebugCommand {
 
 /// Message sent by the `RenderApi` to the render backend thread.
 pub enum ApiMsg {
-    /// Add/remove/update images and fonts.
-    UpdateResources(Vec<ResourceUpdate>),
     /// Gets the glyph dimensions
     GetGlyphDimensions(
         font::FontInstanceKey,
@@ -1032,7 +1030,6 @@ pub enum ApiMsg {
 impl fmt::Debug for ApiMsg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(match *self {
-            ApiMsg::UpdateResources(..) => "ApiMsg::UpdateResources",
             ApiMsg::GetGlyphDimensions(..) => "ApiMsg::GetGlyphDimensions",
             ApiMsg::GetGlyphIndices(..) => "ApiMsg::GetGlyphIndices",
             ApiMsg::CloneApi(..) => "ApiMsg::CloneApi",
@@ -1286,7 +1283,6 @@ pub enum ScrollClamping {
 ///
 /// This object is created along with the `Renderer` and it's main use from a
 /// user perspective is to create one or several `RenderApi` objects.
-#[derive(Clone)]
 pub struct RenderApiSender {
     api_sender: Sender<ApiMsg>,
 
@@ -1436,8 +1432,10 @@ impl RenderApi {
     }
 
     ///
-    pub fn clone_sender(&self) -> RenderApiSender {
-        RenderApiSender::new(self.api_sender.clone())
+    pub fn create_sender(&self) -> RenderApiSender {
+        RenderApiSender::new(
+            self.api_sender.clone(),
+        )
     }
 
     /// Add a document to the WebRender instance.
@@ -1515,16 +1513,6 @@ impl RenderApi {
     /// Creates a `BlobImageKey`.
     pub fn generate_blob_image_key(&self) -> BlobImageKey {
         BlobImageKey(self.generate_image_key())
-    }
-
-    /// Add/remove/update resources such as images and fonts.
-    pub fn update_resources(&self, resources: Vec<ResourceUpdate>) {
-        if resources.is_empty() {
-            return;
-        }
-        self.api_sender
-            .send(ApiMsg::UpdateResources(resources))
-            .unwrap();
     }
 
     /// A Gecko-specific notification mechanism to get some code executed on the
@@ -1612,13 +1600,13 @@ impl RenderApi {
     }
 
     /// Send a transaction to WebRender.
-    pub fn send_transaction(&self, document_id: DocumentId, transaction: Transaction) {
+    pub fn send_transaction(&mut self, document_id: DocumentId, transaction: Transaction) {
         let msg = transaction.finalize();
         self.api_sender.send(ApiMsg::UpdateDocuments(vec![document_id], vec![msg])).unwrap();
     }
 
     /// Send multiple transactions.
-    pub fn send_transactions(&self, document_ids: Vec<DocumentId>, mut transactions: Vec<Transaction>) {
+    pub fn send_transactions(&mut self, document_ids: Vec<DocumentId>, mut transactions: Vec<Transaction>) {
         debug_assert!(document_ids.len() == transactions.len());
         let msgs = transactions.drain(..)
             .map(|txn| txn.finalize())
