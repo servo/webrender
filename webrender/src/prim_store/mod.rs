@@ -6,7 +6,8 @@ use api::{BorderRadius, ClipMode, ColorF, ColorU};
 use api::{ImageRendering, RepeatMode, PrimitiveFlags};
 use api::{PremultipliedColorF, PropertyBinding, Shadow, GradientStop};
 use api::{BoxShadowClipMode, LineStyle, LineOrientation, BorderStyle};
-use api::{PrimitiveKeyKind, ExtendMode};
+use api::{PrimitiveKeyKind, ExtendMode, EdgeAaSegmentMask};
+use api::image_tiling::{self, Repetition};
 use api::units::*;
 use crate::border::{get_max_scale_for_border, build_border_instances};
 use crate::border::BorderSegmentCacheKey;
@@ -23,7 +24,6 @@ use crate::frame_builder::{FrameVisibilityContext, FrameVisibilityState};
 use crate::glyph_rasterizer::GlyphKey;
 use crate::gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest, ToGpuBlocks};
 use crate::gpu_types::{BrushFlags};
-use crate::image::{Repetition};
 use crate::intern;
 use crate::internal_types::PlaneSplitAnchor;
 use malloc_size_of::MallocSizeOf;
@@ -84,6 +84,8 @@ pub fn register_prim_chase_id(_: PrimitiveDebugId) {
 
 const MIN_BRUSH_SPLIT_AREA: f32 = 128.0 * 128.0;
 pub const VECS_PER_SEGMENT: usize = 2;
+
+const MAX_MASK_SIZE: f32 = 4096.0;
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -948,24 +950,6 @@ pub struct BorderSegmentInfo {
     pub cache_key: BorderSegmentCacheKey,
 }
 
-bitflags! {
-    /// Each bit of the edge AA mask is:
-    /// 0, when the edge of the primitive needs to be considered for AA
-    /// 1, when the edge of the segment needs to be considered for AA
-    ///
-    /// *Note*: the bit values have to match the shader logic in
-    /// `write_transform_vertex()` function.
-    #[cfg_attr(feature = "capture", derive(Serialize))]
-    #[cfg_attr(feature = "replay", derive(Deserialize))]
-    #[derive(MallocSizeOf)]
-    pub struct EdgeAaSegmentMask: u8 {
-        const LEFT = 0x1;
-        const TOP = 0x2;
-        const RIGHT = 0x4;
-        const BOTTOM = 0x8;
-    }
-}
-
 /// Represents the visibility state of a segment (wrt clip masks).
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[derive(Debug, Clone)]
@@ -1052,6 +1036,8 @@ impl BrushSegment {
                         return ClipMaskKind::Clipped;
                     }
                 };
+
+                let (device_rect, device_pixel_scale) = adjust_mask_scale_for_max_size(device_rect, device_pixel_scale);
 
                 let clip_task_id = RenderTask::new_mask(
                     device_rect.to_i32(),
@@ -2445,7 +2431,7 @@ impl PrimitiveStore {
                         // have it in the shader.
                         common_data.may_need_repetition = false;
 
-                        let repetitions = crate::image::repetitions(
+                        let repetitions = image_tiling::repetitions(
                             &common_data.prim_rect,
                             &visible_rect,
                             stride,
@@ -2459,7 +2445,7 @@ impl PrimitiveStore {
                                 size: image_data.stretch_size,
                             };
 
-                            let tiles = crate::image::tiles(
+                            let tiles = image_tiling::tiles(
                                 &layout_image_rect,
                                 &visible_rect,
                                 &active_rect,
@@ -3731,7 +3717,7 @@ fn decompose_repeated_primitive(
     );
     let stride = *stretch_size + *tile_spacing;
 
-    let repetitions = crate::image::repetitions(prim_local_rect, &visible_rect, stride);
+    let repetitions = image_tiling::repetitions(prim_local_rect, &visible_rect, stride);
     for Repetition { origin, .. } in repetitions {
         let mut handle = GpuCacheHandle::new();
         let rect = LayoutRect {
@@ -4267,6 +4253,8 @@ impl PrimitiveInstance {
                 prim_info.clipped_world_rect,
                 device_pixel_scale,
             ) {
+                let (device_rect, device_pixel_scale) = adjust_mask_scale_for_max_size(device_rect, device_pixel_scale);
+
                 let clip_task_id = RenderTask::new_mask(
                     device_rect,
                     prim_info.clip_chain.clips_range,
@@ -4293,6 +4281,23 @@ impl PrimitiveInstance {
                 );
             }
         }
+    }
+}
+
+// Ensures that the size of mask render tasks are within MAX_MASK_SIZE.
+fn adjust_mask_scale_for_max_size(device_rect: DeviceIntRect, device_pixel_scale: DevicePixelScale) -> (DeviceIntRect, DevicePixelScale) {
+    if device_rect.width() > MAX_MASK_SIZE as i32 || device_rect.height() > MAX_MASK_SIZE as i32 {
+        // round_out will grow by 1 integer pixel if origin is on a
+        // fractional position, so keep that margin for error with -1:
+        let scale = (MAX_MASK_SIZE - 1.0) /
+            (i32::max(device_rect.width(), device_rect.height()) as f32);
+        let new_device_pixel_scale = device_pixel_scale * Scale::new(scale);
+        let new_device_rect = (device_rect.to_f32() * Scale::new(scale))
+            .round_out()
+            .to_i32();
+        (new_device_rect, new_device_pixel_scale)
+    } else {
+        (device_rect, device_pixel_scale)
     }
 }
 

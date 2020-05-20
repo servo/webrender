@@ -11,6 +11,7 @@ use api::{LineOrientation, LineStyle, NinePatchBorderSource, PipelineId, MixBlen
 use api::{PropertyBinding, ReferenceFrame, ReferenceFrameKind, ScrollFrameDisplayItem, ScrollSensitivity};
 use api::{Shadow, SpaceAndClipInfo, SpatialId, StackingContext, StickyFrameDisplayItem, ImageMask};
 use api::{ClipMode, PrimitiveKeyKind, TransformStyle, YuvColorSpace, ColorRange, YuvData, TempFilterData};
+use api::image_tiling::simplify_repeated_primitive;
 use api::units::*;
 use crate::clip::{ClipChainId, ClipRegion, ClipItemKey, ClipStore, ClipItemKeyKind};
 use crate::clip::{ClipInternData, ClipNodeKind, ClipInstance};
@@ -18,7 +19,6 @@ use crate::spatial_tree::{ROOT_SPATIAL_NODE_INDEX, SpatialTree, SpatialNodeIndex
 use crate::frame_builder::{ChasePrimitive, FrameBuilderConfig};
 use crate::glyph_rasterizer::FontInstance;
 use crate::hit_test::{HitTestingItem, HitTestingScene};
-use crate::image::simplify_repeated_primitive;
 use crate::intern::Interner;
 use crate::internal_types::{FastHashMap, FastHashSet, LayoutPrimitiveInfo, Filter};
 use crate::picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PictureOptions};
@@ -3665,9 +3665,9 @@ impl FlattenedStackingContext {
                             true
                         }
                         (_, ROOT_SPATIAL_NODE_INDEX) => {
-                            // If quality settings prefer subpixel AA over performance, skip creating
+                            // If quality settings force subpixel AA over performance, skip creating
                             // a slice for the fixed position element(s) here.
-                            if !quality_settings.allow_sacrificing_subpixel_aa {
+                            if quality_settings.force_subpixel_aa_where_possible {
                                 return false;
                             }
 

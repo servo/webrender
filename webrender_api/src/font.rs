@@ -16,7 +16,7 @@ use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 #[cfg(not(target_os = "macos"))]
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::sync::{Arc, RwLock, RwLockReadGuard, mpsc::Sender};
 use std::collections::HashMap;
 // local imports
 use crate::api::IdNamespace;
@@ -54,7 +54,7 @@ pub struct BaseFontInstance {
 
 pub type FontInstanceMap = HashMap<FontInstanceKey, Arc<BaseFontInstance>>;
 /// A map of font instance data accessed concurrently from multiple threads.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 #[cfg_attr(feature = "serialize", derive(Serialize))]
 #[cfg_attr(feature = "deserialize", derive(Deserialize))]
 pub struct SharedFontInstanceMap {
@@ -208,6 +208,18 @@ pub struct GlyphDimensions {
     pub width: i32,
     pub height: i32,
     pub advance: f32,
+}
+
+pub struct GlyphDimensionRequest {
+    pub key: FontInstanceKey,
+    pub glyph_indices: Vec<GlyphIndex>,
+    pub sender: Sender<Vec<Option<GlyphDimensions>>>,
+}
+
+pub struct GlyphIndexRequest {
+    pub key: FontKey,
+    pub text: String,
+    pub sender: Sender<Vec<Option<u32>>>,
 }
 
 #[repr(C)]
