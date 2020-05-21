@@ -28,9 +28,9 @@ use crate::render_task::RenderTaskAddress;
 use crate::renderer::{BlendMode, ImageBufferKind, ShaderColorMode};
 use crate::renderer::{BLOCKS_PER_UV_RECT, MAX_VERTEX_TEXTURE_WIDTH};
 use crate::resource_cache::{CacheItem, GlyphFetchResult, ImageRequest, ResourceCache};
-use smallvec::SmallVec;
-use std::{f32, i32, usize};
 use crate::util::{project_rect, TransformedRectKind};
+use smallvec::SmallVec;
+use std::{f32, i32, usize, ops::{Index, Range}};
 
 // Special sentinel value recognized by the shader. It is considered to be
 // a dummy task that doesn't mask out anything.
@@ -173,13 +173,60 @@ fn textures_compatible(t1: TextureSource, t2: TextureSource) -> bool {
     t1 == TextureSource::Invalid || t2 == TextureSource::Invalid || t1 == t2
 }
 
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub(crate) struct InstanceStack {
+    instances: Vec<PrimitiveInstanceData>,
+    item_rects: Vec<PictureRect>,
+    last_key: BatchKey,
+    last_batch_index: usize,
+    base_instance: InstanceIndex,
+    base_item_rect: usize,
+}
+
+impl InstanceStack {
+    fn new() -> Self {
+        InstanceStack {
+            instances: Vec::new(),
+            item_rects: Vec::new(),
+            // the exact key doesn't matter here
+            last_key: BatchKey::new(BatchKind::SplitComposite, BlendMode::None, BatchTextures::no_texture()),
+            last_batch_index: !0,
+            base_instance: 0,
+            base_item_rect: 0,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.instances.clear();
+        self.item_rects.clear();
+        self.last_batch_index = !0;
+        self.base_instance = 0;
+        self.base_item_rect = 0;
+    }
+
+    fn reset_batch(&mut self, key: BatchKey, batch_index: usize) {
+        self.last_key = key;
+        self.last_batch_index = batch_index;
+        self.base_instance = self.instances.len() as InstanceIndex;
+        self.base_item_rect = self.item_rects.len();
+    }
+}
+
+impl<'a> Index<&'a Range<InstanceIndex>> for InstanceStack {
+    type Output = [PrimitiveInstanceData];
+    fn index(&self, index: &'a Range<InstanceIndex>) -> &Self::Output {
+        &self.instances[index.start as usize .. index.end as usize]
+    }
+}
+
 pub struct AlphaBatchList {
     pub batches: Vec<PrimitiveBatch>,
     pub item_rects: Vec<Vec<PictureRect>>,
-    current_batch_index: usize,
-    current_z_id: ZBufferId,
+    stacks: Vec<InstanceStack>,
+    // sorted from oldest to freshest
+    last_used_stacks: Vec<usize>,
     break_advanced_blend_batches: bool,
-    lookback_count: usize,
 }
 
 impl AlphaBatchList {
@@ -187,10 +234,11 @@ impl AlphaBatchList {
         AlphaBatchList {
             batches: Vec::new(),
             item_rects: Vec::new(),
-            current_z_id: ZBufferId::invalid(),
-            current_batch_index: usize::MAX,
+            stacks: (0 .. lookback_count)
+                .map(|_| InstanceStack::new())
+                .collect(),
+            last_used_stacks: (0 .. lookback_count).collect(),
             break_advanced_blend_batches,
-            lookback_count,
         }
     }
 
@@ -198,10 +246,11 @@ impl AlphaBatchList {
     /// when a primitive is encountered that occludes all previous
     /// content in this batch list.
     fn clear(&mut self) {
-        self.current_batch_index = usize::MAX;
-        self.current_z_id = ZBufferId::invalid();
         self.batches.clear();
         self.item_rects.clear();
+        for stack in self.stacks.iter_mut() {
+            stack.clear();
+        }
     }
 
     pub fn set_params_and_get_batch(
@@ -211,90 +260,88 @@ impl AlphaBatchList {
         // The bounding box of everything at this Z plane. We expect potentially
         // multiple primitive segments coming with the same `z_id`.
         z_bounding_rect: &PictureRect,
-        z_id: ZBufferId,
+        _z_id: ZBufferId,
     ) -> &mut Vec<PrimitiveInstanceData> {
-        if z_id != self.current_z_id ||
-            self
-                .batches
-                .get(self.current_batch_index)
-                .map_or(true, |batch| !batch.key.is_compatible_with(&key))
-        {
-            let mut selected_batch_index = None;
-
+        let mut matching_stack_index = None;
+        for &stack_index in self.last_used_stacks.iter().rev() {
+            let stack = &self.stacks[stack_index];
             match key.blend_mode {
                 BlendMode::SubpixelWithBgColor => {
-                    for (batch_index, (batch, item_rects)) in self
-                        .batches
+                    // Some subpixel batches are drawn in two passes. Because of this, we need
+                    // to check for overlaps with every batch (which is a bit different
+                    // than the normal batching below).
+                    if stack.item_rects[stack.base_item_rect..]
                         .iter()
-                        .zip(self.item_rects.iter())
-                        .enumerate()
-                        .rev()
-                        .take(self.lookback_count)
+                        .any(|rect| rect.intersects(z_bounding_rect))
                     {
-                        // Some subpixel batches are drawn in two passes. Because of this, we need
-                        // to check for overlaps with every batch (which is a bit different
-                        // than the normal batching below).
-                        if item_rects.iter().any(|rect| rect.intersects(z_bounding_rect)) {
-                            break;
-                        }
+                        break;
+                    }
 
-                        if batch.key.is_compatible_with(&key) {
-                            selected_batch_index = Some(batch_index);
-                            break;
-                        }
+                    if stack.last_key.is_compatible_with(&key) {
+                        matching_stack_index = Some(stack_index);
+                        break;
                     }
                 }
                 BlendMode::Advanced(_) if self.break_advanced_blend_batches => {
                     // don't try to find a batch
                 }
                 _ => {
-                    for (batch_index, (batch, item_rects)) in self
-                        .batches
-                        .iter()
-                        .zip(self.item_rects.iter())
-                        .enumerate()
-                        .rev()
-                        .take(self.lookback_count)
-                    {
-                        // For normal batches, we only need to check for overlaps for batches
-                        // other than the first batch we consider. If the first batch
-                        // is compatible, then we know there isn't any potential overlap
-                        // issues to worry about.
-                        if batch.key.is_compatible_with(&key) {
-                            selected_batch_index = Some(batch_index);
-                            break;
-                        }
+                    // For normal batches, we only need to check for overlaps for batches
+                    // other than the first batch we consider. If the first batch
+                    // is compatible, then we know there isn't any potential overlap
+                    // issues to worry about.
+                    if stack.last_key.is_compatible_with(&key) {
+                        matching_stack_index = Some(stack_index);
+                        break;
+                    }
 
-                        // check for intersections
-                        if item_rects.iter().any(|rect| rect.intersects(z_bounding_rect)) {
-                            break;
-                        }
+                    // check for intersections
+                    if stack.item_rects[stack.base_item_rect..]
+                        .iter()
+                        .any(|rect| rect.intersects(z_bounding_rect))
+                    {
+                        break;
                     }
                 }
             }
 
-            self.current_batch_index = match selected_batch_index {
-                Some(index) => {
-                    self.item_rects[index].push(*z_bounding_rect);
-                    index
-                }
-                None => {
-                    self.batches.push(PrimitiveBatch::new(key));
-                    self.item_rects.push(vec![*z_bounding_rect]);
-                    self.batches.len() - 1
-                }
-            };
-            self.current_z_id = z_id;
-        } else if cfg!(debug_assertions) {
-            // If it's a different segment of the same (larger) primitive, we expect the bounding box
-            // to be the same - coming from the primitive itself, not the segment.
-            assert_eq!(self.item_rects[self.current_batch_index].last(), Some(z_bounding_rect));
         }
 
-        let batch = &mut self.batches[self.current_batch_index];
-        batch.features |= features;
+        let stack = match matching_stack_index {
+            Some(index) => {
+                self.last_used_stacks.retain(|&i| i != index);
+                self.last_used_stacks.push(index);
+                &mut self.stacks[index]
+            }
+            None => {
+                let index = self.last_used_stacks.remove(0);
+                self.last_used_stacks.push(index);
+                let stack = &mut self.stacks[index];
+                stack.reset_batch(key, self.batches.len());
+                self.batches.push(PrimitiveBatch::new(
+                    key,
+                    index as u8,
+                    stack.instances.len() as InstanceIndex,
+                ));
+                stack
+            }
+        };
 
-        &mut batch.instances
+        stack.item_rects.push(*z_bounding_rect);
+        self.batches[stack.last_batch_index].features |= features;
+        &mut stack.instances
+    }
+
+    fn finalize(&mut self) {
+        for stack in self.stacks.iter_mut() {
+            stack.base_instance = stack.instances.len() as InstanceIndex;
+        }
+        // update the upper bounds on the instance ranges
+        for batch in self.batches.iter_mut().rev() {
+            let stack = &mut self.stacks[batch.stack_index as usize];
+            batch.instance_range.end = stack.base_instance;
+            stack.base_instance = batch.instance_range.start;
+        }
     }
 }
 
@@ -363,7 +410,7 @@ impl OpaqueBatchList {
             self.current_batch_index = match selected_batch_index {
                 Some(index) => index,
                 None => {
-                    self.batches.push(PrimitiveBatch::new(key));
+                    self.batches.push(PrimitiveBatch::new(key, 0, 0)); //TODO
                     self.batches.len() - 1
                 }
             };
@@ -388,14 +435,6 @@ impl OpaqueBatchList {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct PrimitiveBatch {
-    pub key: BatchKey,
-    pub instances: Vec<PrimitiveInstanceData>,
-    pub features: BatchFeatures,
-}
-
 bitflags! {
     /// Features of the batch that, if not requested, may allow a fast-path.
     ///
@@ -414,16 +453,34 @@ bitflags! {
     }
 }
 
+pub type InstanceIndex = u32;
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct PrimitiveBatch {
+    pub key: BatchKey,
+    pub instances: Vec<PrimitiveInstanceData>,
+    pub instance_range: Range<InstanceIndex>,
+    pub stack_index: u8,
+    pub features: BatchFeatures,
+}
+
 impl PrimitiveBatch {
-    fn new(key: BatchKey) -> Self {
+    fn new(key: BatchKey, stack_index: u8, base_instance: InstanceIndex) -> Self {
         PrimitiveBatch {
             key,
             instances: Vec::new(),
+            instance_range: base_instance .. 0,
+            stack_index,
             features: BatchFeatures::empty(),
         }
     }
 
-    fn merge(&mut self, other: PrimitiveBatch) {
+    pub fn instance_count(&self) -> usize {
+        self.instances.len() + (self.instance_range.end - self.instance_range.start) as usize
+    }
+
+    fn merge_todo(&mut self, other: PrimitiveBatch) {
         self.instances.extend(other.instances);
         self.features |= other.features;
     }
@@ -440,6 +497,7 @@ pub struct AlphaBatchContainer {
     /// The rectangle of the owning render target that this
     /// set of batches affects.
     pub task_rect: DeviceIntRect,
+    pub(crate) stacks: Vec<InstanceStack>,
 }
 
 impl AlphaBatchContainer {
@@ -451,15 +509,17 @@ impl AlphaBatchContainer {
             alpha_batches: Vec::new(),
             task_scissor_rect,
             task_rect: DeviceIntRect::zero(),
+            stacks: Vec::new(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
         self.opaque_batches.is_empty() &&
-        self.alpha_batches.is_empty()
+        self.alpha_batches.is_empty() &&
+        self.stacks.iter().all(|s| s.instances.is_empty())
     }
 
-    fn merge(&mut self, builder: AlphaBatchBuilder, task_rect: &DeviceIntRect) {
+    fn merge_todo(&mut self, builder: AlphaBatchBuilder, task_rect: &DeviceIntRect) {
         self.task_rect = self.task_rect.union(task_rect);
 
         for other_batch in builder.opaque_batch_list.batches {
@@ -469,7 +529,7 @@ impl AlphaBatchContainer {
                 .find(|batch| batch.key.is_compatible_with(&other_batch.key))
             {
                 Some(batch) => {
-                    batch.merge(other_batch);
+                    batch.merge_todo(other_batch);
                 }
                 None => {
                     self.opaque_batches.push(other_batch);
@@ -487,7 +547,7 @@ impl AlphaBatchContainer {
             min_batch_index = match batch_index {
                 Some(batch_index) => {
                     let index = batch_index + min_batch_index;
-                    self.alpha_batches[index].merge(other_batch);
+                    self.alpha_batches[index].merge_todo(other_batch);
                     index
                 }
                 None => {
@@ -546,24 +606,31 @@ impl AlphaBatchBuilder {
         self.opaque_batch_list.clear();
     }
 
-    pub fn build(
+    pub fn build_merge(
         mut self,
-        batch_containers: &mut Vec<AlphaBatchContainer>,
         merged_batches: &mut AlphaBatchContainer,
         task_rect: DeviceIntRect,
-        task_scissor_rect: Option<DeviceIntRect>,
     ) {
+        self.alpha_batch_list.finalize();
+        self.opaque_batch_list.finalize();
+        merged_batches.merge_todo(self, &task_rect);
+
+    }
+
+    pub fn build(
+        mut self,
+        task_rect: DeviceIntRect,
+        task_scissor_rect: Option<DeviceIntRect>,
+    ) -> AlphaBatchContainer {
+        self.alpha_batch_list.finalize();
         self.opaque_batch_list.finalize();
 
-        if task_scissor_rect.is_none() {
-            merged_batches.merge(self, &task_rect);
-        } else {
-            batch_containers.push(AlphaBatchContainer {
-                alpha_batches: self.alpha_batch_list.batches,
-                opaque_batches: self.opaque_batch_list.batches,
-                task_scissor_rect,
-                task_rect,
-            });
+        AlphaBatchContainer {
+            alpha_batches: self.alpha_batch_list.batches,
+            opaque_batches: self.opaque_batch_list.batches,
+            task_scissor_rect,
+            task_rect,
+            stacks: self.alpha_batch_list.stacks,
         }
     }
 
