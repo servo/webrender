@@ -214,21 +214,28 @@ impl AlphaBatchList {
         z_id: ZBufferId,
     ) -> &mut Vec<PrimitiveInstanceData> {
         if z_id != self.current_z_id ||
-           self.current_batch_index == usize::MAX ||
-           !self.batches[self.current_batch_index].key.is_compatible_with(&key)
+            self
+                .batches
+                .get(self.current_batch_index)
+                .map_or(true, |batch| !batch.key.is_compatible_with(&key))
         {
             let mut selected_batch_index = None;
 
             match key.blend_mode {
                 BlendMode::SubpixelWithBgColor => {
-                    'outer_multipass: for (batch_index, batch) in self.batches.iter().enumerate().rev().take(self.lookback_count) {
+                    for (batch_index, (batch, item_rects)) in self
+                        .batches
+                        .iter()
+                        .zip(self.item_rects.iter())
+                        .enumerate()
+                        .rev()
+                        .take(self.lookback_count)
+                    {
                         // Some subpixel batches are drawn in two passes. Because of this, we need
                         // to check for overlaps with every batch (which is a bit different
                         // than the normal batching below).
-                        for item_rect in &self.item_rects[batch_index] {
-                            if item_rect.intersects(z_bounding_rect) {
-                                break 'outer_multipass;
-                            }
+                        if item_rects.iter().any(|rect| rect.intersects(z_bounding_rect)) {
+                            break;
                         }
 
                         if batch.key.is_compatible_with(&key) {
@@ -241,7 +248,14 @@ impl AlphaBatchList {
                     // don't try to find a batch
                 }
                 _ => {
-                    'outer_default: for (batch_index, batch) in self.batches.iter().enumerate().rev().take(self.lookback_count) {
+                    for (batch_index, (batch, item_rects)) in self
+                        .batches
+                        .iter()
+                        .zip(self.item_rects.iter())
+                        .enumerate()
+                        .rev()
+                        .take(self.lookback_count)
+                    {
                         // For normal batches, we only need to check for overlaps for batches
                         // other than the first batch we consider. If the first batch
                         // is compatible, then we know there isn't any potential overlap
@@ -252,24 +266,24 @@ impl AlphaBatchList {
                         }
 
                         // check for intersections
-                        for item_rect in &self.item_rects[batch_index] {
-                            if item_rect.intersects(z_bounding_rect) {
-                                break 'outer_default;
-                            }
+                        if item_rects.iter().any(|rect| rect.intersects(z_bounding_rect)) {
+                            break;
                         }
                     }
                 }
             }
 
-            if selected_batch_index.is_none() {
-                let new_batch = PrimitiveBatch::new(key);
-                selected_batch_index = Some(self.batches.len());
-                self.batches.push(new_batch);
-                self.item_rects.push(Vec::new());
-            }
-
-            self.current_batch_index = selected_batch_index.unwrap();
-            self.item_rects[self.current_batch_index].push(*z_bounding_rect);
+            self.current_batch_index = match selected_batch_index {
+                Some(index) => {
+                    self.item_rects[index].push(*z_bounding_rect);
+                    index
+                }
+                None => {
+                    self.batches.push(PrimitiveBatch::new(key));
+                    self.item_rects.push(vec![*z_bounding_rect]);
+                    self.batches.len() - 1
+                }
+            };
             self.current_z_id = z_id;
         } else if cfg!(debug_assertions) {
             // If it's a different segment of the same (larger) primitive, we expect the bounding box
@@ -318,8 +332,11 @@ impl OpaqueBatchList {
         // `current_batch_index` instead of iterating the batches.
         z_bounding_rect: &PictureRect,
     ) -> &mut Vec<PrimitiveInstanceData> {
-        if self.current_batch_index == usize::MAX ||
-           !self.batches[self.current_batch_index].key.is_compatible_with(&key) {
+        if self
+            .batches
+            .get(self.current_batch_index)
+            .map_or(true, |batch| !batch.key.is_compatible_with(&key))
+        {
             let mut selected_batch_index = None;
             let item_area = z_bounding_rect.size.area();
 
@@ -343,13 +360,13 @@ impl OpaqueBatchList {
                 }
             }
 
-            if selected_batch_index.is_none() {
-                let new_batch = PrimitiveBatch::new(key);
-                selected_batch_index = Some(self.batches.len());
-                self.batches.push(new_batch);
-            }
-
-            self.current_batch_index = selected_batch_index.unwrap();
+            self.current_batch_index = match selected_batch_index {
+                Some(index) => index,
+                None => {
+                    self.batches.push(PrimitiveBatch::new(key));
+                    self.batches.len() - 1
+                }
+            };
         }
 
         let batch = &mut self.batches[self.current_batch_index];
@@ -398,7 +415,7 @@ bitflags! {
 }
 
 impl PrimitiveBatch {
-    fn new(key: BatchKey) -> PrimitiveBatch {
+    fn new(key: BatchKey) -> Self {
         PrimitiveBatch {
             key,
             instances: Vec::new(),
@@ -428,7 +445,7 @@ pub struct AlphaBatchContainer {
 impl AlphaBatchContainer {
     pub fn new(
         task_scissor_rect: Option<DeviceIntRect>,
-    ) -> AlphaBatchContainer {
+    ) -> Self {
         AlphaBatchContainer {
             opaque_batches: Vec::new(),
             alpha_batches: Vec::new(),
@@ -446,13 +463,13 @@ impl AlphaBatchContainer {
         self.task_rect = self.task_rect.union(task_rect);
 
         for other_batch in builder.opaque_batch_list.batches {
-            let batch_index = self.opaque_batches.iter().position(|batch| {
-                batch.key.is_compatible_with(&other_batch.key)
-            });
-
-            match batch_index {
-                Some(batch_index) => {
-                    self.opaque_batches[batch_index].merge(other_batch);
+            match self
+                .opaque_batches
+                .iter_mut()
+                .find(|batch| batch.key.is_compatible_with(&other_batch.key))
+            {
+                Some(batch) => {
+                    batch.merge(other_batch);
                 }
                 None => {
                     self.opaque_batches.push(other_batch);
@@ -463,21 +480,21 @@ impl AlphaBatchContainer {
         let mut min_batch_index = 0;
 
         for other_batch in builder.alpha_batch_list.batches {
-            let batch_index = self.alpha_batches.iter().skip(min_batch_index).position(|batch| {
+            let batch_index = self.alpha_batches[min_batch_index..].iter().position(|batch| {
                 batch.key.is_compatible_with(&other_batch.key)
             });
 
-            match batch_index {
+            min_batch_index = match batch_index {
                 Some(batch_index) => {
                     let index = batch_index + min_batch_index;
                     self.alpha_batches[index].merge(other_batch);
-                    min_batch_index = index;
+                    index
                 }
                 None => {
                     self.alpha_batches.push(other_batch);
-                    min_batch_index = self.alpha_batches.len();
+                    self.alpha_batches.len()
                 }
-            }
+            };
         }
     }
 }
