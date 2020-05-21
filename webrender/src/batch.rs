@@ -304,7 +304,6 @@ impl AlphaBatchList {
                     }
                 }
             }
-
         }
 
         let stack = match matching_stack_index {
@@ -348,17 +347,20 @@ impl AlphaBatchList {
 pub struct OpaqueBatchList {
     pub pixel_area_threshold_for_new_batch: f32,
     pub batches: Vec<PrimitiveBatch>,
-    pub current_batch_index: usize,
-    lookback_count: usize,
+    stacks: Vec<InstanceStack>,
+    // sorted from oldest to freshest
+    last_used_stacks: Vec<usize>,
 }
 
 impl OpaqueBatchList {
     fn new(pixel_area_threshold_for_new_batch: f32, lookback_count: usize) -> Self {
         OpaqueBatchList {
-            batches: Vec::new(),
             pixel_area_threshold_for_new_batch,
-            current_batch_index: usize::MAX,
-            lookback_count,
+            batches: Vec::new(),
+            stacks: (0 .. lookback_count)
+                .map(|_| InstanceStack::new())
+                .collect(),
+            last_used_stacks: (0 .. lookback_count).collect(),
         }
     }
 
@@ -366,8 +368,10 @@ impl OpaqueBatchList {
     /// when a primitive is encountered that occludes all previous
     /// content in this batch list.
     fn clear(&mut self) {
-        self.current_batch_index = usize::MAX;
         self.batches.clear();
+        for stack in self.stacks.iter_mut() {
+            stack.clear();
+        }
     }
 
     pub fn set_params_and_get_batch(
@@ -379,58 +383,66 @@ impl OpaqueBatchList {
         // `current_batch_index` instead of iterating the batches.
         z_bounding_rect: &PictureRect,
     ) -> &mut Vec<PrimitiveInstanceData> {
-        if self
-            .batches
-            .get(self.current_batch_index)
-            .map_or(true, |batch| !batch.key.is_compatible_with(&key))
-        {
-            let mut selected_batch_index = None;
-            let item_area = z_bounding_rect.size.area();
-
-            // If the area of this primitive is larger than the given threshold,
-            // then it is large enough to warrant breaking a batch for. In this
-            // case we just see if it can be added to the existing batch or
-            // create a new one.
-            if item_area > self.pixel_area_threshold_for_new_batch {
-                if let Some(batch) = self.batches.last() {
-                    if batch.key.is_compatible_with(&key) {
-                        selected_batch_index = Some(self.batches.len() - 1);
-                    }
-                }
-            } else {
-                // Otherwise, look back through a reasonable number of batches.
-                for (batch_index, batch) in self.batches.iter().enumerate().rev().take(self.lookback_count) {
-                    if batch.key.is_compatible_with(&key) {
-                        selected_batch_index = Some(batch_index);
-                        break;
-                    }
-                }
+        let mut matching_stack_index = None;
+        let mut first = true;
+        for &stack_index in self.last_used_stacks.iter().rev() {
+            let stack = &self.stacks[stack_index];
+            if stack.last_key.is_compatible_with(&key) {
+                matching_stack_index = Some(stack_index);
+                break;
             }
 
-            self.current_batch_index = match selected_batch_index {
-                Some(index) => index,
-                None => {
-                    self.batches.push(PrimitiveBatch::new(key, 0, 0)); //TODO
-                    self.batches.len() - 1
-                }
-            };
+            // If the area of this primitive is larger than the given threshold,
+            // then it is large enough to warrant breaking a batch for.
+            // Otherwise, we are trading too much GPU fill rate for the batch efficiency,
+            // since those pixels will likely be overwritten.
+            if first && z_bounding_rect.size.area() > self.pixel_area_threshold_for_new_batch {
+                break;
+            }
+            first = false;
         }
 
-        let batch = &mut self.batches[self.current_batch_index];
-        batch.features |= features;
+        let stack = match matching_stack_index {
+            Some(index) => {
+                self.last_used_stacks.retain(|&i| i != index);
+                self.last_used_stacks.push(index);
+                &mut self.stacks[index]
+            }
+            None => {
+                let index = self.last_used_stacks.remove(0);
+                self.last_used_stacks.push(index);
+                let stack = &mut self.stacks[index];
+                stack.reset_batch(key, self.batches.len());
+                self.batches.push(PrimitiveBatch::new(
+                    key,
+                    index as u8,
+                    stack.instances.len() as InstanceIndex,
+                ));
+                stack
+            }
+        };
 
-        &mut batch.instances
+        self.batches[stack.last_batch_index].features |= features;
+        &mut stack.instances
     }
 
     fn finalize(&mut self) {
-        // Reverse the instance arrays in the opaque batches
-        // to get maximum z-buffer efficiency by drawing
-        // front-to-back.
-        // TODO(gw): Maybe we can change the batch code to
-        //           build these in reverse and avoid having
-        //           to reverse the instance array here.
-        for batch in &mut self.batches {
-            batch.instances.reverse();
+        for stack in self.stacks.iter_mut() {
+            stack.base_instance = stack.instances.len() as InstanceIndex;
+        }
+        // update the upper bounds on the instance ranges
+        for batch in self.batches.iter_mut().rev() {
+            let stack = &mut self.stacks[batch.stack_index as usize];
+            batch.instance_range.end = stack.base_instance;
+            stack.base_instance = batch.instance_range.start;
+            // Reverse the instance arrays in the opaque batches
+            // to get maximum z-buffer efficiency by drawing
+            // front-to-back.
+            // TODO(gw): Maybe we can change the batch code to
+            //           build these in reverse and avoid having
+            //           to reverse the instance array here.
+            let range = batch.instance_range.start as usize .. batch.instance_range.end as usize;
+            stack.instances[range].reverse();
         }
     }
 }
@@ -459,7 +471,6 @@ pub type InstanceIndex = u32;
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveBatch {
     pub key: BatchKey,
-    pub instances: Vec<PrimitiveInstanceData>,
     pub instance_range: Range<InstanceIndex>,
     pub stack_index: u8,
     pub features: BatchFeatures,
@@ -469,7 +480,6 @@ impl PrimitiveBatch {
     fn new(key: BatchKey, stack_index: u8, base_instance: InstanceIndex) -> Self {
         PrimitiveBatch {
             key,
-            instances: Vec::new(),
             instance_range: base_instance .. 0,
             stack_index,
             features: BatchFeatures::empty(),
@@ -477,11 +487,11 @@ impl PrimitiveBatch {
     }
 
     pub fn instance_count(&self) -> usize {
-        self.instances.len() + (self.instance_range.end - self.instance_range.start) as usize
+        (self.instance_range.end - self.instance_range.start) as usize
     }
 
     fn merge_todo(&mut self, other: PrimitiveBatch) {
-        self.instances.extend(other.instances);
+        //self.instances.extend(other.instances);
         self.features |= other.features;
     }
 }
@@ -491,13 +501,14 @@ impl PrimitiveBatch {
 pub struct AlphaBatchContainer {
     pub opaque_batches: Vec<PrimitiveBatch>,
     pub alpha_batches: Vec<PrimitiveBatch>,
+    pub(crate) alpha_stacks: Vec<InstanceStack>,
+    pub(crate) opaque_stacks: Vec<InstanceStack>,
     /// The overall scissor rect for this render task, if one
     /// is required.
     pub task_scissor_rect: Option<DeviceIntRect>,
     /// The rectangle of the owning render target that this
     /// set of batches affects.
     pub task_rect: DeviceIntRect,
-    pub(crate) stacks: Vec<InstanceStack>,
 }
 
 impl AlphaBatchContainer {
@@ -507,16 +518,16 @@ impl AlphaBatchContainer {
         AlphaBatchContainer {
             opaque_batches: Vec::new(),
             alpha_batches: Vec::new(),
+            alpha_stacks: Vec::new(),
+            opaque_stacks: Vec::new(),
             task_scissor_rect,
             task_rect: DeviceIntRect::zero(),
-            stacks: Vec::new(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
         self.opaque_batches.is_empty() &&
-        self.alpha_batches.is_empty() &&
-        self.stacks.iter().all(|s| s.instances.is_empty())
+        self.alpha_batches.is_empty()
     }
 
     fn merge_todo(&mut self, builder: AlphaBatchBuilder, task_rect: &DeviceIntRect) {
@@ -628,9 +639,10 @@ impl AlphaBatchBuilder {
         AlphaBatchContainer {
             alpha_batches: self.alpha_batch_list.batches,
             opaque_batches: self.opaque_batch_list.batches,
+            alpha_stacks: self.alpha_batch_list.stacks,
+            opaque_stacks: self.opaque_batch_list.stacks,
             task_scissor_rect,
             task_rect,
-            stacks: self.alpha_batch_list.stacks,
         }
     }
 

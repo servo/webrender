@@ -4303,8 +4303,10 @@ impl Renderer {
                         );
 
                     let _timer = self.gpu_profile.start_timer(batch.key.kind.sampler_tag());
+
+                    let stack = &alpha_batch_container.opaque_stacks[batch.stack_index as usize];
                     self.draw_instanced_batch(
-                        &batch.instances,
+                        &stack[&batch.instance_range],
                         VertexArrayKind::Primitive,
                         &batch.key.textures,
                         stats
@@ -4424,7 +4426,7 @@ impl Renderer {
                 );
 
                 {
-                    let stack = &alpha_batch_container.stacks[batch.stack_index as usize];
+                    let stack = &alpha_batch_container.alpha_stacks[batch.stack_index as usize];
                     self.draw_instanced_batch(
                         &stack[&batch.instance_range],
                         VertexArrayKind::Primitive,
