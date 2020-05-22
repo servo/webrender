@@ -631,15 +631,48 @@ impl SpatialTree {
         while node_index != ROOT_SPATIAL_NODE_INDEX {
             let node = &self.spatial_nodes[node_index.0 as usize];
             match node.node_type {
-                SpatialNodeType::ReferenceFrame(..) |
-                SpatialNodeType::StickyFrame(..) => {
-                    // TODO(gw): In future, we may need to consider sticky frames.
+                SpatialNodeType::ReferenceFrame(ref info) => {
+                    match info.kind {
+                        ReferenceFrameKind::Zoom => {
+                            // We can handle scroll nodes that pass through a zoom node
+                        }
+                        ReferenceFrameKind::Transform |
+                        ReferenceFrameKind::Perspective { .. } => {
+                            // When a reference frame is encountered, forget any scroll roots
+                            // we have encountered, as they may end up with a non-axis-aligned transform.
+                            scroll_root = ROOT_SPATIAL_NODE_INDEX;
+                        }
+                    }
                 }
+                SpatialNodeType::StickyFrame(..) => {}
                 SpatialNodeType::ScrollFrame(ref info) => {
-                    // If we found an explicit scroll root, store that
-                    // and keep looking up the tree.
-                    if let ScrollFrameKind::Explicit = info.frame_kind {
-                        scroll_root = node_index;
+                    match info.frame_kind {
+                        ScrollFrameKind::PipelineRoot => {
+                            // Once we encounter a pipeline root, there is no need to look further
+                            break;
+                        }
+                        ScrollFrameKind::Explicit => {
+                            // If the scroll root has no scrollable area, we don't want to
+                            // consider it. This helps pages that have a nested scroll root
+                            // within a redundant scroll root to avoid selecting the wrong
+                            // reference spatial node for a picture cache.
+                            if info.scrollable_size.width > 0.0 ||
+                               info.scrollable_size.height > 0.0 {
+                                // Since we are skipping redundant scroll roots, we may end up
+                                // selecting inner scroll roots that are very small. There is
+                                // no performance benefit to creating a slice for these roots,
+                                // as they are cheap to rasterize. The size comparison is in
+                                // local-space, but makes for a reasonable estimate. The value
+                                // is arbitrary, but is generally small enough to ignore things
+                                // like scroll roots around text input elements.
+                                if info.viewport_rect.size.width > 128.0 &&
+                                   info.viewport_rect.size.height > 128.0 {
+                                    // If we've found a root that is scrollable, and a reasonable
+                                    // size, select that as the current root for this node
+                                    scroll_root = node_index;
+                                }
+                            }
+                        }
                     }
                 }
             }
