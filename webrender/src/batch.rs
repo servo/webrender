@@ -101,10 +101,12 @@ pub struct BatchTextures {
 }
 
 impl BatchTextures {
+    const EMPTY: Self = BatchTextures {
+        colors: [TextureSource::Invalid; 3],
+    };
+
     pub fn no_texture() -> Self {
-        BatchTextures {
-            colors: [TextureSource::Invalid; 3],
-        }
+        Self::EMPTY
     }
 
     pub fn render_target_cache() -> Self {
@@ -155,6 +157,12 @@ pub struct BatchKey {
 }
 
 impl BatchKey {
+    const DUMMY: Self = BatchKey{
+        kind: BatchKind::SplitComposite,
+        blend_mode: BlendMode::None,
+        textures: BatchTextures::EMPTY,
+    };
+
     pub fn new(kind: BatchKind, blend_mode: BlendMode, textures: BatchTextures) -> Self {
         BatchKey {
             kind,
@@ -190,7 +198,7 @@ impl InstanceStack {
             instances: Vec::new(),
             item_rects: Vec::new(),
             // the exact key doesn't matter here
-            last_key: BatchKey::new(BatchKind::SplitComposite, BlendMode::None, BatchTextures::no_texture()),
+            last_key: BatchKey::DUMMY,
             last_batch_index: !0,
             base_instance: 0,
             base_item_rect: 0,
@@ -467,6 +475,7 @@ bitflags! {
 
 pub type InstanceIndex = u32;
 
+#[derive(Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveBatch {
@@ -488,11 +497,6 @@ impl PrimitiveBatch {
 
     pub fn instance_count(&self) -> usize {
         (self.instance_range.end - self.instance_range.start) as usize
-    }
-
-    fn merge_todo(&mut self, other: PrimitiveBatch) {
-        //self.instances.extend(other.instances);
-        self.features |= other.features;
     }
 }
 
@@ -530,43 +534,53 @@ impl AlphaBatchContainer {
         self.alpha_batches.is_empty()
     }
 
-    fn merge_todo(&mut self, builder: AlphaBatchBuilder, task_rect: &DeviceIntRect) {
+    // Merge the `from_list` into the `to_list` by preserving the order of batches on both sides
+    // while placing compatible batch keys together.
+    fn consume_list(to_list: &mut Vec<PrimitiveBatch>, from_list: Vec<PrimitiveBatch>, stack_index_offset: u8) {
+        to_list.extend(
+            from_list.iter().map(|_| PrimitiveBatch::new(BatchKey::DUMMY, !0, 0))
+        );
+        to_list.rotate_right(from_list.len());
+        let (mut src_batch_index, mut dst_batch_index) = (from_list.len(), 0);
+
+        for mut other_batch in from_list {
+            while to_list
+                .get(src_batch_index)
+                .map_or(false, |b| !b.key.is_compatible_with(&other_batch.key))
+            {
+                to_list[dst_batch_index] = to_list[src_batch_index].clone();
+                src_batch_index += 1;
+                dst_batch_index += 1;
+            }
+            other_batch.stack_index += stack_index_offset;
+            to_list[dst_batch_index] = other_batch;
+            dst_batch_index += 1;
+        }
+
+        assert_eq!(src_batch_index, dst_batch_index);
+    }
+
+    fn merge(&mut self, builder: AlphaBatchBuilder, task_rect: &DeviceIntRect) {
         self.task_rect = self.task_rect.union(task_rect);
 
-        for other_batch in builder.opaque_batch_list.batches {
-            match self
-                .opaque_batches
-                .iter_mut()
-                .find(|batch| batch.key.is_compatible_with(&other_batch.key))
-            {
-                Some(batch) => {
-                    batch.merge_todo(other_batch);
-                }
-                None => {
-                    self.opaque_batches.push(other_batch);
-                }
-            }
-        }
+        // Note: we are able to reorder the opaque batches as needed, theoretically.
+        // This would be correct still, but it could reduce the effectiveness of Z testing.
+        // So it would trade GPU fill rate with the CPU batch cost.
+        // We used to have it, but we are *not* using this ability at the moment.
+        // TODO: reconsider reordering opaque batchs on merging
+        Self::consume_list(
+            &mut self.opaque_batches,
+            builder.opaque_batch_list.batches,
+            self.opaque_stacks.len() as u8,
+        );
+        self.opaque_stacks.extend(builder.opaque_batch_list.stacks);
 
-        let mut min_batch_index = 0;
-
-        for other_batch in builder.alpha_batch_list.batches {
-            let batch_index = self.alpha_batches[min_batch_index..].iter().position(|batch| {
-                batch.key.is_compatible_with(&other_batch.key)
-            });
-
-            min_batch_index = match batch_index {
-                Some(batch_index) => {
-                    let index = batch_index + min_batch_index;
-                    self.alpha_batches[index].merge_todo(other_batch);
-                    index
-                }
-                None => {
-                    self.alpha_batches.push(other_batch);
-                    self.alpha_batches.len()
-                }
-            };
-        }
+        Self::consume_list(
+            &mut self.alpha_batches,
+            builder.alpha_batch_list.batches,
+            self.alpha_stacks.len() as u8,
+        );
+        self.alpha_stacks.extend(builder.alpha_batch_list.stacks);
     }
 }
 
@@ -617,15 +631,14 @@ impl AlphaBatchBuilder {
         self.opaque_batch_list.clear();
     }
 
-    pub fn build_merge(
+    pub fn build_into(
         mut self,
         merged_batches: &mut AlphaBatchContainer,
         task_rect: DeviceIntRect,
     ) {
         self.alpha_batch_list.finalize();
         self.opaque_batch_list.finalize();
-        merged_batches.merge_todo(self, &task_rect);
-
+        merged_batches.merge(self, &task_rect);
     }
 
     pub fn build(
