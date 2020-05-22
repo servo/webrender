@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+//TODO: split this module into sub-modules
+
 use api::{AlphaType, ClipMode, ExternalImageType, ImageRendering, EdgeAaSegmentMask};
 use api::{YuvColorSpace, YuvFormat, ColorDepth, ColorRange, PremultipliedColorF};
 use api::units::*;
@@ -228,12 +230,111 @@ impl<'a> Index<&'a Range<InstanceIndex>> for InstanceStack {
     }
 }
 
+/// A helper type to manage least-recently-used list of stack indices.
+/// It's implemented as bit operations on a single integer.
+/// This allows O(1) for all operations.
+struct StackIndexLRU {
+    bits_per_index: usize,
+    index_count: usize,
+    index_mask: u64,
+    /// The actual indices packed into bits.
+    /// Least significant bits correspond to the least used recently used stack indices.
+    data: u64,
+}
+
+impl StackIndexLRU {
+    fn new(index_count: usize) -> Self {
+        let bits_per_index = (0 .. )
+            .find(|bits| (1usize << bits) >= index_count)
+            .unwrap();
+        assert!(index_count * bits_per_index <= 64);
+        let data = (0 .. index_count)
+            .fold(0u64, |u, i| u | (i << i * bits_per_index) as u64);
+        StackIndexLRU {
+            bits_per_index,
+            index_count,
+            index_mask: (1 << bits_per_index) - 1,
+            data,
+        }
+    }
+
+    fn get(&self, lru_index: usize) -> StackIndex {
+        debug_assert!(lru_index < self.index_count);
+        ((self.data >> (lru_index * self.bits_per_index)) & self.index_mask) as StackIndex
+    }
+
+    fn use_at(&mut self, lru_index: usize) -> StackIndex {
+        if lru_index >= self.index_count - 1 {
+            // if it's the last element, we don't want to hit the case where
+            // we are shifting the remaining 0 bits by a factor of 64.
+            self.use_last()
+        } else {
+            let index = self.get(lru_index);
+            self.data =
+                ((self.data & ((1 << lru_index * self.bits_per_index) - 1)) << self.bits_per_index) |
+                ((self.data & (!0 << (lru_index + 1) * self.bits_per_index))) |
+                index as u64;
+            index
+        }
+    }
+
+    fn use_last(&mut self) -> StackIndex {
+        let index = self.get(self.index_count - 1);
+        self.data = (self.data << self.bits_per_index) | index as u64;
+        index
+    }
+}
+
+#[cfg(test)]
+mod test_lru {
+    use super::{StackIndex, StackIndexLRU};
+
+    #[test]
+    fn test_max_count() {
+        StackIndexLRU::new(16);
+    }
+
+    #[test]
+    fn test_get() {
+        let lru = StackIndexLRU::new(5);
+        for i in 0 .. lru.index_count {
+            assert_eq!(lru.get(i), i as StackIndex);
+        }
+    }
+
+    #[test]
+    fn test_use_last() {
+        let mut lru = StackIndexLRU::new(5);
+        lru.use_last();
+        for i in 1 .. lru.index_count {
+            assert_eq!(lru.get(i), i as StackIndex - 1);
+        }
+        assert_eq!(lru.get(0), lru.index_count as StackIndex - 1);
+    }
+
+    #[test]
+    fn test_use_index() {
+        let mut lru = StackIndexLRU::new(5);
+        lru.use_at(2);
+        assert_eq!(lru.get(0), 2);
+        assert_eq!(lru.get(1), 0);
+        assert_eq!(lru.get(2), 1);
+        assert_eq!(lru.get(3), 3);
+        assert_eq!(lru.get(4), 4);
+        lru.use_at(4);
+        assert_eq!(lru.get(0), 4);
+        assert_eq!(lru.get(1), 2);
+        assert_eq!(lru.get(2), 0);
+        assert_eq!(lru.get(3), 1);
+        assert_eq!(lru.get(4), 3);
+    }
+}
+
 pub struct AlphaBatchList {
     pub batches: Vec<PrimitiveBatch>,
     pub item_rects: Vec<Vec<PictureRect>>,
     stacks: Vec<InstanceStack>,
-    // sorted from oldest to freshest
-    last_used_stacks: Vec<usize>,
+    last_used_stacks: StackIndexLRU,
     break_advanced_blend_batches: bool,
 }
 
@@ -245,7 +346,7 @@ impl AlphaBatchList {
             stacks: (0 .. lookback_count)
                 .map(|_| InstanceStack::new())
                 .collect(),
-            last_used_stacks: (0 .. lookback_count).collect(),
+            last_used_stacks: StackIndexLRU::new(lookback_count),
             break_advanced_blend_batches,
         }
     }
@@ -270,9 +371,10 @@ impl AlphaBatchList {
         z_bounding_rect: &PictureRect,
         _z_id: ZBufferId,
     ) -> &mut Vec<PrimitiveInstanceData> {
-        let mut matching_stack_index = None;
-        for &stack_index in self.last_used_stacks.iter().rev() {
-            let stack = &self.stacks[stack_index];
+        let mut matching_stack_lru = None;
+        for i in 0 .. self.stacks.len() {
+            let stack_index = self.last_used_stacks.get(i);
+            let stack = &self.stacks[stack_index as usize];
             match key.blend_mode {
                 BlendMode::SubpixelWithBgColor => {
                     // Some subpixel batches are drawn in two passes. Because of this, we need
@@ -286,7 +388,7 @@ impl AlphaBatchList {
                     }
 
                     if stack.last_key.is_compatible_with(&key) {
-                        matching_stack_index = Some(stack_index);
+                        matching_stack_lru = Some(i);
                         break;
                     }
                 }
@@ -299,7 +401,7 @@ impl AlphaBatchList {
                     // is compatible, then we know there isn't any potential overlap
                     // issues to worry about.
                     if stack.last_key.is_compatible_with(&key) {
-                        matching_stack_index = Some(stack_index);
+                        matching_stack_lru = Some(i);
                         break;
                     }
 
@@ -314,20 +416,18 @@ impl AlphaBatchList {
             }
         }
 
-        let stack = match matching_stack_index {
-            Some(index) => {
-                self.last_used_stacks.retain(|&i| i != index);
-                self.last_used_stacks.push(index);
-                &mut self.stacks[index]
+        let stack = match matching_stack_lru {
+            Some(lru_index) => {
+                let index = self.last_used_stacks.use_at(lru_index);
+                &mut self.stacks[index as usize]
             }
             None => {
-                let index = self.last_used_stacks.remove(0);
-                self.last_used_stacks.push(index);
-                let stack = &mut self.stacks[index];
+                let index = self.last_used_stacks.use_last();
+                let stack = &mut self.stacks[index as usize];
                 stack.reset_batch(key, self.batches.len());
                 self.batches.push(PrimitiveBatch::new(
                     key,
-                    index as u8,
+                    index as StackIndex,
                     stack.instances.len() as InstanceIndex,
                 ));
                 stack
@@ -356,8 +456,7 @@ pub struct OpaqueBatchList {
     pub pixel_area_threshold_for_new_batch: f32,
     pub batches: Vec<PrimitiveBatch>,
     stacks: Vec<InstanceStack>,
-    // sorted from oldest to freshest
-    last_used_stacks: Vec<usize>,
+    last_used_stacks: StackIndexLRU,
 }
 
 impl OpaqueBatchList {
@@ -368,7 +467,7 @@ impl OpaqueBatchList {
             stacks: (0 .. lookback_count)
                 .map(|_| InstanceStack::new())
                 .collect(),
-            last_used_stacks: (0 .. lookback_count).collect(),
+            last_used_stacks: StackIndexLRU::new(lookback_count),
         }
     }
 
@@ -391,12 +490,13 @@ impl OpaqueBatchList {
         // `current_batch_index` instead of iterating the batches.
         z_bounding_rect: &PictureRect,
     ) -> &mut Vec<PrimitiveInstanceData> {
-        let mut matching_stack_index = None;
         let mut first = true;
-        for &stack_index in self.last_used_stacks.iter().rev() {
-            let stack = &self.stacks[stack_index];
+        let mut matching_stack_lru = None;
+        for i in 0 .. self.stacks.len() {
+            let stack_index = self.last_used_stacks.get(i);
+            let stack = &self.stacks[stack_index as usize];
             if stack.last_key.is_compatible_with(&key) {
-                matching_stack_index = Some(stack_index);
+                matching_stack_lru = Some(i);
                 break;
             }
 
@@ -410,20 +510,18 @@ impl OpaqueBatchList {
             first = false;
         }
 
-        let stack = match matching_stack_index {
-            Some(index) => {
-                self.last_used_stacks.retain(|&i| i != index);
-                self.last_used_stacks.push(index);
-                &mut self.stacks[index]
+        let stack = match matching_stack_lru {
+            Some(lru_index) => {
+                let index = self.last_used_stacks.use_at(lru_index);
+                &mut self.stacks[index as usize]
             }
             None => {
-                let index = self.last_used_stacks.remove(0);
-                self.last_used_stacks.push(index);
-                let stack = &mut self.stacks[index];
+                let index = self.last_used_stacks.use_last();
+                let stack = &mut self.stacks[index as usize];
                 stack.reset_batch(key, self.batches.len());
                 self.batches.push(PrimitiveBatch::new(
                     key,
-                    index as u8,
+                    index as StackIndex,
                     stack.instances.len() as InstanceIndex,
                 ));
                 stack
@@ -474,6 +572,7 @@ bitflags! {
 }
 
 pub type InstanceIndex = u32;
+pub type StackIndex = u8;
 
 #[derive(Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -481,12 +580,12 @@ pub type InstanceIndex = u32;
 pub struct PrimitiveBatch {
     pub key: BatchKey,
     pub instance_range: Range<InstanceIndex>,
-    pub stack_index: u8,
+    pub stack_index: StackIndex,
     pub features: BatchFeatures,
 }
 
 impl PrimitiveBatch {
-    fn new(key: BatchKey, stack_index: u8, base_instance: InstanceIndex) -> Self {
+    fn new(key: BatchKey, stack_index: StackIndex, base_instance: InstanceIndex) -> Self {
         PrimitiveBatch {
             key,
             instance_range: base_instance .. 0,
@@ -536,7 +635,7 @@ impl AlphaBatchContainer {
 
     // Merge the `from_list` into the `to_list` by preserving the order of batches on both sides
     // while placing compatible batch keys together.
-    fn consume_list(to_list: &mut Vec<PrimitiveBatch>, from_list: Vec<PrimitiveBatch>, stack_index_offset: u8) {
+    fn consume_list(to_list: &mut Vec<PrimitiveBatch>, from_list: Vec<PrimitiveBatch>, stack_index_offset: StackIndex) {
         to_list.extend(
             from_list.iter().map(|_| PrimitiveBatch::new(BatchKey::DUMMY, !0, 0))
         );
@@ -571,14 +670,14 @@ impl AlphaBatchContainer {
         Self::consume_list(
             &mut self.opaque_batches,
             builder.opaque_batch_list.batches,
-            self.opaque_stacks.len() as u8,
+            self.opaque_stacks.len() as StackIndex,
         );
         self.opaque_stacks.extend(builder.opaque_batch_list.stacks);
 
         Self::consume_list(
             &mut self.alpha_batches,
             builder.alpha_batch_list.batches,
-            self.alpha_stacks.len() as u8,
+            self.alpha_stacks.len() as StackIndex,
         );
         self.alpha_stacks.extend(builder.alpha_batch_list.stacks);
     }
