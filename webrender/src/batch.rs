@@ -17,9 +17,9 @@ use crate::gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex, TransformPaletteId
 use crate::gpu_types::{ImageBrushData, get_shader_opacity};
 use crate::internal_types::{FastHashMap, SavedTargetIndex, Swizzle, TextureSource, Filter};
 use crate::picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive};
-use crate::prim_store::{DeferredResolve, PrimitiveInstanceKind, PrimitiveVisibilityIndex, PrimitiveVisibilityMask};
+use crate::prim_store::{DeferredResolve, PrimitiveInstanceKind};
 use crate::prim_store::{VisibleGradientTile, PrimitiveInstance, PrimitiveOpacity, SegmentInstanceIndex};
-use crate::prim_store::{BrushSegment, ClipMaskKind, ClipTaskIndex, PrimitiveVisibility, PrimitiveVisibilityFlags};
+use crate::prim_store::{BrushSegment, ClipMaskKind, ClipTaskIndex};
 use crate::prim_store::{VECS_PER_SEGMENT, SpaceMapper};
 use crate::prim_store::image::ImageSource;
 use crate::render_target::RenderTargetContext;
@@ -28,6 +28,7 @@ use crate::render_task::RenderTaskAddress;
 use crate::renderer::{BlendMode, ImageBufferKind, ShaderColorMode};
 use crate::renderer::{BLOCKS_PER_UV_RECT, MAX_VERTEX_TEXTURE_WIDTH};
 use crate::resource_cache::{CacheItem, GlyphFetchResult, ImageRequest, ResourceCache};
+use crate::visibility::{PrimitiveVisibilityIndex, PrimitiveVisibilityMask, PrimitiveVisibility, PrimitiveVisibilityFlags};
 use smallvec::SmallVec;
 use std::{f32, i32, usize};
 use crate::util::{project_rect, TransformedRectKind};
@@ -236,10 +237,10 @@ pub struct AlphaBatchList {
 }
 
 impl AlphaBatchList {
-    fn new(break_advanced_blend_batches: bool) -> Self {
+    fn new(break_advanced_blend_batches: bool, preallocate: usize) -> Self {
         AlphaBatchList {
-            batches: Vec::new(),
-            batch_rects: Vec::new(),
+            batches: Vec::with_capacity(preallocate),
+            batch_rects: Vec::with_capacity(preallocate),
             current_z_id: ZBufferId::invalid(),
             current_batch_index: usize::MAX,
             break_advanced_blend_batches,
@@ -563,13 +564,14 @@ impl AlphaBatchBuilder {
         render_task_id: RenderTaskId,
         render_task_address: RenderTaskAddress,
         vis_mask: PrimitiveVisibilityMask,
+        preallocate: usize,
     ) -> Self {
         // The threshold for creating a new batch is
         // one quarter the screen size.
         let batch_area_threshold = (screen_size.width * screen_size.height) as f32 / 4.0;
 
         AlphaBatchBuilder {
-            alpha_batch_list: AlphaBatchList::new(break_advanced_blend_batches),
+            alpha_batch_list: AlphaBatchList::new(break_advanced_blend_batches, preallocate),
             opaque_batch_list: OpaqueBatchList::new(batch_area_threshold, lookback_count),
             render_task_id,
             render_task_address,
@@ -760,9 +762,12 @@ impl BatchBuilder {
         composite_state: &mut CompositeState,
     ) {
         for cluster in &pic.prim_list.clusters {
-            profile_scope!("cluster");
-            // Add each run in this picture to the batch.
-            for prim_instance in &cluster.prim_instances {
+            for prim_instance in &pic.prim_list.prim_instances[cluster.prim_range()] {
+                if prim_instance.visibility_info == PrimitiveVisibilityIndex::INVALID {
+                    continue;
+                }
+
+                // Add each run in this picture to the batch.
                 self.add_prim_to_batch(
                     prim_instance,
                     cluster.spatial_node_index,
@@ -867,10 +872,6 @@ impl BatchBuilder {
         z_generator: &mut ZBufferIdGenerator,
         composite_state: &mut CompositeState,
     ) {
-        if prim_instance.visibility_info == PrimitiveVisibilityIndex::INVALID {
-            return;
-        }
-
         #[cfg(debug_assertions)] //TODO: why is this needed?
         debug_assert_eq!(prim_instance.prepared_frame_id, render_tasks.frame_id());
 
@@ -1286,8 +1287,7 @@ impl BatchBuilder {
                     // Convert all children of the 3D hierarchy root into batches.
                     Picture3DContext::In { root_data: Some(ref list), .. } => {
                         for child in list {
-                            let cluster = &picture.prim_list.clusters[child.anchor.cluster_index];
-                            let child_prim_instance = &cluster.prim_instances[child.anchor.instance_index];
+                            let child_prim_instance = &picture.prim_list.prim_instances[child.anchor.instance_index];
                             let child_prim_info = &ctx.scratch.prim_info[child_prim_instance.visibility_info.0 as usize];
 
                             let child_pic_index = match child_prim_instance.kind {
@@ -2280,7 +2280,7 @@ impl BatchBuilder {
                     let max_tiles_per_header = (MAX_VERTEX_TEXTURE_WIDTH - VECS_PER_SPECIFIC_BRUSH) / VECS_PER_SEGMENT;
 
                     // use temporary block storage since we don't know the number of visible tiles beforehand
-                    let mut gpu_blocks = Vec::<GpuBlockData>::new();
+                    let mut gpu_blocks = Vec::<GpuBlockData>::with_capacity(3 + max_tiles_per_header * 2);
                     for chunk in image_instance.visible_tiles.chunks(max_tiles_per_header) {
                         gpu_blocks.clear();
                         gpu_blocks.push(PremultipliedColorF::WHITE.into()); //color

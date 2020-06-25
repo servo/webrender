@@ -5,21 +5,22 @@
 use api::{ColorF, DebugFlags, DocumentLayer, FontRenderMode, PremultipliedColorF};
 use api::units::*;
 use crate::batch::{BatchBuilder, AlphaBatchBuilder, AlphaBatchContainer};
-use crate::clip::{ClipStore, ClipChainStack, ClipInstance};
+use crate::clip::{ClipStore, ClipChainStack};
 use crate::spatial_tree::{SpatialTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
-use crate::composite::{CompositorKind, CompositeState};
+use crate::composite::{CompositorKind, CompositeState, CompositeStatePreallocator};
 use crate::debug_render::DebugItem;
 use crate::gpu_cache::{GpuCache, GpuCacheHandle};
 use crate::gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind, ZBufferIdGenerator};
 use crate::gpu_types::TransformData;
 use crate::internal_types::{FastHashMap, PlaneSplitter, SavedTargetIndex};
-use crate::picture::{PictureUpdateState, SurfaceInfo, ROOT_SURFACE_INDEX, SurfaceIndex, RecordedDirtyRegion};
-use crate::picture::{RetainedTiles, TileCacheInstance, DirtyRegion, SurfaceRenderTasks, SubpixelMode};
-use crate::picture::{BackdropKind, TileCacheLogger};
-use crate::prim_store::{SpaceMapper, PictureIndex, PrimitiveDebugId, PrimitiveScratchBuffer};
-use crate::prim_store::{DeferredResolve, PrimitiveVisibilityMask};
+use crate::picture::{DirtyRegion, RecordedDirtyRegion, PictureUpdateState};
+use crate::picture::{RetainedTiles, SurfaceRenderTasks, SurfaceInfo, SurfaceIndex, ROOT_SURFACE_INDEX};
+use crate::picture::{BackdropKind, SubpixelMode, TileCacheLogger};
+use crate::prepare::prepare_primitives;
+use crate::prim_store::{SpaceMapper, PictureIndex, PrimitiveDebugId};
+use crate::prim_store::{DeferredResolve};
 use crate::profiler::{FrameProfileCounters, TextureCacheProfileCounters, ResourceProfileCounters};
-use crate::render_backend::{DataStores, FrameStamp, FrameId};
+use crate::render_backend::{DataStores, FrameStamp, FrameId, ScratchBuffer};
 use crate::render_target::{RenderTarget, PictureCacheTarget, TextureCacheRenderTarget};
 use crate::render_target::{RenderTargetContext, RenderTargetKind};
 use crate::render_task_graph::{RenderTaskId, RenderTaskGraph, RenderTaskGraphCounters};
@@ -29,7 +30,9 @@ use crate::resource_cache::{ResourceCache};
 use crate::scene::{BuiltScene, SceneProperties};
 use crate::segment::SegmentBuilder;
 use std::{f32, mem};
-use crate::util::MaxRect;
+use crate::util::{MaxRect, VecHelper, Recycler, Preallocator};
+use crate::visibility::{update_primitive_visibility, FrameVisibilityState, FrameVisibilityContext};
+use crate::visibility::{PrimitiveVisibilityMask};
 
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -114,6 +117,43 @@ impl FrameGlobalResources {
     }
 }
 
+pub struct FrameScratchBuffer {
+    surfaces: Vec<SurfaceInfo>,
+    dirty_region_stack: Vec<DirtyRegion>,
+    surface_stack: Vec<SurfaceIndex>,
+    clip_chain_stack: ClipChainStack,
+}
+
+impl Default for FrameScratchBuffer {
+    fn default() -> Self {
+        FrameScratchBuffer {
+            surfaces: Vec::new(),
+            dirty_region_stack: Vec::new(),
+            surface_stack: Vec::new(),
+            clip_chain_stack: ClipChainStack::new(),
+        }
+    }
+}
+
+impl FrameScratchBuffer {
+    pub fn begin_frame(&mut self) {
+        self.surfaces.clear();
+        self.dirty_region_stack.clear();
+        self.surface_stack.clear();
+        self.clip_chain_stack.clear();
+    }
+
+    pub fn recycle(&mut self, recycler: &mut Recycler) {
+        recycler.recycle_vec(&mut self.surfaces);
+        // Don't call recycle on the stacks because the reycler's
+        // role is to get rid of allocations when the capacity
+        // is much larger than the lengths. with stacks the
+        // length varies through the frame but is supposedly
+        // back to zero by the end so we would always throw the
+        // allocation away.
+    }
+}
+
 /// Produces the frames that are sent to the renderer.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct FrameBuilder {
@@ -121,49 +161,10 @@ pub struct FrameBuilder {
     /// that can optionally be consumed by this frame builder.
     pending_retained_tiles: RetainedTiles,
     pub globals: FrameGlobalResources,
-}
-
-pub struct FrameVisibilityContext<'a> {
-    pub spatial_tree: &'a SpatialTree,
-    pub global_screen_world_rect: WorldRect,
-    pub global_device_pixel_scale: DevicePixelScale,
-    pub surfaces: &'a [SurfaceInfo],
-    pub debug_flags: DebugFlags,
-    pub scene_properties: &'a SceneProperties,
-    pub config: FrameBuilderConfig,
-}
-
-pub struct FrameVisibilityState<'a> {
-    pub clip_store: &'a mut ClipStore,
-    pub resource_cache: &'a mut ResourceCache,
-    pub gpu_cache: &'a mut GpuCache,
-    pub scratch: &'a mut PrimitiveScratchBuffer,
-    pub tile_cache: Option<Box<TileCacheInstance>>,
-    pub retained_tiles: &'a mut RetainedTiles,
-    pub data_stores: &'a mut DataStores,
-    pub clip_chain_stack: ClipChainStack,
-    pub render_tasks: &'a mut RenderTaskGraph,
-    pub composite_state: &'a mut CompositeState,
-    /// A stack of currently active off-screen surfaces during the
-    /// visibility frame traversal.
-    pub surface_stack: Vec<SurfaceIndex>,
-}
-
-impl<'a> FrameVisibilityState<'a> {
-    pub fn push_surface(
-        &mut self,
-        surface_index: SurfaceIndex,
-        shared_clips: &[ClipInstance],
-        spatial_tree: &SpatialTree,
-    ) {
-        self.surface_stack.push(surface_index);
-        self.clip_chain_stack.push_surface(shared_clips, spatial_tree);
-    }
-
-    pub fn pop_surface(&mut self) {
-        self.surface_stack.pop().unwrap();
-        self.clip_chain_stack.pop_surface();
-    }
+    #[cfg_attr(feature = "capture", serde(skip))]
+    prim_headers_prealloc: Preallocator,
+    #[cfg_attr(feature = "capture", serde(skip))]
+    composite_state_prealloc: CompositeStatePreallocator,
 }
 
 pub struct FrameBuildingContext<'a> {
@@ -237,6 +238,8 @@ impl FrameBuilder {
         FrameBuilder {
             pending_retained_tiles: RetainedTiles::new(),
             globals: FrameGlobalResources::empty(),
+            prim_headers_prealloc: Preallocator::new(0),
+            composite_state_prealloc: CompositeStatePreallocator::default(),
         }
     }
 
@@ -269,8 +272,7 @@ impl FrameBuilder {
         scene_properties: &SceneProperties,
         transform_palette: &mut TransformPalette,
         data_stores: &mut DataStores,
-        surfaces: &mut Vec<SurfaceInfo>,
-        scratch: &mut PrimitiveScratchBuffer,
+        scratch: &mut ScratchBuffer,
         debug_flags: DebugFlags,
         texture_cache_profile: &mut TextureCacheProfileCounters,
         composite_state: &mut CompositeState,
@@ -327,6 +329,7 @@ impl FrameBuilder {
             global_device_pixel_scale,
             (1.0, 1.0),
         );
+        let mut surfaces = scratch.frame.surfaces.take();
         surfaces.push(root_surface);
 
         let mut retained_tiles = mem::replace(
@@ -342,7 +345,8 @@ impl FrameBuilder {
         // which surfaces have valid cached surfaces that don't need to
         // be rendered this frame.
         PictureUpdateState::update_all(
-            surfaces,
+            &mut scratch.picture,
+            &mut surfaces,
             scene.root_pic_index,
             &mut scene.prim_store.pictures,
             &frame_context,
@@ -360,13 +364,15 @@ impl FrameBuilder {
                 global_device_pixel_scale,
                 spatial_tree: &scene.spatial_tree,
                 global_screen_world_rect,
-                surfaces,
+                surfaces: &mut surfaces,
                 debug_flags,
                 scene_properties,
                 config: scene.config,
             };
 
             let mut visibility_state = FrameVisibilityState {
+                clip_chain_stack: scratch.frame.clip_chain_stack.take(),
+                surface_stack: scratch.frame.surface_stack.take(),
                 resource_cache,
                 gpu_cache,
                 clip_store: &mut scene.clip_store,
@@ -374,15 +380,12 @@ impl FrameBuilder {
                 tile_cache: None,
                 retained_tiles: &mut retained_tiles,
                 data_stores,
-                clip_chain_stack: ClipChainStack::new(),
                 render_tasks,
                 composite_state,
-                /// Try to avoid allocating during frame traversal - it's unlikely to have a
-                /// surface stack depth of > 16 in most cases.
-                surface_stack: Vec::with_capacity(16),
             };
 
-            scene.prim_store.update_visibility(
+            update_primitive_visibility(
+                &mut scene.prim_store,
                 scene.root_pic_index,
                 ROOT_SURFACE_INDEX,
                 &global_screen_world_rect,
@@ -416,6 +419,9 @@ impl FrameBuilder {
                     visibility_state.resource_cache.destroy_compositor_surface(external_surface.native_surface_id)
                 }
             }
+
+            visibility_state.scratch.frame.clip_chain_stack = visibility_state.clip_chain_stack.take();
+            visibility_state.scratch.frame.surface_stack = visibility_state.surface_stack.take();
         }
 
         let mut frame_state = FrameBuildingState {
@@ -426,8 +432,8 @@ impl FrameBuilder {
             gpu_cache,
             transforms: transform_palette,
             segment_builder: SegmentBuilder::new(),
-            surfaces,
-            dirty_region_stack: Vec::new(),
+            surfaces: &mut surfaces,
+            dirty_region_stack: scratch.frame.dirty_region_stack.take(),
             composite_state,
         };
 
@@ -462,7 +468,7 @@ impl FrameBuilder {
                 &SubpixelMode::Allow,
                 &mut frame_state,
                 &frame_context,
-                scratch,
+                &mut scratch.primitive,
                 tile_cache_logger
             )
             .unwrap();
@@ -472,14 +478,15 @@ impl FrameBuilder {
         {
             profile_marker!("PreparePrims");
 
-            scene.prim_store.prepare_primitives(
+            prepare_primitives(
+                &mut scene.prim_store,
                 &mut prim_list,
                 &pic_context,
                 &mut pic_state,
                 &frame_context,
                 &mut frame_state,
                 data_stores,
-                scratch,
+                &mut scratch.primitive,
                 tile_cache_logger,
             );
         }
@@ -494,6 +501,9 @@ impl FrameBuilder {
         );
 
         frame_state.pop_dirty_region();
+
+        scratch.frame.dirty_region_stack = frame_state.dirty_region_stack.take();
+        scratch.frame.surfaces = surfaces.take();
 
         {
             profile_marker!("BlockOnResources");
@@ -519,7 +529,7 @@ impl FrameBuilder {
         resource_profile: &mut ResourceProfileCounters,
         scene_properties: &SceneProperties,
         data_stores: &mut DataStores,
-        scratch: &mut PrimitiveScratchBuffer,
+        scratch: &mut ScratchBuffer,
         render_task_counters: &mut RenderTaskGraphCounters,
         debug_flags: DebugFlags,
         tile_cache_logger: &mut TileCacheLogger,
@@ -549,7 +559,6 @@ impl FrameBuilder {
             stamp.frame_id(),
             render_task_counters,
         );
-        let mut surfaces = Vec::new();
 
         let output_size = scene.output_rect.size.to_i32();
         let screen_world_rect = (scene.output_rect.to_f32() / global_device_pixel_scale).round_out();
@@ -576,6 +585,8 @@ impl FrameBuilder {
             scene.config.max_depth_ids,
         );
 
+        self.composite_state_prealloc.preallocate(&mut composite_state);
+
         let main_render_task_id = self.build_layer_screen_rects_and_cull_layers(
             scene,
             screen_world_rect,
@@ -587,7 +598,6 @@ impl FrameBuilder {
             scene_properties,
             &mut transform_palette,
             data_stores,
-            &mut surfaces,
             scratch,
             debug_flags,
             &mut resource_profile.texture_cache,
@@ -599,6 +609,8 @@ impl FrameBuilder {
         let mut deferred_resolves = vec![];
         let mut has_texture_cache_tasks = false;
         let mut prim_headers = PrimitiveHeaders::new();
+        self.prim_headers_prealloc.preallocate_vec(&mut prim_headers.headers_int);
+        self.prim_headers_prealloc.preallocate_vec(&mut prim_headers.headers_float);
 
         {
             profile_marker!("Batching");
@@ -625,8 +637,8 @@ impl FrameBuilder {
                     batch_lookback_count: scene.config.batch_lookback_count,
                     spatial_tree: &scene.spatial_tree,
                     data_stores,
-                    surfaces: &surfaces,
-                    scratch,
+                    surfaces: &scratch.frame.surfaces,
+                    scratch: &mut scratch.primitive,
                     screen_world_rect,
                     globals: &self.globals,
                 };
@@ -664,6 +676,9 @@ impl FrameBuilder {
         *render_task_counters = render_tasks.counters();
         resource_cache.end_frame(&mut resource_profile.texture_cache);
 
+        self.prim_headers_prealloc.record_vec(&mut prim_headers.headers_int);
+        self.composite_state_prealloc.record(&composite_state);
+
         Frame {
             content_origin: scene.output_rect.origin,
             device_rect: DeviceIntRect::new(
@@ -680,8 +695,8 @@ impl FrameBuilder {
             has_been_rendered: false,
             has_texture_cache_tasks,
             prim_headers,
-            recorded_dirty_regions: mem::replace(&mut scratch.recorded_dirty_regions, Vec::new()),
-            debug_items: mem::replace(&mut scratch.debug_items, Vec::new()),
+            recorded_dirty_regions: mem::replace(&mut scratch.primitive.recorded_dirty_regions, Vec::new()),
+            debug_items: mem::replace(&mut scratch.primitive.debug_items, Vec::new()),
             composite_state,
         }
     }
@@ -918,6 +933,7 @@ pub fn build_render_pass(
                         task_id,
                         render_tasks.get_task_address(task_id),
                         vis_mask,
+                        0,
                     ));
                 }
 

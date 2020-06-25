@@ -107,6 +107,7 @@ mod intern;
 mod internal_types;
 mod lru_cache;
 mod picture;
+mod prepare;
 mod prim_store;
 mod print_tree;
 mod render_backend;
@@ -127,6 +128,7 @@ mod storage;
 mod texture_allocator;
 mod texture_cache;
 mod util;
+mod visibility;
 
 mod shader_source {
     include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
