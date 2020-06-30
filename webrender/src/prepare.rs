@@ -21,9 +21,9 @@ use crate::clip::{ClipDataStore, ClipNodeFlags, ClipChainInstance, ClipItemKind}
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use crate::gpu_cache::{GpuCacheHandle, GpuDataRequest};
 use crate::gpu_types::{BrushFlags};
-use crate::internal_types::PlaneSplitAnchor;
-use crate::picture::{PicturePrimitive, TileCacheLogger};
-use crate::picture::{PrimitiveList, SurfaceIndex};
+use crate::internal_types::{FastHashMap, PlaneSplitAnchor};
+use crate::picture::{PicturePrimitive, SliceId, TileCacheLogger};
+use crate::picture::{PrimitiveList, SurfaceIndex, TileCacheInstance};
 use crate::prim_store::gradient::{GRADIENT_FP_STOPS, GradientCacheKey, GradientStopKey};
 use crate::prim_store::gradient::LinearGradientPrimitive;
 use crate::prim_store::line_dec::MAX_LINE_DECORATION_RESOLUTION;
@@ -52,6 +52,7 @@ pub fn prepare_primitives(
     data_stores: &mut DataStores,
     scratch: &mut PrimitiveScratchBuffer,
     tile_cache_log: &mut TileCacheLogger,
+    tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
 ) {
     profile_scope!("prepare_primitives");
     for (cluster_index, cluster) in prim_list.clusters.iter_mut().enumerate() {
@@ -102,6 +103,7 @@ pub fn prepare_primitives(
                 data_stores,
                 scratch,
                 tile_cache_log,
+                tile_caches,
             ) {
                 frame_state.profile_counters.visible_primitives.inc();
             }
@@ -121,6 +123,7 @@ fn prepare_prim_for_render(
     data_stores: &mut DataStores,
     scratch: &mut PrimitiveScratchBuffer,
     tile_cache_log: &mut TileCacheLogger,
+    tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
 ) -> bool {
     profile_scope!("prepare_prim_for_render");
     // If we have dependencies, we need to prepare them first, in order
@@ -148,6 +151,7 @@ fn prepare_prim_for_render(
                     frame_context,
                     scratch,
                     tile_cache_log,
+                    tile_caches,
                 ) {
                     Some(info) => Some(info),
                     None => {
@@ -192,6 +196,7 @@ fn prepare_prim_for_render(
                 data_stores,
                 scratch,
                 tile_cache_log,
+                tile_caches,
             );
 
             // Restore the dependencies (borrow check dance)
@@ -1520,7 +1525,7 @@ pub fn update_brush_segment_clip_task(
             let (device_rect, device_pixel_scale) = adjust_mask_scale_for_max_size(device_rect, device_pixel_scale);
 
             let clip_task_id = RenderTask::new_mask(
-                device_rect.to_i32(),
+                device_rect,
                 clip_chain.clips_range,
                 root_spatial_node_index,
                 frame_state.clip_store,
@@ -1802,7 +1807,7 @@ fn get_clipped_device_rect(
 }
 
 // Ensures that the size of mask render tasks are within MAX_MASK_SIZE.
-fn adjust_mask_scale_for_max_size(device_rect: DeviceRect, device_pixel_scale: DevicePixelScale) -> (DeviceIntRect, DevicePixelScale) {
+fn adjust_mask_scale_for_max_size(device_rect: DeviceRect, device_pixel_scale: DevicePixelScale) -> (DeviceRect, DevicePixelScale) {
     if device_rect.width() > MAX_MASK_SIZE || device_rect.height() > MAX_MASK_SIZE {
         // round_out will grow by 1 integer pixel if origin is on a
         // fractional position, so keep that margin for error with -1:
@@ -1810,10 +1815,9 @@ fn adjust_mask_scale_for_max_size(device_rect: DeviceRect, device_pixel_scale: D
             f32::max(device_rect.width(), device_rect.height());
         let new_device_pixel_scale = device_pixel_scale * Scale::new(scale);
         let new_device_rect = (device_rect.to_f32() * Scale::new(scale))
-            .round_out()
-            .to_i32();
+            .round_out();
         (new_device_rect, new_device_pixel_scale)
     } else {
-        (device_rect.to_i32(), device_pixel_scale)
+        (device_rect, device_pixel_scale)
     }
 }

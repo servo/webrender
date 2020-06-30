@@ -16,7 +16,7 @@ use crate::gpu_cache::{GpuCache, GpuCacheAddress};
 use crate::gpu_types::{BorderInstance, SvgFilterInstance, BlurDirection, BlurInstance, PrimitiveHeaders, ScalingInstance};
 use crate::gpu_types::{TransformPalette, ZBufferIdGenerator};
 use crate::internal_types::{FastHashMap, TextureSource, LayerIndex, Swizzle, SavedTargetIndex};
-use crate::picture::{SurfaceInfo, ResolvedSurfaceTexture};
+use crate::picture::{SliceId, SurfaceInfo, ResolvedSurfaceTexture, TileCacheInstance};
 use crate::prim_store::{PrimitiveStore, DeferredResolve, PrimitiveScratchBuffer};
 use crate::prim_store::gradient::GRADIENT_FP_STOPS;
 use crate::render_backend::DataStores;
@@ -70,6 +70,7 @@ pub struct RenderTargetContext<'a, 'rc> {
     pub scratch: &'a PrimitiveScratchBuffer,
     pub screen_world_rect: WorldRect,
     pub globals: &'a FrameGlobalResources,
+    pub tile_caches: &'a FastHashMap<SliceId, Box<TileCacheInstance>>,
 }
 
 /// Represents a number of rendering operations on a surface.
@@ -688,7 +689,7 @@ impl RenderTarget for AlphaRenderTarget {
                     &ctx.screen_world_rect,
                     task_info.device_pixel_scale,
                     target_rect.origin.to_f32(),
-                    task_info.actual_rect.origin.to_f32(),
+                    task_info.actual_rect.origin,
                 );
             }
             RenderTaskKind::ClipRegion(ref region_task) => {
