@@ -32,6 +32,7 @@ use crate::render_backend::DataStores;
 use crate::render_task_cache::{RenderTaskCacheKeyKind, RenderTaskCacheEntryHandle, RenderTaskCacheKey, to_cache_size};
 use crate::render_task::RenderTask;
 use crate::segment::SegmentBuilder;
+use crate::space::SpaceMapper;
 use crate::texture_cache::TEXTURE_REGION_DIMENSIONS;
 use crate::util::{clamp_to_scale_factor, pack_as_float, raster_rect_to_device_pixels};
 use crate::visibility::{PrimitiveVisibility, PrimitiveVisibilityIndex, compute_conservative_visible_rect};
@@ -1769,7 +1770,7 @@ fn get_unclipped_device_rect(
 
 /// Given an unclipped device rect, try to find a minimal device space
 /// rect to allocate a clip mask for, by clipping to the screen. This
-/// function is very similar to get_raster_rects below. It is far from
+/// function is very similar to picture::get_raster_rects. It is far from
 /// ideal, and should be refactored as part of the support for setting
 /// scale per-raster-root.
 fn get_clipped_device_rect(
