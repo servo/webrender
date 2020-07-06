@@ -244,7 +244,37 @@ fn write_optimized_shaders(shader_dir: &Path, shader_file: &mut File, out_dir: &
     Ok(())
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod backtrace;
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+extern "C" fn handler(sig: i32) {
+    use std::sync::atomic;
+    static BEEN_HERE_BEFORE: atomic::AtomicBool = atomic::AtomicBool::new(false);
+    if !BEEN_HERE_BEFORE.swap(true, atomic::Ordering::SeqCst) {
+        let stdout = std::io::stdout();
+        let mut stdout = stdout.lock();
+        let _ = write!(&mut stdout, "Stack trace");
+        if let Some(name) = std::thread::current().name() {
+            let _ = write!(&mut stdout, " for thread \"{}\"", name);
+        }
+        let _ = write!(&mut stdout, "\n");
+        let _ = backtrace::print(&mut stdout);
+    }
+    unsafe {
+        libc::_exit(sig);
+    }
+}
+
 fn main() -> Result<(), std::io::Error> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        sig::signal!(sig::ffi::Sig::SEGV, handler); // handle segfaults
+        sig::signal!(sig::ffi::Sig::ILL, handler); // handle stack overflow and unsupported CPUs
+        sig::signal!(sig::ffi::Sig::IOT, handler); // handle double panics
+        sig::signal!(sig::ffi::Sig::BUS, handler); // handle invalid memory access
+    }
+
     let out_dir = env::var("OUT_DIR").unwrap_or("out".to_owned());
 
     let shaders_file_path = Path::new(&out_dir).join("shaders.rs");
