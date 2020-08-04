@@ -107,7 +107,7 @@ use crate::spatial_tree::{ROOT_SPATIAL_NODE_INDEX,
 use crate::composite::{CompositorKind, CompositeState, NativeSurfaceId, NativeTileId};
 use crate::composite::{ExternalSurfaceDescriptor, ExternalSurfaceDependency};
 use crate::debug_colors;
-use euclid::{vec2, vec3, Point2D, Scale, Size2D, Vector2D, Rect, Transform3D, SideOffsets2D};
+use euclid::{vec2, vec3, Point2D, Scale, Size2D, Vector2D, Vector3D, Rect, Transform3D, SideOffsets2D};
 use euclid::approxeq::ApproxEq;
 use crate::filterdata::SFilterData;
 use crate::intern::ItemUid;
@@ -2188,6 +2188,9 @@ pub struct ExternalNativeSurfaceKey {
     pub image_keys: [ImageKey; 3],
     /// The current device size of the surface.
     pub size: DeviceIntSize,
+    /// True if this is an 'external' compositor surface created via
+    /// Compositor::create_external_surface.
+    pub is_external_surface: bool,
 }
 
 /// Information about a native compositor surface cached between frames.
@@ -2946,7 +2949,10 @@ impl TileCacheInstance {
     fn setup_compositor_surfaces_yuv(
         &mut self,
         prim_info: &mut PrimitiveDependencyInfo,
+        flags: PrimitiveFlags,
         prim_rect: PictureRect,
+        local_prim_rect: LayoutRect,
+        prim_spatial_node_index: SpatialNodeIndex,
         frame_context: &FrameVisibilityContext,
         image_dependencies: &[ImageDependency;3],
         api_keys: &[ImageKey; 3],
@@ -2959,7 +2965,10 @@ impl TileCacheInstance {
     ) -> bool {
         self.setup_compositor_surfaces_impl(
             prim_info,
+            flags,
             prim_rect,
+            local_prim_rect,
+            prim_spatial_node_index,
             frame_context,
             ExternalSurfaceDependency::Yuv {
                 image_dependencies: *image_dependencies,
@@ -2977,7 +2986,10 @@ impl TileCacheInstance {
     fn setup_compositor_surfaces_rgb(
         &mut self,
         prim_info: &mut PrimitiveDependencyInfo,
+        flags: PrimitiveFlags,
         prim_rect: PictureRect,
+        local_prim_rect: LayoutRect,
+        prim_spatial_node_index: SpatialNodeIndex,
         frame_context: &FrameVisibilityContext,
         image_dependency: ImageDependency,
         api_key: ImageKey,
@@ -2990,7 +3002,10 @@ impl TileCacheInstance {
         api_keys[0] = api_key;
         self.setup_compositor_surfaces_impl(
             prim_info,
+            flags,
             prim_rect,
+            local_prim_rect,
+            prim_spatial_node_index,
             frame_context,
             ExternalSurfaceDependency::Rgb {
                 image_dependency,
@@ -3008,7 +3023,10 @@ impl TileCacheInstance {
     fn setup_compositor_surfaces_impl(
         &mut self,
         prim_info: &mut PrimitiveDependencyInfo,
+        flags: PrimitiveFlags,
         prim_rect: PictureRect,
+        local_prim_rect: LayoutRect,
+        prim_spatial_node_index: SpatialNodeIndex,
         frame_context: &FrameVisibilityContext,
         dependency: ExternalSurfaceDependency,
         api_keys: &[ImageKey; 3],
@@ -3025,9 +3043,6 @@ impl TileCacheInstance {
             frame_context.spatial_tree,
         );
 
-        let world_rect = pic_to_world_mapper
-            .map(&prim_rect)
-            .expect("bug: unable to map the primitive to world space");
         let world_clip_rect = pic_to_world_mapper
             .map(&prim_info.prim_clip_box.to_rect())
             .expect("bug: unable to map clip to world space");
@@ -3040,13 +3055,50 @@ impl TileCacheInstance {
         // TODO(gw): Is there any case where if the primitive ends up on a fractional
         //           boundary we want to _skip_ promoting to a compositor surface and
         //           draw it as part of the content?
-        let device_rect = (world_rect * frame_context.global_device_pixel_scale).round();
+        let (device_rect, transform) = match composite_state.compositor_kind {
+            CompositorKind::Draw { .. } => {
+                let world_rect = pic_to_world_mapper
+                    .map(&prim_rect)
+                    .expect("bug: unable to map the primitive to world space");
+                let device_rect = (world_rect * frame_context.global_device_pixel_scale).round();
+
+                (device_rect, Transform3D::identity())
+            }
+            CompositorKind::Native { .. } => {
+                // If we have a Native Compositor, then we can support doing the transformation
+                // as part of compositing. Use the local prim rect for the external surface, and
+                // compute the full local to device transform to provide to the compositor.
+                let surface_to_world_mapper : SpaceMapper<PicturePixel, WorldPixel> = SpaceMapper::new_with_target(
+                    ROOT_SPATIAL_NODE_INDEX,
+                    prim_spatial_node_index,
+                    frame_context.global_screen_world_rect,
+                    frame_context.spatial_tree,
+                );
+                let prim_origin = Vector3D::new(local_prim_rect.origin.x, local_prim_rect.origin.y, 0.0);
+                let world_to_device_scale = Transform3D::from_scale(frame_context.global_device_pixel_scale);
+                let transform = surface_to_world_mapper.get_transform().pre_translate(prim_origin).post_transform(&world_to_device_scale);
+
+                (local_prim_rect.cast_unit(), transform)
+            }
+        };
+
         let clip_rect = (world_clip_rect * frame_context.global_device_pixel_scale).round();
 
         if device_rect.size.width >= MAX_COMPOSITOR_SURFACES_SIZE ||
            device_rect.size.height >= MAX_COMPOSITOR_SURFACES_SIZE {
                return false;
         }
+
+        // If this primitive is an external image, and supports being used
+        // directly by a native compositor, then lookup the external image id
+        // so we can pass that through.
+        let external_image_id = if flags.contains(PrimitiveFlags::SUPPORTS_EXTERNAL_COMPOSITOR_SURFACE) {
+            resource_cache.get_image_properties(api_keys[0])
+                .and_then(|properties| properties.external_image)
+                .and_then(|image| Some(image.id))
+        } else {
+            None
+        };
 
         // When using native compositing, we need to find an existing native surface
         // handle to use, or allocate a new one. For existing native surfaces, we can
@@ -3062,27 +3114,39 @@ impl TileCacheInstance {
                 let key = ExternalNativeSurfaceKey {
                     image_keys: *api_keys,
                     size: native_surface_size,
+                    is_external_surface: external_image_id.is_some(),
                 };
 
                 let native_surface = self.external_native_surface_cache
                     .entry(key)
                     .or_insert_with(|| {
-                        // No existing surface, so allocate a new compositor surface and
-                        // a single compositor tile that covers the entire compositor surface.
+                        // No existing surface, so allocate a new compositor surface.
+                        let native_surface_id = match external_image_id {
+                            Some(_external_image) => {
+                                // If we have a suitable external image, then create an external
+                                // surface to attach to.
+                                resource_cache.create_compositor_external_surface(true)
+                            }
+                            None => {
+                                // Otherwise create a normal compositor surface and a single
+                                // compositor tile that covers the entire surface.
+                                let native_surface_id =
+                                resource_cache.create_compositor_surface(
+                                    DeviceIntPoint::zero(),
+                                    native_surface_size,
+                                    true,
+                                ); 
 
-                        let native_surface_id = resource_cache.create_compositor_surface(
-                            DeviceIntPoint::zero(),
-                            native_surface_size,
-                            true,
-                        );
+                                let tile_id = NativeTileId {
+                                    surface_id: native_surface_id,
+                                    x: 0,
+                                    y: 0,
+                                };
+                                resource_cache.create_compositor_tile(tile_id);
 
-                        let tile_id = NativeTileId {
-                            surface_id: native_surface_id,
-                            x: 0,
-                            y: 0,
+                                native_surface_id
+                            }
                         };
-
-                        resource_cache.create_compositor_tile(tile_id);
 
                         ExternalNativeSurface {
                             used_this_frame: true,
@@ -3095,23 +3159,37 @@ impl TileCacheInstance {
                 // backing native surface handle isn't freed.
                 native_surface.used_this_frame = true;
 
-                // If the image dependencies match, there is no need to update
-                // the backing native surface.
-                let update_params = match dependency {
-                    ExternalSurfaceDependency::Yuv{ image_dependencies, .. } => {
-                       if image_dependencies == native_surface.image_dependencies {
-                           None
-                       } else {
-                           Some(native_surface_size)
-                       }
-                    },
-                    ExternalSurfaceDependency::Rgb{ image_dependency, .. } => {
-                       if image_dependency == native_surface.image_dependencies[0] {
-                           None
-                       } else {
-                           Some(native_surface_size)
-                       }
-                    },
+                let update_params = match external_image_id {
+                    Some(external_image) => {
+                        // If this is an external image surface, then there's no update
+                        // to be done. Just attach the current external image to the surface
+                        // and we're done.
+                        resource_cache.attach_compositor_external_image(
+                            native_surface.native_surface_id,
+                            external_image,
+                        );
+                        None
+                    }
+                    None => {
+                        // If the image dependencies match, there is no need to update
+                        // the backing native surface.
+                        match dependency {
+                            ExternalSurfaceDependency::Yuv{ image_dependencies, .. } => {
+                                if image_dependencies == native_surface.image_dependencies {
+                                    None
+                                } else {
+                                    Some(native_surface_size)
+                                }
+                            },
+                            ExternalSurfaceDependency::Rgb{ image_dependency, .. } => {
+                                if image_dependency == native_surface.image_dependencies[0] {
+                                    None
+                                } else {
+                                    Some(native_surface_size)
+                                }
+                            },
+                        }
+                    }
                 };
 
                 (Some(native_surface.native_surface_id), update_params)
@@ -3121,12 +3199,12 @@ impl TileCacheInstance {
         // Each compositor surface allocates a unique z-id
         self.external_surfaces.push(ExternalSurfaceDescriptor {
             local_rect: prim_info.prim_clip_box.to_rect(),
-            world_rect,
             local_clip_rect: prim_info.prim_clip_box.to_rect(),
             dependency,
             image_rendering,
             device_rect,
             clip_rect,
+            transform: transform.cast_unit(),
             z_id: composite_state.z_generator.next(),
             native_surface_id,
             update_params,
@@ -3337,7 +3415,10 @@ impl TileCacheInstance {
                 if promote_to_surface {
                     promote_to_surface = self.setup_compositor_surfaces_rgb(
                         &mut prim_info,
+                        image_key.common.flags,
                         prim_rect,
+                        local_prim_rect,
+                        prim_spatial_node_index,
                         frame_context,
                         ImageDependency {
                             key: image_data.key,
@@ -3401,7 +3482,10 @@ impl TileCacheInstance {
 
                     promote_to_surface = self.setup_compositor_surfaces_yuv(
                         &mut prim_info,
+                        prim_data.common.flags,
                         prim_rect,
+                        local_prim_rect,
+                        prim_spatial_node_index,
                         frame_context,
                         &image_dependencies,
                         &prim_data.kind.yuv_key,
