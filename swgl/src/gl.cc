@@ -413,7 +413,8 @@ struct Program {
   macro(GL_ZERO, GL_ONE_MINUS_SRC_COLOR, 0, 0)                                 \
   macro(GL_ZERO, GL_ONE_MINUS_SRC_COLOR, GL_ZERO, GL_ONE)                      \
   macro(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, 0, 0)                                 \
-  macro(GL_ZERO, GL_SRC_COLOR, 0, 0) macro(GL_ONE, GL_ONE, 0, 0)               \
+  macro(GL_ZERO, GL_SRC_COLOR, 0, 0)                                           \
+  macro(GL_ONE, GL_ONE, 0, 0)                                                  \
   macro(GL_ONE, GL_ONE, GL_ONE, GL_ONE_MINUS_SRC_ALPHA)                        \
   macro(GL_ONE, GL_ZERO, 0, 0)                                                 \
   macro(GL_ONE_MINUS_DST_ALPHA, GL_ONE, GL_ZERO, GL_ONE)                       \
@@ -512,6 +513,8 @@ struct ObjectStore {
 };
 
 struct Context {
+  int32_t references = 1;
+
   ObjectStore<Query> queries;
   ObjectStore<Buffer> buffers;
   ObjectStore<Texture> textures;
@@ -1537,8 +1540,8 @@ void GenerateMipmap(UNUSED GLenum target) {
   // TODO: support mipmaps
 }
 
-void TexParameteri(GLenum target, GLenum pname, GLint param) {
-  Texture& t = ctx->textures[ctx->get_binding(target)];
+void SetTextureParameter(GLuint texid, GLenum pname, GLint param) {
+  Texture& t = ctx->textures[texid];
   switch (pname) {
     case GL_TEXTURE_WRAP_S:
       assert(param == GL_CLAMP_TO_EDGE);
@@ -1555,6 +1558,10 @@ void TexParameteri(GLenum target, GLenum pname, GLint param) {
     default:
       break;
   }
+}
+
+void TexParameteri(GLenum target, GLenum pname, GLint param) {
+  SetTextureParameter(ctx->get_binding(target), pname, param);
 }
 
 void GenTextures(int n, GLuint* result) {
@@ -4093,8 +4100,11 @@ void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
 
 void Finish() {}
 
-void MakeCurrent(void* ctx_ptr) {
-  ctx = (Context*)ctx_ptr;
+void MakeCurrent(Context* c) {
+  if (ctx == c) {
+    return;
+  }
+  ctx = c;
   if (ctx) {
     setup_program(ctx->current_program);
     blend_key = ctx->blend ? ctx->blend_key : BLEND_KEY_NONE;
@@ -4104,16 +4114,28 @@ void MakeCurrent(void* ctx_ptr) {
   }
 }
 
-void* CreateContext() { return new Context; }
+Context* CreateContext() { return new Context; }
 
-void DestroyContext(void* ctx_ptr) {
-  if (!ctx_ptr) {
+void ReferenceContext(Context* c) {
+  if (!c) {
     return;
   }
-  if (ctx == ctx_ptr) {
+  ++c->references;
+}
+
+void DestroyContext(Context* c) {
+  if (!c) {
+    return;
+  }
+  assert(c->references > 0);
+  --c->references;
+  if (c->references > 0) {
+    return;
+  }
+  if (ctx == c) {
     MakeCurrent(nullptr);
   }
-  delete (Context*)ctx_ptr;
+  delete c;
 }
 
 typedef Texture LockedTexture;
