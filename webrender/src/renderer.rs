@@ -125,7 +125,6 @@ cfg_if! {
     }
 }
 
-const DEFAULT_BATCH_LOOKBACK_COUNT: usize = 10;
 const VERTEX_TEXTURE_EXTRA_ROWS: i32 = 10;
 
 /// The size of the array of each type of vertex data texture that
@@ -1127,7 +1126,7 @@ pub struct GpuProfile {
 }
 
 impl GpuProfile {
-    fn new<T>(frame_id: GpuFrameId, timers: &[GpuTimer<T>]) -> GpuProfile {
+    fn new(frame_id: GpuFrameId, timers: &[GpuTimer]) -> GpuProfile {
         let mut paint_time_ns = 0;
         for timer in timers {
             paint_time_ns += timer.time_ns;
@@ -2213,7 +2212,7 @@ pub struct Renderer {
 
     last_time: u64,
 
-    pub gpu_profiler: GpuProfiler<GpuProfileTag>,
+    pub gpu_profiler: GpuProfiler,
     vaos: RendererVAOs,
 
     gpu_cache_texture: GpuCacheTexture,
@@ -2615,7 +2614,7 @@ impl Renderer {
             gpu_supports_fast_clears: options.gpu_supports_fast_clears,
             gpu_supports_advanced_blend: ext_blend_equation_advanced,
             advanced_blend_is_coherent: ext_blend_equation_advanced_coherent,
-            batch_lookback_count: options.batch_lookback_count,
+            batch_lookback_count: RendererOptions::BATCH_LOOKBACK_COUNT,
             background_color: options.clear_color,
             compositor_kind,
             tile_size_override: None,
@@ -2655,7 +2654,6 @@ impl Renderer {
             });
         let sampler = options.sampler;
         let namespace_alloc_by_client = options.namespace_alloc_by_client;
-        let max_glyph_cache_size = options.max_glyph_cache_size.unwrap_or(GlyphCache::DEFAULT_MAX_BYTES_USED);
 
         let font_instances = SharedFontInstanceMap::new();
 
@@ -2728,8 +2726,6 @@ impl Renderer {
 
         let rb_font_instances = font_instances.clone();
         let enable_multithreading = options.enable_multithreading;
-        let texture_cache_eviction_threshold_bytes = options.texture_cache_eviction_threshold_bytes;
-        let texture_cache_max_evictions_per_frame = options.texture_cache_max_evictions_per_frame;
         thread::Builder::new().name(rb_thread_name.clone()).spawn(move || {
             register_thread_with_profiler(rb_thread_name.clone());
             if let Some(ref thread_listener) = *thread_listener_for_render_backend {
@@ -2747,11 +2743,9 @@ impl Renderer {
                 start_size,
                 color_cache_formats,
                 swizzle_settings,
-                texture_cache_eviction_threshold_bytes,
-                texture_cache_max_evictions_per_frame,
             );
 
-            let glyph_cache = GlyphCache::new(max_glyph_cache_size);
+            let glyph_cache = GlyphCache::new();
 
             let mut resource_cache = ResourceCache::new(
                 texture_cache,
@@ -2881,7 +2875,8 @@ impl Renderer {
             allocated_native_surfaces: FastHashSet::default(),
             debug_overlay_state: DebugOverlayState::new(),
             prev_dirty_rect: DeviceRect::zero(),
-            max_primitive_instance_count: options.max_instance_buffer_size / mem::size_of::<PrimitiveInstanceData>(),
+            max_primitive_instance_count:
+                RendererOptions::MAX_INSTANCE_BUFFER_SIZE / mem::size_of::<PrimitiveInstanceData>(),
         };
 
         // We initially set the flags to default and then now call set_debug_flags
@@ -7124,7 +7119,6 @@ pub struct RendererOptions {
     pub clear_color: Option<ColorF>,
     pub enable_clear_scissor: bool,
     pub max_texture_size: Option<i32>,
-    pub max_glyph_cache_size: Option<usize>,
     pub upload_method: UploadMethod,
     pub workers: Option<Arc<ThreadPool>>,
     pub enable_multithreading: bool,
@@ -7161,9 +7155,6 @@ pub struct RendererOptions {
     /// one expected by the driver, pretending the format is matching, and
     /// swizzling the components on all the shader sampling.
     pub allow_texture_swizzling: bool,
-    /// Number of batches to look back in history for adding the current
-    /// transparent instance into.
-    pub batch_lookback_count: usize,
     /// Use `ps_clear` shader with batched quad rendering to clear the rects
     /// in texture cache and picture cache tasks.
     /// This helps to work around some Intel drivers
@@ -7180,21 +7171,20 @@ pub struct RendererOptions {
     /// If true, panic whenever a GL error occurs. This has a significant
     /// performance impact, so only use when debugging specific problems!
     pub panic_on_gl_error: bool,
-    /// If the total bytes allocated in shared / standalone cache is less
-    /// than this, then allow the cache to grow without forcing an eviction.
-    pub texture_cache_eviction_threshold_bytes: usize,
-    /// The maximum number of items that will be evicted per frame. This limit helps avoid jank
-    /// on frames where we want to evict a large number of items. Instead, we'd prefer to drop
-    /// the items incrementally over a number of frames, even if that means the total allocated
-    /// size of the cache is above the desired threshold for a small number of frames.
-    pub texture_cache_max_evictions_per_frame: usize,
+}
+
+impl RendererOptions {
+    /// Number of batches to look back in history for adding the current
+    /// transparent instance into.
+    const BATCH_LOOKBACK_COUNT: usize = 10;
+
     /// Since we are re-initializing the instance buffers on every draw call,
     /// the driver has to internally manage PBOs in flight.
     /// It's typically done by bucketing up to a specific limit, and then
     /// just individually managing the largest buffers.
     /// Having a limit here allows the drivers to more easily manage
     /// the PBOs for us.
-    pub max_instance_buffer_size: usize,
+    const MAX_INSTANCE_BUFFER_SIZE: usize = 0x20000; // actual threshold in macOS GL drivers
 }
 
 impl Default for RendererOptions {
@@ -7213,7 +7203,6 @@ impl Default for RendererOptions {
             clear_color: Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
             enable_clear_scissor: true,
             max_texture_size: None,
-            max_glyph_cache_size: None,
             // This is best as `Immediate` on Angle, or `Pixelbuffer(Dynamic)` on GL,
             // but we are unable to make this decision here, so picking the reasonable medium.
             upload_method: UploadMethod::PixelBuffer(ONE_TIME_USAGE_HINT),
@@ -7238,7 +7227,6 @@ impl Default for RendererOptions {
             allow_pixel_local_storage_support: false,
             allow_texture_storage_support: true,
             allow_texture_swizzling: true,
-            batch_lookback_count: DEFAULT_BATCH_LOOKBACK_COUNT,
             clear_caches_with_quads: true,
             // For backwards compatibility we set this to true by default, so
             // that if the debugger feature is enabled, the debug server will
@@ -7250,10 +7238,6 @@ impl Default for RendererOptions {
             compositor_config: CompositorConfig::default(),
             enable_gpu_markers: true,
             panic_on_gl_error: false,
-            texture_cache_eviction_threshold_bytes: 64 * 1024 * 1024,
-            texture_cache_max_evictions_per_frame: 32,
-            // Actual threshold in macOS GL drivers
-            max_instance_buffer_size: 0x20000,
         }
     }
 }
