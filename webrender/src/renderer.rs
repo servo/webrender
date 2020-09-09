@@ -34,18 +34,19 @@
 //! up the scissor, are accepting already transformed coordinates, which we can get by
 //! calling `DrawTarget::to_framebuffer_rect`
 
-use api::{ApiMsg, BlobImageHandler, ColorF, ColorU, MixBlendMode};
+use api::{BlobImageHandler, ColorF, ColorU, MixBlendMode};
 use api::{DocumentId, Epoch, ExternalImageHandler, ExternalImageId};
-use api::{ExternalImageSource, ExternalImageType, FontRenderMode, FrameMsg, ImageFormat};
+use api::{ExternalImageSource, ExternalImageType, FontRenderMode, ImageFormat};
 use api::{PipelineId, ImageRendering, Checkpoint, NotificationRequest};
-use api::{DebugCommand, MemoryReport, VoidPtrToSizeFn, PremultipliedColorF};
-use api::{RenderApiSender, RenderNotifier, TextureTarget, SharedFontInstanceMap};
+use api::{VoidPtrToSizeFn, PremultipliedColorF};
+use api::{RenderNotifier, TextureTarget, SharedFontInstanceMap};
 #[cfg(feature = "replay")]
 use api::ExternalImage;
 use api::units::*;
 use api::channel::{unbounded_channel, Sender, Receiver};
 pub use api::DebugFlags;
 use core::time::Duration;
+use crate::render_api::{RenderApiSender, DebugCommand, ApiMsg, FrameMsg, MemoryReport};
 use crate::batch::{AlphaBatchContainer, BatchKind, BatchFeatures, BatchTextures, BrushBatchKind, ClipBatchList};
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
@@ -2667,7 +2668,7 @@ impl Renderer {
         let lp_scene_thread_name = format!("WRSceneBuilderLP#{}", options.renderer_id.unwrap_or(0));
         let glyph_rasterizer = GlyphRasterizer::new(workers)?;
 
-        let (scene_builder_channels, scene_tx, backend_scene_tx, scene_rx) =
+        let (scene_builder_channels, scene_tx) =
             SceneBuilderThreadChannels::new(api_tx.clone());
 
         let sb_font_instances = font_instances.clone();
@@ -2761,8 +2762,6 @@ impl Renderer {
                 result_tx,
                 scene_tx,
                 low_priority_scene_tx,
-                backend_scene_tx,
-                scene_rx,
                 device_pixel_ratio,
                 resource_cache,
                 backend_notifier,
@@ -7468,7 +7467,8 @@ impl Renderer {
     ) {
         use std::fs;
         use std::io::Write;
-        use api::{CaptureBits, ExternalImageData};
+        use api::ExternalImageData;
+        use crate::render_api::CaptureBits;
 
         let root = config.resource_root();
 
