@@ -604,6 +604,31 @@ impl SpatialTree {
         self.pipelines_to_discard.insert(pipeline_id);
     }
 
+    /// Check if a given spatial node is an ancestor of another spatial node.
+    pub fn is_ancestor(
+        &self,
+        maybe_parent: SpatialNodeIndex,
+        maybe_child: SpatialNodeIndex,
+    ) -> bool {
+        // Early out if same node
+        if maybe_parent == maybe_child {
+            return false;
+        }
+
+        let mut current_node = maybe_child;
+
+        while current_node != ROOT_SPATIAL_NODE_INDEX {
+            let node = &self.spatial_nodes[current_node.0 as usize];
+            current_node = node.parent.expect("bug: no parent");
+
+            if current_node == maybe_parent {
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Find the spatial node that is the scroll root for a given spatial node.
     /// A scroll root is the first spatial node when found travelling up the
     /// spatial node tree that is an explicit scroll frame.
@@ -611,7 +636,8 @@ impl SpatialTree {
         &self,
         spatial_node_index: SpatialNodeIndex,
     ) -> SpatialNodeIndex {
-        let mut scroll_root = ROOT_SPATIAL_NODE_INDEX;
+        let mut real_scroll_root = ROOT_SPATIAL_NODE_INDEX;
+        let mut outermost_scroll_root = ROOT_SPATIAL_NODE_INDEX;
         let mut node_index = spatial_node_index;
 
         while node_index != ROOT_SPATIAL_NODE_INDEX {
@@ -626,7 +652,8 @@ impl SpatialTree {
                         ReferenceFrameKind::Perspective { .. } => {
                             // When a reference frame is encountered, forget any scroll roots
                             // we have encountered, as they may end up with a non-axis-aligned transform.
-                            scroll_root = ROOT_SPATIAL_NODE_INDEX;
+                            real_scroll_root = ROOT_SPATIAL_NODE_INDEX;
+                            outermost_scroll_root = ROOT_SPATIAL_NODE_INDEX;
                         }
                     }
                 }
@@ -638,6 +665,10 @@ impl SpatialTree {
                             break;
                         }
                         ScrollFrameKind::Explicit => {
+                            // Store the closest scroll root we find to the root, for use
+                            // later on, even if it's not actually scrollable.
+                            outermost_scroll_root = node_index;
+
                             // If the scroll root has no scrollable area, we don't want to
                             // consider it. This helps pages that have a nested scroll root
                             // within a redundant scroll root to avoid selecting the wrong
@@ -655,7 +686,7 @@ impl SpatialTree {
                                    info.viewport_rect.size.height > 128.0 {
                                     // If we've found a root that is scrollable, and a reasonable
                                     // size, select that as the current root for this node
-                                    scroll_root = node_index;
+                                    real_scroll_root = node_index;
                                 }
                             }
                         }
@@ -665,7 +696,16 @@ impl SpatialTree {
             node_index = node.parent.expect("unable to find parent node");
         }
 
-        scroll_root
+        // If we didn't find any real (scrollable) frames, then return the outermost
+        // redundant scroll frame. This is important so that we can correctly find
+        // the clips defined on the content which should be handled when drawing the
+        // picture cache tiles (by definition these clips are ancestors of the
+        // scroll root selected for the picture cache).
+        if real_scroll_root == ROOT_SPATIAL_NODE_INDEX {
+            outermost_scroll_root
+        } else {
+            real_scroll_root
+        }
     }
 
     fn print_node<T: PrintTreePrinter>(
@@ -946,4 +986,64 @@ fn test_cst_translation_rotate() {
     cst.update_tree(WorldPoint::zero(), DevicePixelScale::new(1.0), &SceneProperties::new());
 
     test_pt(100.0, 0.0, &cst, child1, root, 0.0, -100.0);
+}
+
+#[test]
+fn test_is_ancestor1() {
+    let mut st = SpatialTree::new();
+
+    let root = add_reference_frame(
+        &mut st,
+        None,
+        LayoutTransform::identity(),
+        LayoutVector2D::zero(),
+    );
+
+    let child1_0 = add_reference_frame(
+        &mut st,
+        Some(root),
+        LayoutTransform::identity(),
+        LayoutVector2D::zero(),
+    );
+
+    let child1_1 = add_reference_frame(
+        &mut st,
+        Some(child1_0),
+        LayoutTransform::identity(),
+        LayoutVector2D::zero(),
+    );
+
+    let child2 = add_reference_frame(
+        &mut st,
+        Some(root),
+        LayoutTransform::identity(),
+        LayoutVector2D::zero(),
+    );
+
+    st.update_tree(
+        WorldPoint::zero(),
+        DevicePixelScale::new(1.0),
+        &SceneProperties::new(),
+    );
+
+    assert!(!st.is_ancestor(root, root));
+    assert!(!st.is_ancestor(child1_0, child1_0));
+    assert!(!st.is_ancestor(child1_1, child1_1));
+    assert!(!st.is_ancestor(child2, child2));
+
+    assert!(st.is_ancestor(root, child1_0));
+    assert!(st.is_ancestor(root, child1_1));
+    assert!(st.is_ancestor(child1_0, child1_1));
+
+    assert!(!st.is_ancestor(child1_0, root));
+    assert!(!st.is_ancestor(child1_1, root));
+    assert!(!st.is_ancestor(child1_1, child1_0));
+
+    assert!(st.is_ancestor(root, child2));
+    assert!(!st.is_ancestor(child2, root));
+
+    assert!(!st.is_ancestor(child1_0, child2));
+    assert!(!st.is_ancestor(child1_1, child2));
+    assert!(!st.is_ancestor(child2, child1_0));
+    assert!(!st.is_ancestor(child2, child1_1));
 }
