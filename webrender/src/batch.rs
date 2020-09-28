@@ -30,10 +30,10 @@ use crate::renderer::{BlendMode, ImageBufferKind, ShaderColorMode};
 use crate::renderer::{BLOCKS_PER_UV_RECT, MAX_VERTEX_TEXTURE_WIDTH};
 use crate::resource_cache::{CacheItem, GlyphFetchResult, ImageProperties, ImageRequest, ResourceCache};
 use crate::space::SpaceMapper;
-use crate::visibility::{PrimitiveVisibilityIndex, PrimitiveVisibilityMask, PrimitiveVisibility, PrimitiveVisibilityFlags};
+use crate::visibility::{PrimitiveVisibilityMask, PrimitiveVisibility, PrimitiveVisibilityFlags};
 use smallvec::SmallVec;
 use std::{f32, i32, usize};
-use crate::util::{project_rect, TransformedRectKind};
+use crate::util::{project_rect, MaxRect, TransformedRectKind};
 use crate::segment::EdgeAaSegmentMask;
 
 // Special sentinel value recognized by the shader. It is considered to be
@@ -769,7 +769,7 @@ impl BatchBuilder {
                 continue;
             }
             for prim_instance in &pic.prim_list.prim_instances[cluster.prim_range()] {
-                if prim_instance.visibility_info == PrimitiveVisibilityIndex::INVALID {
+                if !prim_instance.is_visible() {
                     continue;
                 }
 
@@ -881,9 +881,8 @@ impl BatchBuilder {
         #[cfg(debug_assertions)] //TODO: why is this needed?
         debug_assert_eq!(prim_instance.prepared_frame_id, render_tasks.frame_id());
 
-        assert_ne!(prim_instance.visibility_info, PrimitiveVisibilityIndex::INVALID,
+        assert!(prim_instance.is_visible(),
             "Invisible primitive {:?} shouldn't be added to the batch", prim_instance);
-
         let is_chased = prim_instance.is_chased();
 
         let transform_id = transforms
@@ -897,7 +896,7 @@ impl BatchBuilder {
         //           wasteful. We should probably cache this in
         //           the scroll node...
         let transform_kind = transform_id.transform_kind();
-        let prim_info = &ctx.scratch.prim_info[prim_instance.visibility_info.0 as usize];
+        let prim_info = &prim_instance.vis;
         let bounding_rect = &prim_info.clip_chain.pic_clip_rect;
 
         // If this primitive is a backdrop, that means that it is known to cover
@@ -1387,7 +1386,7 @@ impl BatchBuilder {
                     Picture3DContext::In { root_data: Some(ref list), .. } => {
                         for child in list {
                             let child_prim_instance = &picture.prim_list.prim_instances[child.anchor.instance_index];
-                            let child_prim_info = &ctx.scratch.prim_info[child_prim_instance.visibility_info.0 as usize];
+                            let child_prim_info = &child_prim_instance.vis;
 
                             let child_pic_index = match child_prim_instance.kind {
                                 PrimitiveInstanceKind::Picture { pic_index, .. } => pic_index,
@@ -3411,7 +3410,7 @@ impl ClipBatcher {
                         tile: None,
                     };
 
-                    let mut add_image = |request: ImageRequest, local_tile_rect: LayoutRect| {
+                    let mut add_image = |request: ImageRequest, local_tile_rect: LayoutRect, sub_rect: DeviceRect| {
                         let cache_item = match resource_cache.get_cached_image(request) {
                             Ok(item) => item,
                             Err(..) => {
@@ -3426,7 +3425,10 @@ impl ClipBatcher {
                             .entry(cache_item.texture_id)
                             .or_insert_with(Vec::new)
                             .push(ClipMaskInstanceImage {
-                                common,
+                                common: ClipMaskInstanceCommon {
+                                    sub_rect,
+                                    ..common
+                                },
                                 resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
                                 tile_rect: local_tile_rect,
                                 local_rect: rect,
@@ -3435,15 +3437,38 @@ impl ClipBatcher {
 
                     match clip_instance.visible_tiles {
                         Some(ref tiles) => {
+                            let clip_spatial_node = &spatial_tree.spatial_nodes[clip_instance.spatial_node_index.0 as usize];
+                            let clip_is_axis_aligned = clip_spatial_node.coordinate_system_id == CoordinateSystemId::root();
+                            let map_local_to_world = SpaceMapper::new_with_target(
+                                ROOT_SPATIAL_NODE_INDEX,
+                                clip_instance.spatial_node_index,
+                                WorldRect::max_rect(),
+                                spatial_tree,
+                            );
+
                             for tile in tiles {
+                                let tile_sub_rect = if clip_is_axis_aligned {
+                                    let tile_world_rect = map_local_to_world
+                                        .map(&tile.tile_rect)
+                                        .expect("bug: should always map as axis-aligned");
+                                    let tile_device_rect = tile_world_rect * device_pixel_scale;
+                                    let tile_sub_rect = tile_device_rect
+                                        .translate(-actual_rect.origin.to_vector())
+                                        .round_out();
+                                    tile_sub_rect
+                                } else {
+                                    common.sub_rect
+                                };
+
                                 add_image(
                                     request.with_tile(tile.tile_offset),
                                     tile.tile_rect,
+                                    tile_sub_rect,
                                 )
                             }
                         }
                         None => {
-                            add_image(request, rect)
+                            add_image(request, rect, common.sub_rect)
                         }
                     }
 
