@@ -11,7 +11,7 @@ use crate::composite::{CompositeState};
 use crate::glyph_rasterizer::{GlyphFormat, SubpixelDirection};
 use crate::gpu_cache::{GpuBlockData, GpuCache, GpuCacheHandle, GpuCacheAddress};
 use crate::gpu_types::{BrushFlags, BrushInstance, PrimitiveHeaders, ZBufferId, ZBufferIdGenerator};
-use crate::gpu_types::{SplitCompositeInstance, BrushShaderKind};
+use crate::gpu_types::{SplitCompositeInstance};
 use crate::gpu_types::{PrimitiveInstanceData, RasterizationSpace, GlyphInstance};
 use crate::gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex, TransformPaletteId, TransformPalette};
 use crate::gpu_types::{ImageBrushData, get_shader_opacity, BoxShadowData};
@@ -33,7 +33,7 @@ use crate::space::SpaceMapper;
 use crate::visibility::{PrimitiveVisibilityMask, PrimitiveVisibility, PrimitiveVisibilityFlags};
 use smallvec::SmallVec;
 use std::{f32, i32, usize};
-use crate::util::{project_rect, MaxRect, TransformedRectKind};
+use crate::util::{project_rect, TransformedRectKind};
 use crate::segment::EdgeAaSegmentMask;
 
 // Special sentinel value recognized by the shader. It is considered to be
@@ -75,24 +75,6 @@ pub enum BatchKind {
     SplitComposite,
     TextRun(GlyphFormat),
     Brush(BrushBatchKind),
-}
-
-impl BatchKind {
-    fn shader_kind(&self) -> BrushShaderKind {
-        match self {
-            BatchKind::Brush(BrushBatchKind::Solid) => BrushShaderKind::Solid,
-            BatchKind::Brush(BrushBatchKind::Image(..)) => BrushShaderKind::Image,
-            BatchKind::Brush(BrushBatchKind::LinearGradient) => BrushShaderKind::LinearGradient,
-            BatchKind::Brush(BrushBatchKind::RadialGradient) => BrushShaderKind::RadialGradient,
-            BatchKind::Brush(BrushBatchKind::ConicGradient) => BrushShaderKind::ConicGradient,
-            BatchKind::Brush(BrushBatchKind::Blend) => BrushShaderKind::Blend,
-            BatchKind::Brush(BrushBatchKind::MixBlend { .. }) => BrushShaderKind::MixBlend,
-            BatchKind::Brush(BrushBatchKind::YuvImage(..)) => BrushShaderKind::Yuv,
-            BatchKind::Brush(BrushBatchKind::Opacity) => BrushShaderKind::Opacity,
-            BatchKind::TextRun(..) => BrushShaderKind::Text,
-            _ => BrushShaderKind::None,
-        }
-    }
 }
 
 /// Optional textures that can be used as a source in the shaders.
@@ -698,7 +680,6 @@ impl BatchBuilder {
                     brush_flags,
                     prim_header_index,
                     resource_address,
-                    brush_kind: batch_key.kind.shader_kind(),
                 };
 
                 batcher.push_single_instance(
@@ -3410,7 +3391,7 @@ impl ClipBatcher {
                         tile: None,
                     };
 
-                    let mut add_image = |request: ImageRequest, local_tile_rect: LayoutRect, sub_rect: DeviceRect| {
+                    let mut add_image = |request: ImageRequest, local_tile_rect: LayoutRect| {
                         let cache_item = match resource_cache.get_cached_image(request) {
                             Ok(item) => item,
                             Err(..) => {
@@ -3425,10 +3406,7 @@ impl ClipBatcher {
                             .entry(cache_item.texture_id)
                             .or_insert_with(Vec::new)
                             .push(ClipMaskInstanceImage {
-                                common: ClipMaskInstanceCommon {
-                                    sub_rect,
-                                    ..common
-                                },
+                                common,
                                 resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
                                 tile_rect: local_tile_rect,
                                 local_rect: rect,
@@ -3437,38 +3415,15 @@ impl ClipBatcher {
 
                     match clip_instance.visible_tiles {
                         Some(ref tiles) => {
-                            let clip_spatial_node = &spatial_tree.spatial_nodes[clip_instance.spatial_node_index.0 as usize];
-                            let clip_is_axis_aligned = clip_spatial_node.coordinate_system_id == CoordinateSystemId::root();
-                            let map_local_to_world = SpaceMapper::new_with_target(
-                                ROOT_SPATIAL_NODE_INDEX,
-                                clip_instance.spatial_node_index,
-                                WorldRect::max_rect(),
-                                spatial_tree,
-                            );
-
                             for tile in tiles {
-                                let tile_sub_rect = if clip_is_axis_aligned {
-                                    let tile_world_rect = map_local_to_world
-                                        .map(&tile.tile_rect)
-                                        .expect("bug: should always map as axis-aligned");
-                                    let tile_device_rect = tile_world_rect * device_pixel_scale;
-                                    let tile_sub_rect = tile_device_rect
-                                        .translate(-actual_rect.origin.to_vector())
-                                        .round_out();
-                                    tile_sub_rect
-                                } else {
-                                    common.sub_rect
-                                };
-
                                 add_image(
                                     request.with_tile(tile.tile_offset),
                                     tile.tile_rect,
-                                    tile_sub_rect,
                                 )
                             }
                         }
                         None => {
-                            add_image(request, rect, common.sub_rect)
+                            add_image(request, rect)
                         }
                     }
 
