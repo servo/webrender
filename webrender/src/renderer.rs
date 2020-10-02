@@ -78,7 +78,7 @@ use crate::internal_types::{CacheTextureId, DebugOutput, FastHashMap, FastHashSe
 use crate::internal_types::{TextureCacheAllocationKind, TextureCacheUpdate, TextureUpdateList, TextureUpdateSource};
 use crate::internal_types::{RenderTargetInfo, SavedTargetIndex, Swizzle};
 use malloc_size_of::MallocSizeOfOps;
-use crate::picture::{RecordedDirtyRegion, tile_cache_sizes, ResolvedSurfaceTexture};
+use crate::picture::{self, RecordedDirtyRegion, ResolvedSurfaceTexture};
 use crate::prim_store::DeferredResolve;
 use crate::profiler::{BackendProfileCounters, FrameProfileCounters, TimeProfileCounter,
                GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
@@ -2172,6 +2172,61 @@ impl VertexDataTextures {
     }
 }
 
+/// Tracks buffer damage rects over a series of frames.
+#[derive(Debug)]
+struct BufferDamageTracker {
+    damage_rects: [DeviceRect; 2],
+    current_offset: usize,
+}
+
+impl Default for BufferDamageTracker {
+    fn default() -> Self {
+        Self {
+            damage_rects: [DeviceRect::default(); 2],
+            current_offset: 0,
+        }
+     }
+}
+
+impl BufferDamageTracker {
+    /// Sets the damage rect for the current frame. Should only be called *after*
+    /// get_damage_rect() has been called to get the current backbuffer's damage rect.
+    fn push_dirty_rect(&mut self, rect: &DeviceRect) {
+        self.damage_rects[self.current_offset] = rect.clone();
+        self.current_offset = match self.current_offset {
+            0 => self.damage_rects.len() - 1,
+            n => n - 1,
+        }
+    }
+
+    /// Gets the damage rect for the current backbuffer, given the backbuffer's age.
+    /// (The number of frames since it was previously the backbuffer.)
+    /// Returns an empty rect if the buffer is valid, and None if the entire buffer is invalid.
+    fn get_damage_rect(&self, buffer_age: usize) -> Option<DeviceRect> {
+        match buffer_age {
+            // 0 means this is a new buffer, so is completely invalid.
+            0 => None,
+            // 1 means this backbuffer was also the previous frame's backbuffer
+            // (so must have been copied to the frontbuffer). It is therefore entirely valid.
+            1 => Some(DeviceRect::zero()),
+            // We must calculate the union of the damage rects since this buffer was previously
+            // the backbuffer.
+            n if n <= self.damage_rects.len() + 1 => {
+                Some(
+                    self.damage_rects.iter()
+                        .cycle()
+                        .skip(self.current_offset + 1)
+                        .take(n - 1)
+                        .fold(DeviceRect::zero(), |acc, r| acc.union(r))
+                )
+            }
+            // The backbuffer is older than the number of frames for which we track,
+            // so we treat it as entirely invalid.
+            _ => None,
+        }
+    }
+}
+
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
 ///
@@ -2298,10 +2353,10 @@ pub struct Renderer {
     /// State related to the debug / profiling overlays
     debug_overlay_state: DebugOverlayState,
 
-    /// The dirty rectangle from the previous frame, used on platforms that
-    /// require keeping the front buffer fully correct when doing
+    /// Tracks the dirty rectangles from previous frames. Used on platforms
+    /// that require keeping the front buffer fully correct when doing
     /// partial present (e.g. unix desktop with EGL_EXT_buffer_age).
-    prev_dirty_rect: DeviceRect,
+    buffer_damage_tracker: BufferDamageTracker,
 
     max_primitive_instance_count: usize,
 }
@@ -2592,7 +2647,7 @@ impl Renderer {
         };
 
         let compositor_kind = match options.compositor_config {
-            CompositorConfig::Draw { max_partial_present_rects, draw_previous_partial_present_regions } => {
+            CompositorConfig::Draw { max_partial_present_rects, draw_previous_partial_present_regions, .. } => {
                 CompositorKind::Draw { max_partial_present_rects, draw_previous_partial_present_regions }
             }
             CompositorConfig::Native { ref compositor, max_update_rects, .. } => {
@@ -2726,6 +2781,11 @@ impl Renderer {
             .as_ref()
             .map(|handler| handler.create_similar());
 
+        let mut picture_tile_size = options.picture_tile_size.unwrap_or(picture::TILE_SIZE_DEFAULT);
+        // Clamp the picture tile size to reasonable values.
+        picture_tile_size.width = picture_tile_size.width.max(128).min(4096);
+        picture_tile_size.height = picture_tile_size.height.max(128).min(4096);
+
         let rb_scene_tx = scene_tx.clone();
         let rb_low_priority_scene_tx = scene_tx.clone();
         let rb_font_instances = font_instances.clone();
@@ -2736,14 +2796,21 @@ impl Renderer {
                 thread_listener.thread_started(&rb_thread_name);
             }
 
+            let prealloc_sizes = [
+                picture_tile_size,
+                picture::TILE_SIZE_SCROLLBAR_HORIZONTAL,
+                picture::TILE_SIZE_SCROLLBAR_VERTICAL,
+            ];
+
             let texture_cache = TextureCache::new(
                 max_texture_size,
                 max_texture_layers,
-                if config.global_enable_picture_caching {
-                    tile_cache_sizes(config.testing)
-                } else {
-                    &[]
+                match (config.global_enable_picture_caching, config.testing) {
+                    (true, false) => &prealloc_sizes,
+                    (true, true) => &picture::TILE_SIZE_FOR_TESTS,
+                    _ => &[],
                 },
+                picture_tile_size,
                 start_size,
                 color_cache_formats,
                 swizzle_settings,
@@ -2876,7 +2943,7 @@ impl Renderer {
             current_compositor_kind: compositor_kind,
             allocated_native_surfaces: FastHashSet::default(),
             debug_overlay_state: DebugOverlayState::new(),
-            prev_dirty_rect: DeviceRect::zero(),
+            buffer_damage_tracker: BufferDamageTracker::default(),
             max_primitive_instance_count:
                 RendererOptions::MAX_INSTANCE_BUFFER_SIZE / mem::size_of::<PrimitiveInstanceData>(),
         };
@@ -2968,12 +3035,14 @@ impl Renderer {
                     // to re-order based on `DocumentLayer` during rendering.
                     match self.active_documents.iter().position(|&(id, _)| id == document_id) {
                         Some(pos) => {
-                            // If the document we are replacing must be drawn
-                            // (in order to update the texture cache), issue
-                            // a render just to off-screen targets.
+                            // If the document we are replacing must be drawn (in order to
+                            // update the texture cache), issue a render just to
+                            // off-screen targets, ie pass None to render_impl. We do this
+                            // because a) we don't need to render to the main framebuffer
+                            // so it is cheaper not to, and b) doing so without a
+                            // subsequent present would break partial present.
                             if self.active_documents[pos].1.frame.must_be_drawn() {
-                                let device_size = self.device_size;
-                                self.render_impl(device_size).ok();
+                                self.render_impl(None).ok();
                             }
 
                             self.active_documents[pos].1 = doc;
@@ -3045,8 +3114,10 @@ impl Renderer {
                             });
 
                         if must_be_drawn {
-                            let device_size = self.device_size;
-                            self.render_impl(device_size).ok();
+                            // As this render will not be presented, we must pass None to
+                            // render_impl. This avoids interfering with partial present
+                            // logic, as well as being more efficient.
+                            self.render_impl(None).ok();
                         }
                     }
 
@@ -3533,10 +3604,10 @@ impl Renderer {
         }
     }
 
-    // If device_size is None, don't render
-    // to the main frame buffer. This is useful
-    // to update texture cache render tasks but
-    // avoid doing a full frame render.
+    // If device_size is None, don't render to the main frame buffer. This is useful to
+    // update texture cache render tasks but avoid doing a full frame render. If the
+    // render is not going to be presented, then this must be set to None, as performing a
+    // composite without a present will confuse partial present.
     fn render_impl(
         &mut self,
         device_size: Option<DeviceIntSize>,
@@ -5163,9 +5234,19 @@ impl Renderer {
         let mut partial_present_mode = None;
 
         if max_partial_present_rects > 0 {
-            let can_use_partial_present = composite_state.dirty_rects_are_valid &&
-                                          !self.force_redraw &&
-                                          !self.debug_overlay_state.is_enabled;
+            let prev_frames_damage_rect = if let Some(partial_present) = self.compositor_config.partial_present() {
+                self.buffer_damage_tracker
+                    .get_damage_rect(partial_present.get_buffer_age())
+                    .or_else(|| Some(DeviceRect::from_size(draw_target.dimensions().to_f32())))
+            } else {
+                None
+            };
+
+            let can_use_partial_present =
+                composite_state.dirty_rects_are_valid &&
+                !self.force_redraw &&
+                !(prev_frames_damage_rect.is_none() && draw_previous_partial_present_regions) &&
+                !self.debug_overlay_state.is_enabled;
 
             if can_use_partial_present {
                 let mut combined_dirty_rect = DeviceRect::zero();
@@ -5173,29 +5254,40 @@ impl Renderer {
                 // Work out how many dirty rects WR produced, and if that's more than
                 // what the device supports.
                 for tile in composite_state.opaque_tiles.iter().chain(composite_state.alpha_tiles.iter()) {
-                    let dirty_rect = tile.dirty_rect.translate(tile.rect.origin.to_vector());
-                    combined_dirty_rect = combined_dirty_rect.union(&dirty_rect);
+                    let tile_dirty_rect = tile.dirty_rect.translate(tile.rect.origin.to_vector());
+                    combined_dirty_rect = combined_dirty_rect.union(&tile_dirty_rect);
                 }
 
                 let combined_dirty_rect = combined_dirty_rect.round();
                 let combined_dirty_rect_i32 = combined_dirty_rect.to_i32();
-                // If nothing has changed, don't return any dirty rects at all (the client
-                // can use this as a signal to skip present completely).
+                // Return this frame's dirty region. If nothing has changed, don't return any dirty
+                // rects at all (the client can use this as a signal to skip present completely).
                 if !combined_dirty_rect.is_empty() {
                     results.dirty_rects.push(combined_dirty_rect_i32);
                 }
 
+                // Track this frame's dirty region, for calculating subsequent frames' damage.
+                if draw_previous_partial_present_regions {
+                    self.buffer_damage_tracker.push_dirty_rect(&combined_dirty_rect);
+                }
+
                 // If the implementation requires manually keeping the buffer consistent,
-                // combine the previous frame's damage for tile clipping.
-                // (Not for the returned region though, that should be from this frame only)
+                // then we must combine this frame's dirty region with that of previous frames
+                // to determine the total_dirty_rect. The is used to determine what region we
+                // render to, and is what we send to the compositor as the buffer damage region
+                // (eg for KHR_partial_update).
+                let total_dirty_rect = if draw_previous_partial_present_regions {
+                    combined_dirty_rect.union(&prev_frames_damage_rect.unwrap())
+                } else {
+                    combined_dirty_rect
+                };
+
                 partial_present_mode = Some(PartialPresentMode::Single {
-                    dirty_rect: if draw_previous_partial_present_regions {
-                        combined_dirty_rect.union(&self.prev_dirty_rect)
-                    } else { combined_dirty_rect },
+                    dirty_rect: total_dirty_rect,
                 });
 
-                if draw_previous_partial_present_regions {
-                    self.prev_dirty_rect = combined_dirty_rect;
+                if let Some(partial_present) = self.compositor_config.partial_present() {
+                    partial_present.set_buffer_damage_region(&[total_dirty_rect.to_i32()]);
                 }
             } else {
                 // If we don't have a valid partial present scenario, return a single
@@ -5207,7 +5299,7 @@ impl Renderer {
                 results.dirty_rects.push(fb_rect);
 
                 if draw_previous_partial_present_regions {
-                    self.prev_dirty_rect = fb_rect.to_f32();
+                    self.buffer_damage_tracker.push_dirty_rect(&fb_rect.to_f32());
                 }
             }
 
@@ -6240,6 +6332,10 @@ impl Renderer {
                                 &mut results.stats,
                             );
                         }
+                    } else {
+                        // Rendering a frame without presenting it will confuse the partial
+                        // present logic, so force a full present for the next frame.
+                        self.force_redraw();
                     }
                 }
                 RenderPassKind::OffScreen {
@@ -7211,6 +7307,7 @@ pub struct RendererOptions {
     /// If true, panic whenever a GL error occurs. This has a significant
     /// performance impact, so only use when debugging specific problems!
     pub panic_on_gl_error: bool,
+    pub picture_tile_size: Option<DeviceIntSize>,
 }
 
 impl RendererOptions {
@@ -7278,6 +7375,7 @@ impl Default for RendererOptions {
             compositor_config: CompositorConfig::default(),
             enable_gpu_markers: true,
             panic_on_gl_error: false,
+            picture_tile_size: None,
         }
     }
 }
@@ -7853,5 +7951,38 @@ impl CompositeState {
             );
         }
         compositor.start_compositing();
+    }
+}
+
+mod tests {
+    #[test]
+    fn test_buffer_damage_tracker() {
+        use super::BufferDamageTracker;
+        use api::units::{DevicePoint, DeviceRect, DeviceSize};
+
+        let mut tracker = BufferDamageTracker::default();
+        assert_eq!(tracker.get_damage_rect(0), None);
+        assert_eq!(tracker.get_damage_rect(1), Some(DeviceRect::zero()));
+        assert_eq!(tracker.get_damage_rect(2), Some(DeviceRect::zero()));
+        assert_eq!(tracker.get_damage_rect(3), Some(DeviceRect::zero()));
+        assert_eq!(tracker.get_damage_rect(4), None);
+
+        let damage1 = DeviceRect::new(DevicePoint::new(10.0, 10.0), DeviceSize::new(10.0, 10.0));
+        let damage2 = DeviceRect::new(DevicePoint::new(20.0, 20.0), DeviceSize::new(10.0, 10.0));
+        let combined = damage1.union(&damage2);
+
+        tracker.push_dirty_rect(&damage1);
+        assert_eq!(tracker.get_damage_rect(0), None);
+        assert_eq!(tracker.get_damage_rect(1), Some(DeviceRect::zero()));
+        assert_eq!(tracker.get_damage_rect(2), Some(damage1));
+        assert_eq!(tracker.get_damage_rect(3), Some(damage1));
+        assert_eq!(tracker.get_damage_rect(4), None);
+
+        tracker.push_dirty_rect(&damage2);
+        assert_eq!(tracker.get_damage_rect(0), None);
+        assert_eq!(tracker.get_damage_rect(1), Some(DeviceRect::zero()));
+        assert_eq!(tracker.get_damage_rect(2), Some(damage2));
+        assert_eq!(tracker.get_damage_rect(3), Some(combined));
+        assert_eq!(tracker.get_damage_rect(4), None);
     }
 }
