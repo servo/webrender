@@ -134,6 +134,7 @@ use std::ops::Range;
 use crate::texture_cache::TextureCacheHandle;
 use crate::util::{MaxRect, VecHelper, MatrixHelpers, Recycler, raster_rect_to_device_pixels, ScaleOffset};
 use crate::filterdata::{FilterDataHandle};
+use crate::tile_cache::{SliceDebugInfo, TileDebugInfo, DirtyTileDebugInfo};
 use crate::visibility::{PrimitiveVisibilityMask, PrimitiveVisibilityFlags, FrameVisibilityContext};
 use crate::visibility::{VisibilityState, FrameVisibilityState};
 #[cfg(any(feature = "capture", feature = "replay"))]
@@ -1272,6 +1273,22 @@ impl Tile {
             .and_then(|r| r.intersection(&self.current_descriptor.local_valid_rect))
             .unwrap_or_else(PictureRect::zero);
 
+        // The device_valid_rect is referenced during `update_content_validity` so it
+        // must be updated here first.
+        let world_valid_rect = ctx.pic_to_world_mapper
+            .map(&self.current_descriptor.local_valid_rect)
+            .expect("bug: map local valid rect");
+
+        // The device rect is guaranteed to be aligned on a device pixel - the round
+        // is just to deal with float accuracy. However, the valid rect is not
+        // always aligned to a device pixel. To handle this, round out to get all
+        // required pixels, and intersect with the tile device rect.
+        let device_rect = (self.world_tile_rect * ctx.global_device_pixel_scale).round();
+        self.device_valid_rect = (world_valid_rect * ctx.global_device_pixel_scale)
+            .round_out()
+            .intersection(&device_rect)
+            .unwrap_or_else(DeviceRect::zero);
+
         // Invalidate the tile based on the content changing.
         self.update_content_validity(ctx, state, frame_context);
 
@@ -1290,20 +1307,6 @@ impl Tile {
             self.is_visible = false;
             return false;
         }
-
-        let world_valid_rect = ctx.pic_to_world_mapper
-            .map(&self.current_descriptor.local_valid_rect)
-            .expect("bug: map local valid rect");
-
-        // The device rect is guaranteed to be aligned on a device pixel - the round
-        // is just to deal with float accuracy. However, the valid rect is not
-        // always aligned to a device pixel. To handle this, round out to get all
-        // required pixels, and intersect with the tile device rect.
-        let device_rect = (self.world_tile_rect * ctx.global_device_pixel_scale).round();
-        self.device_valid_rect = (world_valid_rect * ctx.global_device_pixel_scale)
-            .round_out()
-            .intersection(&device_rect)
-            .unwrap_or_else(DeviceRect::zero);
 
         // Check if this tile can be considered opaque. Opacity state must be updated only
         // after all early out checks have been performed. Otherwise, we might miss updating
@@ -1857,36 +1860,6 @@ impl DirtyRegion {
             combined,
             spatial_node_index: self.spatial_node_index,
         }
-    }
-
-    /// Creates a record of this dirty region for exporting to test infrastructure.
-    pub fn record(&self) -> RecordedDirtyRegion {
-        let mut rects: Vec<PictureRect> =
-            self.dirty_rects.iter().map(|r| r.rect_in_pic_space).collect();
-        rects.sort_unstable_by_key(|r| (r.origin.y as usize, r.origin.x as usize));
-        RecordedDirtyRegion { rects }
-    }
-}
-
-/// A recorded copy of the dirty region for exporting to test infrastructure.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-pub struct RecordedDirtyRegion {
-    pub rects: Vec<PictureRect>,
-}
-
-impl ::std::fmt::Display for RecordedDirtyRegion {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        for r in self.rects.iter() {
-            let (x, y, w, h) = (r.origin.x, r.origin.y, r.size.width, r.size.height);
-            write!(f, "[({},{}):{}x{}]", x, y, w, h)?;
-        }
-        Ok(())
-    }
-}
-
-impl ::std::fmt::Debug for RecordedDirtyRegion {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        ::std::fmt::Display::fmt(self, f)
     }
 }
 
@@ -3877,12 +3850,6 @@ impl TileCacheInstance {
         for tile in self.tiles.values_mut() {
             tile.post_update(&ctx, &mut state, frame_context);
         }
-
-        // When under test, record a copy of the dirty region to support
-        // invalidation testing in wrench.
-        if frame_context.config.testing {
-            frame_state.scratch.primitive.recorded_dirty_regions.push(self.dirty_region.record());
-        }
     }
 }
 
@@ -5197,6 +5164,7 @@ impl PicturePrimitive {
                     PictureCompositeMode::TileCache { slice_id } => {
                         let tile_cache = tile_caches.get_mut(&slice_id).unwrap();
                         let mut first = true;
+                        let mut debug_info = SliceDebugInfo::new();
 
                         // Get the overall world space rect of the picture cache. Used to clip
                         // the tile rects below for occlusion testing to the relevant area.
@@ -5233,6 +5201,14 @@ impl PicturePrimitive {
                                             }
 
                                             tile.is_visible = false;
+
+                                            if frame_context.fb_config.testing {
+                                                debug_info.tiles.insert(
+                                                    tile.tile_offset,
+                                                    TileDebugInfo::Occluded,
+                                                );
+                                            }
+
                                             continue;
                                         }
                                     }
@@ -5257,6 +5233,13 @@ impl PicturePrimitive {
 
                             // If the tile has been found to be off-screen / clipped, skip any further processing.
                             if !tile.is_visible {
+                                if frame_context.fb_config.testing {
+                                    debug_info.tiles.insert(
+                                        tile.tile_offset,
+                                        TileDebugInfo::Culled,
+                                    );
+                                }
+
                                 continue;
                             }
 
@@ -5331,6 +5314,13 @@ impl PicturePrimitive {
                                 .unwrap_or_else(DeviceRect::zero);
 
                             if tile.is_valid {
+                                if frame_context.fb_config.testing {
+                                    debug_info.tiles.insert(
+                                        tile.tile_offset,
+                                        TileDebugInfo::Valid,
+                                    );
+                                }
+
                                 continue;
                             }
 
@@ -5460,6 +5450,16 @@ impl PicturePrimitive {
                                 }
                             }
 
+                            if frame_context.fb_config.testing {
+                                debug_info.tiles.insert(
+                                    tile.tile_offset,
+                                    TileDebugInfo::Dirty(DirtyTileDebugInfo {
+                                        local_valid_rect: tile.current_descriptor.local_valid_rect,
+                                        local_dirty_rect: tile.local_dirty_rect,
+                                    }),
+                                );
+                            }
+
                             // Now that the tile is valid, reset the dirty rect.
                             tile.local_dirty_rect = PictureRect::zero();
                             tile.is_valid = true;
@@ -5468,6 +5468,18 @@ impl PicturePrimitive {
                         // If invalidation debugging is enabled, dump the picture cache state to a tree printer.
                         if frame_context.debug_flags.contains(DebugFlags::INVALIDATION_DBG) {
                             tile_cache.print();
+                        }
+
+                        // If testing mode is enabled, write some information about the current state
+                        // of this picture cache (made available in RenderResults).
+                        if frame_context.fb_config.testing {
+                            frame_state.composite_state
+                                .picture_cache_debug
+                                .slices
+                                .insert(
+                                    tile_cache.slice,
+                                    debug_info,
+                                );
                         }
 
                         None
