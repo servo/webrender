@@ -27,6 +27,37 @@
 #ifdef _WIN32
 #  define ALWAYS_INLINE __forceinline
 #  define NO_INLINE __declspec(noinline)
+
+   // Including Windows.h brings a huge amount of namespace polution so just
+   // define a couple of things manually
+   typedef int                 BOOL;
+#  define WINAPI      __stdcall
+#  define DECLSPEC_IMPORT __declspec(dllimport)
+#  define WINBASEAPI DECLSPEC_IMPORT
+   typedef unsigned long       DWORD;
+   typedef long LONG;
+   typedef __int64 LONGLONG;
+#  define DUMMYSTRUCTNAME
+
+   typedef union _LARGE_INTEGER {
+      struct {
+          DWORD LowPart;
+          LONG HighPart;
+      } DUMMYSTRUCTNAME;
+      struct {
+          DWORD LowPart;
+          LONG HighPart;
+      } u;
+      LONGLONG QuadPart;
+   } LARGE_INTEGER;
+   extern "C" {
+    WINBASEAPI BOOL WINAPI
+    QueryPerformanceCounter(LARGE_INTEGER* lpPerformanceCount);
+
+    WINBASEAPI BOOL WINAPI
+    QueryPerformanceFrequency(LARGE_INTEGER* lpFrequency);
+   }
+
 #else
 #  define ALWAYS_INLINE __attribute__((always_inline)) inline
 #  define NO_INLINE __attribute__((noinline))
@@ -73,6 +104,12 @@ struct IntRect {
     x1 = min(x1, o.x1);
     y1 = min(y1, o.y1);
     return *this;
+  }
+
+  IntRect intersection(const IntRect& o) {
+    IntRect result = *this;
+    result.intersect(o);
+    return result;
   }
 
   // Scale from source-space to dest-space, optionally rounding inward
@@ -1553,7 +1590,15 @@ static uint64_t get_time_value() {
 #ifdef __MACH__
   return mach_absolute_time();
 #elif defined(_WIN32)
-  return uint64_t(clock()) * (1000000000ULL / CLOCKS_PER_SEC);
+  LARGE_INTEGER time;
+  static bool have_frequency = false;
+  static LARGE_INTEGER frequency;
+  if (!have_frequency) {
+    QueryPerformanceFrequency(&frequency);
+    have_frequency = true;
+  }
+  QueryPerformanceCounter(&time);
+  return time.QuadPart * 1000000000ULL / frequency.QuadPart;
 #else
   return ({
     struct timespec tp;
@@ -4078,9 +4123,10 @@ void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type,
 
 #ifdef PRINT_TIMINGS
   uint64_t end = get_time_value();
-  printf("draw(%s, %d): %fms for %d pixels in %d rows (avg %f pixels/row, %fns/pixel)\n",
+  printf("%7.3fms draw(%s, %d): %d pixels in %d rows (avg %f pixels/row, %fns/pixel)\n",
+         double(end - start)/(1000.*1000.),
          ctx->programs[ctx->current_program].impl->get_name(),
-         instancecount, double(end - start)/(1000.*1000.),
+         instancecount,
          ctx->shaded_pixels, ctx->shaded_rows,
          double(ctx->shaded_pixels)/ctx->shaded_rows,
          double(end - start)/max(ctx->shaded_pixels, 1));

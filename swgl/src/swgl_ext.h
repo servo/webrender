@@ -213,7 +213,7 @@ static ALWAYS_INLINE T swgl_linearQuantizeStep(S s, T p) {
                           __VA_ARGS__)
 
 // Convert and pack planar YUV samples to RGB output using a color space
-SI PackedRGBA8 convertYUV(int colorSpace, U16 y, U16 u, U16 v) {
+static ALWAYS_INLINE PackedRGBA8 convertYUV(int colorSpace, U16 y, U16 u, U16 v) {
   auto yy = V8<int16_t>(zip(y, y));
   auto uv = V8<int16_t>(zip(u, v));
   switch (colorSpace) {
@@ -270,6 +270,12 @@ static inline PackedRGBA8 sampleYUV(S0 sampler0, vec2 uv0, int layer0,
       auto y = textureLinearUnpackedR8(sampler0, i0, layer0);
       auto planar = textureLinearPlanarRG8(sampler1, i1, layer1);
       return convertYUV(colorSpace, y, lowHalf(planar.rg), highHalf(planar.rg));
+    }
+    case TextureFormat::RGBA8: {
+      assert(sampler0->format == TextureFormat::R8);
+      auto y = textureLinearUnpackedR8(sampler0, i0, layer0);
+      auto planar = textureLinearPlanarRGBA8(sampler1, i1, layer1);
+      return convertYUV(colorSpace, y, lowHalf(planar.ba), highHalf(planar.rg));
     }
     default:
       assert(false);
