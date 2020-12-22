@@ -59,9 +59,9 @@ use crate::composite::{CompositorConfig, NativeSurfaceOperationDetails, NativeSu
 use crate::c_str;
 use crate::debug_colors;
 use crate::debug_render::{DebugItem, DebugRenderer};
-use crate::device::{CustomVAO, DepthFunction, Device, DrawTarget, ExternalTexture, GpuFrameId, Program};
+use crate::device::{DepthFunction, Device, DrawTarget, ExternalTexture, GpuFrameId};
 use crate::device::{ProgramCache, ReadTarget, ShaderError, Texture, TextureFilter, TextureFlags, TextureSlot};
-use crate::device::{TextureUploader, UploadMethod, UploadPBOPool, UploadStagingBuffer, VAO, VBO, VertexUsageHint};
+use crate::device::{UploadMethod, UploadPBOPool, UploadStagingBuffer, VertexUsageHint};
 use crate::device::query::{GpuSampler, GpuTimer};
 #[cfg(feature = "capture")]
 use crate::device::FBOId;
@@ -70,10 +70,10 @@ use crate::frame_builder::{Frame, ChasePrimitive, FrameBuilderConfig};
 use gleam::gl;
 use crate::glyph_cache::GlyphCache;
 use crate::glyph_rasterizer::{GlyphFormat, GlyphRasterizer};
-use crate::gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
+use crate::gpu_cache::{GpuCacheUpdate, GpuCacheUpdateList};
 use crate::gpu_cache::{GpuCacheDebugChunk, GpuCacheDebugCmd};
-use crate::gpu_types::{PrimitiveHeaderI, PrimitiveHeaderF, PrimitiveInstanceData, ScalingInstance, SvgFilterInstance};
-use crate::gpu_types::{ClearInstance, CompositeInstance, TransformData, ZBufferId, BlurInstance};
+use crate::gpu_types::{PrimitiveInstanceData, ScalingInstance, SvgFilterInstance};
+use crate::gpu_types::{BlurInstance, ClearInstance, CompositeInstance, ZBufferId};
 use crate::internal_types::{TextureSource, ResourceCacheError};
 use crate::internal_types::{CacheTextureId, DebugOutput, FastHashMap, FastHashSet, LayerIndex, RenderedDocument, ResultMsg};
 use crate::internal_types::{TextureCacheAllocationKind, TextureCacheUpdate, TextureUpdateList, TextureUpdateSource};
@@ -87,7 +87,7 @@ use crate::device::query::{GpuProfiler, GpuDebugMethod};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use crate::render_backend::{FrameId, RenderBackend};
 use crate::render_task_graph::RenderTaskGraph;
-use crate::render_task::{RenderTask, RenderTaskData, RenderTaskKind};
+use crate::render_task::{RenderTask, RenderTaskKind};
 use crate::resource_cache::ResourceCache;
 use crate::scene_builder_thread::{SceneBuilderThread, SceneBuilderThreadChannels, LowPrioritySceneBuilderThread};
 use crate::screen_capture::AsyncScreenshotGrabber;
@@ -100,21 +100,20 @@ use crate::render_target::{RenderTargetKind, BlitJob, BlitJobSource};
 use crate::tile_cache::PictureCacheDebugInfo;
 use crate::util::drain_filter;
 
-use std;
-use std::cmp;
-use std::collections::VecDeque;
+use std::{
+    cell::RefCell,
+    collections::VecDeque,
+    f32,
+    mem,
+    os::raw::c_void,
+    path::PathBuf,
+    rc::Rc,
+    sync::Arc,
+    sync::atomic::{AtomicBool, Ordering},
+    thread,
+};
 #[cfg(any(feature = "capture", feature = "replay"))]
 use std::collections::hash_map::Entry;
-use std::f32;
-use std::marker::PhantomData;
-use std::mem;
-use std::os::raw::c_void;
-use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::cell::RefCell;
 use tracy_rs::register_thread_with_profiler;
 use time::precise_time_ns;
 
@@ -125,19 +124,10 @@ cfg_if! {
     }
 }
 
-const VERTEX_TEXTURE_EXTRA_ROWS: i32 = 10;
+mod gpu_cache;
+mod vertex;
 
-/// The size of the array of each type of vertex data texture that
-/// is round-robin-ed each frame during bind_frame_data. Doing this
-/// helps avoid driver stalls while updating the texture in some
-/// drivers. The size of these textures are typically very small
-/// (e.g. < 16 kB) so it's not a huge waste of memory. Despite that,
-/// this is a short-term solution - we want to find a better way
-/// to provide this frame data, which will likely involve some
-/// combination of UBO/SSBO usage. Although this only affects some
-/// platforms, it's enabled on all platforms to reduce testing
-/// differences between platforms.
-const VERTEX_DATA_TEXTURE_COUNT: usize = 3;
+pub use vertex::{desc, VertexArrayKind, MAX_VERTEX_TEXTURE_WIDTH};
 
 /// Use this hint for all vertex data re-initialization. This allows
 /// the driver to better re-use RBOs internally.
@@ -151,11 +141,17 @@ pub fn wr_has_been_initialized() -> bool {
     HAS_BEEN_INITIALIZED.load(Ordering::SeqCst)
 }
 
-pub const MAX_VERTEX_TEXTURE_WIDTH: usize = webrender_build::MAX_VERTEX_TEXTURE_WIDTH;
-/// Enabling this toggle would force the GPU cache scattered texture to
-/// be resized every frame, which enables GPU debuggers to see if this
-/// is performed correctly.
-const GPU_CACHE_RESIZE_TEST: bool = false;
+/// The size of the array of each type of vertex data texture that
+/// is round-robin-ed each frame during bind_frame_data. Doing this
+/// helps avoid driver stalls while updating the texture in some
+/// drivers. The size of these textures are typically very small
+/// (e.g. < 16 kB) so it's not a huge waste of memory. Despite that,
+/// this is a short-term solution - we want to find a better way
+/// to provide this frame data, which will likely involve some
+/// combination of UBO/SSBO usage. Although this only affects some
+/// platforms, it's enabled on all platforms to reduce testing
+/// differences between platforms.
+pub const VERTEX_DATA_TEXTURE_COUNT: usize = 3;
 
 /// Number of GPU blocks per UV rectangle provided for an image.
 pub const BLOCKS_PER_UV_RECT: usize = 2;
@@ -398,691 +394,6 @@ impl Into<TextureSlot> for TextureSampler {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-pub struct PackedVertex {
-    pub pos: [f32; 2],
-}
-
-pub(crate) mod desc {
-    use crate::device::{VertexAttribute, VertexAttributeKind, VertexDescriptor};
-
-    pub const PRIM_INSTANCES: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            VertexAttribute {
-                name: "aData",
-                count: 4,
-                kind: VertexAttributeKind::I32,
-            },
-        ],
-    };
-
-    pub const BLUR: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            VertexAttribute {
-                name: "aBlurRenderTaskAddress",
-                count: 1,
-                kind: VertexAttributeKind::U16,
-            },
-            VertexAttribute {
-                name: "aBlurSourceTaskAddress",
-                count: 1,
-                kind: VertexAttributeKind::U16,
-            },
-            VertexAttribute {
-                name: "aBlurDirection",
-                count: 1,
-                kind: VertexAttributeKind::I32,
-            },
-        ],
-    };
-
-    pub const LINE: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            VertexAttribute {
-                name: "aTaskRect",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aLocalSize",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aWavyLineThickness",
-                count: 1,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aStyle",
-                count: 1,
-                kind: VertexAttributeKind::I32,
-            },
-            VertexAttribute {
-                name: "aAxisSelect",
-                count: 1,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-    };
-
-    pub const GRADIENT: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            VertexAttribute {
-                name: "aTaskRect",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aStops",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            // TODO(gw): We should probably pack these as u32 colors instead
-            //           of passing as full float vec4 here. It won't make much
-            //           difference in real world, since these are only invoked
-            //           rarely, when creating the cache.
-            VertexAttribute {
-                name: "aColor0",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aColor1",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aColor2",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aColor3",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aAxisSelect",
-                count: 1,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aStartStop",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-    };
-
-    pub const BORDER: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            VertexAttribute {
-                name: "aTaskOrigin",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aRect",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aColor0",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aColor1",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aFlags",
-                count: 1,
-                kind: VertexAttributeKind::I32,
-            },
-            VertexAttribute {
-                name: "aWidths",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aRadii",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipParams1",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipParams2",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-    };
-
-    pub const SCALE: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            VertexAttribute {
-                name: "aScaleTargetRect",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aScaleSourceRect",
-                count: 4,
-                kind: VertexAttributeKind::I32,
-            },
-            VertexAttribute {
-                name: "aScaleSourceLayer",
-                count: 1,
-                kind: VertexAttributeKind::I32,
-            },
-        ],
-    };
-
-    pub const CLIP_RECT: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            // common clip attributes
-            VertexAttribute {
-                name: "aClipDeviceArea",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipOrigins",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aDevicePixelScale",
-                count: 1,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aTransformIds",
-                count: 2,
-                kind: VertexAttributeKind::I32,
-            },
-            // specific clip attributes
-            VertexAttribute {
-                name: "aClipLocalPos",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipLocalRect",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipMode",
-                count: 1,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipRect_TL",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipRadii_TL",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipRect_TR",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipRadii_TR",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipRect_BL",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipRadii_BL",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipRect_BR",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipRadii_BR",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-    };
-
-    pub const CLIP_BOX_SHADOW: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            // common clip attributes
-            VertexAttribute {
-                name: "aClipDeviceArea",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipOrigins",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aDevicePixelScale",
-                count: 1,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aTransformIds",
-                count: 2,
-                kind: VertexAttributeKind::I32,
-            },
-            // specific clip attributes
-            VertexAttribute {
-                name: "aClipDataResourceAddress",
-                count: 2,
-                kind: VertexAttributeKind::U16,
-            },
-            VertexAttribute {
-                name: "aClipSrcRectSize",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipMode",
-                count: 1,
-                kind: VertexAttributeKind::I32,
-            },
-            VertexAttribute {
-                name: "aStretchMode",
-                count: 2,
-                kind: VertexAttributeKind::I32,
-            },
-            VertexAttribute {
-                name: "aClipDestRect",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-    };
-
-    pub const CLIP_IMAGE: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            // common clip attributes
-            VertexAttribute {
-                name: "aClipDeviceArea",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipOrigins",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aDevicePixelScale",
-                count: 1,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aTransformIds",
-                count: 2,
-                kind: VertexAttributeKind::I32,
-            },
-            // specific clip attributes
-            VertexAttribute {
-                name: "aClipTileRect",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aClipDataResourceAddress",
-                count: 2,
-                kind: VertexAttributeKind::U16,
-            },
-            VertexAttribute {
-                name: "aClipLocalRect",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-    };
-
-    pub const GPU_CACHE_UPDATE: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::U16Norm,
-            },
-            VertexAttribute {
-                name: "aValue",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[],
-    };
-
-    pub const RESOLVE: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            VertexAttribute {
-                name: "aRect",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-    };
-
-    pub const SVG_FILTER: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            VertexAttribute {
-                name: "aFilterRenderTaskAddress",
-                count: 1,
-                kind: VertexAttributeKind::U16,
-            },
-            VertexAttribute {
-                name: "aFilterInput1TaskAddress",
-                count: 1,
-                kind: VertexAttributeKind::U16,
-            },
-            VertexAttribute {
-                name: "aFilterInput2TaskAddress",
-                count: 1,
-                kind: VertexAttributeKind::U16,
-            },
-            VertexAttribute {
-                name: "aFilterKind",
-                count: 1,
-                kind: VertexAttributeKind::U16,
-            },
-            VertexAttribute {
-                name: "aFilterInputCount",
-                count: 1,
-                kind: VertexAttributeKind::U16,
-            },
-            VertexAttribute {
-                name: "aFilterGenericInt",
-                count: 1,
-                kind: VertexAttributeKind::U16,
-            },
-            VertexAttribute {
-                name: "aFilterExtraDataAddress",
-                count: 2,
-                kind: VertexAttributeKind::U16,
-            },
-        ],
-    };
-
-    pub const VECTOR_STENCIL: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            VertexAttribute {
-                name: "aFromPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aCtrlPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aToPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aFromNormal",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aCtrlNormal",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aToNormal",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aPathID",
-                count: 1,
-                kind: VertexAttributeKind::U16,
-            },
-            VertexAttribute {
-                name: "aPad",
-                count: 1,
-                kind: VertexAttributeKind::U16,
-            },
-        ],
-    };
-
-    pub const VECTOR_COVER: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            VertexAttribute {
-                name: "aTargetRect",
-                count: 4,
-                kind: VertexAttributeKind::I32,
-            },
-            VertexAttribute {
-                name: "aStencilOrigin",
-                count: 2,
-                kind: VertexAttributeKind::I32,
-            },
-            VertexAttribute {
-                name: "aSubpixel",
-                count: 1,
-                kind: VertexAttributeKind::U16,
-            },
-            VertexAttribute {
-                name: "aPad",
-                count: 1,
-                kind: VertexAttributeKind::U16,
-            },
-        ],
-    };
-
-    pub const COMPOSITE: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            VertexAttribute {
-                name: "aDeviceRect",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aDeviceClipRect",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aColor",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aParams",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aUvRect0",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aUvRect1",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aUvRect2",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aTextureLayers",
-                count: 3,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-    };
-
-    pub const CLEAR: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            VertexAttribute {
-                name: "aRect",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aColor",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-    };
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub(crate) enum VertexArrayKind {
-    Primitive,
-    Blur,
-    ClipImage,
-    ClipRect,
-    ClipBoxShadow,
-    VectorStencil,
-    VectorCover,
-    Border,
-    Scale,
-    LineDecoration,
-    Gradient,
-    Resolve,
-    SvgFilter,
-    Composite,
-    Clear,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum GraphicsApi {
     OpenGL,
@@ -1307,439 +618,6 @@ pub enum BlendMode {
     Advanced(MixBlendMode),
 }
 
-/// Tracks the state of each row in the GPU cache texture.
-struct CacheRow {
-    /// Mirrored block data on CPU for this row. We store a copy of
-    /// the data on the CPU side to improve upload batching.
-    cpu_blocks: Box<[GpuBlockData; MAX_VERTEX_TEXTURE_WIDTH]>,
-    /// The first offset in this row that is dirty.
-    min_dirty: u16,
-    /// The last offset in this row that is dirty.
-    max_dirty: u16,
-}
-
-impl CacheRow {
-    fn new() -> Self {
-        CacheRow {
-            cpu_blocks: Box::new([GpuBlockData::EMPTY; MAX_VERTEX_TEXTURE_WIDTH]),
-            min_dirty: MAX_VERTEX_TEXTURE_WIDTH as _,
-            max_dirty: 0,
-        }
-    }
-
-    fn is_dirty(&self) -> bool {
-        return self.min_dirty < self.max_dirty;
-    }
-
-    fn clear_dirty(&mut self) {
-        self.min_dirty = MAX_VERTEX_TEXTURE_WIDTH as _;
-        self.max_dirty = 0;
-    }
-
-    fn add_dirty(&mut self, block_offset: usize, block_count: usize) {
-        self.min_dirty = self.min_dirty.min(block_offset as _);
-        self.max_dirty = self.max_dirty.max((block_offset + block_count) as _);
-    }
-
-    fn dirty_blocks(&self) -> &[GpuBlockData] {
-        return &self.cpu_blocks[self.min_dirty as usize .. self.max_dirty as usize];
-    }
-}
-
-/// The bus over which CPU and GPU versions of the GPU cache
-/// get synchronized.
-enum GpuCacheBus {
-    /// PBO-based updates, currently operate on a row granularity.
-    /// Therefore, are subject to fragmentation issues.
-    PixelBuffer {
-        /// Per-row data.
-        rows: Vec<CacheRow>,
-    },
-    /// Shader-based scattering updates. Currently rendered by a set
-    /// of points into the GPU texture, each carrying a `GpuBlockData`.
-    Scatter {
-        /// Special program to run the scattered update.
-        program: Program,
-        /// VAO containing the source vertex buffers.
-        vao: CustomVAO,
-        /// VBO for positional data, supplied as normalized `u16`.
-        buf_position: VBO<[u16; 2]>,
-        /// VBO for gpu block data.
-        buf_value: VBO<GpuBlockData>,
-        /// Currently stored block count.
-        count: usize,
-    },
-}
-
-/// The device-specific representation of the cache texture in gpu_cache.rs
-struct GpuCacheTexture {
-    texture: Option<Texture>,
-    bus: GpuCacheBus,
-}
-
-impl GpuCacheTexture {
-
-    /// Ensures that we have an appropriately-sized texture. Returns true if a
-    /// new texture was created.
-    fn ensure_texture(&mut self, device: &mut Device, height: i32) {
-        // If we already have a texture that works, we're done.
-        if self.texture.as_ref().map_or(false, |t| t.get_dimensions().height >= height) {
-            if GPU_CACHE_RESIZE_TEST {
-                // Special debug mode - resize the texture even though it's fine.
-            } else {
-                return;
-            }
-        }
-
-        // Take the old texture, if any.
-        let blit_source = self.texture.take();
-
-        // Create the new texture.
-        assert!(height >= 2, "Height is too small for ANGLE");
-        let new_size = DeviceIntSize::new(MAX_VERTEX_TEXTURE_WIDTH as _, height);
-        // If glCopyImageSubData is supported, this texture doesn't need
-        // to be a render target. This prevents GL errors due to framebuffer
-        // incompleteness on devices that don't support RGBAF32 render targets.
-        // TODO(gw): We still need a proper solution for the subset of devices
-        //           that don't support glCopyImageSubData *OR* rendering to a
-        //           RGBAF32 render target. These devices will currently fail
-        //           to resize the GPU cache texture.
-        let supports_copy_image_sub_data = device.get_capabilities().supports_copy_image_sub_data;
-        let rt_info =  match self.bus {
-            GpuCacheBus::PixelBuffer { .. } if supports_copy_image_sub_data => None,
-            _ => Some(RenderTargetInfo { has_depth: false }),
-        };
-        let mut texture = device.create_texture(
-            ImageBufferKind::Texture2D,
-            ImageFormat::RGBAF32,
-            new_size.width,
-            new_size.height,
-            TextureFilter::Nearest,
-            rt_info,
-            1,
-        );
-
-        // Copy the contents of the previous texture, if applicable.
-        if let Some(blit_source) = blit_source {
-            device.copy_entire_texture(&mut texture, &blit_source);
-            device.delete_texture(blit_source);
-        }
-
-        self.texture = Some(texture);
-    }
-
-    fn new(device: &mut Device, use_scatter: bool) -> Result<Self, RendererError> {
-        let bus = if use_scatter {
-            let program = device.create_program_linked(
-                "gpu_cache_update",
-                &[],
-                &desc::GPU_CACHE_UPDATE,
-            )?;
-            let buf_position = device.create_vbo();
-            let buf_value = device.create_vbo();
-            //Note: the vertex attributes have to be supplied in the same order
-            // as for program creation, but each assigned to a different stream.
-            let vao = device.create_custom_vao(&[
-                buf_position.stream_with(&desc::GPU_CACHE_UPDATE.vertex_attributes[0..1]),
-                buf_value   .stream_with(&desc::GPU_CACHE_UPDATE.vertex_attributes[1..2]),
-            ]);
-            GpuCacheBus::Scatter {
-                program,
-                vao,
-                buf_position,
-                buf_value,
-                count: 0,
-            }
-        } else {
-            GpuCacheBus::PixelBuffer {
-                rows: Vec::new(),
-            }
-        };
-
-        Ok(GpuCacheTexture {
-            texture: None,
-            bus,
-        })
-    }
-
-    fn deinit(mut self, device: &mut Device) {
-        if let Some(t) = self.texture.take() {
-            device.delete_texture(t);
-        }
-        if let GpuCacheBus::Scatter { program, vao, buf_position, buf_value, .. } = self.bus {
-            device.delete_program(program);
-            device.delete_custom_vao(vao);
-            device.delete_vbo(buf_position);
-            device.delete_vbo(buf_value);
-        }
-    }
-
-    fn get_height(&self) -> i32 {
-        self.texture.as_ref().map_or(0, |t| t.get_dimensions().height)
-    }
-
-    fn prepare_for_updates(
-        &mut self,
-        device: &mut Device,
-        total_block_count: usize,
-        max_height: i32,
-    ) {
-        self.ensure_texture(device, max_height);
-        match self.bus {
-            GpuCacheBus::PixelBuffer { .. } => {},
-            GpuCacheBus::Scatter {
-                ref mut buf_position,
-                ref mut buf_value,
-                ref mut count,
-                ..
-            } => {
-                *count = 0;
-                if total_block_count > buf_value.allocated_count() {
-                    device.allocate_vbo(buf_position, total_block_count, ONE_TIME_USAGE_HINT);
-                    device.allocate_vbo(buf_value,    total_block_count, ONE_TIME_USAGE_HINT);
-                }
-            }
-        }
-    }
-
-    fn update(&mut self, device: &mut Device, updates: &GpuCacheUpdateList) {
-        match self.bus {
-            GpuCacheBus::PixelBuffer { ref mut rows, .. } => {
-                for update in &updates.updates {
-                    match *update {
-                        GpuCacheUpdate::Copy {
-                            block_index,
-                            block_count,
-                            address,
-                        } => {
-                            let row = address.v as usize;
-
-                            // Ensure that the CPU-side shadow copy of the GPU cache data has enough
-                            // rows to apply this patch.
-                            while rows.len() <= row {
-                                // Add a new row.
-                                rows.push(CacheRow::new());
-                            }
-
-                            // Copy the blocks from the patch array in the shadow CPU copy.
-                            let block_offset = address.u as usize;
-                            let data = &mut rows[row].cpu_blocks;
-                            for i in 0 .. block_count {
-                                data[block_offset + i] = updates.blocks[block_index + i];
-                            }
-
-                            // This row is dirty (needs to be updated in GPU texture).
-                            rows[row].add_dirty(block_offset, block_count);
-                        }
-                    }
-                }
-            }
-            GpuCacheBus::Scatter {
-                ref buf_position,
-                ref buf_value,
-                ref mut count,
-                ..
-            } => {
-                //TODO: re-use this heap allocation
-                // Unused positions will be left as 0xFFFF, which translates to
-                // (1.0, 1.0) in the vertex output position and gets culled out
-                let mut position_data = vec![[!0u16; 2]; updates.blocks.len()];
-                let size = self.texture.as_ref().unwrap().get_dimensions().to_usize();
-
-                for update in &updates.updates {
-                    match *update {
-                        GpuCacheUpdate::Copy {
-                            block_index,
-                            block_count,
-                            address,
-                        } => {
-                            // Convert the absolute texel position into normalized
-                            let y = ((2*address.v as usize + 1) << 15) / size.height;
-                            for i in 0 .. block_count {
-                                let x = ((2*address.u as usize + 2*i + 1) << 15) / size.width;
-                                position_data[block_index + i] = [x as _, y as _];
-                            }
-                        }
-                    }
-                }
-
-                device.fill_vbo(buf_value, &updates.blocks, *count);
-                device.fill_vbo(buf_position, &position_data, *count);
-                *count += position_data.len();
-            }
-        }
-    }
-
-    fn flush(&mut self, device: &mut Device, pbo_pool: &mut UploadPBOPool) -> usize {
-        let texture = self.texture.as_ref().unwrap();
-        match self.bus {
-            GpuCacheBus::PixelBuffer { ref mut rows } => {
-                let rows_dirty = rows
-                    .iter()
-                    .filter(|row| row.is_dirty())
-                    .count();
-                if rows_dirty == 0 {
-                    return 0
-                }
-
-                let mut uploader = device.upload_texture(pbo_pool);
-
-                for (row_index, row) in rows.iter_mut().enumerate() {
-                    if !row.is_dirty() {
-                        continue;
-                    }
-
-                    let blocks = row.dirty_blocks();
-                    let rect = DeviceIntRect::new(
-                        DeviceIntPoint::new(row.min_dirty as i32, row_index as i32),
-                        DeviceIntSize::new(blocks.len() as i32, 1),
-                    );
-
-                    uploader.upload(device, texture, rect, 0, None, None, blocks.as_ptr(), blocks.len());
-
-                    row.clear_dirty();
-                }
-
-                uploader.flush(device);
-
-                rows_dirty
-            }
-            GpuCacheBus::Scatter { ref program, ref vao, count, .. } => {
-                device.disable_depth();
-                device.set_blend(false);
-                device.bind_program(program);
-                device.bind_custom_vao(vao);
-                device.bind_draw_target(
-                    DrawTarget::from_texture(
-                        texture,
-                        0,
-                        false,
-                    ),
-                );
-                device.draw_nonindexed_points(0, count as _);
-                0
-            }
-        }
-    }
-}
-
-struct VertexDataTexture<T> {
-    texture: Option<Texture>,
-    format: ImageFormat,
-    _marker: PhantomData<T>,
-}
-
-impl<T> VertexDataTexture<T> {
-    fn new(
-        format: ImageFormat,
-    ) -> Self {
-        VertexDataTexture {
-            texture: None,
-            format,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Returns a borrow of the GPU texture. Panics if it hasn't been initialized.
-    fn texture(&self) -> &Texture {
-        self.texture.as_ref().unwrap()
-    }
-
-    /// Returns an estimate of the GPU memory consumed by this VertexDataTexture.
-    fn size_in_bytes(&self) -> usize {
-        self.texture.as_ref().map_or(0, |t| t.size_in_bytes())
-    }
-
-    fn update<'a>(
-        &'a mut self,
-        device: &mut Device,
-        texture_uploader: &mut TextureUploader<'a>,
-        data: &mut Vec<T>
-    ) {
-        debug_assert!(mem::size_of::<T>() % 16 == 0);
-        let texels_per_item = mem::size_of::<T>() / 16;
-        let items_per_row = MAX_VERTEX_TEXTURE_WIDTH / texels_per_item;
-        debug_assert_ne!(items_per_row, 0);
-
-        // Ensure we always end up with a texture when leaving this method.
-        let mut len = data.len();
-        if len == 0 {
-            if self.texture.is_some() {
-                return;
-            }
-            data.reserve(items_per_row);
-            len = items_per_row;
-        } else {
-            // Extend the data array to have enough capacity to upload at least
-            // a multiple of the row size.  This ensures memory safety when the
-            // array is passed to OpenGL to upload to the GPU.
-            let extra = len % items_per_row;
-            if extra != 0 {
-                let padding = items_per_row - extra;
-                data.reserve(padding);
-                len += padding;
-            }
-        }
-
-        let needed_height = (len / items_per_row) as i32;
-        let existing_height = self.texture.as_ref().map_or(0, |t| t.get_dimensions().height);
-
-        // Create a new texture if needed.
-        //
-        // These textures are generally very small, which is why we don't bother
-        // with incremental updates and just re-upload every frame. For most pages
-        // they're one row each, and on stress tests like css-francine they end up
-        // in the 6-14 range. So we size the texture tightly to what we need (usually
-        // 1), and shrink it if the waste would be more than `VERTEX_TEXTURE_EXTRA_ROWS`
-        // rows. This helps with memory overhead, especially because there are several
-        // instances of these textures per Renderer.
-        if needed_height > existing_height || needed_height + VERTEX_TEXTURE_EXTRA_ROWS < existing_height {
-            // Drop the existing texture, if any.
-            if let Some(t) = self.texture.take() {
-                device.delete_texture(t);
-            }
-
-            let texture = device.create_texture(
-                ImageBufferKind::Texture2D,
-                self.format,
-                MAX_VERTEX_TEXTURE_WIDTH as i32,
-                // Ensure height is at least two to work around
-                // https://bugs.chromium.org/p/angleproject/issues/detail?id=3039
-                needed_height.max(2),
-                TextureFilter::Nearest,
-                None,
-                1,
-            );
-            self.texture = Some(texture);
-        }
-
-        // Note: the actual width can be larger than the logical one, with a few texels
-        // of each row unused at the tail. This is needed because there is still hardware
-        // (like Intel iGPUs) that prefers power-of-two sizes of textures ([1]).
-        //
-        // [1] https://software.intel.com/en-us/articles/opengl-performance-tips-power-of-two-textures-have-better-performance
-        let logical_width = if needed_height == 1 {
-            data.len() * texels_per_item
-        } else {
-            MAX_VERTEX_TEXTURE_WIDTH - (MAX_VERTEX_TEXTURE_WIDTH % texels_per_item)
-        };
-
-        let rect = DeviceIntRect::new(
-            DeviceIntPoint::zero(),
-            DeviceIntSize::new(logical_width as i32, needed_height),
-        );
-
-        debug_assert!(len <= data.capacity(), "CPU copy will read out of bounds");
-        texture_uploader.upload(device, self.texture(), rect, 0, None, None, data.as_ptr(), len);
-    }
-
-    fn deinit(mut self, device: &mut Device) {
-        if let Some(t) = self.texture.take() {
-            device.delete_texture(t);
-        }
-    }
-}
-
 #[derive(PartialEq)]
 struct TargetSelector {
     size: DeviceIntSize,
@@ -1789,24 +667,6 @@ impl LazyInitializedDebugRenderer {
     }
 }
 
-// NB: If you add more VAOs here, be sure to deinitialize them in
-// `Renderer::deinit()` below.
-pub struct RendererVAOs {
-    prim_vao: VAO,
-    blur_vao: VAO,
-    clip_rect_vao: VAO,
-    clip_box_shadow_vao: VAO,
-    clip_image_vao: VAO,
-    border_vao: VAO,
-    line_vao: VAO,
-    scale_vao: VAO,
-    gradient_vao: VAO,
-    resolve_vao: VAO,
-    svg_filter_vao: VAO,
-    composite_vao: VAO,
-    clear_vao: VAO,
-}
-
 /// Information about the state of the debugging / profiler overlay in native compositing mode.
 struct DebugOverlayState {
     /// True if any of the current debug flags will result in drawing a debug overlay.
@@ -1826,109 +686,11 @@ impl DebugOverlayState {
     }
 }
 
-pub struct VertexDataTextures {
-    prim_header_f_texture: VertexDataTexture<PrimitiveHeaderF>,
-    prim_header_i_texture: VertexDataTexture<PrimitiveHeaderI>,
-    transforms_texture: VertexDataTexture<TransformData>,
-    render_task_texture: VertexDataTexture<RenderTaskData>,
-}
-
-impl VertexDataTextures {
-    fn new() -> Self {
-        VertexDataTextures {
-            prim_header_f_texture: VertexDataTexture::new(ImageFormat::RGBAF32),
-            prim_header_i_texture: VertexDataTexture::new(ImageFormat::RGBAI32),
-            transforms_texture: VertexDataTexture::new(ImageFormat::RGBAF32),
-            render_task_texture: VertexDataTexture::new(ImageFormat::RGBAF32),
-        }
-    }
-
-    fn update(
-        &mut self,
-        device: &mut Device,
-        pbo_pool: &mut UploadPBOPool,
-        frame: &mut Frame,
-    ) {
-        let mut texture_uploader = device.upload_texture(pbo_pool);
-        self.prim_header_f_texture.update(
-            device,
-            &mut texture_uploader,
-            &mut frame.prim_headers.headers_float,
-        );
-        self.prim_header_i_texture.update(
-            device,
-            &mut texture_uploader,
-            &mut frame.prim_headers.headers_int,
-        );
-        self.transforms_texture.update(
-            device,
-            &mut texture_uploader,
-            &mut frame.transform_palette,
-        );
-        self.render_task_texture.update(
-            device,
-            &mut texture_uploader,
-            &mut frame.render_tasks.task_data,
-        );
-
-        // Flush and drop the texture uploader now, so that
-        // we can borrow the textures to bind them.
-        texture_uploader.flush(device);
-
-        device.bind_texture(
-            TextureSampler::PrimitiveHeadersF,
-            &self.prim_header_f_texture.texture(),
-            Swizzle::default(),
-        );
-        device.bind_texture(
-            TextureSampler::PrimitiveHeadersI,
-            &self.prim_header_i_texture.texture(),
-            Swizzle::default(),
-        );
-        device.bind_texture(
-            TextureSampler::TransformPalette,
-            &self.transforms_texture.texture(),
-            Swizzle::default(),
-        );
-        device.bind_texture(
-            TextureSampler::RenderTasks,
-            &self.render_task_texture.texture(),
-            Swizzle::default(),
-        );
-    }
-
-    fn size_in_bytes(&self) -> usize {
-        self.prim_header_f_texture.size_in_bytes() +
-        self.prim_header_i_texture.size_in_bytes() +
-        self.transforms_texture.size_in_bytes() +
-        self.render_task_texture.size_in_bytes()
-    }
-
-    fn deinit(
-        self,
-        device: &mut Device,
-    ) {
-        self.transforms_texture.deinit(device);
-        self.prim_header_f_texture.deinit(device);
-        self.prim_header_i_texture.deinit(device);
-        self.render_task_texture.deinit(device);
-    }
-}
-
 /// Tracks buffer damage rects over a series of frames.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct BufferDamageTracker {
     damage_rects: [DeviceRect; 2],
     current_offset: usize,
-}
-
-impl Default for BufferDamageTracker {
-    fn default() -> Self {
-        Self {
-            damage_rects: [DeviceRect::default(); 2],
-            current_offset: 0,
-        }
-     }
 }
 
 impl BufferDamageTracker {
@@ -2008,10 +770,10 @@ pub struct Renderer {
     last_time: u64,
 
     pub gpu_profiler: GpuProfiler,
-    vaos: RendererVAOs,
+    vaos: vertex::RendererVAOs,
 
-    gpu_cache_texture: GpuCacheTexture,
-    vertex_data_textures: Vec<VertexDataTextures>,
+    gpu_cache_texture: gpu_cache::GpuCacheTexture,
+    vertex_data_textures: Vec<vertex::VertexDataTextures>,
     current_vertex_data_textures: usize,
 
     /// When the GPU cache debugger is enabled, we keep track of the live blocks
@@ -2304,43 +1066,14 @@ impl Renderer {
             None
         };
 
-        let x0 = 0.0;
-        let y0 = 0.0;
-        let x1 = 1.0;
-        let y1 = 1.0;
+        let vaos = vertex::RendererVAOs::new(&mut device);
 
-        let quad_indices: [u16; 6] = [0, 1, 2, 2, 1, 3];
-        let quad_vertices = [
-            PackedVertex { pos: [x0, y0] },
-            PackedVertex { pos: [x1, y0] },
-            PackedVertex { pos: [x0, y1] },
-            PackedVertex { pos: [x1, y1] },
-        ];
-
-        let prim_vao = device.create_vao(&desc::PRIM_INSTANCES);
-        device.bind_vao(&prim_vao);
-        device.update_vao_indices(&prim_vao, &quad_indices, VertexUsageHint::Static);
-        device.update_vao_main_vertices(&prim_vao, &quad_vertices, VertexUsageHint::Static);
-
-        let blur_vao = device.create_vao_with_new_instances(&desc::BLUR, &prim_vao);
-        let clip_rect_vao = device.create_vao_with_new_instances(&desc::CLIP_RECT, &prim_vao);
-        let clip_box_shadow_vao = device.create_vao_with_new_instances(&desc::CLIP_BOX_SHADOW, &prim_vao);
-        let clip_image_vao = device.create_vao_with_new_instances(&desc::CLIP_IMAGE, &prim_vao);
-        let border_vao = device.create_vao_with_new_instances(&desc::BORDER, &prim_vao);
-        let scale_vao = device.create_vao_with_new_instances(&desc::SCALE, &prim_vao);
-        let line_vao = device.create_vao_with_new_instances(&desc::LINE, &prim_vao);
-        let gradient_vao = device.create_vao_with_new_instances(&desc::GRADIENT, &prim_vao);
-        let resolve_vao = device.create_vao_with_new_instances(&desc::RESOLVE, &prim_vao);
-        let svg_filter_vao = device.create_vao_with_new_instances(&desc::SVG_FILTER, &prim_vao);
-        let composite_vao = device.create_vao_with_new_instances(&desc::COMPOSITE, &prim_vao);
-        let clear_vao = device.create_vao_with_new_instances(&desc::CLEAR, &prim_vao);
         let texture_upload_pbo_pool = UploadPBOPool::new(&mut device, options.upload_pbo_default_size);
-
         let texture_resolver = TextureResolver::new(&mut device);
 
         let mut vertex_data_textures = Vec::new();
         for _ in 0 .. VERTEX_DATA_TEXTURE_COUNT {
-            vertex_data_textures.push(VertexDataTextures::new());
+            vertex_data_textures.push(vertex::VertexDataTextures::new());
         }
 
         // On some (mostly older, integrated) GPUs, the normal GPU texture cache update path
@@ -2361,7 +1094,7 @@ impl Renderer {
             gl::GlType::Gles => device.supports_extension("GL_EXT_color_buffer_float"),
         };
 
-        let gpu_cache_texture = GpuCacheTexture::new(
+        let gpu_cache_texture = gpu_cache::GpuCacheTexture::new(
             &mut device,
             supports_scatter && !is_software,
         )?;
@@ -2611,21 +1344,7 @@ impl Renderer {
             clear_caches_with_quads: options.clear_caches_with_quads,
             last_time: 0,
             gpu_profiler,
-            vaos: RendererVAOs {
-                prim_vao,
-                blur_vao,
-                clip_rect_vao,
-                clip_box_shadow_vao,
-                clip_image_vao,
-                border_vao,
-                scale_vao,
-                gradient_vao,
-                resolve_vao,
-                line_vao,
-                svg_filter_vao,
-                composite_vao,
-                clear_vao,
-            },
+            vaos,
             vertex_data_textures,
             current_vertex_data_textures: 0,
             pipeline_info: PipelineInfo::default(),
@@ -3131,17 +1850,7 @@ impl Renderer {
             | DebugCommand::SetBatchingLookback(_)
             | DebugCommand::EnableMultithreading(_) => {}
             DebugCommand::InvalidateGpuCache => {
-                match self.gpu_cache_texture.bus {
-                    GpuCacheBus::PixelBuffer { ref mut rows, .. } => {
-                        info!("Invalidating GPU caches");
-                        for row in rows {
-                            row.add_dirty(0, MAX_VERTEX_TEXTURE_WIDTH);
-                        }
-                    }
-                    GpuCacheBus::Scatter { .. } => {
-                        warn!("Unable to invalidate scattered GPU cache");
-                    }
-                }
+                self.gpu_cache_texture.invalidate();
             }
             DebugCommand::SetFlags(flags) => {
                 self.set_debug_flags(flags);
@@ -3629,93 +2338,6 @@ impl Renderer {
         }
     }
 
-    fn update_gpu_cache(&mut self) {
-        let _gm = self.gpu_profiler.start_marker("gpu cache update");
-
-        // For an artificial stress test of GPU cache resizing,
-        // always pass an extra update list with at least one block in it.
-        let gpu_cache_height = self.gpu_cache_texture.get_height();
-        if gpu_cache_height != 0 && GPU_CACHE_RESIZE_TEST {
-            self.pending_gpu_cache_updates.push(GpuCacheUpdateList {
-                frame_id: FrameId::INVALID,
-                clear: false,
-                height: gpu_cache_height,
-                blocks: vec![[1f32; 4].into()],
-                updates: Vec::new(),
-                debug_commands: Vec::new(),
-            });
-        }
-
-        let (updated_blocks, max_requested_height) = self
-            .pending_gpu_cache_updates
-            .iter()
-            .fold((0, gpu_cache_height), |(count, height), list| {
-                (count + list.blocks.len(), cmp::max(height, list.height))
-            });
-
-        if max_requested_height > self.get_max_texture_size() && !self.gpu_cache_overflow {
-            self.gpu_cache_overflow = true;
-            self.renderer_errors.push(RendererError::MaxTextureSize);
-        }
-
-        // Note: if we decide to switch to scatter-style GPU cache update
-        // permanently, we can have this code nicer with `BufferUploader` kind
-        // of helper, similarly to how `TextureUploader` API is used.
-        self.gpu_cache_texture.prepare_for_updates(
-            &mut self.device,
-            updated_blocks,
-            max_requested_height,
-        );
-
-        for update_list in self.pending_gpu_cache_updates.drain(..) {
-            assert!(update_list.height <= max_requested_height);
-            if update_list.frame_id > self.gpu_cache_frame_id {
-                self.gpu_cache_frame_id = update_list.frame_id
-            }
-            self.gpu_cache_texture
-                .update(&mut self.device, &update_list);
-        }
-
-        self.profile.start_time(profiler::GPU_CACHE_UPLOAD_TIME);
-        let updated_rows = self.gpu_cache_texture.flush(
-            &mut self.device,
-            &mut self.texture_upload_pbo_pool
-        );
-        self.gpu_cache_upload_time += self.profile.end_time(profiler::GPU_CACHE_UPLOAD_TIME);
-
-        self.profile.set(profiler::GPU_CACHE_ROWS_UPDATED, updated_rows);
-        self.profile.set(profiler::GPU_CACHE_BLOCKS_UPDATED, updated_blocks);
-    }
-
-    fn prepare_gpu_cache(
-        &mut self,
-        deferred_resolves: &[DeferredResolve],
-    ) -> Result<(), RendererError> {
-        if self.pending_gpu_cache_clear {
-            let use_scatter =
-                matches!(self.gpu_cache_texture.bus, GpuCacheBus::Scatter { .. });
-            let new_cache = GpuCacheTexture::new(&mut self.device, use_scatter)?;
-            let old_cache = mem::replace(&mut self.gpu_cache_texture, new_cache);
-            old_cache.deinit(&mut self.device);
-            self.pending_gpu_cache_clear = false;
-        }
-
-        let deferred_update_list = self.update_deferred_resolves(deferred_resolves);
-        self.pending_gpu_cache_updates.extend(deferred_update_list);
-
-        self.update_gpu_cache();
-
-        // Note: the texture might have changed during the `update`,
-        // so we need to bind it here.
-        self.device.bind_texture(
-            TextureSampler::GpuCache,
-            self.gpu_cache_texture.texture.as_ref().unwrap(),
-            Swizzle::default(),
-        );
-
-        Ok(())
-    }
-
     fn update_texture_cache(&mut self) {
         profile_scope!("update_texture_cache");
 
@@ -4085,7 +2707,7 @@ impl Renderer {
         // the batch.
         debug_assert!(!data.is_empty());
 
-        let vao = get_vao(vertex_array_kind, &self.vaos);
+        let vao = &self.vaos[vertex_array_kind];
         self.device.bind_vao(vao);
 
         let chunk_size = if self.debug_flags.contains(DebugFlags::DISABLE_BATCHING) {
@@ -6587,8 +5209,7 @@ impl Renderer {
         };
 
         let (x_off, y_off) = (30f32, 30f32);
-        let height = self.gpu_cache_texture.texture
-            .as_ref().map_or(0, |t| t.get_dimensions().height)
+        let height = self.gpu_cache_texture.get_height()
             .min(device_size.height - (y_off as i32) * 2) as usize;
         debug_renderer.add_quad(
             x_off,
@@ -6624,22 +5245,6 @@ impl Renderer {
         pixels
     }
 
-    pub fn read_gpu_cache(&mut self) -> (DeviceIntSize, Vec<u8>) {
-        let texture = self.gpu_cache_texture.texture.as_ref().unwrap();
-        let size = device_size_as_framebuffer_size(texture.get_dimensions());
-        let mut texels = vec![0; (size.width * size.height * 16) as usize];
-        self.device.begin_frame();
-        self.device.bind_read_target(ReadTarget::from_texture(texture, 0));
-        self.device.read_pixels_into(
-            size.into(),
-            ImageFormat::RGBAF32,
-            &mut texels,
-        );
-        self.device.reset_read_target();
-        self.device.end_frame();
-        (texture.get_dimensions(), texels)
-    }
-
     // De-initialize the Renderer safely, assuming the GL is still alive and active.
     pub fn deinit(mut self) {
         //Note: this is a fake frame, only needed because texture deletion is require to happen inside a frame
@@ -6668,20 +5273,7 @@ impl Renderer {
         }
         self.texture_upload_pbo_pool.deinit(&mut self.device);
         self.texture_resolver.deinit(&mut self.device);
-        self.device.delete_vao(self.vaos.prim_vao);
-        self.device.delete_vao(self.vaos.resolve_vao);
-        self.device.delete_vao(self.vaos.clip_rect_vao);
-        self.device.delete_vao(self.vaos.clip_box_shadow_vao);
-        self.device.delete_vao(self.vaos.clip_image_vao);
-        self.device.delete_vao(self.vaos.gradient_vao);
-        self.device.delete_vao(self.vaos.blur_vao);
-        self.device.delete_vao(self.vaos.line_vao);
-        self.device.delete_vao(self.vaos.border_vao);
-        self.device.delete_vao(self.vaos.scale_vao);
-        self.device.delete_vao(self.vaos.svg_filter_vao);
-        self.device.delete_vao(self.vaos.composite_vao);
-        self.device.delete_vao(self.vaos.clear_vao);
-
+        self.vaos.deinit(&mut self.device);
         self.debug.deinit(&mut self.device);
 
         if let Ok(shaders) = Rc::try_unwrap(self.shaders) {
@@ -6715,15 +5307,7 @@ impl Renderer {
         let mut report = MemoryReport::default();
 
         // GPU cache CPU memory.
-        if let GpuCacheBus::PixelBuffer{ref rows, ..} = self.gpu_cache_texture.bus {
-            for row in rows.iter() {
-                report.gpu_cache_cpu_mirror += self.size_of(&*row.cpu_blocks as *const _);
-            }
-        }
-
-        // GPU cache GPU memory.
-        report.gpu_cache_textures +=
-            self.gpu_cache_texture.texture.as_ref().map_or(0, |t| t.size_in_bytes());
+        self.gpu_cache_texture.report_memory_to(&mut report, self.size_of_ops.as_ref().unwrap());
 
         // Render task CPU memory.
         for (_id, doc) in &self.active_documents {
@@ -7343,7 +5927,7 @@ impl Renderer {
             let mut plain_self = PlainRenderer {
                 device_size: self.device_size,
                 gpu_cache: Self::save_texture(
-                    &self.gpu_cache_texture.texture.as_ref().unwrap(),
+                    self.gpu_cache_texture.get_texture(),
                     "gpu", &root, &mut self.device,
                 ),
                 gpu_cache_frame_id: self.gpu_cache_frame_id,
@@ -7381,9 +5965,7 @@ impl Renderer {
         config: CaptureConfig,
         plain_externals: Vec<PlainExternalImage>,
     ) {
-        use std::fs::File;
-        use std::io::Read;
-        use std::slice;
+        use std::{fs::File, io::Read};
 
         info!("loading external buffer-backed images");
         assert!(self.texture_resolver.external_images.is_empty());
@@ -7458,10 +6040,12 @@ impl Renderer {
             }
         }
 
+        self.device.begin_frame();
+        self.gpu_cache_texture.remove_texture(&mut self.device);
+
         if let Some(renderer) = config.deserialize_for_resource::<PlainRenderer, _>("renderer") {
             info!("loading cached textures");
             self.device_size = renderer.device_size;
-            self.device.begin_frame();
 
             for (_id, texture) in self.texture_resolver.texture_cache_map.drain() {
                 self.device.delete_texture(texture);
@@ -7484,9 +6068,6 @@ impl Renderer {
             }
 
             info!("loading gpu cache");
-            if let Some(t) = self.gpu_cache_texture.texture.take() {
-                self.device.delete_texture(t);
-            }
             let (t, gpu_cache_data) = Self::load_texture(
                 ImageBufferKind::Texture2D,
                 &renderer.gpu_cache,
@@ -7494,67 +6075,22 @@ impl Renderer {
                 &root,
                 &mut self.device,
             );
-            self.gpu_cache_texture.texture = Some(t);
-            match self.gpu_cache_texture.bus {
-                GpuCacheBus::PixelBuffer { ref mut rows, .. } => {
-                    let dim = self.gpu_cache_texture.texture.as_ref().unwrap().get_dimensions();
-                    let blocks = unsafe {
-                        slice::from_raw_parts(
-                            gpu_cache_data.as_ptr() as *const GpuBlockData,
-                            gpu_cache_data.len() / mem::size_of::<GpuBlockData>(),
-                        )
-                    };
-                    // fill up the CPU cache from the contents we just loaded
-                    rows.clear();
-                    rows.extend((0 .. dim.height).map(|_| CacheRow::new()));
-                    let chunks = blocks.chunks(MAX_VERTEX_TEXTURE_WIDTH);
-                    debug_assert_eq!(chunks.len(), rows.len());
-                    for (row, chunk) in rows.iter_mut().zip(chunks) {
-                        row.cpu_blocks.copy_from_slice(chunk);
-                    }
-                }
-                GpuCacheBus::Scatter { .. } => {}
-            }
+            self.gpu_cache_texture.load_from_data(t, gpu_cache_data);
             self.gpu_cache_frame_id = renderer.gpu_cache_frame_id;
-
-            self.device.end_frame();
         } else {
             info!("loading cached textures");
             self.device.begin_frame();
             for (_id, texture) in self.texture_resolver.texture_cache_map.drain() {
                 self.device.delete_texture(texture);
             }
-
-            info!("loading gpu cache");
-            if let Some(t) = self.gpu_cache_texture.texture.take() {
-                self.device.delete_texture(t);
-            }
-            self.device.end_frame();
         }
+        self.device.end_frame();
 
         self.external_image_handler = Some(Box::new(image_handler) as Box<_>);
         info!("done.");
     }
 }
 
-fn get_vao(vertex_array_kind: VertexArrayKind, vaos: &RendererVAOs) -> &VAO {
-    match vertex_array_kind {
-        VertexArrayKind::Primitive => &vaos.prim_vao,
-        VertexArrayKind::ClipImage => &vaos.clip_image_vao,
-        VertexArrayKind::ClipRect => &vaos.clip_rect_vao,
-        VertexArrayKind::ClipBoxShadow => &vaos.clip_box_shadow_vao,
-        VertexArrayKind::Blur => &vaos.blur_vao,
-        VertexArrayKind::VectorStencil | VertexArrayKind::VectorCover => unreachable!(),
-        VertexArrayKind::Border => &vaos.border_vao,
-        VertexArrayKind::Scale => &vaos.scale_vao,
-        VertexArrayKind::LineDecoration => &vaos.line_vao,
-        VertexArrayKind::Gradient => &vaos.gradient_vao,
-        VertexArrayKind::Resolve => &vaos.resolve_vao,
-        VertexArrayKind::SvgFilter => &vaos.svg_filter_vao,
-        VertexArrayKind::Composite => &vaos.composite_vao,
-        VertexArrayKind::Clear => &vaos.clear_vao,
-    }
-}
 #[derive(Clone, Copy, PartialEq)]
 enum FramebufferKind {
     Main,

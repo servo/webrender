@@ -555,7 +555,13 @@ struct Texture {
       flags &= ~flag;
     }
   }
-  void set_should_free(bool val) { set_flag(SHOULD_FREE, val); }
+  void set_should_free(bool val) {
+    // buf must be null before SHOULD_FREE can be safely toggled. Otherwise, we
+    // might accidentally mistakenly realloc an externally allocated buffer as
+    // if it were an internally allocated one.
+    assert(!buf);
+    set_flag(SHOULD_FREE, val);
+  }
   void set_cleared(bool val) { set_flag(CLEARED, val); }
 
   // Delayed-clearing state. When a clear of an FB is requested, we don't
@@ -659,8 +665,14 @@ struct Texture {
 
   void cleanup() {
     assert(!locked);  // Locked textures shouldn't be destroyed
-    if (buf && should_free()) {
-      free(buf);
+    if (buf) {
+      // If we need to toggle SHOULD_FREE state, ensure that buf is nulled out,
+      // regardless of whether we internally allocated it. This will prevent us
+      // from wrongly treating buf as having been internally allocated for when
+      // we go to realloc if it actually was externally allocted.
+      if (should_free()) {
+        free(buf);
+      }
       buf = nullptr;
       buf_size = 0;
       buf_bpp = 0;
@@ -2177,17 +2189,23 @@ GLboolean UnmapBuffer(GLenum target) {
 
 void Uniform1i(GLint location, GLint V0) {
   // debugf("tex: %d\n", (int)ctx->textures.size);
-  vertex_shader->set_uniform_1i(location, V0);
+  if (vertex_shader) {
+    vertex_shader->set_uniform_1i(location, V0);
+  }
 }
 void Uniform4fv(GLint location, GLsizei count, const GLfloat* v) {
   assert(count == 1);
-  vertex_shader->set_uniform_4fv(location, v);
+  if (vertex_shader) {
+    vertex_shader->set_uniform_4fv(location, v);
+  }
 }
 void UniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose,
                       const GLfloat* value) {
   assert(count == 1);
   assert(!transpose);
-  vertex_shader->set_uniform_matrix4fv(location, value);
+  if (vertex_shader) {
+    vertex_shader->set_uniform_matrix4fv(location, value);
+  }
 }
 
 void FramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget,
@@ -4073,7 +4091,8 @@ extern "C" {
 
 void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type,
                            GLintptr offset, GLsizei instancecount) {
-  if (offset < 0 || count <= 0 || instancecount <= 0) {
+  if (offset < 0 || count <= 0 || instancecount <= 0 || !vertex_shader ||
+      !fragment_shader) {
     return;
   }
 
