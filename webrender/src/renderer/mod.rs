@@ -49,6 +49,7 @@ use api::units::*;
 use api::channel::{unbounded_channel, Sender, Receiver};
 pub use api::DebugFlags;
 use core::time::Duration;
+
 use crate::render_api::{RenderApiSender, DebugCommand, ApiMsg, FrameMsg, MemoryReport};
 use crate::batch::{AlphaBatchContainer, BatchKind, BatchFeatures, BatchTextures, BrushBatchKind, ClipBatchList};
 #[cfg(any(feature = "capture", feature = "replay"))]
@@ -58,16 +59,14 @@ use crate::composite::{CompositorKind, Compositor, NativeTileId, CompositeSurfac
 use crate::composite::{CompositorConfig, NativeSurfaceOperationDetails, NativeSurfaceId, NativeSurfaceOperation};
 use crate::c_str;
 use crate::debug_colors;
-use crate::debug_render::{DebugItem, DebugRenderer};
 use crate::device::{DepthFunction, Device, DrawTarget, ExternalTexture, GpuFrameId};
 use crate::device::{ProgramCache, ReadTarget, ShaderError, Texture, TextureFilter, TextureFlags, TextureSlot};
 use crate::device::{UploadMethod, UploadPBOPool, UploadStagingBuffer, VertexUsageHint};
 use crate::device::query::{GpuSampler, GpuTimer};
 #[cfg(feature = "capture")]
 use crate::device::FBOId;
-use euclid::{rect, Transform3D, Scale, default};
+use crate::debug_item::DebugItem;
 use crate::frame_builder::{Frame, ChasePrimitive, FrameBuilderConfig};
-use gleam::gl;
 use crate::glyph_cache::GlyphCache;
 use crate::glyph_rasterizer::{GlyphFormat, GlyphRasterizer};
 use crate::gpu_cache::{GpuCacheUpdate, GpuCacheUpdateList};
@@ -78,33 +77,36 @@ use crate::internal_types::{TextureSource, ResourceCacheError};
 use crate::internal_types::{CacheTextureId, DebugOutput, FastHashMap, FastHashSet, LayerIndex, RenderedDocument, ResultMsg};
 use crate::internal_types::{TextureCacheAllocationKind, TextureCacheUpdate, TextureUpdateList, TextureUpdateSource};
 use crate::internal_types::{RenderTargetInfo, Swizzle, DeferredResolveIndex};
-use malloc_size_of::MallocSizeOfOps;
 use crate::picture::{self, ResolvedSurfaceTexture};
 use crate::prim_store::DeferredResolve;
 use crate::profiler::{self, GpuProfileTag, TransactionProfile};
 use crate::profiler::{Profiler, add_event_marker, add_text_marker, thread_is_being_profiled};
 use crate::device::query::{GpuProfiler, GpuDebugMethod};
-use rayon::{ThreadPool, ThreadPoolBuilder};
 use crate::render_backend::{FrameId, RenderBackend};
 use crate::render_task_graph::RenderTaskGraph;
 use crate::render_task::{RenderTask, RenderTaskKind};
 use crate::resource_cache::ResourceCache;
 use crate::scene_builder_thread::{SceneBuilderThread, SceneBuilderThreadChannels, LowPrioritySceneBuilderThread};
 use crate::screen_capture::AsyncScreenshotGrabber;
-use crate::shade::{Shaders, WrShaders};
-use crate::guillotine_allocator::{GuillotineAllocator, FreeRectSlice};
-use crate::texture_cache::{TextureCache, TextureCacheConfig};
 use crate::render_target::{AlphaRenderTarget, ColorRenderTarget, PictureCacheTarget};
 use crate::render_target::{RenderTarget, TextureCacheRenderTarget};
 use crate::render_target::{RenderTargetKind, BlitJob, BlitJobSource};
+use crate::texture_cache::{TextureCache, TextureCacheConfig};
+use crate::texture_pack::{GuillotineAllocator, FreeRectSlice};
 use crate::tile_cache::PictureCacheDebugInfo;
 use crate::util::drain_filter;
+
+use euclid::{rect, Transform3D, Scale, default};
+use gleam::gl;
+use malloc_size_of::MallocSizeOfOps;
+use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use std::{
     cell::RefCell,
     collections::VecDeque,
     f32,
     mem,
+    num::NonZeroUsize,
     os::raw::c_void,
     path::PathBuf,
     rc::Rc,
@@ -124,9 +126,13 @@ cfg_if! {
     }
 }
 
+mod debug;
 mod gpu_cache;
+mod shade;
 mod vertex;
 
+pub use debug::DebugRenderer;
+pub use shade::{Shaders, SharedShaders};
 pub use vertex::{desc, VertexArrayKind, MAX_VERTEX_TEXTURE_WIDTH};
 
 /// Use this hint for all vertex data re-initialization. This allows
@@ -625,48 +631,6 @@ struct TargetSelector {
     format: ImageFormat,
 }
 
-struct LazyInitializedDebugRenderer {
-    debug_renderer: Option<DebugRenderer>,
-    failed: bool,
-}
-
-impl LazyInitializedDebugRenderer {
-    pub fn new() -> Self {
-        Self {
-            debug_renderer: None,
-            failed: false,
-        }
-    }
-
-    pub fn get_mut<'a>(&'a mut self, device: &mut Device) -> Option<&'a mut DebugRenderer> {
-        if self.failed {
-            return None;
-        }
-        if self.debug_renderer.is_none() {
-            match DebugRenderer::new(device) {
-                Ok(renderer) => { self.debug_renderer = Some(renderer); }
-                Err(_) => {
-                    // The shader compilation code already logs errors.
-                    self.failed = true;
-                }
-            }
-        }
-
-        self.debug_renderer.as_mut()
-    }
-
-    /// Returns mut ref to `DebugRenderer` if one already exists, otherwise returns `None`.
-    pub fn try_get_mut<'a>(&'a mut self) -> Option<&'a mut DebugRenderer> {
-        self.debug_renderer.as_mut()
-    }
-
-    pub fn deinit(self, device: &mut Device) {
-        if let Some(debug_renderer) = self.debug_renderer {
-            debug_renderer.deinit(device);
-        }
-    }
-}
-
 /// Information about the state of the debugging / profiler overlay in native compositing mode.
 struct DebugOverlayState {
     /// True if any of the current debug flags will result in drawing a debug overlay.
@@ -759,7 +723,7 @@ pub struct Renderer {
     enable_advanced_blend_barriers: bool,
     clear_caches_with_quads: bool,
 
-    debug: LazyInitializedDebugRenderer,
+    debug: debug::LazyInitializedDebugRenderer,
     debug_flags: DebugFlags,
     profile: TransactionProfile,
     frame_counter: u64,
@@ -859,6 +823,7 @@ pub struct Renderer {
     buffer_damage_tracker: BufferDamageTracker,
 
     max_primitive_instance_count: usize,
+    enable_instancing: bool,
 }
 
 #[derive(Debug)]
@@ -909,7 +874,7 @@ impl Renderer {
         gl: Rc<dyn gl::Gl>,
         notifier: Box<dyn RenderNotifier>,
         mut options: RendererOptions,
-        shaders: Option<&mut WrShaders>,
+        shaders: Option<&SharedShaders>,
     ) -> Result<(Self, RenderApiSender), RendererError> {
         if !wr_has_been_initialized() {
             // If the profiler feature is enabled, try to load the profiler shared library
@@ -978,7 +943,7 @@ impl Renderer {
         device.begin_frame();
 
         let shaders = match shaders {
-            Some(shaders) => Rc::clone(&shaders.shaders),
+            Some(shaders) => Rc::clone(shaders),
             None => Rc::new(RefCell::new(Shaders::new(&mut device, gl_type, &options)?)),
         };
 
@@ -1066,7 +1031,12 @@ impl Renderer {
             None
         };
 
-        let vaos = vertex::RendererVAOs::new(&mut device);
+        let max_primitive_instance_count =
+            RendererOptions::MAX_INSTANCE_BUFFER_SIZE / mem::size_of::<PrimitiveInstanceData>();
+        let vaos = vertex::RendererVAOs::new(
+            &mut device,
+            if options.enable_instancing { None } else { NonZeroUsize::new(max_primitive_instance_count) },
+        );
 
         let texture_upload_pbo_pool = UploadPBOPool::new(&mut device, options.upload_pbo_default_size);
         let texture_resolver = TextureResolver::new(&mut device);
@@ -1330,7 +1300,7 @@ impl Renderer {
             pending_gpu_cache_clear: false,
             pending_shader_updates: Vec::new(),
             shaders,
-            debug: LazyInitializedDebugRenderer::new(),
+            debug: debug::LazyInitializedDebugRenderer::new(),
             debug_flags: DebugFlags::empty(),
             profile: TransactionProfile::new(),
             frame_counter: 0,
@@ -1378,8 +1348,8 @@ impl Renderer {
             allocated_native_surfaces: FastHashSet::default(),
             debug_overlay_state: DebugOverlayState::new(),
             buffer_damage_tracker: BufferDamageTracker::default(),
-            max_primitive_instance_count:
-                RendererOptions::MAX_INSTANCE_BUFFER_SIZE / mem::size_of::<PrimitiveInstanceData>(),
+            max_primitive_instance_count,
+            enable_instancing: options.enable_instancing,
         };
 
         // We initially set the flags to default and then now call set_debug_flags
@@ -2692,7 +2662,7 @@ impl Renderer {
         }
     }
 
-    fn draw_instanced_batch<T>(
+    fn draw_instanced_batch<T: Clone>(
         &mut self,
         data: &[T],
         vertex_array_kind: VertexArrayKind,
@@ -2719,10 +2689,17 @@ impl Renderer {
         };
 
         for chunk in data.chunks(chunk_size) {
-            self.device
-                .update_vao_instances(vao, chunk, ONE_TIME_USAGE_HINT);
-            self.device
-                .draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
+            if self.enable_instancing {
+                self.device
+                    .update_vao_instances(vao, chunk, ONE_TIME_USAGE_HINT, None);
+                self.device
+                    .draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
+            } else {
+                self.device
+                    .update_vao_instances(vao, chunk, ONE_TIME_USAGE_HINT, NonZeroUsize::new(4));
+                self.device
+                    .draw_indexed_triangles(6 * chunk.len() as i32);
+            }
             self.profile.inc(profiler::DRAW_CALLS);
             stats.total_draw_calls += 1;
         }
@@ -3600,6 +3577,17 @@ impl Renderer {
         self.device.enable_depth(DepthFunction::LessEqual);
         self.device.enable_depth_write();
 
+        // If using KHR_partial_update, call eglSetDamageRegion.
+        // This must be called exactly once per frame, and prior to any rendering to the main
+        // framebuffer. Additionally, on Mali-G77 we encountered rendering issues when calling
+        // this earlier in the frame, during offscreen render passes. So call it now, immediately
+        // before rendering to the main framebuffer. See bug 1685276 for details.
+        if let Some(partial_present) = self.compositor_config.partial_present() {
+            if let Some(PartialPresentMode::Single { dirty_rect }) = partial_present_mode {
+                partial_present.set_buffer_damage_region(&[dirty_rect.to_i32()]);
+            }
+        }
+
         // Clear the framebuffer
         let clear_color = self.clear_color.map(|color| color.to_array());
 
@@ -4391,10 +4379,6 @@ impl Renderer {
                 partial_present_mode = Some(PartialPresentMode::Single {
                     dirty_rect: total_dirty_rect,
                 });
-
-                if let Some(partial_present) = self.compositor_config.partial_present() {
-                    partial_present.set_buffer_damage_region(&[total_dirty_rect.to_i32()]);
-                }
             } else {
                 // If we don't have a valid partial present scenario, return a single
                 // dirty rect to the client that covers the entire framebuffer.
@@ -5527,6 +5511,10 @@ pub struct RendererOptions {
     pub panic_on_gl_error: bool,
     pub picture_tile_size: Option<DeviceIntSize>,
     pub texture_cache_config: TextureCacheConfig,
+    /// If true, we'll use instanced vertex attributes. Each instace is a quad.
+    /// If false, we'll duplicate the instance attributes per vertex and issue
+    /// regular indexed draws instead.
+    pub enable_instancing: bool,
 }
 
 impl RendererOptions {
@@ -5596,6 +5584,9 @@ impl Default for RendererOptions {
             panic_on_gl_error: false,
             picture_tile_size: None,
             texture_cache_config: TextureCacheConfig::DEFAULT,
+            // Disabling instancing means more vertex data to upload and potentially
+            // process by the vertex shaders.
+            enable_instancing: true,
         }
     }
 }

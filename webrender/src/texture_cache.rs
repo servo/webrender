@@ -20,14 +20,19 @@ use crate::lru_cache::LRUCache;
 use crate::profiler::{self, TransactionProfile};
 use crate::render_backend::{FrameStamp, FrameId};
 use crate::resource_cache::{CacheItem, CachedImageData};
-use crate::atlas_allocator::*;
-use crate::slab_allocator::*;
+use crate::texture_pack::{
+    AllocatorList,
+    AllocId,
+    AtlasAllocatorList,
+    ShelfAllocator,
+    ShelfAllocatorOptions,
+    SlabAllocator, SlabAllocatorParameters,
+};
 use smallvec::SmallVec;
 use std::cell::Cell;
 use std::{cmp, mem};
 use std::rc::Rc;
 use euclid::size2;
-
 
 /// Information about which shader will use the entry.
 ///
@@ -235,7 +240,7 @@ struct SharedTextures {
     alpha8_linear: AllocatorList<ShelfAllocator, TextureParameters>,
     alpha16_linear: AllocatorList<SlabAllocator, TextureParameters>,
     color8_linear: AllocatorList<ShelfAllocator, TextureParameters>,
-    color8_glyphs: AllocatorList<BucketedShelfAllocator, TextureParameters>,
+    color8_glyphs: AllocatorList<ShelfAllocator, TextureParameters>,
 }
 
 impl SharedTextures {
