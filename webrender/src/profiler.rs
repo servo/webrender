@@ -69,7 +69,7 @@ static PROFILER_PRESETS: &'static[(&'static str, &'static str)] = &[
     // Stats about the content of the frame.
     (&"Frame stats", &"Primitives,Visible primitives,Draw calls,Vertices,Color passes,Alpha passes,Rendered picture tiles,Rasterized glyphs"),
     // Texture cache allocation stats.
-    (&"Texture cache stats", &"Texture cache RGBA8 linear pixels, Texture cache RGBA8 linear textures, Texture cache glyphs pixels, Texture cache glyphs textures, Texture cache A8 pixels, Texture cache A8 textures, Texture cache A16 pixels, Texture cache A16 textures, Texture cache RGBA8 nearest pixels, Texture cache RGBA8 nearest textures, Texture cache shared mem, Texture cache standalone mem"),
+    (&"Texture cache stats", &"Texture cache RGBA8 linear pixels, Texture cache RGBA8 linear textures, Texture cache RGBA8 glyphs pixels, Texture cache RGBA8 glyphs textures, Texture cache A8 glyphs pixels, Texture cache A8 glyphs textures, Texture cache A8 pixels, Texture cache A8 textures, Texture cache A16 pixels, Texture cache A16 textures, Texture cache RGBA8 nearest pixels, Texture cache RGBA8 nearest textures, Texture cache shared mem, Texture cache standalone mem"),
 
     // Graphs:
 
@@ -193,8 +193,10 @@ pub const INTERNED_BACKDROPS: usize = 73;
 
 pub const TEXTURE_CACHE_RGBA8_GLYPHS_PIXELS: usize = 74;
 pub const TEXTURE_CACHE_RGBA8_GLYPHS_TEXTURES: usize = 75;
+pub const TEXTURE_CACHE_A8_GLYPHS_PIXELS: usize = 76;
+pub const TEXTURE_CACHE_A8_GLYPHS_TEXTURES: usize = 77;
 
-pub const NUM_PROFILER_EVENTS: usize = 76;
+pub const NUM_PROFILER_EVENTS: usize = 78;
 
 pub struct Profiler {
     counters: Vec<Counter>,
@@ -203,6 +205,9 @@ pub struct Profiler {
     start: u64,
     avg_over_period: u64,
     num_graph_samples: usize,
+
+    // For FPS computation. Updated in update().
+    frame_timestamps_within_last_second: Vec<u64>,
 
     ui: Vec<Item>,
 }
@@ -318,8 +323,10 @@ impl Profiler {
             int("Interned filter data", "", INTERNED_FILTER_DATA, Expected::none()),
             int("Interned backdrops", "", INTERNED_BACKDROPS, Expected::none()),
 
-            int("Texture cache glyphs pixels", "px", TEXTURE_CACHE_RGBA8_GLYPHS_PIXELS, expected(0..4_000_000)),
-            int("Texture cache glyphs textures", "", TEXTURE_CACHE_RGBA8_GLYPHS_TEXTURES, expected(0..2)),
+            int("Texture cache RGBA8 glyphs pixels", "px", TEXTURE_CACHE_RGBA8_GLYPHS_PIXELS, expected(0..4_000_000)),
+            int("Texture cache RGBA8 glyphs textures", "", TEXTURE_CACHE_RGBA8_GLYPHS_TEXTURES, expected(0..2)),
+            int("Texture cache A8 glyphs pixels", "px", TEXTURE_CACHE_A8_GLYPHS_PIXELS, expected(0..4_000_000)),
+            int("Texture cache A8 glyphs textures", "", TEXTURE_CACHE_A8_GLYPHS_TEXTURES, expected(0..2)),
         ];
 
 
@@ -338,6 +345,7 @@ impl Profiler {
             avg_over_period: ONE_SECOND_NS / 2,
 
             num_graph_samples: 500, // Would it be useful to control this via a pref?
+            frame_timestamps_within_last_second: Vec::new(),
             ui: Vec::new(),
         }
     }
@@ -366,6 +374,9 @@ impl Profiler {
         if update_avg {
             self.start = now;
         }
+        let one_second_ago = now - ONE_SECOND_NS;
+        self.frame_timestamps_within_last_second.retain(|t| *t > one_second_ago);
+        self.frame_timestamps_within_last_second.push(now);
 
         self.update_slow_event(
             SLOW_FRAME,
@@ -1023,7 +1034,8 @@ impl Profiler {
                     rect
                 }
                 Item::Fps => {
-                    set_text!(&mut text_buffer, "{:.2} fps", 1000.0 / self.counters[FRAME_TIME].max);
+                    let fps = self.frame_timestamps_within_last_second.len();
+                    set_text!(&mut text_buffer, "{} fps", fps);
                     let mut rect = debug_renderer.add_text(
                         x + PROFILE_PADDING,
                         y + PROFILE_PADDING + 5.0,
