@@ -24,6 +24,7 @@ use rayon::prelude::*;
 use euclid::approxeq::ApproxEq;
 use euclid::size2;
 use smallvec::SmallVec;
+use std::borrow::Cow;
 use std::cmp;
 use std::cell::Cell;
 use std::hash::{Hash, Hasher};
@@ -226,8 +227,6 @@ impl GlyphRasterizer {
         gpu_cache: &mut GpuCache,
         profile: &mut TransactionProfile,
     ) {
-        use std::borrow::Cow;
-
         profile.start_time(profiler::GLYPH_RESOLVE_TIME);
 
         // Work around the borrow checker, since we call flush_glyph_requests below

@@ -4,6 +4,7 @@
 
 #![deny(missing_docs)]
 
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::fmt;
 use std::marker::PhantomData;
@@ -515,7 +516,7 @@ impl Transaction {
     }
 
     /// See `ResourceUpdate::AddFont`.
-    pub fn add_raw_font(&mut self, key: FontKey, bytes: Vec<u8>, index: u32) {
+    pub fn add_raw_font(&mut self, key: FontKey, bytes: Cow<'static, [u8]>, index: u32) {
         self.resource_updates
             .push(ResourceUpdate::AddFont(AddFont::Raw(key, Arc::new(bytes), index)));
     }
@@ -737,7 +738,7 @@ pub struct UpdateBlobImage {
 #[cfg_attr(any(feature = "serde"), derive(Deserialize, Serialize))]
 pub enum AddFont {
     ///
-    Raw(FontKey, Arc<Vec<u8>>, u32),
+    Raw(FontKey, Arc<Cow<'static, [u8]>>, u32),
     ///
     Native(FontKey, NativeFontHandle),
 }
