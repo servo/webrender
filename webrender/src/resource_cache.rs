@@ -34,6 +34,7 @@ use crate::render_task_cache::{RenderTaskCache, RenderTaskCacheKey, RenderTaskPa
 use crate::render_task_cache::{RenderTaskCacheEntry, RenderTaskCacheEntryHandle};
 use euclid::point2;
 use smallvec::SmallVec;
+use std::borrow::Cow;
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::collections::hash_map::{Iter, IterMut};
 use std::collections::VecDeque;
@@ -1874,7 +1875,7 @@ impl ResourceCache {
                     warn!("Tiled blob images aren't supported yet");
                     let result = RasterizedBlobImage {
                         rasterized_rect: desc.size.into(),
-                        data: Arc::new(vec![0; desc.compute_total_size() as usize])
+                        data: Arc::new(Cow::Owned(vec![0; desc.compute_total_size() as usize]))
                     };
 
                     assert_eq!(result.rasterized_rect.size, desc.size);
