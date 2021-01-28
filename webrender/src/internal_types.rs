@@ -22,6 +22,7 @@ use std::f32;
 use std::hash::BuildHasherDefault;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::borrow::Cow;
 
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::capture::CaptureConfig;
@@ -311,7 +312,7 @@ pub enum TextureUpdateSource {
         id: ExternalImageId,
         channel_index: u8,
     },
-    Bytes { data: Arc<Vec<u8>> },
+    Bytes { data: Arc<Cow<'static, [u8]>> },
     /// Clears the target area, rather than uploading any pixels. Used when the
     /// texture cache debug display is active.
     DebugClear,

@@ -46,6 +46,7 @@ use std::os::raw::c_void;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::borrow::Cow;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::u32;
 use crate::texture_cache::{TextureCache, TextureCacheHandle, Eviction, TargetShader};
@@ -101,7 +102,7 @@ impl CacheItem {
 pub enum CachedImageData {
     /// A simple series of bytes, provided by the embedding and owned by WebRender.
     /// The format is stored out-of-band, currently in ImageDescriptor.
-    Raw(Arc<Vec<u8>>),
+    Raw(Arc<Cow<'static, [u8]>>),
     /// An series of commands that can be rasterized into an image via an
     /// embedding-provided callback.
     ///
@@ -1542,7 +1543,7 @@ impl ResourceCache {
         }
 
         for font in self.resources.weak_fonts.iter() {
-            if !seen_fonts.contains(&font.as_ptr()) { 
+            if !seen_fonts.contains(&font.as_ptr()) {
                 report.weak_fonts += unsafe { op(font.as_ptr() as *const c_void) };
             }
         }

@@ -226,6 +226,8 @@ impl GlyphRasterizer {
         gpu_cache: &mut GpuCache,
         profile: &mut TransactionProfile,
     ) {
+        use std::borrow::Cow;
+
         profile.start_time(profiler::GLYPH_RESOLVE_TIME);
 
         // Work around the borrow checker, since we call flush_glyph_requests below
@@ -298,7 +300,7 @@ impl GlyphRasterizer {
                                 offset: 0,
                             },
                             TextureFilter::Linear,
-                            Some(CachedImageData::Raw(Arc::new(glyph.bytes))),
+                            Some(CachedImageData::Raw(Arc::new(Cow::Owned(glyph.bytes)))),
                             [glyph.left, -glyph.top, glyph.scale],
                             DirtyRect::All,
                             gpu_cache,

@@ -8,6 +8,7 @@ use euclid::{size2, Rect, num::Zero};
 use peek_poke::PeekPoke;
 use std::ops::{Add, Sub};
 use std::sync::Arc;
+use std::borrow::Cow;
 // local imports
 use crate::{IdNamespace, TileSize};
 use crate::display_item::ImageRendering;
@@ -323,7 +324,7 @@ impl ImageDescriptor {
 pub enum ImageData {
     /// A simple series of bytes, provided by the embedding and owned by WebRender.
     /// The format is stored out-of-band, currently in ImageDescriptor.
-    Raw(#[serde(with = "serde_image_data_raw")] Arc<Vec<u8>>),
+    Raw(#[serde(with = "serde_image_data_raw")] Arc<Cow<'static, [u8]>>),
     /// An image owned by the embedding, and referenced by WebRender. This may
     /// take the form of a texture or a heap-allocated buffer.
     External(ExternalImageData),
@@ -333,25 +334,27 @@ mod serde_image_data_raw {
     extern crate serde_bytes;
 
     use std::sync::Arc;
+    use std::borrow::Cow;
     use serde::{Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(bytes: &Arc<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error> {
-        serde_bytes::serialize(bytes.as_slice(), serializer)
+    pub fn serialize<S: Serializer>(bytes: &Arc<Cow<'static, [u8]>>, serializer: S) -> Result<S::Ok, S::Error> {
+        serde_bytes::serialize((&*bytes).as_ref(), serializer)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Arc<Vec<u8>>, D::Error> {
-        serde_bytes::deserialize(deserializer).map(Arc::new)
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Arc<Cow<'static, [u8]>>, D::Error> {
+        let v: Vec<u8> = serde_bytes::deserialize(deserializer)?;
+        Ok(Arc::new(Cow::Owned(v)))
     }
 }
 
 impl ImageData {
     /// Mints a new raw ImageData, taking ownership of the bytes.
-    pub fn new(bytes: Vec<u8>) -> Self {
+    pub fn new(bytes: Cow<'static, [u8]>) -> Self {
         ImageData::Raw(Arc::new(bytes))
     }
 
     /// Mints a new raw ImageData from Arc-ed bytes.
-    pub fn new_shared(bytes: Arc<Vec<u8>>) -> Self {
+    pub fn new_shared(bytes: Arc<Cow<'static, [u8]>>) -> Self {
         ImageData::Raw(bytes)
     }
 }
@@ -537,7 +540,7 @@ impl<T: Copy, U> From<Rect<T, U>> for DirtyRect<T, U> {
 }
 
 /// Backing store for blob image command streams.
-pub type BlobImageData = Vec<u8>;
+pub type BlobImageData = Cow<'static, [u8]>;
 
 /// Result type for blob raserization.
 pub type BlobImageResult = Result<RasterizedBlobImage, BlobImageError>;
@@ -560,7 +563,7 @@ pub struct RasterizedBlobImage {
     /// image or tile.
     pub rasterized_rect: DeviceIntRect,
     /// Backing store. The format is stored out of band in `BlobImageDescriptor`.
-    pub data: Arc<Vec<u8>>,
+    pub data: Arc<Cow<'static, [u8]>>,
 }
 
 /// Error code for when blob rasterization failed.
