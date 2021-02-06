@@ -5,9 +5,12 @@
 
 use gleam::gl::*;
 use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int, c_void};
-use std::ptr;
-use std::str;
+use gleam::gl::ffi::__gl_imports::{c_char, c_int, c_void};
+use core::ptr;
+use core::str;
+use alloc::string::ToString;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 #[allow(unused)]
 macro_rules! debug {
