@@ -17,8 +17,10 @@
 
 
 use std::mem;
+use std::collections::VecDeque;
 use euclid::Transform3D;
 use time::precise_time_ns;
+use malloc_size_of::MallocSizeOfOps;
 use api::units::*;
 use api::{ExternalImageSource, PremultipliedColorF, ImageBufferKind, ImageRendering, ImageFormat};
 use crate::renderer::{
@@ -37,6 +39,7 @@ use crate::batch::BatchTextures;
 use crate::texture_pack::{GuillotineAllocator, FreeRectSlice};
 use crate::composite::CompositeSurfaceFormat;
 use crate::profiler;
+use crate::render_api::MemoryReport;
 
 pub const BATCH_UPLOAD_TEXTURE_SIZE: DeviceIntSize = DeviceIntSize::new(512, 512);
 
@@ -577,12 +580,14 @@ fn copy_from_staging_to_cache_using_draw_calls(
 /// A very basic pool to avoid reallocating staging textures as well as staging
 /// CPU side buffers.
 pub struct UploadTexturePool {
-    /// The textures use a basic triple buffering scheme to avoid stalls.
+    /// The textures in the pool associated with a last used frame index.
     ///
-    /// The outer array corresponds to three frames and the inner array has a vector
-    /// for each of the three supported texture format.
-    frames: [[Vec<Texture>; 3]; 3],
-    current_frame: usize,
+    /// The outer array corresponds to each of teh three supported texture formats.
+    textures: [VecDeque<(Texture, u64)>; 3],
+    // Frame at which to deallocate some textures if there are too many in the pool,
+    // for each format.
+    delay_texture_deallocation: [u64; 3],
+    current_frame: u64,
 
     /// Temporary buffers that are used when using staging uploads + glTexImage2D.
     ///
@@ -590,18 +595,19 @@ pub struct UploadTexturePool {
     /// To keep things simple we always allocate enough memory for formats with four bytes
     /// per pixel (more than we need for alpha-only textures but it works just as well).
     temporary_buffers: Vec<Vec<mem::MaybeUninit<u8>>>,
+    used_temporary_buffers: usize,
+    delay_buffer_deallocation: u64,
 }
 
 impl UploadTexturePool {
     pub fn new() -> Self {
         UploadTexturePool {
-            frames: [
-                [Vec::new(), Vec::new(), Vec::new()],
-                [Vec::new(), Vec::new(), Vec::new()],
-                [Vec::new(), Vec::new(), Vec::new()],
-            ],
+            textures: [VecDeque::new(), VecDeque::new(), VecDeque::new()],
+            delay_texture_deallocation: [0; 3],
             current_frame: 0,
             temporary_buffers: Vec::new(),
+            used_temporary_buffers: 0,
+            delay_buffer_deallocation: 0,
         }
     }
 
@@ -615,7 +621,7 @@ impl UploadTexturePool {
     }
 
     pub fn begin_frame(&mut self) {
-        self.current_frame = (self.current_frame + 1) % self.frames.len();
+        self.current_frame += 1;
     }
 
     /// Create or reuse a staging texture.
@@ -623,31 +629,41 @@ impl UploadTexturePool {
     /// See also return_texture.
     pub fn get_texture(&mut self, device: &mut Device, format: ImageFormat) -> Texture {
 
+        // First try to reuse a texture from the pool.
+        // "available" here means hasn't been used for 2 frames to avoid stalls.
+        // No need to scan the vector. Newer textures are always pushed at the back
+        // of the vector so we know the first element is the least recently used.
         let format_idx = self.format_index(format);
-        self.frames[self.current_frame][format_idx].pop().unwrap_or_else(||{
-            device.create_texture(
-                ImageBufferKind::Texture2D,
-                format,
-                BATCH_UPLOAD_TEXTURE_SIZE.width,
-                BATCH_UPLOAD_TEXTURE_SIZE.height,
-                TextureFilter::Nearest,
-                // Currently we need render target support as we always use glBlitFramebuffer
-                // to copy the texture data. Instead, we should use glCopyImageSubData on some
-                // platforms, and avoid creating the FBOs in that case.
-                Some(RenderTargetInfo { has_depth: false }),
-                1,
-            )
-        })
+        let can_reuse = self.textures[format_idx].get(0)
+            .map(|tex| self.current_frame - tex.1 > 2)
+            .unwrap_or(false);
+
+        if can_reuse {
+            return self.textures[format_idx].pop_front().unwrap().0;
+        }
+
+        // If we couldn't find an available texture, create a new one.
+
+        device.create_texture(
+            ImageBufferKind::Texture2D,
+            format,
+            BATCH_UPLOAD_TEXTURE_SIZE.width,
+            BATCH_UPLOAD_TEXTURE_SIZE.height,
+            TextureFilter::Nearest,
+            // Currently we need render target support as we always use glBlitFramebuffer
+            // to copy the texture data. Instead, we should use glCopyImageSubData on some
+            // platforms, and avoid creating the FBOs in that case.
+            Some(RenderTargetInfo { has_depth: false }),
+            1,
+        )
     }
 
     /// Hand the staging texture back to the pool after being done with uploads.
     ///
     /// The texture must have been obtained from this pool via get_texture.
-    /// Don't call get_texture again after having returned a texture during the same
-    /// frame otherwise the returned texture might be reused too early and cause stalls.
     pub fn return_texture(&mut self, texture: Texture) {
         let format_idx = self.format_index(texture.get_format());
-        self.frames[self.current_frame][format_idx].push(texture);
+        self.textures[format_idx].push_back((texture, self.current_frame));
     }
 
     /// Create or reuse a temporary CPU buffer.
@@ -656,6 +672,7 @@ impl UploadTexturePool {
     /// Content is first written to the temporary buffer and uploaded via a single
     /// glTexSubImage2D call.
     pub fn get_temporary_buffer(&mut self) -> Vec<mem::MaybeUninit<u8>> {
+        self.used_temporary_buffers += 1;
         self.temporary_buffers.pop().unwrap_or_else(|| {
             vec![mem::MaybeUninit::new(0); BATCH_UPLOAD_TEXTURE_SIZE.area() as usize * 4]
         })
@@ -669,14 +686,74 @@ impl UploadTexturePool {
 
     /// Deallocate this pool's CPU and GPU memory.
     pub fn delete_textures(&mut self, device: &mut Device) {
-        for frame in &mut self.frames {
-            for format in frame {
-                while let Some(texture) = format.pop() {
-                    device.delete_texture(texture)
-                }
+        for format in &mut self.textures {
+            while let Some(texture) = format.pop_back() {
+                device.delete_texture(texture.0)
             }
         }
         self.temporary_buffers.clear();
+    }
+
+    /// Deallocate some textures if there are too many for a long time.
+    pub fn end_frame(&mut self, device: &mut Device) {
+        for format_idx in 0..self.textures.len() {
+            // Count the number of reusable staging textures.
+            // if it stays high for a large number of frames, truncate it back to 8-ish
+            // over multiple frames.
+
+            let mut num_reusable_textures = 0;
+            for texture in &self.textures[format_idx] {
+                if self.current_frame - texture.1 > 2 {
+                    num_reusable_textures += 1;
+                }
+            }
+
+            if num_reusable_textures < 8 {
+                // Don't deallocate textures for another 120 frames.
+                self.delay_texture_deallocation[format_idx] = self.current_frame + 120;
+            }
+
+            // Deallocate up to 4 staging textures every frame.
+            let to_remove = if self.current_frame > self.delay_texture_deallocation[format_idx] {
+                num_reusable_textures.min(4)
+            } else {
+                0
+            };
+
+            for _ in 0..to_remove {
+                let texture = self.textures[format_idx].pop_front().unwrap().0;
+                device.delete_texture(texture);
+            }
+        }
+
+        // Similar logic for temporary CPU buffers.
+        let unused_buffers = self.temporary_buffers.len() - self.used_temporary_buffers;
+        if unused_buffers < 8 {
+            self.delay_buffer_deallocation = self.current_frame + 120;
+        }
+        let to_remove = if self.current_frame > self.delay_buffer_deallocation  {
+            unused_buffers.min(4)
+        } else {
+            0
+        };
+        for _ in 0..to_remove {
+            // Unlike textures it doesn't matter whether we pop from the front or back
+            // of the vector.
+            self.temporary_buffers.pop();
+        }
+        self.used_temporary_buffers = 0;
+    }
+
+    pub fn report_memory_to(&self, report: &mut MemoryReport, size_op_funs: &MallocSizeOfOps) {
+        for buf in &self.temporary_buffers {
+            report.upload_staging_memory += unsafe { (size_op_funs.size_of_op)(buf.as_ptr() as *const _) };
+        }
+
+        for format in &self.textures {
+            for texture in format {
+                report.upload_staging_textures += texture.0.size_in_bytes();
+            }
+        }
     }
 }
 

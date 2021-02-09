@@ -2235,6 +2235,8 @@ impl Renderer {
                 surface_origin_is_top_left,
             );
         }
+
+        self.staging_texture_pool.end_frame(&mut self.device);
         self.texture_upload_pbo_pool.end_frame(&mut self.device);
         self.device.end_frame();
 
@@ -5104,6 +5106,8 @@ impl Renderer {
 
         // GPU cache CPU memory.
         self.gpu_cache_texture.report_memory_to(&mut report, self.size_of_ops.as_ref().unwrap());
+
+        self.staging_texture_pool.report_memory_to(&mut report, self.size_of_ops.as_ref().unwrap());
 
         // Render task CPU memory.
         for (_id, doc) in &self.active_documents {
