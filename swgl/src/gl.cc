@@ -3054,15 +3054,13 @@ static ALWAYS_INLINE WideRGBA8 pack_pixels_RGBA8(Float alpha,
 static ALWAYS_INLINE WideRGBA8 pack_pixels_RGBA8(float alpha,
                                                  float scale = 255.0f) {
   I32 i = round_pixel(alpha, scale);
-  HalfRGBA8 c = packRGBA8(i, i);
-  return combine(c, c);
+  return repeat2(packRGBA8(i, i));
 }
 
 UNUSED static ALWAYS_INLINE WideRGBA8 pack_pixels_RGBA8(const vec4_scalar& v,
                                                         float scale = 255.0f) {
   I32 i = round_pixel((Float){v.z, v.y, v.x, v.w}, scale);
-  HalfRGBA8 c = packRGBA8(i, i);
-  return combine(c, c);
+  return repeat2(packRGBA8(i, i));
 }
 
 static ALWAYS_INLINE WideRGBA8 pack_pixels_RGBA8() {
@@ -3433,7 +3431,7 @@ static ALWAYS_INLINE WideRGBA8 blend_pixels(uint32_t* buf, PackedRGBA8 pdst,
     // src*dst = dst + src*(k - dst) use addlow
     // for signed overflow
     return addlow(
-        dst, muldiv255(src, combine(ctx->blendcolor, ctx->blendcolor) - dst));
+        dst, muldiv255(src, repeat2(ctx->blendcolor) - dst));
 
   // We must explicitly handle the masked/anti-aliased secondary blend case.
   // The secondary color as well as the source must be multiplied by the
@@ -3441,20 +3439,20 @@ static ALWAYS_INLINE WideRGBA8 blend_pixels(uint32_t* buf, PackedRGBA8 pdst,
   case BLEND_KEY(GL_ONE, GL_ONE_MINUS_SRC1_COLOR): {
     WideRGBA8 secondary =
         muldiv256(dst,
-            pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor, 256.0f));
+            pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor, 256.49f));
     return src + dst - secondary;
   }
   case MASK_BLEND_KEY(GL_ONE, GL_ONE_MINUS_SRC1_COLOR): {
     WideRGBA8 secondary =
         muldiv256(dst,
-            pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor, 256.0f));
+            pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor, 256.49f));
     WideRGBA8 mask = load_clip_mask(buf, span);
     return muldiv255(src, mask) + dst - muldiv255(secondary, mask);
   }
   case AA_BLEND_KEY(GL_ONE, GL_ONE_MINUS_SRC1_COLOR): {
     WideRGBA8 secondary =
         muldiv256(dst,
-            pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor, 256.0f));
+            pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor, 256.49f));
     DO_AA(RGBA8, {
       src = muldiv256(src, aa);
       secondary = muldiv256(secondary, aa);
@@ -3464,7 +3462,7 @@ static ALWAYS_INLINE WideRGBA8 blend_pixels(uint32_t* buf, PackedRGBA8 pdst,
   case AA_MASK_BLEND_KEY(GL_ONE, GL_ONE_MINUS_SRC1_COLOR): {
     WideRGBA8 secondary =
         muldiv256(dst,
-            pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor, 256.0f));
+            pack_pixels_RGBA8(fragment_shader->gl_SecondaryFragColor, 256.49f));
     WideRGBA8 mask = load_clip_mask(buf, span);
     DO_AA(RGBA8, mask = muldiv256(mask, aa));
     return muldiv255(src, mask) + dst - muldiv255(secondary, mask);

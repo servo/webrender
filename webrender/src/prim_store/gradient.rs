@@ -848,15 +848,28 @@ impl GradientGpuBlockBuilder {
         start_color: &PremultipliedColorF,
         end_color: &PremultipliedColorF,
         entries: &mut [GradientDataEntry; GRADIENT_DATA_SIZE],
-    ) {
+        prev_step: &PremultipliedColorF,
+    ) -> PremultipliedColorF {
         // Calculate the color difference for individual steps in the ramp.
         let inv_steps = 1.0 / (end_idx - start_idx) as f32;
-        let step = PremultipliedColorF {
+        let mut step = PremultipliedColorF {
             r: (end_color.r - start_color.r) * inv_steps,
             g: (end_color.g - start_color.g) * inv_steps,
             b: (end_color.b - start_color.b) * inv_steps,
             a: (end_color.a - start_color.a) * inv_steps,
         };
+        // As a subtle form of compression, we ensure that the step values for
+        // each stop range are the same if and only if they belong to the same
+        // stop range. However, if two different stop ranges have the same step,
+        // we need to modify the steps so they compare unequally between ranges.
+        // This allows to quickly compare if two adjacent stops belong to the
+        // same range by comparing their steps.
+        if step == *prev_step {
+            // Modify the step alpha value as if by nextafter(). The difference
+            // here should be so small as to be unnoticeable, but yet allow it
+            // to compare differently.
+            step.a = f32::from_bits(if step.a == 0.0 { 1 } else { step.a.to_bits() + 1 });
+        }
 
         let mut cur_color = *start_color;
 
@@ -870,6 +883,8 @@ impl GradientGpuBlockBuilder {
             cur_color.a += step.a;
             entry.end_step = step;
         }
+
+        step
     }
 
     /// Compute an index into the gradient entry table based on a gradient stop offset. This
@@ -907,21 +922,41 @@ impl GradientGpuBlockBuilder {
         // within the segment of the gradient space represented by that entry. To lookup a gradient result,
         // first the entry index is calculated to determine which two colors to interpolate between, then
         // the offset within that entry bucket is used to interpolate between the two colors in that entry.
-        // This layout preserves hard stops, as the end color for a given entry can differ from the start
-        // color for the following entry, despite them being adjacent. Colors are stored within in BGRA8
-        // format for texture upload. This table requires the gradient color stops to be normalized to the
-        // range [0, 1]. The first and last entries hold the first and last color stop colors respectively,
-        // while the entries in between hold the interpolated color stop values for the range [0, 1].
+        // This layout is motivated by the fact that if one naively tries to store a single color per entry
+        // and interpolate directly between entries, then hard stops will become softened because the end
+        // color of an entry actually differs from the start color of the next entry, even though they fall
+        // at the same edge offset in the gradient space. Instead, the two-color-per-entry layout preserves
+        // hard stops, as the end color for a given entry can differ from the start color for the following
+        // entry.
+        // Colors are stored in RGBA32F format (in the GPU cache). This table requires the gradient color
+        // stops to be normalized to the range [0, 1]. The first and last entries hold the first and last
+        // color stop colors respectively, while the entries in between hold the interpolated color stop
+        // values for the range [0, 1].
+        // As a further optimization, rather than directly storing the end color, the difference of the end
+        // color from the start color is stored instead, so that an entry can be evaluated more cheaply
+        // with start+diff*offset instead of mix(start,end,offset). Further, the color difference in two
+        // adjacent entries will always be the same if they were generated from the same set of stops/run.
+        // To allow fast searching of the table, if two adjacent entries generated from different sets of
+        // stops (a boundary) have the same difference, the floating-point bits of the stop will be nudged
+        // so that they compare differently without perceptibly altering the interpolation result. This way,
+        // one can quickly scan the table and recover runs just by comparing the color differences of the
+        // current and next entry.
+        // For example, a table with 2 inside entries (startR,startG,startB):(diffR,diffG,diffB) might look
+        // like so:
+        //     first           | 0.0              | 0.5              | last
+        //     (0,0,0):(0,0,0) | (1,0,0):(-1,1,0) | (0,0,1):(0,1,-1) | (1,1,1):(0,0,0)
+        //     ^ solid black     ^ red to green     ^ blue to green    ^ solid white
         let mut entries = [GradientDataEntry::white(); GRADIENT_DATA_SIZE];
-
+        let mut prev_step = cur_color;
         if reverse_stops {
             // Fill in the first entry (for reversed stops) with the first color stop
-            GradientGpuBlockBuilder::fill_colors(
+            prev_step = GradientGpuBlockBuilder::fill_colors(
                 GRADIENT_DATA_LAST_STOP,
                 GRADIENT_DATA_LAST_STOP + 1,
                 &cur_color,
                 &cur_color,
                 &mut entries,
+                &prev_step,
             );
 
             // Fill in the center of the gradient table, generating a color ramp between each consecutive pair
@@ -933,12 +968,13 @@ impl GradientGpuBlockBuilder {
                 let next_idx = Self::get_index(1.0 - next.offset);
 
                 if next_idx < cur_idx {
-                    GradientGpuBlockBuilder::fill_colors(
+                    prev_step = GradientGpuBlockBuilder::fill_colors(
                         next_idx,
                         cur_idx,
                         &next_color,
                         &cur_color,
                         &mut entries,
+                        &prev_step,
                     );
                     cur_idx = next_idx;
                 }
@@ -956,15 +992,17 @@ impl GradientGpuBlockBuilder {
                 &cur_color,
                 &cur_color,
                 &mut entries,
+                &prev_step,
             );
         } else {
             // Fill in the first entry with the first color stop
-            GradientGpuBlockBuilder::fill_colors(
+            prev_step = GradientGpuBlockBuilder::fill_colors(
                 GRADIENT_DATA_FIRST_STOP,
                 GRADIENT_DATA_FIRST_STOP + 1,
                 &cur_color,
                 &cur_color,
                 &mut entries,
+                &prev_step,
             );
 
             // Fill in the center of the gradient table, generating a color ramp between each consecutive pair
@@ -976,12 +1014,13 @@ impl GradientGpuBlockBuilder {
                 let next_idx = Self::get_index(next.offset);
 
                 if next_idx > cur_idx {
-                    GradientGpuBlockBuilder::fill_colors(
+                    prev_step = GradientGpuBlockBuilder::fill_colors(
                         cur_idx,
                         next_idx,
                         &cur_color,
                         &next_color,
                         &mut entries,
+                        &prev_step,
                     );
                     cur_idx = next_idx;
                 }
@@ -999,6 +1038,7 @@ impl GradientGpuBlockBuilder {
                 &cur_color,
                 &cur_color,
                 &mut entries,
+                &prev_step,
             );
         }
 

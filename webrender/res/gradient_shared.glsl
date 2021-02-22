@@ -54,8 +54,8 @@ void write_gradient_vertex(
 #endif //WR_VERTEX_SHADER
 
 #ifdef WR_FRAGMENT_SHADER
-vec2 compute_gradient_pos() {
-#ifdef WR_FEATURE_ALPHA_PASS
+vec2 compute_repeated_pos() {
+#if defined(WR_FEATURE_ALPHA_PASS) && !defined(SWGL_ANTIALIAS)
     // Handle top and left inflated edges (see brush_image).
     vec2 local_pos = max(v_pos, vec2(0.0));
 
