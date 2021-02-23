@@ -26,6 +26,73 @@ Inside GLSL, the `SWGL` preprocessor token is defined so that usage of SWGL
 extensions may be conditionally compiled.
 
 ```
+void swgl_drawSpanRGBA8();
+void swgl_drawSpanR8();
+
+int swgl_SpanLength;
+int swgl_StepSize;
+
+mixed swgl_interpStep(mixed varying_input);
+void swgl_stepInterp();
+```
+
+SWGL's default fragment processing calls a fragment shader's `main` function
+on groups of fragments in units of `swgl_StepSize`. On return, the value of
+gl_FragColor is read, packed to an appropriate pixel format, and sent to the
+blend stage for output to the destination framebuffer. This can be inefficient
+for some types of fragment shaders, such as those that must lookup from a
+texture and immediately output it, unpacking the texels only to subsequently
+repack them at cost. Also, various per-fragment conditions in the shader might
+need to be repeatedly checked, even though they are actually constant over
+the entire primitive.
+
+To work around this inefficiency, SWGL allows fragments to optionally be
+processed over entire spans. This can both side-step the packing inefficiency
+as well as more efficiently deal with conditions that remain constant over an
+entire span. SWGL also introduces various specialized intrinsics for more
+efficiently dealing with certain types of primitive spans with optimal
+fixed-function processing.
+
+Inside a fragment shader, a `swgl_drawSpan` function may be defined to override
+the normal fragment processing for that fragment shader. The function must then
+call some form of `swgl_commit` intrinsic to actually output to the destination
+framebuffer via the blend stage, as normal fragment processing does not take
+place otherwise as would have happened in `main`. This function is used by the
+rasterizer to process an entire span of fragments that have passed the depth
+test (if applicable) and clipping, but have not yet been output to the blend
+stage.
+
+The amount of fragments within the span to be processed is designated by
+`swgl_SpanLength` and is always aligned to units of `swgl_StepSize`.
+The size of a group of fragments in terms of which `swgl_commit` intrinsics
+process and output fragments is designated by `swgl_StepSize`. The
+`swgl_commit` intrinsics will deduct accordingly from `swgl_SpanLength` in
+units of `swgl_StepSize` to reflect the fragments actually processed, which
+may be less than the entire span or up to the entire span.
+
+Fragments should be output until `swgl_SpanLength` becomes zero to process the
+entire span. If `swgl_drawSpan` returns while leaving any fragments unprocessed,
+the remaining fragments will be processed as normal by the fragment shader's
+`main` function. This can be used to conditionally handle certain fast-paths
+in a fragment shader by otherwise defaulting to the `main` function if
+`swgl_drawSpan` can't appropriately process some or all of the fragments.
+
+The values of any varying inputs to the fragment shader will be set to their
+values for the start of the span, but do not automatically update over the
+the course of a span within a given call to `swgl_drawSpan`. The
+`swgl_interpStep` intrinsic may be used to get the derivative per `swgl_StepSize`
+group of fragments of a varying input so that the caller may update such
+variables manually if desired or otherwise use that information for processing.
+The `swgl_stepInterp` intrinsic forces all such varying inputs to advance by
+a single step.
+
+The RGBA8 version will be used when the destination framebuffer is RGBA8 format,
+and the R8 version will be used when the destination framebuffer is R8. Various
+other intrinsics described below may have restrictions on whether they can be
+used only with a certain destination framebuffer format and are noted as such if
+so.
+
+```
 void swgl_clipMask(sampler2D mask, vec2 offset, vec2 bb_origin, vec2 bb_size);
 ```
 
@@ -84,39 +151,39 @@ during span rasterization, it uses the same distance field method as WR on
 those span boundary pixels to estimate the coverage based on edge slope.
 
 ```
-swgl_commitTextureLinearRGBA8(sampler, vec2 uv, vec4 uv_bounds, float layer);
-swgl_commitTextureLinearR8(sampler, vec2 uv, vec4 uv_bounds, float layer);
+void swgl_commitTextureLinearRGBA8(sampler, vec2 uv, vec4 uv_bounds, float layer);
+void swgl_commitTextureLinearR8(sampler, vec2 uv, vec4 uv_bounds, float layer);
 
-swgl_commitTextureLinearColorRGBA8(sampler, vec2 uv, vec4 uv_bounds, vec4|float color, float layer);
-swgl_commitTextureLinearColorR8(sampler, vec2 uv, vec4 uv_bounds, vec4|float color, float layer);
+void swgl_commitTextureLinearColorRGBA8(sampler, vec2 uv, vec4 uv_bounds, vec4|float color, float layer);
+void swgl_commitTextureLinearColorR8(sampler, vec2 uv, vec4 uv_bounds, vec4|float color, float layer);
 
-swgl_commitTextureLinearRepeatRGBA8(sampler, vec2 uv, vec4 uv_repeat, vec4 uv_bounds, float layer);
-swgl_commitTextureLinearRepeatColorRGBA8(sampler, vec2 uv, vec4 uv_repeat, vec4 uv_bounds, vec4|float color, float layer);
+void swgl_commitTextureLinearRepeatRGBA8(sampler, vec2 uv, vec4 uv_repeat, vec4 uv_bounds, float layer);
+void swgl_commitTextureLinearRepeatColorRGBA8(sampler, vec2 uv, vec4 uv_repeat, vec4 uv_bounds, vec4|float color, float layer);
 
-swgl_commitTextureNearestRGBA8(sampler, vec2 uv, vec4 uv_bounds, float layer);
-swgl_commitTextureNearestColorRGBA8(sampler, vec2 uv, vec4 uv_bounds, vec4|float color, float layer);
+void swgl_commitTextureNearestRGBA8(sampler, vec2 uv, vec4 uv_bounds, float layer);
+void swgl_commitTextureNearestColorRGBA8(sampler, vec2 uv, vec4 uv_bounds, vec4|float color, float layer);
 
-swgl_commitTextureNearestRepeatRGBA8(sampler, vec2 uv, vec4 uv_repeat, vec4 uv_bounds, float layer);
-swgl_commitTextureNearestRepeatColorRGBA8(sampler, vec2 uv, vec4 uv_repeat, vec4 uv_bounds, vec4|float color, float layer);
+void swgl_commitTextureNearestRepeatRGBA8(sampler, vec2 uv, vec4 uv_repeat, vec4 uv_bounds, float layer);
+void swgl_commitTextureNearestRepeatColorRGBA8(sampler, vec2 uv, vec4 uv_repeat, vec4 uv_bounds, vec4|float color, float layer);
 
-swgl_commitTextureRGBA8(sampler, vec2 uv, vec4 uv_bounds, float layer);
-swgl_commitTextureColorRGBA8(sampler, vec2 uv, vec4 uv_bounds, vec4|float color, float layer);
+void swgl_commitTextureRGBA8(sampler, vec2 uv, vec4 uv_bounds, float layer);
+void swgl_commitTextureColorRGBA8(sampler, vec2 uv, vec4 uv_bounds, vec4|float color, float layer);
 
-swgl_commitTextureRepeatRGBA8(sampler, vec2 uv, vec4 uv_repeat, vec4 uv_bounds, float layer);
-swgl_commitTextureRepeatColorRGBA8(sampler, vec2 uv, vec4 uv_repeat, vec4 uv_bounds, vec4|float color, float layer);
+void swgl_commitTextureRepeatRGBA8(sampler, vec2 uv, vec4 uv_repeat, vec4 uv_bounds, float layer);
+void swgl_commitTextureRepeatColorRGBA8(sampler, vec2 uv, vec4 uv_repeat, vec4 uv_bounds, vec4|float color, float layer);
 ```
 
 Samples and commits an entire span of texture starting at the given uv and
 within the supplied uv bounds from the given layer. The color variations
 also accept a supplied color that modulates the result.
 
-The RGBA8 versions may only be used to commit within swgl_drawSpanRGBA8, and
-the R8 versions may only be used to commit within swgl_drawSpanR8.
+The RGBA8 versions may only be used to commit within `swgl_drawSpanRGBA8`, and
+the R8 versions may only be used to commit within `swgl_drawSpanR8`.
 
 The Linear variations use a linear filter that bilinearly interpolates between
 the four samples near the pixel. The Nearest variations use a nearest filter
 that chooses the closest aliased sample to the center of the pixel. If neither
-Linear nor Nearest is specified in the swgl_commitTexture variation name, then
+Linear nor Nearest is specified in the `swgl_commitTexture` variation name, then
 it will automatically select either the Linear or Nearest variation depending
 on the sampler's specified filter.
 
@@ -125,4 +192,14 @@ scale and offset the UVs, assuming the UVs are normalized to repeat in the
 range 0 to 1. For NearestRepeat variations, it is assumed the repeat rect is
 always within the bounds.
 
+```
+// Premultiplied alpha over blend, but with source color set to source alpha modulated with a constant color.
+void swgl_blendDropShadow(vec4 color);
+```
+
+SWGL allows overriding the blend mode per-primitive by calling `swgl_blend`
+intrinsics in the vertex shader. The existing blend mode set by the GL is
+replaced with the one specified by the intrinsic for the current primitive.
+The blend mode will be reset to the blend mode set by the GL for the next
+primitive after the current one, even within the same draw call.
 

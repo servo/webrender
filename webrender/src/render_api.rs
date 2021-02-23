@@ -155,8 +155,13 @@ pub struct Transaction {
     /// Persistent resource updates to apply as part of this transaction.
     pub resource_updates: Vec<ResourceUpdate>,
 
-    /// If true the transaction is piped through the scene building thread, if false
-    /// it will be applied directly on the render backend.
+    /// True if the transaction needs the scene building thread's attention.
+    /// False for things that can skip the scene builder, like APZ changes and
+    /// async images.
+    ///
+    /// Before this `Transaction` is converted to a `TransactionMsg`, we look
+    /// over its contents and set this if we're doing anything the scene builder
+    /// needs to know about, so this is only a default.
     use_scene_builder_thread: bool,
 
     /// Whether to generate a frame, and if so, an id that allows tracking this
@@ -1257,35 +1262,6 @@ impl RenderApi {
         })
     }
 
-    /// Creates a transaction message from a single scene message.
-    fn scene_message(&self, msg: SceneMsg, document_id: DocumentId) -> Box<TransactionMsg> {
-        Box::new(TransactionMsg {
-            document_id,
-            scene_ops: vec![msg],
-            frame_ops: Vec::new(),
-            resource_updates: Vec::new(),
-            notifications: Vec::new(),
-            generate_frame: GenerateFrame::No,
-            invalidate_rendered_frame: false,
-            use_scene_builder_thread: false,
-            low_priority: false,
-            blob_rasterizer: None,
-            blob_requests: Vec::new(),
-            rasterized_blobs: Vec::new(),
-            profile: TransactionProfile::new(),
-        })
-    }
-
-    /// A helper method to send document messages.
-    fn send_scene_msg(&self, document_id: DocumentId, msg: SceneMsg) {
-        // This assertion fails on Servo use-cases, because it creates different
-        // `RenderApi` instances for layout and compositor.
-        //assert_eq!(document_id.0, self.namespace_id);
-        self.api_sender
-            .send(ApiMsg::UpdateDocuments(vec![self.scene_message(msg, document_id)]))
-            .unwrap()
-    }
-
     /// A helper method to send document messages.
     fn send_frame_msg(&self, document_id: DocumentId, msg: FrameMsg) {
         // This assertion fails on Servo use-cases, because it creates different
@@ -1302,7 +1278,6 @@ impl RenderApi {
 
         self.resources.update(&mut transaction);
 
-        transaction.use_scene_builder_thread |= !transaction.scene_ops.is_empty();
         if transaction.generate_frame.as_bool() {
             transaction.profile.start_time(profiler::API_SEND_TIME);
             transaction.profile.start_time(profiler::TOTAL_FRAME_CPU_TIME);
@@ -1318,43 +1293,6 @@ impl RenderApi {
             sender.send(SceneBuilderRequest::Transactions(vec![transaction])).unwrap();
         } else {
             self.api_sender.send(ApiMsg::UpdateDocuments(vec![transaction])).unwrap();
-        }
-    }
-
-    /// Send multiple transactions.
-    pub fn send_transactions(&mut self, document_ids: Vec<DocumentId>, mut transactions: Vec<Transaction>) {
-        debug_assert!(document_ids.len() == transactions.len());
-        let msgs: Vec<Box<TransactionMsg>> = transactions.drain(..).zip(document_ids)
-            .map(|(txn, id)| {
-                let mut txn = txn.finalize(id);
-                self.resources.update(&mut txn);
-                if txn.generate_frame.as_bool() {
-                    txn.profile.start_time(profiler::API_SEND_TIME);
-                    txn.profile.start_time(profiler::TOTAL_FRAME_CPU_TIME);
-                }
-
-                txn
-            })
-            .collect();
-
-        let use_scene_builder = msgs.iter().any(
-            |msg| msg.use_scene_builder_thread
-        );
-
-        let high_priority = msgs.iter().any(
-            |msg| !msg.low_priority
-        );
-
-        if use_scene_builder {
-            let sender = if high_priority {
-                &mut self.scene_sender
-            } else {
-                &mut self.low_priority_scene_sender
-            };
-
-            sender.send(SceneBuilderRequest::Transactions(msgs)).unwrap();
-        } else {
-            self.api_sender.send(ApiMsg::UpdateDocuments(msgs)).unwrap();
         }
     }
 
@@ -1386,21 +1324,6 @@ impl RenderApi {
         );
 
         HitTesterRequest { rx }
-    }
-
-    /// Setup the output region in the framebuffer for a given document.
-    pub fn set_document_view(
-        &self,
-        document_id: DocumentId,
-        device_rect: DeviceIntRect,
-        device_pixel_ratio: f32,
-    ) {
-        assert!(device_pixel_ratio > 0.0);
-        window_size_sanity_check(device_rect.size);
-        self.send_scene_msg(
-            document_id,
-            SceneMsg::SetDocumentView { device_rect, device_pixel_ratio },
-        );
     }
 
     ///
