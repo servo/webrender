@@ -5,7 +5,7 @@
 
 use api::units::*;
 use api::{ColorF, PremultipliedColorF, ImageFormat, LineOrientation, BorderStyle};
-use crate::batch::{AlphaBatchBuilder, AlphaBatchContainer, BatchTextures, resolve_image};
+use crate::batch::{AlphaBatchBuilder, AlphaBatchContainer, BatchTextures};
 use crate::batch::{ClipBatcher, BatchBuilder};
 use crate::spatial_tree::{SpatialTree, ROOT_SPATIAL_NODE_INDEX};
 use crate::clip::ClipStore;
@@ -14,17 +14,16 @@ use crate::frame_builder::{FrameGlobalResources};
 use crate::gpu_cache::{GpuCache, GpuCacheAddress};
 use crate::gpu_types::{BorderInstance, SvgFilterInstance, BlurDirection, BlurInstance, PrimitiveHeaders, ScalingInstance};
 use crate::gpu_types::{TransformPalette, ZBufferIdGenerator};
-use crate::internal_types::{FastHashMap, TextureSource, LayerIndex, Swizzle, CacheTextureId};
+use crate::internal_types::{FastHashMap, TextureSource, CacheTextureId};
 use crate::picture::{SliceId, SurfaceInfo, ResolvedSurfaceTexture, TileCacheInstance};
 use crate::prim_store::{PrimitiveStore, DeferredResolve, PrimitiveScratchBuffer};
 use crate::prim_store::gradient::GRADIENT_FP_STOPS;
 use crate::render_backend::DataStores;
-use crate::render_task::{RenderTaskKind, RenderTaskAddress, BlitSource};
+use crate::render_task::{RenderTaskKind, RenderTaskAddress};
 use crate::render_task::{RenderTask, ScalingTask, SvgFilterInfo};
 use crate::render_task_graph::{RenderTaskGraph, RenderTaskId};
 use crate::resource_cache::ResourceCache;
 use crate::visibility::PrimitiveVisibilityMask;
-
 
 const STYLE_SOLID: i32 = ((BorderStyle::Solid as i32) << 8) | ((BorderStyle::Solid as i32) << 16);
 const STYLE_MASK: i32 = 0x00FF_FF00;
@@ -115,7 +114,6 @@ pub trait RenderTarget {
         render_tasks: &RenderTaskGraph,
         clip_store: &ClipStore,
         transforms: &mut TransformPalette,
-        deferred_resolves: &mut Vec<DeferredResolve>,
     );
 
     fn needs_depth(&self) -> bool;
@@ -358,12 +356,11 @@ impl RenderTarget for ColorRenderTarget {
     fn add_task(
         &mut self,
         task_id: RenderTaskId,
-        ctx: &RenderTargetContext,
+        _ctx: &RenderTargetContext,
         gpu_cache: &mut GpuCache,
         render_tasks: &RenderTaskGraph,
         _: &ClipStore,
         _: &mut TransformPalette,
-        deferred_resolves: &mut Vec<DeferredResolve>,
     ) {
         profile_scope!("add_task");
         let task = &render_tasks[task_id];
@@ -401,6 +398,7 @@ impl RenderTarget for ColorRenderTarget {
                     task_info.extra_gpu_cache_handle.map(|handle| gpu_cache.get_address(&handle)),
                 )
             }
+            RenderTaskKind::Image(..) |
             RenderTaskKind::ClipRegion(..) |
             RenderTaskKind::Border(..) |
             RenderTaskKind::CacheMask(..) |
@@ -415,52 +413,14 @@ impl RenderTarget for ColorRenderTarget {
                     &mut self.scalings,
                     task,
                     task.children.first().map(|&child| &render_tasks[child]),
-                    ctx.resource_cache,
-                    gpu_cache,
-                    deferred_resolves,
                 );
             }
             RenderTaskKind::Blit(ref task_info) => {
-                let source = match task_info.source {
-                    BlitSource::Image { key } => {
-                        // Get the cache item for the source texture.
-                        let cache_item = resolve_image(
-                            key.request,
-                            ctx.resource_cache,
-                            gpu_cache,
-                            deferred_resolves,
-                        );
-
-                        // Work out a source rect to copy from the texture, depending on whether
-                        // a sub-rect is present or not.
-                        let source_rect = key.texel_rect.map_or(cache_item.uv_rect.to_i32(), |sub_rect| {
-                            DeviceIntRect::new(
-                                DeviceIntPoint::new(
-                                    cache_item.uv_rect.origin.x as i32 + sub_rect.origin.x,
-                                    cache_item.uv_rect.origin.y as i32 + sub_rect.origin.y,
-                                ),
-                                sub_rect.size,
-                            )
-                        });
-
-                        // Store the blit job for the renderer to execute, including
-                        // the allocated destination rect within this target.
-                        BlitJobSource::Texture(
-                            cache_item.texture_id,
-                            cache_item.texture_layer,
-                            source_rect,
-                        )
-                    }
-                    BlitSource::RenderTask { task_id } => {
-                        BlitJobSource::RenderTask(task_id)
-                    }
-                };
-
                 let target_rect = task
                     .get_target_rect()
                     .0;
                 self.blits.push(BlitJob {
-                    source,
+                    source: task_info.source,
                     target_rect,
                 });
             }
@@ -523,13 +483,13 @@ impl RenderTarget for AlphaRenderTarget {
         render_tasks: &RenderTaskGraph,
         clip_store: &ClipStore,
         transforms: &mut TransformPalette,
-        deferred_resolves: &mut Vec<DeferredResolve>,
     ) {
         profile_scope!("add_task");
         let task = &render_tasks[task_id];
         let (target_rect, _) = task.get_target_rect();
 
         match task.kind {
+            RenderTaskKind::Image(..) |
             RenderTaskKind::Readback(..) |
             RenderTaskKind::Picture(..) |
             RenderTaskKind::Blit(..) |
@@ -602,9 +562,6 @@ impl RenderTarget for AlphaRenderTarget {
                     &mut self.scalings,
                     task,
                     task.children.first().map(|&child| &render_tasks[child]),
-                    ctx.resource_cache,
-                    gpu_cache,
-                    deferred_resolves,
                 );
             }
             #[cfg(test)]
@@ -690,21 +647,12 @@ impl TextureCacheRenderTarget {
                 );
             }
             RenderTaskKind::Blit(ref task_info) => {
-                match task_info.source {
-                    BlitSource::Image { .. } => {
-                        // reading/writing from the texture cache at the same time
-                        // is undefined behavior.
-                        panic!("bug: a single blit cannot be to/from texture cache");
-                    }
-                    BlitSource::RenderTask { task_id } => {
-                        // Add a blit job to copy from an existing render
-                        // task to this target.
-                        self.blits.push(BlitJob {
-                            source: BlitJobSource::RenderTask(task_id),
-                            target_rect: target_rect.0,
-                        });
-                    }
-                }
+                // Add a blit job to copy from an existing render
+                // task to this target.
+                self.blits.push(BlitJob {
+                    source: task_info.source,
+                    target_rect: target_rect.0,
+                });
             }
             RenderTaskKind::Border(ref task_info) => {
                 self.clears.push(target_rect.0);
@@ -748,6 +696,7 @@ impl TextureCacheRenderTarget {
                     start_stop: [task_info.start_point, task_info.end_point],
                 });
             }
+            RenderTaskKind::Image(..) |
             RenderTaskKind::VerticalBlur(..) |
             RenderTaskKind::Picture(..) |
             RenderTaskKind::ClipRegion(..) |
@@ -770,10 +719,7 @@ fn add_blur_instances(
     src_task_id: RenderTaskId,
     render_tasks: &RenderTaskGraph,
 ) {
-    let source = TextureSource::TextureCache(
-        render_tasks[src_task_id].get_target_texture(),
-        Swizzle::default(),
-    );
+    let source = render_tasks[src_task_id].get_texture_source();
 
     let instance = BlurInstance {
         task_address,
@@ -792,9 +738,6 @@ fn add_scaling_instances(
     instances: &mut FastHashMap<TextureSource, Vec<ScalingInstance>>,
     target_task: &RenderTask,
     source_task: Option<&RenderTask>,
-    resource_cache: &ResourceCache,
-    gpu_cache: &mut GpuCache,
-    deferred_resolves: &mut Vec<DeferredResolve>,
 ) {
     let target_rect = target_task
         .get_target_rect()
@@ -802,45 +745,9 @@ fn add_scaling_instances(
         .inner_rect(task.padding)
         .to_f32();
 
-    let (source, (source_rect, source_layer)) = match task.image {
-        Some(key) => {
-            assert!(source_task.is_none());
+    let source = source_task.unwrap().get_texture_source();
 
-            // Get the cache item for the source texture.
-            let cache_item = resolve_image(
-                key.request,
-                resource_cache,
-                gpu_cache,
-                deferred_resolves,
-            );
-
-            // Work out a source rect to copy from the texture, depending on whether
-            // a sub-rect is present or not.
-            let source_rect = key.texel_rect.map_or(cache_item.uv_rect, |sub_rect| {
-                DeviceIntRect::new(
-                    DeviceIntPoint::new(
-                        cache_item.uv_rect.origin.x + sub_rect.origin.x,
-                        cache_item.uv_rect.origin.y + sub_rect.origin.y,
-                    ),
-                    sub_rect.size,
-                )
-            });
-
-            (
-                cache_item.texture_id,
-                (source_rect, cache_item.texture_layer as LayerIndex),
-            )
-        }
-        None => {
-            (
-                TextureSource::TextureCache(
-                    source_task.unwrap().get_target_texture(),
-                    Swizzle::default(),
-                ),
-                source_task.unwrap().location.to_source_rect(),
-            )
-        }
-    };
+    let (source_rect, source_layer) = source_task.unwrap().location.to_source_rect();
 
     instances
         .entry(source)
@@ -864,21 +771,11 @@ fn add_svg_filter_instances(
     let mut textures = BatchTextures::empty();
 
     if let Some(id) = input_1_task {
-        let task = &render_tasks[id];
-
-        textures.input.colors[0] = TextureSource::TextureCache(
-            task.get_target_texture(),
-            Swizzle::default(),
-        );
+        textures.input.colors[0] = render_tasks[id].get_texture_source();
     }
 
     if let Some(id) = input_2_task {
-        let task = &render_tasks[id];
-
-        textures.input.colors[1] = TextureSource::TextureCache(
-            task.get_target_texture(),
-            Swizzle::default(),
-        );
+        textures.input.colors[1] = render_tasks[id].get_texture_source();
     }
 
     let kind = match filter {
@@ -953,19 +850,11 @@ fn add_svg_filter_instances(
     instances.push((textures, vec![instance]));
 }
 
-// Defines where the source data for a blit job can be found.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub enum BlitJobSource {
-    Texture(TextureSource, i32, DeviceIntRect),
-    RenderTask(RenderTaskId),
-}
-
 // Information required to do a blit from a source to a target.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BlitJob {
-    pub source: BlitJobSource,
+    pub source: RenderTaskId,
     pub target_rect: DeviceIntRect,
 }
 

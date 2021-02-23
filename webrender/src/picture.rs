@@ -125,7 +125,7 @@ use crate::render_target::RenderTargetKind;
 use crate::render_task::{BlurTask, RenderTask, RenderTaskLocation, BlurTaskCache};
 use crate::render_task::{StaticRenderTaskSurface, RenderTaskKind};
 use crate::renderer::BlendMode;
-use crate::resource_cache::{ResourceCache, ImageGeneration};
+use crate::resource_cache::{ResourceCache, ImageGeneration, ImageRequest};
 use crate::space::{SpaceMapper, SpaceSnapper};
 use crate::scene::SceneProperties;
 use smallvec::SmallVec;
@@ -2948,11 +2948,23 @@ impl TileCacheInstance {
         api_keys: &[ImageKey; 3],
         resource_cache: &mut ResourceCache,
         composite_state: &mut CompositeState,
+        gpu_cache: &mut GpuCache,
         image_rendering: ImageRendering,
         color_depth: ColorDepth,
         color_space: YuvColorSpace,
         format: YuvFormat,
     ) -> bool {
+        for &key in api_keys {
+            // TODO: See comment in setup_compositor_surfaces_rgb.
+            resource_cache.request_image(ImageRequest {
+                    key,
+                    rendering: image_rendering,
+                    tile: None,
+                },
+                gpu_cache,
+            );
+        }
+
         self.setup_compositor_surfaces_impl(
             prim_info,
             flags,
@@ -2985,11 +2997,27 @@ impl TileCacheInstance {
         api_key: ImageKey,
         resource_cache: &mut ResourceCache,
         composite_state: &mut CompositeState,
+        gpu_cache: &mut GpuCache,
         image_rendering: ImageRendering,
         flip_y: bool,
     ) -> bool {
         let mut api_keys = [ImageKey::DUMMY; 3];
         api_keys[0] = api_key;
+
+        // TODO: The picture compositing code requires images promoted
+        // into their own picture cache slices to be requested every
+        // frame even if they are not visible. However the image updates
+        // are only reached on the prepare pass for visible primitives.
+        // So we make sure to trigger an image request when promoting
+        // the image here.
+        resource_cache.request_image(ImageRequest {
+                key: api_key,
+                rendering: image_rendering,
+                tile: None,
+            },
+            gpu_cache,
+        );
+
         self.setup_compositor_surfaces_impl(
             prim_info,
             flags,
@@ -3218,6 +3246,7 @@ impl TileCacheInstance {
         color_bindings: &ColorBindingStorage,
         surface_stack: &[SurfaceIndex],
         composite_state: &mut CompositeState,
+        gpu_cache: &mut GpuCache,
     ) {
         // This primitive exists on the last element on the current surface stack.
         profile_scope!("update_prim_dependencies");
@@ -3325,7 +3354,6 @@ impl TileCacheInstance {
         // then applied below.
         let mut backdrop_candidate = None;
 
-
         // For pictures, we don't (yet) know the valid clip rect, so we can't correctly
         // use it to calculate the local bounding rect for the tiles. If we include them
         // then we may calculate a bounding rect that is too large, since it won't include
@@ -3415,6 +3443,7 @@ impl TileCacheInstance {
                         image_data.key,
                         resource_cache,
                         composite_state,
+                        gpu_cache,
                         image_data.image_rendering,
                         promote_with_flip_y,
                     );
@@ -3471,6 +3500,7 @@ impl TileCacheInstance {
                         &prim_data.kind.yuv_key,
                         resource_cache,
                         composite_state,
+                        gpu_cache,
                         prim_data.kind.image_rendering,
                         prim_data.kind.color_depth,
                         prim_data.kind.color_space,

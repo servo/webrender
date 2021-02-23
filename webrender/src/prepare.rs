@@ -517,12 +517,15 @@ fn prepare_interned_prim_for_render(
             profile_scope!("ImageBorder");
             let prim_data = &mut data_stores.image_border[*data_handle];
 
-            // TODO: get access to the ninepatch and to check whwther we need support
+            // TODO: get access to the ninepatch and to check whether we need support
             // for repetitions in the shader.
 
-            // Update the template this instane references, which may refresh the GPU
+            // Update the template this instance references, which may refresh the GPU
             // cache with any shared template data.
-            prim_data.kind.update(&mut prim_data.common, frame_state);
+            prim_data.kind.update(
+                &mut prim_data.common,
+                frame_state
+            );
         }
         PrimitiveInstanceKind::Rectangle { data_handle, segment_instance_index, color_binding_index, .. } => {
             profile_scope!("Rectangle");
@@ -597,28 +600,26 @@ fn prepare_interned_prim_for_render(
         }
         PrimitiveInstanceKind::Image { data_handle, image_instance_index, .. } => {
             profile_scope!("Image");
+
             let prim_data = &mut data_stores.image[*data_handle];
             let common_data = &mut prim_data.common;
             let image_data = &mut prim_data.kind;
+            let image_instance = &mut store.images[*image_instance_index];
 
-            if image_data.stretch_size.width >= common_data.prim_rect.size.width &&
-                image_data.stretch_size.height >= common_data.prim_rect.size.height {
-
-                common_data.may_need_repetition = false;
-            }
-
-            // Update the template this instane references, which may refresh the GPU
+            // Update the template this instance references, which may refresh the GPU
             // cache with any shared template data.
             image_data.update(
                 common_data,
+                image_instance,
                 pic_context.surface_index,
+                prim_spatial_node_index,
                 frame_state,
+                frame_context,
+                &mut prim_instance.vis,
             );
 
             // common_data.opacity.is_opaque is computed in the above update call.
             is_opaque = common_data.opacity.is_opaque;
-
-            let image_instance = &mut store.images[*image_instance_index];
 
             write_segment(
                 image_instance.segment_instance_index,
@@ -1887,3 +1888,4 @@ fn adjust_mask_scale_for_max_size(device_rect: DeviceRect, device_pixel_scale: D
         (device_rect, device_pixel_scale)
     }
 }
+
