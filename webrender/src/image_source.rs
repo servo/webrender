@@ -11,75 +11,12 @@
 
 use crate::api::ExternalImageType;
 use crate::api::units::*;
-use crate::gpu_cache::{GpuCache, GpuCacheAddress};
+use crate::gpu_cache::GpuCache;
 use crate::prim_store::DeferredResolve;
 use crate::renderer::BLOCKS_PER_UV_RECT;
-use crate::render_task_graph::{RenderTaskId, RenderTaskGraph};
 use crate::render_task_cache::RenderTaskCacheEntryHandle;
-use crate::render_target::RenderTargetContext;
 use crate::resource_cache::{ResourceCache, ImageRequest, CacheItem};
 use crate::internal_types::{TextureSource, DeferredResolveIndex};
-
-/// The different ways a primitive can refer to a source image, if any.
-///
-/// This information is eventually turned into a texture source the uv rect's
-/// gpu cache handle.
-///
-/// TODO: Ideally we'd have a more universal way to refer to a source image without
-/// enumerating the details of how it was produced. Hopefully we can get there
-/// incrementally).
-#[derive(Debug)]
-#[derive(MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub enum ImageSourceHandle {
-    RenderTask(RenderTaskId),
-    CachedRenderTask(RenderTaskCacheEntryHandle),
-    None,
-}
-
-impl ImageSourceHandle {
-    /// Resolve this handle into a TextureSource and the uv rect's gpu cache address (if any).
-    ///
-    /// Called during batching.
-    pub fn resolve(
-        &self,
-        render_tasks: &RenderTaskGraph,
-        ctx: &RenderTargetContext,
-        gpu_cache: &mut GpuCache,
-    ) -> Option<(GpuCacheAddress, TextureSource)> {
-        return match self {
-            ImageSourceHandle::None => {
-                None
-            }
-            ImageSourceHandle::RenderTask(task_id) => {
-                let task = &render_tasks[*task_id];
-                let uv_address = task.get_texture_address(gpu_cache);
-                let texture_source = task.get_texture_source();
-
-                if let TextureSource::Invalid = texture_source {
-                    return None;
-                }
-
-                Some((uv_address, texture_source))
-            },
-            ImageSourceHandle::CachedRenderTask(handle) => {
-                let rt_cache_entry = ctx.resource_cache
-                    .get_cached_render_task(&handle);
-                let cache_item = ctx.resource_cache
-                    .get_texture_cache_item(&rt_cache_entry.handle);
-
-                if cache_item.texture_id == TextureSource::Invalid {
-                    return None;
-                }
-
-                let uv_address = gpu_cache.get_address(&cache_item.uv_rect_handle);
-
-                Some((uv_address, cache_item.texture_id))
-            }
-        }
-    }
-}
 
 /// Resolve a resource cache's imagre request into a texture cache item.
 pub fn resolve_image(
@@ -145,4 +82,14 @@ pub fn resolve_image(
             CacheItem::invalid()
         }
     }
+}
+
+pub fn resolve_cached_render_task(
+    handle: &RenderTaskCacheEntryHandle,
+    resource_cache: &ResourceCache,
+) -> CacheItem {
+    let rt_cache_entry = resource_cache
+        .get_cached_render_task(&handle);
+
+    resource_cache.get_texture_cache_item(&rt_cache_entry.handle)
 }

@@ -4,8 +4,8 @@
 
 use api::units::*;
 use api::ImageFormat;
-use crate::gpu_cache::GpuCache;
-use crate::internal_types::{CacheTextureId, FastHashMap, FastHashSet};
+use crate::gpu_cache::{GpuCache, GpuCacheAddress};
+use crate::internal_types::{TextureSource, CacheTextureId, FastHashMap, FastHashSet};
 use crate::render_backend::FrameId;
 use crate::render_task_graph::{RenderTaskId};
 use crate::render_task::{StaticRenderTaskSurface, RenderTaskLocation, RenderTask};
@@ -15,7 +15,7 @@ use crate::render_task_graph::RenderTaskAllocation;
 use crate::resource_cache::ResourceCache;
 use crate::texture_pack::GuillotineAllocator;
 use crate::prim_store::DeferredResolve;
-use crate::image_source::resolve_image;
+use crate::image_source::{resolve_image, resolve_cached_render_task};
 use crate::util::VecHelper;
 use smallvec::SmallVec;
 use std::mem;
@@ -224,7 +224,7 @@ impl FrameGraphBuilder {
     pub fn add(&mut self) -> RenderTaskAllocation {
         // Assume every task is a root to start with
         self.roots.insert(
-            RenderTaskId { index: self.tasks.len() as u32 }
+            RenderTaskId { index: self.tasks.len() as u16 }
         );
 
         RenderTaskAllocation {
@@ -345,7 +345,7 @@ impl FrameGraphBuilder {
         // Determine which pass each task can be freed on, which depends on which is
         // the last task that has this as an input.
         for i in 0 .. graph.tasks.len() {
-            let task_id = RenderTaskId { index: i as u32 };
+            let task_id = RenderTaskId { index: i as u16 };
             assign_free_pass(
                 task_id,
                 &mut self.child_task_buffer,
@@ -365,7 +365,7 @@ impl FrameGraphBuilder {
         // Assign tasks to each pass based on their `render_on` attribute
         for (index, task) in graph.tasks.iter().enumerate() {
             if task.kind.is_a_rendering_operation() {
-                let id = RenderTaskId { index: index as u32 };
+                let id = RenderTaskId { index: index as u16 };
                 graph.passes[task.render_on.0].task_ids.push(id);
             }
         }
@@ -549,23 +549,38 @@ impl FrameGraphBuilder {
         // considered to be immutable for the rest of the frame building process.
 
         for task in &mut graph.tasks {
-            if let RenderTaskKind::Image(request) = task.kind {
-                let cache_item = resolve_image(
-                    request,
+            // First check whether the render task texture and uv rects are managed
+            // externally. This is the case for image tasks and cached tasks. In both
+            // cases it results in a finding the information in the texture cache.
+            let cache_item = if let Some(ref cache_handle) = task.cache_handle {
+                Some(resolve_cached_render_task(
+                    cache_handle,
+                    resource_cache,
+                ))
+            } else if let RenderTaskKind::Image(request) = &task.kind {
+                Some(resolve_image(
+                    *request,
                     resource_cache,
                     gpu_cache,
                     deferred_resolves,
-                );
+                ))
+            } else {
+                // General case (non-cached non-image tasks).
+                None
+            };
 
-                task.uv_rect_handle = Some(cache_item.uv_rect_handle);
+            if let Some(cache_item) = cache_item {
+                // Update the render task even if the item is invalid.
+                // We'll handle it later and it's easier to not have to
+                // deal with unexpected location variants like
+                // RenderTaskLocation::CacheRequest when we do.
+                let source = cache_item.texture_id;
+                task.uv_rect_handle = cache_item.uv_rect_handle;
                 task.location = RenderTaskLocation::Static {
-                    surface: StaticRenderTaskSurface::ReadOnly {
-                        source: cache_item.texture_id,
-                    },
+                    surface: StaticRenderTaskSurface::ReadOnly { source },
                     rect: cache_item.uv_rect,
                 };
             }
-
             // Give the render task an opportunity to add any
             // information to the GPU cache, if appropriate.
             let (target_rect, target_index) = task.get_target_rect();
@@ -620,6 +635,32 @@ impl FrameGraph {
             }
         }
     }
+
+    pub fn resolve_location(
+        &self,
+        task_id: impl Into<Option<RenderTaskId>>,
+        gpu_cache: &GpuCache,
+    ) -> Option<(GpuCacheAddress, TextureSource)> {
+        self.resolve_impl(task_id.into()?, gpu_cache)
+    }
+
+    fn resolve_impl(
+        &self,
+        task_id: RenderTaskId,
+        gpu_cache: &GpuCache,
+    ) -> Option<(GpuCacheAddress, TextureSource)> {
+        let task = &self[task_id];
+        let texture_source = task.get_texture_source();
+
+        if let TextureSource::Invalid = texture_source {
+            return None;
+        }
+
+        let uv_address = task.get_texture_address(gpu_cache);
+
+        Some((uv_address, texture_source))
+    }
+
 
     /// Return the surface and texture counts, used for testing
     #[cfg(test)]
@@ -765,8 +806,16 @@ impl FrameGraphBuilder {
         total_surface_count: usize,
         unique_surfaces: &[(i32, i32, ImageFormat)],
     ) {
+        use crate::render_backend::FrameStamp;
+        use api::{DocumentId, IdNamespace};
+
         let mut rc = ResourceCache::new_for_testing();
         let mut gc =  GpuCache::new();
+
+        let mut frame_stamp = FrameStamp::first(DocumentId::new(IdNamespace(1), 1));
+        frame_stamp.advance();
+        gc.prepare_for_frames();
+        gc.begin_frame(frame_stamp);
 
         let g = self.end_frame(&mut rc, &mut gc, &mut Vec::new());
         g.print();
