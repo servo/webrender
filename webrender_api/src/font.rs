@@ -11,6 +11,7 @@ use peek_poke::PeekPoke;
 use serde::de::{self, Deserialize, Deserializer};
 #[cfg(target_os = "macos")]
 use serde::ser::{Serialize, Serializer};
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 #[cfg(not(target_os = "macos"))]
@@ -280,7 +281,7 @@ impl FontKey {
 /// intended to distinguish this data from instance-specific data.
 #[derive(Clone)]
 pub enum FontTemplate {
-    Raw(Arc<Vec<u8>>, u32),
+    Raw(Arc<Cow<'static, [u8]>>, u32),
     Native(NativeFontHandle),
 }
 
