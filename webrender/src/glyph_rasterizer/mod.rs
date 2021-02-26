@@ -24,6 +24,7 @@ use rayon::prelude::*;
 use euclid::approxeq::ApproxEq;
 use euclid::size2;
 use smallvec::SmallVec;
+use std::borrow::Cow;
 use std::cmp;
 use std::cell::Cell;
 use std::hash::{Hash, Hasher};
@@ -300,7 +301,7 @@ impl GlyphRasterizer {
                                 offset: 0,
                             },
                             TextureFilter::Linear,
-                            Some(CachedImageData::Raw(Arc::new(glyph.bytes))),
+                            Some(CachedImageData::Raw(Arc::new(Cow::Owned(glyph.bytes)))),
                             [glyph.left, -glyph.top, glyph.scale],
                             DirtyRect::All,
                             gpu_cache,

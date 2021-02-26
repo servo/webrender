@@ -10,7 +10,7 @@ use crate::glyph_rasterizer::{FontInstance, FontTransform, GlyphKey};
 use crate::internal_types::{FastHashMap, FastHashSet, ResourceCacheError};
 use crate::glyph_rasterizer::{GlyphFormat, GlyphRasterError, GlyphRasterResult, RasterizedGlyph};
 use crate::gamma_lut::GammaLut;
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::collections::hash_map::Entry;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
@@ -164,7 +164,7 @@ impl FontContext {
         }
     }
 
-    pub fn add_raw_font(&mut self, font_key: &FontKey, data: Arc<Vec<u8>>, index: u32) {
+    pub fn add_raw_font(&mut self, font_key: &FontKey, data: Arc<Cow<'static, [u8]>>, index: u32) {
         if self.fonts.contains_key(font_key) {
             return;
         }

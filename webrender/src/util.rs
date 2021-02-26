@@ -449,7 +449,7 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for Transform3D<f32, Src, Dst> {
      *  a  b  0  1
      */
     fn is_2d_scale_translation(&self) -> bool {
-        (self.m33 - 1.0).abs() < NEARLY_ZERO && 
+        (self.m33 - 1.0).abs() < NEARLY_ZERO &&
             (self.m44 - 1.0).abs() < NEARLY_ZERO &&
             self.m12.abs() < NEARLY_ZERO && self.m13.abs() < NEARLY_ZERO && self.m14.abs() < NEARLY_ZERO &&
             self.m21.abs() < NEARLY_ZERO && self.m23.abs() < NEARLY_ZERO && self.m24.abs() < NEARLY_ZERO &&
@@ -1478,14 +1478,14 @@ fn test_conservative_union_rect() {
 /// This is inspired by the `weak-table` crate.
 /// It holds a Vec of weak pointers that are garbage collected as the Vec
 pub struct WeakTable {
-    inner: Vec<std::sync::Weak<Vec<u8>>>
+    inner: Vec<std::sync::Weak<Cow<'static, [u8]>>>
 }
 
 impl WeakTable {
     pub fn new() -> WeakTable {
         WeakTable { inner: Vec::new() }
     }
-    pub fn insert(&mut self, x: std::sync::Weak<Vec<u8>>) {
+    pub fn insert(&mut self, x: std::sync::Weak<Cow<'static, [u8]>>) {
         if self.inner.len() == self.inner.capacity() {
             self.remove_expired();
 
@@ -1509,7 +1509,7 @@ impl WeakTable {
         self.inner.retain(|x| x.strong_count() > 0)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = Arc<Vec<u8>>> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = Arc<Cow<'static, [u8]>>> + '_ {
         self.inner.iter().filter_map(|x| x.upgrade())
     }
 }
