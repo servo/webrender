@@ -496,7 +496,6 @@ impl TextureResolver {
                 1,
                 TextureFilter::Linear,
                 None,
-                1,
             );
         device.upload_texture_immediate(
             &dummy_cache_texture,
@@ -657,13 +656,6 @@ impl BlendMode {
             _ => return None,
         })
     }
-}
-
-#[derive(PartialEq)]
-struct TargetSelector {
-    size: DeviceIntSize,
-    num_layers: usize,
-    format: ImageFormat,
 }
 
 /// Information about the state of the debugging / profiler overlay in native compositing mode.
@@ -1058,7 +1050,6 @@ impl Renderer {
                 8,
                 TextureFilter::Nearest,
                 None,
-                1,
             );
             device.upload_texture_immediate(&texture, &dither_matrix);
 
@@ -2375,7 +2366,6 @@ impl Renderer {
                             // This needs to be a render target because some render
                             // tasks get rendered into the texture cache.
                             Some(RenderTargetInfo { has_depth: info.has_depth }),
-                            1,
                         );
 
                         if info.is_shared_cache {
@@ -2559,12 +2549,10 @@ impl Renderer {
         };
 
         // Bind the FBO to blit the backdrop to.
-        // Called per-instance in case the layer (and therefore FBO)
-        // changes. The device will skip the GL call if the requested
-        // target is already bound.
+        // Called per-instance in case the FBO changes. The device will skip
+        // the GL call if the requested target is already bound.
         let cache_draw_target = DrawTarget::from_texture(
             cache_texture,
-            0,
             false,
         );
 
@@ -2618,7 +2606,7 @@ impl Renderer {
             );
         }
 
-        // Restore draw target to current pass render target + layer, and reset
+        // Restore draw target to current pass render target, and reset
         // the read target.
         self.device.bind_draw_target(draw_target);
         self.device.reset_read_target();
@@ -2665,7 +2653,6 @@ impl Renderer {
 
             let read_target = DrawTarget::from_texture(
                 texture,
-                0,
                 false,
             );
 
@@ -3860,7 +3847,6 @@ impl Renderer {
 
         let draw_target = DrawTarget::from_texture(
             texture,
-            0,
             false,
         );
         self.device.bind_draw_target(draw_target);
@@ -4408,7 +4394,6 @@ impl Renderer {
 
                             DrawTarget::from_texture(
                                 texture,
-                                0,
                                 true,
                             )
                         }
@@ -4479,7 +4464,6 @@ impl Renderer {
 
                 let draw_target = DrawTarget::from_texture(
                     alpha_tex,
-                    0,
                     false,
                 );
 
@@ -4520,7 +4504,6 @@ impl Renderer {
 
                 let draw_target = DrawTarget::from_texture(
                     color_tex,
-                    0,
                     target.needs_depth(),
                 );
 
@@ -4806,7 +4789,6 @@ impl Renderer {
                 source_rect.size.height,
                 TextureFilter::Nearest,
                 Some(RenderTargetInfo { has_depth: false }),
-                1,
             );
 
             self.zoom_debug_texture = Some(texture);
@@ -4819,7 +4801,6 @@ impl Renderer {
             read_target.to_framebuffer_rect(source_rect),
             DrawTarget::from_texture(
                 self.zoom_debug_texture.as_ref().unwrap(),
-                0,
                 false,
             ),
             texture_rect,
@@ -4830,7 +4811,6 @@ impl Renderer {
         self.device.blit_render_target(
             ReadTarget::from_texture(
                 self.zoom_debug_texture.as_ref().unwrap(),
-                0,
             ),
             texture_rect,
             read_target,
@@ -4886,12 +4866,10 @@ impl Renderer {
         let fb_height = device_size.height;
         let surface_origin_is_top_left = draw_target.surface_origin_is_top_left();
 
-        let num_layers: i32 = textures.iter()
-            .map(|texture| texture.get_layer_count())
-            .sum();
+        let num_textures = textures.len() as i32;
 
-        if num_layers * (size + spacing) > fb_width {
-            let factor = fb_width as f32 / (num_layers * (size + spacing)) as f32;
+        if num_textures * (size + spacing) > fb_width {
+            let factor = fb_width as f32 / (num_textures * (size + spacing)) as f32;
             size = (size as f32 * factor) as i32;
             spacing = (spacing as f32 * factor) as i32;
         }
@@ -4902,12 +4880,12 @@ impl Renderer {
         let tag_y = fb_height - (bottom + spacing + tag_height);
         let image_y = tag_y - size;
 
-        // Sort the display by layer size (in bytes), so that left-to-right is
+        // Sort the display by size (in bytes), so that left-to-right is
         // largest-to-smallest.
         //
         // Note that the vec here is in increasing order, because the elements
         // get drawn right-to-left.
-        textures.sort_by_key(|t| t.layer_size_in_bytes());
+        textures.sort_by_key(|t| t.size_in_bytes());
 
         let mut i = 0;
         for texture in textures.iter() {
@@ -4917,58 +4895,55 @@ impl Renderer {
                 FramebufferIntSize::new(dimensions.width as i32, dimensions.height as i32),
             );
 
-            let layer_count = texture.get_layer_count() as usize;
-            for layer in 0 .. layer_count {
-                let x = fb_width - (spacing + size) * (i as i32 + 1);
+            let x = fb_width - (spacing + size) * (i as i32 + 1);
 
-                // If we have more targets than fit on one row in screen, just early exit.
-                if x > fb_width {
-                    return;
-                }
-
-                // Draw the info tag.
-                let tag_rect = rect(x, tag_y, size, tag_height);
-                let tag_color = select_color(texture);
-                device.clear_target(
-                    Some(tag_color),
-                    None,
-                    Some(draw_target.to_framebuffer_rect(tag_rect)),
-                );
-
-                // Draw the dimensions onto the tag.
-                let dim = texture.get_dimensions();
-                let text_rect = tag_rect.inflate(-text_margin, -text_margin);
-                debug_renderer.add_text(
-                    text_rect.min_x() as f32,
-                    text_rect.max_y() as f32, // Top-relative.
-                    &format!("{}x{}", dim.width, dim.height),
-                    ColorU::new(0, 0, 0, 255),
-                    Some(tag_rect.to_f32())
-                );
-
-                // Blit the contents of the layer.
-                let dest_rect = draw_target.to_framebuffer_rect(rect(x, image_y, size, size));
-                let read_target = ReadTarget::from_texture(texture, layer);
-
-                if surface_origin_is_top_left {
-                    device.blit_render_target(
-                        read_target,
-                        src_rect,
-                        *draw_target,
-                        dest_rect,
-                        TextureFilter::Linear,
-                    );
-                } else {
-                     // Invert y.
-                     device.blit_render_target_invert_y(
-                        read_target,
-                        src_rect,
-                        *draw_target,
-                        dest_rect,
-                    );
-                }
-                i += 1;
+            // If we have more targets than fit on one row in screen, just early exit.
+            if x > fb_width {
+                return;
             }
+
+            // Draw the info tag.
+            let tag_rect = rect(x, tag_y, size, tag_height);
+            let tag_color = select_color(texture);
+            device.clear_target(
+                Some(tag_color),
+                None,
+                Some(draw_target.to_framebuffer_rect(tag_rect)),
+            );
+
+            // Draw the dimensions onto the tag.
+            let dim = texture.get_dimensions();
+            let text_rect = tag_rect.inflate(-text_margin, -text_margin);
+            debug_renderer.add_text(
+                text_rect.min_x() as f32,
+                text_rect.max_y() as f32, // Top-relative.
+                &format!("{}x{}", dim.width, dim.height),
+                ColorU::new(0, 0, 0, 255),
+                Some(tag_rect.to_f32())
+            );
+
+            // Blit the contents of the texture.
+            let dest_rect = draw_target.to_framebuffer_rect(rect(x, image_y, size, size));
+            let read_target = ReadTarget::from_texture(texture);
+
+            if surface_origin_is_top_left {
+                device.blit_render_target(
+                    read_target,
+                    src_rect,
+                    *draw_target,
+                    dest_rect,
+                    TextureFilter::Linear,
+                );
+            } else {
+                 // Invert y.
+                 device.blit_render_target_invert_y(
+                    read_target,
+                    src_rect,
+                    *draw_target,
+                    dest_rect,
+                );
+            }
+            i += 1;
         }
     }
 
@@ -5192,16 +5167,13 @@ impl Renderer {
         }
     }
 
-    /// Clears all the layers of a texture with a given color.
+    /// Clears the texture with a given color.
     fn clear_texture(&mut self, texture: &Texture, color: [f32; 4]) {
-        for i in 0..texture.get_layer_count() {
-            self.device.bind_draw_target(DrawTarget::from_texture(
-                &texture,
-                i as usize,
-                false,
-            ));
-            self.device.clear_target(Some(color), None, None);
-        }
+        self.device.bind_draw_target(DrawTarget::from_texture(
+            &texture,
+            false,
+        ));
+        self.device.clear_target(Some(color), None, None);
     }
 }
 
@@ -5485,11 +5457,10 @@ pub struct RenderResults {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PlainTexture {
     data: String,
-    size: (DeviceIntSize, i32),
+    size: DeviceIntSize,
     format: ImageFormat,
     filter: TextureFilter,
     has_depth: bool,
-    is_array: bool,
 }
 
 
@@ -5558,46 +5529,43 @@ impl Renderer {
 
         let mut file = fs::File::create(root.join(&short_path))
             .expect(&format!("Unable to create {}", short_path));
-        let bytes_per_layer = (rect_size.width * rect_size.height * bytes_per_pixel) as usize;
-        let mut data = vec![0; bytes_per_layer];
+        let bytes_per_texture = (rect_size.width * rect_size.height * bytes_per_pixel) as usize;
+        let mut data = vec![0; bytes_per_texture];
 
         //TODO: instead of reading from an FBO with `read_pixels*`, we could
         // read from textures directly with `get_tex_image*`.
 
-        for layer_id in 0 .. texture.get_layer_count() {
-            let rect = device_size_as_framebuffer_size(rect_size).into();
+        let rect = device_size_as_framebuffer_size(rect_size).into();
 
-            device.attach_read_texture(texture, layer_id);
-            #[cfg(feature = "png")]
-            {
-                let mut png_data;
-                let (data_ref, format) = match texture.get_format() {
-                    ImageFormat::RGBAF32 => {
-                        png_data = vec![0; (rect_size.width * rect_size.height * 4) as usize];
-                        device.read_pixels_into(rect, ImageFormat::RGBA8, &mut png_data);
-                        (&png_data, ImageFormat::RGBA8)
-                    }
-                    fm => (&data, fm),
-                };
-                CaptureConfig::save_png(
-                    root.join(format!("textures/{}-{}.png", name, layer_id)),
-                    rect_size, format,
-                    None,
-                    data_ref,
-                );
-            }
-            device.read_pixels_into(rect, read_format, &mut data);
-            file.write_all(&data)
-                .unwrap();
+        device.attach_read_texture(texture);
+        #[cfg(feature = "png")]
+        {
+            let mut png_data;
+            let (data_ref, format) = match texture.get_format() {
+                ImageFormat::RGBAF32 => {
+                    png_data = vec![0; (rect_size.width * rect_size.height * 4) as usize];
+                    device.read_pixels_into(rect, ImageFormat::RGBA8, &mut png_data);
+                    (&png_data, ImageFormat::RGBA8)
+                }
+                fm => (&data, fm),
+            };
+            CaptureConfig::save_png(
+                root.join(format!("textures/{}-{}.png", name, 0)),
+                rect_size, format,
+                None,
+                data_ref,
+            );
         }
+        device.read_pixels_into(rect, read_format, &mut data);
+        file.write_all(&data)
+            .unwrap();
 
         PlainTexture {
             data: short_path,
-            size: (rect_size, texture.get_layer_count()),
+            size: rect_size,
             format: texture.get_format(),
             filter: texture.get_filter(),
             has_depth: texture.supports_depth(),
-            is_array: texture.is_array(),
         }
     }
 
@@ -5622,11 +5590,10 @@ impl Renderer {
         let texture = device.create_texture(
             target,
             plain.format,
-            plain.size.0.width,
-            plain.size.0.height,
+            plain.size.width,
+            plain.size.height,
             plain.filter,
             rt_info,
-            plain.size.1,
         );
         device.upload_texture_immediate(&texture, &texels);
 
@@ -5687,8 +5654,7 @@ impl Renderer {
                                     ExternalImageType::Buffer => unreachable!(),
                                 };
                                 info!("\t\tnative texture of target {:?}", target);
-                                let layer_index = 0; //TODO: what about layered textures?
-                                self.device.attach_read_texture_external(gl_id, target, layer_index);
+                                self.device.attach_read_texture_external(gl_id, target);
                                 let data = self.device.read_pixels(&def.descriptor);
                                 let short_path = format!("externals/t{}.raw", tex_id);
                                 (Some(data), e.insert(short_path).clone())
@@ -5826,15 +5792,12 @@ impl Renderer {
                 let tid = match native_map.entry(plain_ext.data) {
                     Entry::Occupied(e) => e.get().clone(),
                     Entry::Vacant(e) => {
-                        //TODO: provide a way to query both the layer count and the filter from external images
-                        let (layer_count, filter) = (1, TextureFilter::Linear);
                         let plain_tex = PlainTexture {
                             data: e.key().clone(),
-                            size: (descriptor.size, layer_count),
+                            size: descriptor.size,
                             format: descriptor.format,
-                            filter,
+                            filter: TextureFilter::Linear,
                             has_depth: false,
-                            is_array: false,
                         };
                         let t = Self::load_texture(
                             target,
@@ -5866,11 +5829,7 @@ impl Renderer {
             }
             for (id, texture) in renderer.textures {
                 info!("\t{}", texture.data);
-                let target = if texture.is_array {
-                    panic!("Texture arrays aren't supported");
-                } else {
-                    ImageBufferKind::Texture2D
-                };
+                let target = ImageBufferKind::Texture2D;
                 let t = Self::load_texture(
                     target,
                     &texture,

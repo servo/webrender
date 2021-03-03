@@ -130,7 +130,6 @@ impl GpuCacheTexture {
             new_size.height,
             TextureFilter::Nearest,
             rt_info,
-            1,
         );
 
         // Copy the contents of the previous texture, if applicable.
@@ -348,7 +347,7 @@ impl GpuCacheTexture {
                         DeviceIntSize::new(blocks.len() as i32, 1),
                     );
 
-                    uploader.upload(device, texture, rect, 0, None, None, blocks.as_ptr(), blocks.len());
+                    uploader.upload(device, texture, rect, None, None, blocks.as_ptr(), blocks.len());
 
                     row.clear_dirty();
                 }
@@ -365,7 +364,6 @@ impl GpuCacheTexture {
                 device.bind_draw_target(
                     DrawTarget::from_texture(
                         texture,
-                        0,
                         false,
                     ),
                 );
@@ -514,7 +512,7 @@ impl super::Renderer {
         let size = device_size_as_framebuffer_size(texture.get_dimensions());
         let mut texels = vec![0; (size.width * size.height * 16) as usize];
         self.device.begin_frame();
-        self.device.bind_read_target(ReadTarget::from_texture(texture, 0));
+        self.device.bind_read_target(ReadTarget::from_texture(texture));
         self.device.read_pixels_into(
             size.into(),
             api::ImageFormat::RGBAF32,

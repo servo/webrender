@@ -746,7 +746,6 @@ impl<T> VertexDataTexture<T> {
                 needed_height.max(2),
                 TextureFilter::Nearest,
                 None,
-                1,
             );
             self.texture = Some(texture);
         }
@@ -772,7 +771,6 @@ impl<T> VertexDataTexture<T> {
             device,
             self.texture(),
             rect,
-            0,
             None,
             None,
             data.as_ptr(),
