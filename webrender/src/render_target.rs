@@ -4,7 +4,7 @@
 
 
 use api::units::*;
-use api::{ColorF, PremultipliedColorF, ImageFormat, LineOrientation, BorderStyle};
+use api::{ColorF, ImageFormat, LineOrientation, BorderStyle};
 use crate::batch::{AlphaBatchBuilder, AlphaBatchContainer, BatchTextures};
 use crate::batch::{ClipBatcher, BatchBuilder};
 use crate::spatial_tree::{SpatialTree, ROOT_SPATIAL_NODE_INDEX};
@@ -17,7 +17,7 @@ use crate::gpu_types::{TransformPalette, ZBufferIdGenerator};
 use crate::internal_types::{FastHashMap, TextureSource, CacheTextureId};
 use crate::picture::{SliceId, SurfaceInfo, ResolvedSurfaceTexture, TileCacheInstance};
 use crate::prim_store::{PrimitiveStore, DeferredResolve, PrimitiveScratchBuffer};
-use crate::prim_store::gradient::GRADIENT_FP_STOPS;
+use crate::prim_store::gradient::FastLinearGradientInstance;
 use crate::render_backend::DataStores;
 use crate::render_task::{RenderTaskKind, RenderTaskAddress};
 use crate::render_task::{RenderTask, ScalingTask, SvgFilterInfo};
@@ -403,7 +403,7 @@ impl RenderTarget for ColorRenderTarget {
             RenderTaskKind::ClipRegion(..) |
             RenderTaskKind::Border(..) |
             RenderTaskKind::CacheMask(..) |
-            RenderTaskKind::Gradient(..) |
+            RenderTaskKind::FastLinearGradient(..) |
             RenderTaskKind::LineDecoration(..) => {
                 panic!("Should not be added to color target!");
             }
@@ -496,7 +496,7 @@ impl RenderTarget for AlphaRenderTarget {
             RenderTaskKind::Blit(..) |
             RenderTaskKind::Border(..) |
             RenderTaskKind::LineDecoration(..) |
-            RenderTaskKind::Gradient(..) |
+            RenderTaskKind::FastLinearGradient(..) |
             RenderTaskKind::SvgFilter(..) => {
                 panic!("BUG: should not be added to alpha target!");
             }
@@ -597,7 +597,7 @@ pub struct TextureCacheRenderTarget {
     pub border_segments_solid: Vec<BorderInstance>,
     pub clears: Vec<DeviceIntRect>,
     pub line_decorations: Vec<LineDecorationJob>,
-    pub gradients: Vec<GradientJob>,
+    pub fast_linear_gradients: Vec<FastLinearGradientInstance>,
 }
 
 impl TextureCacheRenderTarget {
@@ -610,7 +610,7 @@ impl TextureCacheRenderTarget {
             border_segments_solid: vec![],
             clears: vec![],
             line_decorations: vec![],
-            gradients: vec![],
+            fast_linear_gradients: vec![],
         }
     }
 
@@ -677,27 +677,8 @@ impl TextureCacheRenderTarget {
                     }
                 }
             }
-            RenderTaskKind::Gradient(ref task_info) => {
-                let mut stops = [0.0; 4];
-                let mut colors = [PremultipliedColorF::BLACK; 4];
-
-                let axis_select = match task_info.orientation {
-                    LineOrientation::Horizontal => 0.0,
-                    LineOrientation::Vertical => 1.0,
-                };
-
-                for (stop, (offset, color)) in task_info.stops.iter().zip(stops.iter_mut().zip(colors.iter_mut())) {
-                    *offset = stop.offset;
-                    *color = ColorF::from(stop.color).premultiplied();
-                }
-
-                self.gradients.push(GradientJob {
-                    task_rect: target_rect.to_f32(),
-                    axis_select,
-                    stops,
-                    colors,
-                    start_stop: [task_info.start_point, task_info.end_point],
-                });
+            RenderTaskKind::FastLinearGradient(ref task_info) => {
+                self.fast_linear_gradients.push(task_info.to_instance(&target_rect));
             }
             RenderTaskKind::Image(..) |
             RenderTaskKind::Cached(..) |
@@ -869,16 +850,4 @@ pub struct LineDecorationJob {
     pub wavy_line_thickness: f32,
     pub style: i32,
     pub axis_select: f32,
-}
-
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[repr(C)]
-#[derive(Clone, Debug)]
-pub struct GradientJob {
-    pub task_rect: DeviceRect,
-    pub stops: [f32; GRADIENT_FP_STOPS],
-    pub colors: [PremultipliedColorF; GRADIENT_FP_STOPS],
-    pub axis_select: f32,
-    pub start_stop: [f32; 2],
 }
