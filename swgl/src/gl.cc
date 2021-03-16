@@ -2377,25 +2377,25 @@ void ClearTexSubImage(GLuint texture, GLint level, GLint xoffset, GLint yoffset,
       break;
   }
 
-    switch (t.internal_format) {
-      case GL_RGBA8:
-        // Clear color needs to swizzle to BGRA.
-        request_clear<uint32_t>(t,
-                                (color & 0xFF00FF00) |
-                                    ((color << 16) & 0xFF0000) |
-                                    ((color >> 16) & 0xFF),
-                                scissor);
-        break;
-      case GL_R8:
-        request_clear<uint8_t>(t, uint8_t(color & 0xFF), scissor);
-        break;
-      case GL_RG8:
-        request_clear<uint16_t>(t, uint16_t(color & 0xFFFF), scissor);
-        break;
-      default:
-        assert(false);
-        break;
-    }
+  switch (t.internal_format) {
+    case GL_RGBA8:
+      // Clear color needs to swizzle to BGRA.
+      request_clear<uint32_t>(t,
+                              (color & 0xFF00FF00) |
+                                  ((color << 16) & 0xFF0000) |
+                                  ((color >> 16) & 0xFF),
+                              scissor);
+      break;
+    case GL_R8:
+      request_clear<uint8_t>(t, uint8_t(color & 0xFF), scissor);
+      break;
+    case GL_RG8:
+      request_clear<uint16_t>(t, uint16_t(color & 0xFFFF), scissor);
+      break;
+    default:
+      assert(false);
+      break;
+  }
 }
 
 void ClearTexImage(GLuint texture, GLint level, GLenum format, GLenum type,
