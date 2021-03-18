@@ -64,6 +64,9 @@ pub struct FrameBuilderConfig {
     pub gpu_supports_advanced_blend: bool,
     pub advanced_blend_is_coherent: bool,
     pub gpu_supports_render_target_partial_update: bool,
+    /// Whether ImageBufferKind::TextureExternal images must first be copied
+    /// to a regular texture before rendering.
+    pub external_images_require_copy: bool,
     pub batch_lookback_count: usize,
     pub background_color: Option<ColorF>,
     pub compositor_kind: CompositorKind,
@@ -279,7 +282,6 @@ impl<'a> FrameBuildingState<'a> {
 pub struct PictureContext {
     pub pic_index: PictureIndex,
     pub apply_local_clip_rect: bool,
-    pub is_passthrough: bool,
     pub surface_spatial_node_index: SpatialNodeIndex,
     pub raster_spatial_node_index: SpatialNodeIndex,
     /// The surface that this picture will render on.
