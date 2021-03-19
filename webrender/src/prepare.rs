@@ -893,7 +893,7 @@ fn prepare_interned_prim_for_render(
                 // have it in the shader.
                 prim_data.common.may_need_repetition = false;
 
-                gradient.visible_tiles_range = decompose_repeated_primitive(
+                gradient.visible_tiles_range = decompose_repeated_gradient(
                     &prim_instance.vis,
                     &prim_data.common.prim_rect,
                     prim_spatial_node_index,
@@ -902,7 +902,7 @@ fn prepare_interned_prim_for_render(
                     frame_state,
                     &mut scratch.gradient_tiles,
                     &frame_context.spatial_tree,
-                    &mut |_, mut request| {
+                    Some(&mut |_, mut request| {
                         request.push([
                             prim_data.start_point.x,
                             prim_data.start_point.y,
@@ -915,7 +915,7 @@ fn prepare_interned_prim_for_render(
                             prim_data.stretch_size.height,
                             0.0,
                         ]);
-                    }
+                    })
                 );
 
                 if gradient.visible_tiles_range.is_empty() {
@@ -930,22 +930,17 @@ fn prepare_interned_prim_for_render(
             profile_scope!("RadialGradient");
             let prim_data = &mut data_stores.radial_grad[*data_handle];
 
-            if prim_data.stretch_size.width >= prim_data.common.prim_rect.size.width &&
-                prim_data.stretch_size.height >= prim_data.common.prim_rect.size.height {
-
-                // We are performing the decomposition on the CPU here, no need to
-                // have it in the shader.
-                prim_data.common.may_need_repetition = false;
-            }
+            prim_data.common.may_need_repetition = prim_data.stretch_size.width < prim_data.common.prim_rect.size.width
+                || prim_data.stretch_size.height < prim_data.common.prim_rect.size.height;
 
             // Update the template this instane references, which may refresh the GPU
             // cache with any shared template data.
-            prim_data.update(frame_state);
+            prim_data.update(frame_state, pic_context.surface_index);
 
             if prim_data.tile_spacing != LayoutSize::zero() {
                 prim_data.common.may_need_repetition = false;
 
-                *visible_tiles_range = decompose_repeated_primitive(
+                *visible_tiles_range = decompose_repeated_gradient(
                     &prim_instance.vis,
                     &prim_data.common.prim_rect,
                     prim_spatial_node_index,
@@ -954,20 +949,7 @@ fn prepare_interned_prim_for_render(
                     frame_state,
                     &mut scratch.gradient_tiles,
                     &frame_context.spatial_tree,
-                    &mut |_, mut request| {
-                        request.push([
-                            prim_data.center.x,
-                            prim_data.center.y,
-                            prim_data.params.start_radius,
-                            prim_data.params.end_radius,
-                        ]);
-                        request.push([
-                            prim_data.params.ratio_xy,
-                            pack_as_float(prim_data.extend_mode as u32),
-                            prim_data.stretch_size.width,
-                            prim_data.stretch_size.height,
-                        ]);
-                    },
+                    None,
                 );
 
                 if visible_tiles_range.is_empty() {
@@ -982,22 +964,17 @@ fn prepare_interned_prim_for_render(
             profile_scope!("ConicGradient");
             let prim_data = &mut data_stores.conic_grad[*data_handle];
 
-            if prim_data.stretch_size.width >= prim_data.common.prim_rect.size.width &&
-                prim_data.stretch_size.height >= prim_data.common.prim_rect.size.height {
-
-                // We are performing the decomposition on the CPU here, no need to
-                // have it in the shader.
-                prim_data.common.may_need_repetition = false;
-            }
+            prim_data.common.may_need_repetition = prim_data.stretch_size.width < prim_data.common.prim_rect.size.width
+                || prim_data.stretch_size.height < prim_data.common.prim_rect.size.height;
 
             // Update the template this instane references, which may refresh the GPU
             // cache with any shared template data.
-            prim_data.update(frame_state);
+            prim_data.update(frame_state, pic_context.surface_index);
 
             if prim_data.tile_spacing != LayoutSize::zero() {
                 prim_data.common.may_need_repetition = false;
 
-                *visible_tiles_range = decompose_repeated_primitive(
+                *visible_tiles_range = decompose_repeated_gradient(
                     &prim_instance.vis,
                     &prim_data.common.prim_rect,
                     prim_spatial_node_index,
@@ -1006,20 +983,7 @@ fn prepare_interned_prim_for_render(
                     frame_state,
                     &mut scratch.gradient_tiles,
                     &frame_context.spatial_tree,
-                    &mut |_, mut request| {
-                        request.push([
-                            prim_data.center.x,
-                            prim_data.center.y,
-                            prim_data.params.start_offset,
-                            prim_data.params.end_offset,
-                        ]);
-                        request.push([
-                            prim_data.params.angle,
-                            pack_as_float(prim_data.extend_mode as u32),
-                            prim_data.stretch_size.width,
-                            prim_data.stretch_size.height,
-                        ]);
-                    },
+                    None,
                 );
 
                 if visible_tiles_range.is_empty() {
@@ -1153,7 +1117,7 @@ fn write_segment<F>(
     }
 }
 
-fn decompose_repeated_primitive(
+fn decompose_repeated_gradient(
     prim_vis: &PrimitiveVisibility,
     prim_local_rect: &LayoutRect,
     prim_spatial_node_index: SpatialNodeIndex,
@@ -1162,7 +1126,7 @@ fn decompose_repeated_primitive(
     frame_state: &mut FrameBuildingState,
     gradient_tiles: &mut GradientTileStorage,
     spatial_tree: &SpatialTree,
-    callback: &mut dyn FnMut(&LayoutRect, GpuDataRequest),
+    mut callback: Option<&mut dyn FnMut(&LayoutRect, GpuDataRequest)>,
 ) -> GradientTileRange {
     let mut visible_tiles = Vec::new();
 
@@ -1189,8 +1153,10 @@ fn decompose_repeated_primitive(
             size: *stretch_size,
         };
 
-        if let Some(request) = frame_state.gpu_cache.request(&mut handle) {
-            callback(&rect, request);
+        if let Some(callback) = &mut callback {
+            if let Some(request) = frame_state.gpu_cache.request(&mut handle) {
+                callback(&rect, request);
+            }
         }
 
         visible_tiles.push(VisibleGradientTile {

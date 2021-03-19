@@ -233,6 +233,8 @@ impl LazilyCompiledShader {
                 VertexArrayKind::Primitive => &desc::PRIM_INSTANCES,
                 VertexArrayKind::LineDecoration => &desc::LINE,
                 VertexArrayKind::FastLinearGradient => &desc::FAST_LINEAR_GRADIENT,
+                VertexArrayKind::RadialGradient => &desc::RADIAL_GRADIENT,
+                VertexArrayKind::ConicGradient => &desc::CONIC_GRADIENT,
                 VertexArrayKind::Blur => &desc::BLUR,
                 VertexArrayKind::ClipImage => &desc::CLIP_IMAGE,
                 VertexArrayKind::ClipRect => &desc::CLIP_RECT,
@@ -559,6 +561,8 @@ pub struct Shaders {
     pub cs_scale: Vec<Option<LazilyCompiledShader>>,
     pub cs_line_decoration: LazilyCompiledShader,
     pub cs_fast_linear_gradient: LazilyCompiledShader,
+    pub cs_radial_gradient: LazilyCompiledShader,
+    pub cs_conic_gradient: LazilyCompiledShader,
     pub cs_svg_filter: LazilyCompiledShader,
 
     // Brush shaders
@@ -568,8 +572,6 @@ pub struct Shaders {
     brush_blend: BrushShader,
     brush_mix_blend: BrushShader,
     brush_yuv_image: Vec<Option<BrushShader>>,
-    brush_conic_gradient: BrushShader,
-    brush_radial_gradient: BrushShader,
     brush_linear_gradient: BrushShader,
     brush_opacity: BrushShader,
     brush_opacity_aa: BrushShader,
@@ -670,34 +672,6 @@ impl Shaders {
             "brush_mix_blend",
             device,
             &[],
-            options.precache_flags,
-            &shader_list,
-            false /* advanced blend */,
-            false /* dual source */,
-        )?;
-
-        let brush_conic_gradient = BrushShader::new(
-            "brush_conic_gradient",
-            device,
-            if options.enable_dithering {
-               &[DITHERING_FEATURE]
-            } else {
-               &[]
-            },
-            options.precache_flags,
-            &shader_list,
-            false /* advanced blend */,
-            false /* dual source */,
-        )?;
-
-        let brush_radial_gradient = BrushShader::new(
-            "brush_radial_gradient",
-            device,
-            if options.enable_dithering {
-               &[DITHERING_FEATURE]
-            } else {
-               &[]
-            },
             options.precache_flags,
             &shader_list,
             false /* advanced blend */,
@@ -1036,6 +1010,24 @@ impl Shaders {
             &shader_list,
         )?;
 
+        let cs_radial_gradient = LazilyCompiledShader::new(
+            ShaderKind::Cache(VertexArrayKind::RadialGradient),
+            "cs_radial_gradient",
+            &[],
+            device,
+            options.precache_flags,
+            &shader_list,
+        )?;
+
+        let cs_conic_gradient = LazilyCompiledShader::new(
+            ShaderKind::Cache(VertexArrayKind::ConicGradient),
+            "cs_conic_gradient",
+            &[],
+            device,
+            options.precache_flags,
+            &shader_list,
+        )?;
+
         let cs_border_segment = LazilyCompiledShader::new(
             ShaderKind::Cache(VertexArrayKind::Border),
             "cs_border_segment",
@@ -1060,6 +1052,8 @@ impl Shaders {
             cs_border_segment,
             cs_line_decoration,
             cs_fast_linear_gradient,
+            cs_radial_gradient,
+            cs_conic_gradient,
             cs_border_solid,
             cs_scale,
             cs_svg_filter,
@@ -1069,8 +1063,6 @@ impl Shaders {
             brush_blend,
             brush_mix_blend,
             brush_yuv_image,
-            brush_conic_gradient,
-            brush_radial_gradient,
             brush_linear_gradient,
             brush_opacity,
             brush_opacity_aa,
@@ -1174,9 +1166,7 @@ impl Shaders {
                     BrushBatchKind::MixBlend { .. } => {
                         &mut self.brush_mix_blend
                     }
-                    BrushBatchKind::LinearGradient |
-                    BrushBatchKind::RadialGradient |
-                    BrushBatchKind::ConicGradient => {
+                    BrushBatchKind::LinearGradient => {
                         // SWGL uses a native clip mask implementation that bypasses the shader.
                         // Don't consider it in that case when deciding whether or not to use
                         // an alpha-pass shader.
@@ -1194,8 +1184,6 @@ impl Shaders {
                         }
                         match brush_kind {
                             BrushBatchKind::LinearGradient => &mut self.brush_linear_gradient,
-                            BrushBatchKind::RadialGradient => &mut self.brush_radial_gradient,
-                            BrushBatchKind::ConicGradient => &mut self.brush_conic_gradient,
                             _ => panic!(),
                         }
                     }
@@ -1238,8 +1226,6 @@ impl Shaders {
         self.brush_solid.deinit(device);
         self.brush_blend.deinit(device);
         self.brush_mix_blend.deinit(device);
-        self.brush_conic_gradient.deinit(device);
-        self.brush_radial_gradient.deinit(device);
         self.brush_linear_gradient.deinit(device);
         self.brush_opacity.deinit(device);
         self.brush_opacity_aa.deinit(device);
@@ -1268,6 +1254,8 @@ impl Shaders {
         }
         self.cs_border_solid.deinit(device);
         self.cs_fast_linear_gradient.deinit(device);
+        self.cs_radial_gradient.deinit(device);
+        self.cs_conic_gradient.deinit(device);
         self.cs_line_decoration.deinit(device);
         self.cs_border_segment.deinit(device);
         self.ps_split_composite.deinit(device);
