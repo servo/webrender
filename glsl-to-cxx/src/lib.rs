@@ -393,7 +393,7 @@ fn write_set_uniform_4fv(
         if float4_compatible(tk.clone()) {
             write!(
                 state,
-                "  self->{} = {}_scalar(value);\n",
+                "  self->{} = {}_scalar(*value);\n",
                 name,
                 tk.glsl_primitive_type_name().unwrap(),
             );
