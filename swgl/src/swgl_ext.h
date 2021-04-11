@@ -409,18 +409,25 @@ static P* blendTextureLinearDispatch(S sampler, vec2 uv, int span,
     // requiring clamping. In case the filter oversamples the row by a step, we
     // subtract off a step from the width to leave some room.
     float insideDist =
-        min(max_uv.x, float((int(sampler->width) - swgl_StepSize) << 7)) -
+        min(max_uv.x, float((int(sampler->width) - swgl_StepSize) *
+                            swgl_LinearQuantizeScale)) -
         uv.x.x;
     if (uv_step.x > 0.0f && insideDist >= uv_step.x) {
-      int inside =
-          clamp(int(insideDist / uv_step.x) * swgl_StepSize, 0, int(end - buf));
+      int inside = int(end - buf);
       if (filter == LINEAR_FILTER_DOWNSCALE) {
+        inside =
+            min(inside, int(insideDist * (0.5f / swgl_LinearQuantizeScale)) &
+                            ~(swgl_StepSize - 1));
         blendTextureLinearDownscale<BLEND>(sampler, uv, inside, min_uv, max_uv,
                                            color, buf);
       } else if (filter == LINEAR_FILTER_UPSCALE) {
+        inside = min(inside, int(insideDist / uv_step.x) * swgl_StepSize);
         blendTextureLinearUpscale<BLEND>(sampler, uv, inside, uv_step, min_uv,
                                          max_uv, color, buf);
       } else {
+        inside =
+            min(inside, int(insideDist * (1.0f / swgl_LinearQuantizeScale)) &
+                            ~(swgl_StepSize - 1));
         blendTextureLinearFast<BLEND>(sampler, uv, inside, min_uv, max_uv,
                                       color, buf);
       }
@@ -474,8 +481,9 @@ static int blendTextureNearestFast(S sampler, vec2 uv, int span,
   // Calculate the row pointer within the buffer, clamping to within valid row
   // bounds.
   P* row =
-      &sampler->buf[clamp(clampCoord(i.y, sampler->height), minUV.y, maxUV.y) *
-                    sampler->stride];
+      &((P*)sampler
+            ->buf)[clamp(clampCoord(i.y, sampler->height), minUV.y, maxUV.y) *
+                   sampler->stride];
   // Find clamped X bounds within the row.
   int minX = clamp(minUV.x, 0, sampler->width - 1);
   int maxX = clamp(maxUV.x, minX, sampler->width - 1);
@@ -511,7 +519,8 @@ static int blendTextureNearestFast(S sampler, vec2 uv, int span,
   // If we still have samples left above the valid sample bounds, then we again
   // need to fill this section with a constant clamped sample.
   if (curX < endX) {
-    auto src = applyColor(unpack(bit_cast<packed_type>(U32(row[maxX]))), color);
+    auto src =
+        applyColor(unpack(bit_cast<packed_type>(V4<P>(row[maxX]))), color);
     commit_solid_span<BLEND>(buf, src, endX - curX);
   }
   return span;

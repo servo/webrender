@@ -662,6 +662,7 @@ enum ProgramSourceType {
 pub struct ProgramSourceInfo {
     base_filename: &'static str,
     features: Vec<&'static str>,
+    full_name: Rc<String>,
     source_type: ProgramSourceType,
     digest: ProgramSourceDigest,
 }
@@ -686,11 +687,11 @@ impl ProgramSourceInfo {
         // Hash the renderer name.
         hasher.write(device.capabilities.renderer_name.as_bytes());
 
-        let full_name = &Self::make_full_name(name, features);
+        let full_name = Rc::new(Self::make_full_name(name, features));
 
         let optimized_source = if device.use_optimized_shaders {
-            OPTIMIZED_SHADERS.get(&(gl_version, full_name)).or_else(|| {
-                warn!("Missing optimized shader source for {}", full_name);
+            OPTIMIZED_SHADERS.get(&(gl_version, &full_name)).or_else(|| {
+                warn!("Missing optimized shader source for {}", &full_name);
                 None
             })
         } else {
@@ -762,6 +763,7 @@ impl ProgramSourceInfo {
         ProgramSourceInfo {
             base_filename: name,
             features: features.to_vec(),
+            full_name,
             source_type,
             digest: hasher.into(),
         }
@@ -801,8 +803,8 @@ impl ProgramSourceInfo {
         }
     }
 
-    fn full_name(&self) -> String {
-        Self::make_full_name(self.base_filename, &self.features)
+    fn full_name(&self) -> &Rc<String> {
+        &self.full_name
     }
 }
 
@@ -974,6 +976,9 @@ pub struct Capabilities {
     /// Whether to enforce that texture uploads be batched regardless of what
     /// the pref says.
     pub requires_batched_texture_uploads: Option<bool>,
+    /// Whether we are able to ue glClear to clear regions of an alpha render target.
+    /// If false, we must use a shader to clear instead.
+    pub supports_alpha_target_clears: bool,
     /// Whether the driver can reliably upload data to R8 format textures.
     pub supports_r8_texture_upload: bool,
     /// Whether clip-masking is supported natively by the GL implementation
@@ -1057,7 +1062,7 @@ pub struct Device {
     // device state
     bound_textures: [gl::GLuint; 16],
     bound_program: gl::GLuint,
-    bound_program_name: String,
+    bound_program_name: Rc<String>,
     bound_vao: gl::GLuint,
     bound_read_fbo: (FBOId, DeviceIntPoint),
     bound_draw_fbo: FBOId,
@@ -1696,6 +1701,12 @@ impl Device {
             requires_batched_texture_uploads = Some(true);
         }
 
+        // On Mali-Txxx devices we have observed crashes during draw calls when rendering
+        // to an alpha target immediately after using glClear to clear regions of it.
+        // Using a shader to clear the regions avoids the crash. See bug 1638593.
+        let is_mali_t = renderer_name.starts_with("Mali-T");
+        let supports_alpha_target_clears = !is_mali_t;
+
         // On Linux we we have seen uploads to R8 format textures result in
         // corruption on some AMD cards.
         // See https://bugzilla.mozilla.org/show_bug.cgi?id=1687554#c13
@@ -1733,6 +1744,7 @@ impl Device {
                 supports_render_target_partial_update,
                 supports_shader_storage_object,
                 requires_batched_texture_uploads,
+                supports_alpha_target_clears,
                 supports_r8_texture_upload,
                 uses_native_clip_mask,
                 uses_native_antialiasing,
@@ -1752,7 +1764,7 @@ impl Device {
 
             bound_textures: [0; 16],
             bound_program: 0,
-            bound_program_name: String::new(),
+            bound_program_name: Rc::new(String::new()),
             bound_vao: 0,
             bound_read_fbo: (FBOId(0), DeviceIntPoint::zero()),
             bound_draw_fbo: FBOId(0),
@@ -2373,7 +2385,7 @@ impl Device {
         if self.bound_program != program.id {
             self.gl.use_program(program.id);
             self.bound_program = program.id;
-            self.bound_program_name = program.source_info.full_name();
+            self.bound_program_name = program.source_info.full_name().clone();
             self.program_mode_id = UniformLocation(program.u_mode);
         }
         true
