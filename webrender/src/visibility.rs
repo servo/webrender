@@ -11,6 +11,7 @@ use api::{ColorF, DebugFlags};
 use api::units::*;
 use euclid::Scale;
 use std::{usize, mem};
+use crate::batch::BatchFilter;
 use crate::clip::{ClipStore, ClipChainStack};
 use crate::composite::CompositeState;
 use crate::spatial_tree::{ROOT_SPATIAL_NODE_INDEX, SpatialTree, SpatialNodeIndex};
@@ -93,18 +94,29 @@ pub enum VisibilityState {
     Unset,
     /// Culled for being off-screen, or not possible to render (e.g. missing image resource)
     Culled,
+    /// A picture that doesn't have a surface - primitives are composed into the
+    /// parent picture with a surface.
+    PassThrough,
     /// During picture cache dependency update, was found to be intersecting with one
     /// or more visible tiles. The rect in picture cache space is stored here to allow
     /// the detailed calculations below.
     Coarse {
-        rect_in_pic_space: PictureRect,
+        /// Information about which tile batchers this prim should be added to
+        filter: BatchFilter,
+
+        /// A set of flags that define how this primitive should be handled
+        /// during batching of visible primitives.
+        vis_flags: PrimitiveVisibilityFlags,
     },
     /// Once coarse visibility is resolved, this will be set if the primitive
     /// intersected any dirty rects, otherwise prim will be culled.
     Detailed {
-        // TODO(gw): Intersecting Box2D is more efficient than Rect. Consider
-        //           storing here (and perhaps above) as a Box2D.
-        rect_in_pic_space: PictureRect,
+        /// Information about which tile batchers this prim should be added to
+        filter: BatchFilter,
+
+        /// A set of flags that define how this primitive should be handled
+        /// during batching of visible primitives.
+        vis_flags: PrimitiveVisibilityFlags,
     },
 }
 
@@ -128,10 +140,6 @@ pub struct PrimitiveVisibility {
     /// a list of clip task ids (one per segment).
     pub clip_task_index: ClipTaskIndex,
 
-    /// A set of flags that define how this primitive should be handled
-    /// during batching of visibile primitives.
-    pub flags: PrimitiveVisibilityFlags,
-
     /// The current combined local clip for this primitive, from
     /// the primitive local clip above and the current clip chain.
     pub combined_local_clip_rect: LayoutRect,
@@ -143,7 +151,6 @@ impl PrimitiveVisibility {
             state: VisibilityState::Unset,
             clip_chain: ClipChainInstance::empty(),
             clip_task_index: ClipTaskIndex::INVALID,
-            flags: PrimitiveVisibilityFlags::empty(),
             combined_local_clip_rect: LayoutRect::zero(),
         }
     }
@@ -151,7 +158,6 @@ impl PrimitiveVisibility {
     pub fn reset(&mut self) {
         self.state = VisibilityState::Culled;
         self.clip_task_index = ClipTaskIndex::INVALID;
-        self.flags = PrimitiveVisibilityFlags::empty();
     }
 }
 
@@ -338,9 +344,7 @@ pub fn update_primitive_visibility(
 
             if is_passthrough {
                 // Pass through pictures are always considered visible in all dirty tiles.
-                prim_instance.vis.state = VisibilityState::Detailed {
-                    rect_in_pic_space: PictureRect::max_rect(),
-                };
+                prim_instance.vis.state = VisibilityState::PassThrough;
             } else {
                 if prim_local_rect.size.width <= 0.0 || prim_local_rect.size.height <= 0.0 {
                     if prim_instance.is_chased() {
@@ -474,7 +478,7 @@ pub fn update_primitive_visibility(
                 match prim_instance.vis.state {
                     VisibilityState::Unset => panic!("bug: invalid state"),
                     VisibilityState::Culled => continue,
-                    VisibilityState::Coarse { .. } | VisibilityState::Detailed { .. } => {}
+                    VisibilityState::Coarse { .. } | VisibilityState::Detailed { .. } | VisibilityState::PassThrough => {}
                 }
 
                 // When the debug display is enabled, paint a colored rectangle around each
