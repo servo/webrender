@@ -3,9 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{ColorF, ColorU, GradientStop, PremultipliedColorF};
-use api::units::{LayoutRect, LayoutSize};
+use api::units::{LayoutRect, LayoutSize, LayoutVector2D};
 use crate::gpu_cache::GpuDataRequest;
-use crate::prim_store::PrimitiveOpacity;
 use std::hash;
 
 mod linear;
@@ -67,25 +66,6 @@ impl hash::Hash for GradientStopKey {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.offset.to_bits().hash(state);
         self.color.hash(state);
-    }
-}
-
-pub fn get_gradient_opacity(
-    prim_rect: LayoutRect,
-    stretch_size: LayoutSize,
-    tile_spacing: LayoutSize,
-    stops_opacity: PrimitiveOpacity,
-) -> PrimitiveOpacity {
-    // If the coverage of the gradient extends to or beyond
-    // the primitive rect, then the opacity can be determined
-    // by the colors of the stops. If we have tiling / spacing
-    // then we just assume the gradient is translucent for now.
-    // (In the future we could consider segmenting in some cases).
-    let stride = stretch_size + tile_spacing;
-    if stride.width >= prim_rect.size.width && stride.height >= prim_rect.size.height {
-        stops_opacity
-    } else {
-        PrimitiveOpacity::translucent()
     }
 }
 
@@ -335,6 +315,53 @@ impl GradientGpuBlockBuilder {
     }
 }
 
+// If the gradient is not tiled we know that any content outside of the clip will not
+// be shown. Applying a conservative clip early reduces how much of the gradient we
+// render and cache. We do this optimization separately on each axis.
+// Returns the offset between the new and old primitive rect origin, to apply to the
+// gradient parameters that are relative to the primitive origin.
+pub fn apply_gradient_local_clip(
+    prim_rect: &mut LayoutRect,
+    stretch_size: &LayoutSize,
+    tile_spacing: &LayoutSize,
+    clip_rect: &LayoutRect,
+) -> LayoutVector2D {
+    let is_tiled_x = prim_rect.size.width > stretch_size.width + tile_spacing.width;
+    let is_tiled_y = prim_rect.size.height > stretch_size.height + tile_spacing.height;
+
+    let mut offset = LayoutVector2D::new(0.0, 0.0);
+
+    if !is_tiled_x {
+        let diff = (clip_rect.min_x() - prim_rect.min_x()).min(prim_rect.size.width);
+        if diff > 0.0 {
+            prim_rect.origin.x += diff;
+            prim_rect.size.width -= diff;
+            offset.x = -diff;
+        }
+
+        let diff = prim_rect.max_x() - clip_rect.max_x();
+        if diff > 0.0 {
+            prim_rect.size.width -= diff;
+        }
+    }
+
+    if !is_tiled_y {
+        let diff = (clip_rect.min_y() - prim_rect.min_y()).min(prim_rect.size.height);
+        if diff > 0.0 {
+            prim_rect.origin.y += diff;
+            prim_rect.size.height -= diff;
+            offset.y = -diff;
+        }
+
+        let diff = prim_rect.max_y() - clip_rect.max_y();
+        if diff > 0.0 {
+            prim_rect.size.height -= diff;
+        }
+    }
+
+    offset
+}
+
 #[test]
 #[cfg(target_pointer_width = "64")]
 fn test_struct_sizes() {
@@ -346,7 +373,7 @@ fn test_struct_sizes() {
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<LinearGradient>(), 72, "LinearGradient size changed");
-    assert_eq!(mem::size_of::<LinearGradientTemplate>(), 120, "LinearGradientTemplate size changed");
+    assert_eq!(mem::size_of::<LinearGradientTemplate>(), 144, "LinearGradientTemplate size changed");
     assert_eq!(mem::size_of::<LinearGradientKey>(), 88, "LinearGradientKey size changed");
 
     assert_eq!(mem::size_of::<RadialGradient>(), 72, "RadialGradient size changed");

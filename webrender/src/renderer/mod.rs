@@ -207,6 +207,10 @@ const GPU_TAG_CACHE_FAST_LINEAR_GRADIENT: GpuProfileTag = GpuProfileTag {
     label: "C_FastLinearGradient",
     color: debug_colors::BROWN,
 };
+const GPU_TAG_CACHE_LINEAR_GRADIENT: GpuProfileTag = GpuProfileTag {
+    label: "C_LinearGradient",
+    color: debug_colors::BROWN,
+};
 const GPU_TAG_CACHE_RADIAL_GRADIENT: GpuProfileTag = GpuProfileTag {
     label: "C_RadialGradient",
     color: debug_colors::BROWN,
@@ -4150,7 +4154,7 @@ impl Renderer {
             self.set_blend(false, FramebufferKind::Other);
         }
 
-        // Draw any gradients for this target.
+        // Draw any fast path linear gradients for this target.
         if !target.fast_linear_gradients.is_empty() {
             let _timer = self.gpu_profiler.start_timer(GPU_TAG_CACHE_FAST_LINEAR_GRADIENT);
 
@@ -4166,6 +4170,31 @@ impl Renderer {
             self.draw_instanced_batch(
                 &target.fast_linear_gradients,
                 VertexArrayKind::FastLinearGradient,
+                &BatchTextures::empty(),
+                stats,
+            );
+        }
+
+        // Draw any linear gradients for this target.
+        if !target.linear_gradients.is_empty() {
+            let _timer = self.gpu_profiler.start_timer(GPU_TAG_CACHE_LINEAR_GRADIENT);
+
+            self.set_blend(false, FramebufferKind::Other);
+
+            self.shaders.borrow_mut().cs_linear_gradient.bind(
+                &mut self.device,
+                &projection,
+                None,
+                &mut self.renderer_errors,
+            );
+
+            if let Some(ref texture) = self.dither_matrix_texture {
+                self.device.bind_texture(TextureSampler::Dither, texture, Swizzle::default());
+            }
+
+            self.draw_instanced_batch(
+                &target.linear_gradients,
+                VertexArrayKind::LinearGradient,
                 &BatchTextures::empty(),
                 stats,
             );
@@ -5670,6 +5699,7 @@ fn new_debug_server(_enable: bool, api_tx: Sender<ApiMsg>) -> Box<dyn DebugServe
 /// The cumulative times spent in each painting phase to generate this frame.
 #[derive(Debug, Default)]
 pub struct FullFrameStats {
+    pub full_display_list: bool,
     pub gecko_display_list_time: f64,
     pub wr_display_list_time: f64,
     pub scene_build_time: f64,
@@ -5679,6 +5709,7 @@ pub struct FullFrameStats {
 impl FullFrameStats {
     pub fn merge(&self, other: &FullFrameStats) -> Self {
         Self {
+            full_display_list: self.full_display_list || other.full_display_list,
             gecko_display_list_time: self.gecko_display_list_time + other.gecko_display_list_time,
             wr_display_list_time: self.wr_display_list_time + other.wr_display_list_time,
             scene_build_time: self.scene_build_time + other.scene_build_time,
@@ -5707,7 +5738,8 @@ pub struct RendererStats {
     pub wr_display_list_time: f64,
     pub scene_build_time: f64,
     pub frame_build_time: f64,
-    pub full_frame: bool,
+    pub full_display_list: bool,
+    pub full_paint: bool,
 }
 
 impl RendererStats {
@@ -5716,7 +5748,8 @@ impl RendererStats {
         self.wr_display_list_time = stats.wr_display_list_time;
         self.scene_build_time = stats.scene_build_time;
         self.frame_build_time = stats.frame_build_time;
-        self.full_frame = true;
+        self.full_display_list = stats.full_display_list;
+        self.full_paint = true;
     }
 }
 
