@@ -11,6 +11,7 @@ platform(linux,mac) == premultiplied-conic-2.yaml premultiplied-conic-2.png
 == linear.yaml linear-ref.png
 == linear-reverse.yaml linear-ref.png
 fuzzy(255,1200) == linear-reverse-2.yaml linear-reverse-2-ref.yaml
+== linear-reverse-3.yaml linear-reverse-3-ref.yaml
 platform(linux,mac) fuzzy(1,35000) == linear-stops.yaml linear-stops-ref.png
 
 == linear-clamp-1a.yaml linear-clamp-1-ref.yaml
@@ -110,3 +111,11 @@ fuzzy-range(<=1,1) == gradient_cache_hardstop_clip.yaml gradient_cache_hardstop_
 # Exercise the radial gradient optimization code path
 == radial-optimized.yaml radial-optimized-ref.yaml
 == radial-tiling-optimized.yaml radial-tiling-optimized-ref.yaml
+
+# Exercise the cached gradient scaling code path
+fuzzy(2,23000) == linear-large.yaml linear-large-ref.yaml
+== conic-large.yaml conic-large-ref.yaml
+fuzzy(1,7000) == radial-large.yaml radial-large-ref.png
+
+# crash tests
+== linear-far-endpoints.yaml linear-far-endpoints.yaml
