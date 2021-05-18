@@ -2003,30 +2003,28 @@ fn is_ivec(ty: &Type) -> bool {
     }
 }
 
-fn compatible_type(lhs: &Type, rhs: &Type) -> bool {
+fn can_implicitly_convert_to(src: &Type, dst: &Type) -> bool {
     // XXX: use an underlying type helper
-    if lhs == &Type::new(TypeKind::Double) && rhs == &Type::new(TypeKind::Float) {
+    if src == &Type::new(TypeKind::Double) && dst == &Type::new(TypeKind::Float) {
+        // We're not supposed to implicitly convert from double to float but glsl 4 has a bug
+        // where it parses unannotated float constants as double.
         true
-    } else if rhs == &Type::new(TypeKind::Double) && lhs == &Type::new(TypeKind::Float) {
+    } else if dst == &Type::new(TypeKind::Double) && src == &Type::new(TypeKind::Float) {
         true
-    } else if rhs == &Type::new(TypeKind::Int) &&
-        (lhs == &Type::new(TypeKind::Float) || lhs == &Type::new(TypeKind::Double))
+    } else if (dst == &Type::new(TypeKind::Float) || dst == &Type::new(TypeKind::Double)) &&
+        src == &Type::new(TypeKind::Int)
     {
         true
-    } else if (rhs == &Type::new(TypeKind::Float) || rhs == &Type::new(TypeKind::Double)) &&
-        lhs == &Type::new(TypeKind::Int)
+    } else if (dst == &Type::new(TypeKind::Vec2) || dst == &Type::new(TypeKind::DVec2)) &&
+        src == &Type::new(TypeKind::IVec2)
     {
         true
-    } else if (rhs == &Type::new(TypeKind::Vec2) || rhs == &Type::new(TypeKind::DVec2)) &&
-        lhs == &Type::new(TypeKind::IVec2)
-    {
-        true
-    } else if rhs == &Type::new(TypeKind::IVec2) &&
-        (lhs == &Type::new(TypeKind::Vec2) || lhs == &Type::new(TypeKind::DVec2))
+    } else if dst == &Type::new(TypeKind::IVec2) &&
+        (src == &Type::new(TypeKind::Vec2) || src == &Type::new(TypeKind::DVec2))
     {
         true
     } else {
-        lhs.kind == rhs.kind && lhs.array_sizes == rhs.array_sizes
+        src.kind == dst.kind && src.array_sizes == dst.array_sizes
     }
 }
 
@@ -2337,18 +2335,30 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                             }
                             match &state.sym(sym).decl {
                                 SymDecl::NativeFunction(fn_ty, _, _) => {
+                                    // Search for a signature where all parameter types are
+                                    // compatible. If there are many compatible signatures,
+                                    // then choose the one with the most exact matches.
+                                    // This is an approximation of the algorith described in
+                                    // the "Function Definitions" section of the spec.
                                     let mut ret = None;
-                                    for sig in &fn_ty.signatures {
-                                        let mut matching = true;
+                                    let mut best_score = 0;
+                                    'next_sig: for sig in &fn_ty.signatures {
+                                        let mut score = 0;
                                         for (e, p) in params.iter().zip(sig.params.iter()) {
-                                            if !compatible_type(&e.ty, p) {
-                                                matching = false;
-                                                break;
+                                            if e.ty == *p {
+                                                score += 1;
+                                            } else if !can_implicitly_convert_to(&e.ty, p) {
+                                                continue 'next_sig;
                                             }
                                         }
-                                        if matching {
+                                        if score >= best_score {
                                             ret = Some(sig.ret.clone());
-                                            break;
+                                            best_score = score;
+                                            // If all parameters match exactly, then there
+                                            // is no need to search for other matches.
+                                            if best_score >= params.len() {
+                                                break;
+                                            }
                                         }
                                     }
                                     ret_ty = match ret {
@@ -2383,7 +2393,7 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
                                                     }
                                                     _ => {}
                                                 }
-                                                compatible_type(&e.ty, &d.ty)
+                                                can_implicitly_convert_to(&e.ty, &d.ty)
                                             }
                                             FunctionParameterDeclaration::Unnamed(..) => panic!(),
                                         };
@@ -3250,77 +3260,38 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
         Type::new(Float),
         vec![Type::new(Vec2), Type::new(Vec2)],
     );
-    declare_function(
-        state,
-        "min",
-        None,
-        Type::new(Float),
-        vec![Type::new(Float), Type::new(Float)],
-    );
-    declare_function(
-        state,
-        "min",
-        None,
-        Type::new(Vec2),
-        vec![Type::new(Vec2), Type::new(Vec2)],
-    );
-    declare_function(
-        state,
-        "min",
-        None,
-        Type::new(Vec2),
-        vec![Type::new(Vec2), Type::new(Float)],
-    );
-    declare_function(
-        state,
-        "min",
-        None,
-        Type::new(Vec3),
-        vec![Type::new(Vec3), Type::new(Vec3)],
-    );
-    declare_function(
-        state,
-        "min",
-        None,
-        Type::new(Vec3),
-        vec![Type::new(Vec3), Type::new(Float)],
-    );
-
-    declare_function(
-        state,
-        "max",
-        None,
-        Type::new(Float),
-        vec![Type::new(Float), Type::new(Float)],
-    );
-    declare_function(
-        state,
-        "max",
-        None,
-        Type::new(Vec2),
-        vec![Type::new(Vec2), Type::new(Vec2)],
-    );
-    declare_function(
-        state,
-        "max",
-        None,
-        Type::new(Vec2),
-        vec![Type::new(Vec2), Type::new(Float)],
-    );
-    declare_function(
-        state,
-        "max",
-        None,
-        Type::new(Vec3),
-        vec![Type::new(Vec3), Type::new(Vec3)],
-    );
-    declare_function(
-        state,
-        "max",
-        None,
-        Type::new(Vec3),
-        vec![Type::new(Vec3), Type::new(Float)],
-    );
+    for t in &[Vec2, Vec3, Vec4] {
+        declare_function(
+            state,
+            "min",
+            None,
+            Type::new(*t),
+            vec![Type::new(*t), Type::new(Float)],
+        );
+        declare_function(
+            state,
+            "max",
+            None,
+            Type::new(*t),
+            vec![Type::new(*t), Type::new(Float)],
+        );
+    }
+    for t in &[Int, Float, Vec2, Vec3, Vec4] {
+        declare_function(
+            state,
+            "min",
+            None,
+            Type::new(*t),
+            vec![Type::new(*t), Type::new(*t)],
+        );
+        declare_function(
+            state,
+            "max",
+            None,
+            Type::new(*t),
+            vec![Type::new(*t), Type::new(*t)],
+        );
+    }
 
     declare_function(
         state,
@@ -3465,48 +3436,24 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
     declare_function(state, "tan", None, Type::new(Float), vec![Type::new(Float)]);
     declare_function(state, "atan", None, Type::new(Float), vec![Type::new(Float)]);
     declare_function(state, "atan", None, Type::new(Float), vec![Type::new(Float), Type::new(Float)]);
-    declare_function(
-        state,
-        "clamp",
-        None,
-        Type::new(Vec3),
-        vec![Type::new(Vec3), Type::new(Float), Type::new(Float)],
-    );
-    declare_function(
-        state,
-        "clamp",
-        None,
-        Type::new(Float),
-        vec![Type::new(Float), Type::new(Float), Type::new(Float)],
-    );
-    declare_function(
-        state,
-        "clamp",
-        None,
-        Type::new(Vec2),
-        vec![Type::new(Vec2), Type::new(Vec2), Type::new(Vec2)],
-    );
-    declare_function(
-        state,
-        "clamp",
-        None,
-        Type::new(Vec3),
-        vec![Type::new(Vec3), Type::new(Vec3), Type::new(Vec3)],
-    );
-    declare_function(
-        state,
-        "clamp",
-        None,
-        Type::new(Vec4),
-        vec![Type::new(Vec4), Type::new(Vec4), Type::new(Vec4)],
-    );
-    declare_function(
-        state,
-        "clamp",
-        None,
-        Type::new(Vec4),
-        vec![Type::new(Vec4), Type::new(Float), Type::new(Float)],
-    );
+    for t in &[Vec2, Vec3, Vec4] {
+        declare_function(
+            state,
+            "clamp",
+            None,
+            Type::new(*t),
+            vec![Type::new(*t), Type::new(Float), Type::new(Float)],
+        );
+    }
+    for t in &[Float, Vec2, Vec3, Vec4] {
+        declare_function(
+            state,
+            "clamp",
+            None,
+            Type::new(*t),
+            vec![Type::new(*t), Type::new(*t), Type::new(*t)],
+        );
+    }
     declare_function(
         state,
         "length",
@@ -3993,6 +3940,20 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
             None,
             Type::new(Void),
             vec![Type::new(*s), Type::new(Vec2), Type::new(Vec4)],
+        );
+        declare_function(
+            state,
+            "swgl_commitPartialTextureLinearR8",
+            None,
+            Type::new(Void),
+            vec![Type::new(Int), Type::new(*s), Type::new(Vec2), Type::new(Vec4)],
+        );
+        declare_function(
+            state,
+            "swgl_commitPartialTextureLinearInvertR8",
+            None,
+            Type::new(Void),
+            vec![Type::new(Int), Type::new(*s), Type::new(Vec2), Type::new(Vec4)],
         );
         declare_function(
             state,
