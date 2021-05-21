@@ -44,7 +44,7 @@ use crate::profiler::TransactionProfile;
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Copy, Clone, MallocSizeOf, PartialEq)]
+#[derive(Debug, Copy, Clone, Hash, MallocSizeOf, PartialEq, Eq)]
 struct Epoch(u32);
 
 /// A list of updates to be applied to the data store,
@@ -110,7 +110,7 @@ impl ItemUid {
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, MallocSizeOf, PartialEq)]
+#[derive(Debug, Hash, MallocSizeOf, PartialEq, Eq)]
 pub struct Handle<I> {
     index: u32,
     epoch: Epoch,
@@ -395,6 +395,7 @@ macro_rules! enumerate_interners {
             text_run: TextRun,
             filter_data: FilterDataIntern,
             backdrop: Backdrop,
+            polygon: PolygonIntern,
         }
     }
 }
