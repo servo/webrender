@@ -70,7 +70,6 @@ use crate::util::{Recycler, VecHelper, drain_filter};
 #[derive(Copy, Clone)]
 pub struct DocumentView {
     scene: SceneView,
-    frame: FrameView,
 }
 
 /// Some rendering parameters applying at the scene level.
@@ -79,36 +78,18 @@ pub struct DocumentView {
 #[derive(Copy, Clone)]
 pub struct SceneView {
     pub device_rect: DeviceIntRect,
-    pub device_pixel_ratio: f32,
-    pub page_zoom_factor: f32,
     pub quality_settings: QualitySettings,
 }
 
 impl SceneView {
     pub fn accumulated_scale_factor_for_snapping(&self) -> DevicePixelScale {
-        DevicePixelScale::new(
-            self.device_pixel_ratio *
-            self.page_zoom_factor
-        )
+        DevicePixelScale::new(1.0)
     }
-}
-
-/// Some rendering parameters applying at the frame level.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Copy, Clone)]
-pub struct FrameView {
-    pan: DeviceIntPoint,
-    pinch_zoom_factor: f32,
 }
 
 impl DocumentView {
     pub fn accumulated_scale_factor(&self) -> DevicePixelScale {
-        DevicePixelScale::new(
-            self.scene.device_pixel_ratio *
-            self.scene.page_zoom_factor *
-            self.frame.pinch_zoom_factor
-        )
+        DevicePixelScale::new(1.0)
     }
 }
 
@@ -480,7 +461,6 @@ impl Document {
     pub fn new(
         id: DocumentId,
         size: DeviceIntSize,
-        default_device_pixel_ratio: f32,
     ) -> Self {
         Document {
             id,
@@ -488,13 +468,7 @@ impl Document {
             view: DocumentView {
                 scene: SceneView {
                     device_rect: size.into(),
-                    page_zoom_factor: 1.0,
-                    device_pixel_ratio: default_device_pixel_ratio,
                     quality_settings: QualitySettings::default(),
-                },
-                frame: FrameView {
-                    pan: DeviceIntPoint::new(0, 0),
-                    pinch_zoom_factor: 1.0,
                 },
             },
             stamp: FrameStamp::first(id),
@@ -552,13 +526,6 @@ impl Document {
             FrameMsg::RequestHitTester(tx) => {
                 tx.send(self.shared_hit_tester.clone()).unwrap();
             }
-            FrameMsg::SetPan(pan) => {
-                if self.view.frame.pan != pan {
-                    self.view.frame.pan = pan;
-                    self.hit_tester_is_valid = false;
-                    self.frame_is_valid = false;
-                }
-            }
             FrameMsg::ScrollNodeWithId(origin, id, clamp) => {
                 profile_scope!("ScrollNodeWithScrollId");
 
@@ -581,12 +548,6 @@ impl Document {
             }
             FrameMsg::AppendDynamicTransformProperties(property_bindings) => {
                 self.dynamic_properties.add_transforms(property_bindings);
-            }
-            FrameMsg::SetPinchZoom(factor) => {
-                if self.view.frame.pinch_zoom_factor != factor.get() {
-                    self.view.frame.pinch_zoom_factor = factor.get();
-                    self.frame_is_valid = false;
-                }
             }
             FrameMsg::SetIsTransformAsyncZooming(is_zooming, animation_id) => {
                 let node = self.scene.spatial_tree.spatial_nodes.iter_mut()
@@ -615,7 +576,6 @@ impl Document {
         let frame_build_start_time = precise_time_ns();
 
         let accumulated_scale_factor = self.view.accumulated_scale_factor();
-        let pan = self.view.frame.pan.to_f32() / accumulated_scale_factor;
 
         // Advance to the next frame.
         self.stamp.advance();
@@ -632,7 +592,6 @@ impl Document {
                 self.stamp,
                 accumulated_scale_factor,
                 self.view.scene.device_rect.origin,
-                pan,
                 &self.dynamic_properties,
                 &mut self.data_stores,
                 &mut self.scratch,
@@ -671,10 +630,8 @@ impl Document {
 
     fn rebuild_hit_tester(&mut self) {
         let accumulated_scale_factor = self.view.accumulated_scale_factor();
-        let pan = self.view.frame.pan.to_f32() / accumulated_scale_factor;
 
         self.scene.spatial_tree.update_tree(
-            pan,
             accumulated_scale_factor,
             &self.dynamic_properties,
         );
@@ -799,7 +756,6 @@ static NEXT_NAMESPACE_ID: AtomicUsize = AtomicUsize::new(1);
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PlainRenderBackend {
-    default_device_pixel_ratio: f32,
     frame_config: FrameBuilderConfig,
     documents: FastHashMap<DocumentId, DocumentView>,
     resource_sequence_id: u32,
@@ -813,8 +769,6 @@ pub struct RenderBackend {
     api_rx: Receiver<ApiMsg>,
     result_tx: Sender<ResultMsg>,
     scene_tx: Sender<SceneBuilderRequest>,
-
-    default_device_pixel_ratio: f32,
 
     gpu_cache: GpuCache,
     resource_cache: ResourceCache,
@@ -856,7 +810,6 @@ impl RenderBackend {
         api_rx: Receiver<ApiMsg>,
         result_tx: Sender<ResultMsg>,
         scene_tx: Sender<SceneBuilderRequest>,
-        default_device_pixel_ratio: f32,
         resource_cache: ResourceCache,
         notifier: Box<dyn RenderNotifier>,
         blob_image_handler: Option<Box<dyn BlobImageHandler>>,
@@ -870,7 +823,6 @@ impl RenderBackend {
             api_rx,
             result_tx,
             scene_tx,
-            default_device_pixel_ratio,
             resource_cache,
             gpu_cache: GpuCache::new(),
             frame_config,
@@ -1084,7 +1036,6 @@ impl RenderBackend {
                 let document = Document::new(
                     document_id,
                     initial_size,
-                    self.default_device_pixel_ratio,
                 );
                 let old = self.documents.insert(document_id, document);
                 debug_assert!(old.is_none());
@@ -1684,7 +1635,6 @@ impl RenderBackend {
             let deferred = self.resource_cache.save_capture_sequence(config);
 
             let backend = PlainRenderBackend {
-                default_device_pixel_ratio: self.default_device_pixel_ratio,
                 frame_config: self.frame_config.clone(),
                 resource_sequence_id: config.resource_id,
                 documents: self.documents
@@ -1813,7 +1763,6 @@ impl RenderBackend {
 
         info!("\tbackend");
         let backend = PlainRenderBackend {
-            default_device_pixel_ratio: self.default_device_pixel_ratio,
             frame_config: self.frame_config.clone(),
             resource_sequence_id: 0,
             documents: self.documents
@@ -1917,7 +1866,6 @@ impl RenderBackend {
             };
         }
 
-        self.default_device_pixel_ratio = backend.default_device_pixel_ratio;
         self.frame_config = backend.frame_config;
 
         let mut scenes_to_build = Vec::new();
