@@ -65,6 +65,7 @@ pub struct NativeSurfaceOperation {
 /// resolved such that it can be used by the renderer.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone)]
 pub enum CompositeTileSurface {
     Texture {
         surface: ResolvedSurfaceTexture,
@@ -109,6 +110,7 @@ pub enum TileKind {
 /// Describes the geometry and surface of a tile to be composited
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone)]
 pub struct CompositeTile {
     pub surface: CompositeTileSurface,
     pub rect: DeviceRect,
@@ -120,7 +122,7 @@ pub struct CompositeTile {
     pub kind: TileKind,
 }
 
-fn tile_kind(surface: &CompositeTileSurface, is_opaque: bool) -> TileKind {
+pub fn tile_kind(surface: &CompositeTileSurface, is_opaque: bool) -> TileKind {
     match surface {
         // Color tiles are, by definition, opaque. We might support non-opaque color
         // tiles if we ever find pages that have a lot of these.
@@ -493,8 +495,6 @@ pub struct CompositeState {
     pub dirty_rects_are_valid: bool,
     /// The kind of compositor for picture cache tiles (e.g. drawn by WR, or OS compositor)
     pub compositor_kind: CompositorKind,
-    /// The overall device pixel scale, used for tile occlusion conversions.
-    global_device_pixel_scale: DevicePixelScale,
     /// List of registered occluders
     pub occluders: Occluders,
     /// Description of the surfaces and properties that are being composited.
@@ -508,7 +508,6 @@ impl CompositeState {
     /// during each frame construction and passed to the renderer.
     pub fn new(
         compositor_kind: CompositorKind,
-        global_device_pixel_scale: DevicePixelScale,
         max_depth_ids: i32,
         dirty_rects_are_valid: bool,
     ) -> Self {
@@ -517,7 +516,6 @@ impl CompositeState {
             z_generator: ZBufferIdGenerator::new(max_depth_ids),
             dirty_rects_are_valid,
             compositor_kind,
-            global_device_pixel_scale,
             occluders: Occluders::new(),
             descriptor: CompositeDescriptor::empty(),
             external_surfaces: Vec::new(),
@@ -532,9 +530,9 @@ impl CompositeState {
         z_id: ZBufferId,
         rect: WorldRect,
     ) {
-        let device_rect = (rect * self.global_device_pixel_scale).round().to_i32();
+        let world_rect = rect.round().to_i32();
 
-        self.occluders.push(device_rect, z_id);
+        self.occluders.push(world_rect, z_id);
     }
 
     /// Add a picture cache to be composited
@@ -542,16 +540,11 @@ impl CompositeState {
         &mut self,
         tile_cache: &TileCacheInstance,
         device_clip_rect: DeviceRect,
-        global_device_pixel_scale: DevicePixelScale,
         resource_cache: &ResourceCache,
         gpu_cache: &mut GpuCache,
         deferred_resolves: &mut Vec<DeferredResolve>,
     ) {
         for sub_slice in &tile_cache.sub_slices {
-            let mut visible_opaque_tile_count = 0;
-            let mut visible_alpha_tile_count = 0;
-            let mut opaque_tile_descriptors = Vec::new();
-            let mut alpha_tile_descriptors = Vec::new();
             let mut surface_device_rect = DeviceRect::zero();
 
             for tile in sub_slice.tiles.values() {
@@ -559,9 +552,6 @@ impl CompositeState {
                     // This can occur when a tile is found to be occluded during frame building.
                     continue;
                 }
-
-                let device_rect = (tile.world_tile_rect * global_device_pixel_scale).round();
-                let surface = tile.surface.as_ref().expect("no tile surface set!");
 
                 // Accumulate this tile into the overall surface bounds. This is used below
                 // to clamp the size of the supplied clip rect to a reasonable value.
@@ -573,57 +563,10 @@ impl CompositeState {
                 //       if the tile itself was not invalidated due to changing content.
                 //       See bug #1675414 for more detail.
                 surface_device_rect = surface_device_rect.union(&tile.device_valid_rect);
-
-                let descriptor = CompositeTileDescriptor {
-                    surface_kind: surface.into(),
-                    tile_id: tile.id,
-                };
-
-                let (surface, is_opaque) = match surface {
-                    TileSurface::Color { color } => {
-                        (CompositeTileSurface::Color { color: *color }, true)
-                    }
-                    TileSurface::Clear => {
-                        // Clear tiles are rendered with blend mode pre-multiply-dest-out.
-                        (CompositeTileSurface::Clear, false)
-                    }
-                    TileSurface::Texture { descriptor, .. } => {
-                        let surface = descriptor.resolve(resource_cache, tile_cache.current_tile_size);
-                        (
-                            CompositeTileSurface::Texture { surface },
-                            tile.is_opaque 
-                        )
-                    }
-                };
-
-                if is_opaque {
-                    opaque_tile_descriptors.push(descriptor);
-                    visible_opaque_tile_count += 1;
-                } else {
-                    alpha_tile_descriptors.push(descriptor);
-                    visible_alpha_tile_count += 1;
-                }
-
-                let tile = CompositeTile {
-                    kind: tile_kind(&surface, is_opaque),
-                    surface,
-                    rect: device_rect,
-                    valid_rect: tile.device_valid_rect.translate(-device_rect.origin.to_vector()),
-                    dirty_rect: tile.device_dirty_rect.translate(-device_rect.origin.to_vector()),
-                    clip_rect: device_clip_rect,
-                    transform: None,
-                    z_id: tile.z_id,
-                };
-
-                self.tiles.push(tile);
             }
 
-            // Sort the tile descriptor lists, since iterating values in the tile_cache.tiles
-            // hashmap doesn't provide any ordering guarantees, but we want to detect the
-            // composite descriptor as equal if the tiles list is the same, regardless of
-            // ordering.
-            opaque_tile_descriptors.sort_by_key(|desc| desc.tile_id);
-            alpha_tile_descriptors.sort_by_key(|desc| desc.tile_id);
+            // Append the visible tiles from this sub-slice
+            self.tiles.extend_from_slice(&sub_slice.composite_tiles);
 
             // If the clip rect is too large, it can cause accuracy and correctness problems
             // for some native compositors (specifically, CoreAnimation in this case). To
@@ -634,7 +577,7 @@ impl CompositeState {
                 .unwrap_or(DeviceRect::zero());
 
             // Add opaque surface before any compositor surfaces
-            if visible_opaque_tile_count > 0 {
+            if !sub_slice.opaque_tile_descriptors.is_empty() {
                 self.descriptor.surfaces.push(
                     CompositeSurfaceDescriptor {
                         surface_id: sub_slice.native_surface.as_ref().map(|s| s.opaque),
@@ -646,13 +589,13 @@ impl CompositeState {
                         ),
                         image_dependencies: [ImageDependency::INVALID; 3],
                         image_rendering: ImageRendering::CrispEdges,
-                        tile_descriptors: opaque_tile_descriptors,
+                        tile_descriptors: sub_slice.opaque_tile_descriptors.clone(),
                     }
                 );
             }
 
             // Add alpha tiles after opaque surfaces
-            if visible_alpha_tile_count > 0 {
+            if !sub_slice.alpha_tile_descriptors.is_empty() {
                 self.descriptor.surfaces.push(
                     CompositeSurfaceDescriptor {
                         surface_id: sub_slice.native_surface.as_ref().map(|s| s.alpha),
@@ -664,7 +607,7 @@ impl CompositeState {
                         ),
                         image_dependencies: [ImageDependency::INVALID; 3],
                         image_rendering: ImageRendering::CrispEdges,
-                        tile_descriptors: alpha_tile_descriptors,
+                        tile_descriptors: sub_slice.alpha_tile_descriptors.clone(),
                     }
                 );
             }
@@ -1160,7 +1103,7 @@ pub trait PartialPresentCompositor {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct Occluder {
     z_id: ZBufferId,
-    device_rect: DeviceIntRect,
+    world_rect: WorldIntRect,
 }
 
 // Whether this event is the start or end of a rectangle
@@ -1217,8 +1160,8 @@ impl Occluders {
         }
     }
 
-    fn push(&mut self, device_rect: DeviceIntRect, z_id: ZBufferId) {
-        self.occluders.push(Occluder { device_rect, z_id });
+    fn push(&mut self, world_rect: WorldIntRect, z_id: ZBufferId) {
+        self.occluders.push(Occluder { world_rect, z_id });
     }
 
     /// Returns true if a tile with the specified rectangle and z_id
@@ -1226,7 +1169,7 @@ impl Occluders {
     pub fn is_tile_occluded(
         &mut self,
         z_id: ZBufferId,
-        device_rect: DeviceRect,
+        world_rect: WorldRect,
     ) -> bool {
         // It's often the case that a tile is only occluded by considering multiple
         // picture caches in front of it (for example, the background tiles are
@@ -1241,11 +1184,11 @@ impl Occluders {
         //       Then the entire tile must be occluded and can be skipped during rasterization and compositing.
 
         // Get the reference area we will compare against.
-        let device_rect = device_rect.round().to_i32();
-        let ref_area = device_rect.size.width * device_rect.size.height;
+        let world_rect = world_rect.round().to_i32();
+        let ref_area = world_rect.size.width * world_rect.size.height;
 
         // Calculate the non-overlapping area of the valid occluders.
-        let cover_area = self.area(z_id, &device_rect);
+        let cover_area = self.area(z_id, &world_rect);
         debug_assert!(cover_area <= ref_area);
 
         // Check if the tile area is completely covered
@@ -1257,7 +1200,7 @@ impl Occluders {
     fn area(
         &mut self,
         z_id: ZBufferId,
-        clip_rect: &DeviceIntRect,
+        clip_rect: &WorldIntRect,
     ) -> i32 {
         // This implementation is based on the article https://leetcode.com/articles/rectangle-area-ii/.
         // This is not a particularly efficient implementation (it skips building segment trees), however
@@ -1274,7 +1217,7 @@ impl Occluders {
             if occluder.z_id.0 < z_id.0 {
                 // Clip the source rect to the rectangle we care about, since we only
                 // want to record area for the tile we are comparing to.
-                if let Some(rect) = occluder.device_rect.intersection(clip_rect) {
+                if let Some(rect) = occluder.world_rect.intersection(clip_rect) {
                     let x0 = rect.origin.x;
                     let x1 = x0 + rect.size.width;
                     self.events.push(OcclusionEvent::new(rect.origin.y, OcclusionEventKind::Begin, x0, x1));
