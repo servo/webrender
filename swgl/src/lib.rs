@@ -4,8 +4,11 @@
 
 #![crate_name = "swgl"]
 #![crate_type = "lib"]
+#![no_std]
 
 extern crate gleam;
+#[macro_use]
+extern crate alloc;
 
 mod swgl_fns;
 
