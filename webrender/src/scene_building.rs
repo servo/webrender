@@ -529,7 +529,7 @@ impl<'a> SceneBuilder<'a> {
             output_rect: view.device_rect.size().into(),
             background_color,
             hit_testing_scene: Arc::new(builder.hit_testing_scene),
-            spatial_tree: SpatialTree::new(builder.spatial_tree),
+            spatial_tree: SpatialTree::new(&builder.spatial_tree),
             prim_store: builder.prim_store,
             clip_store: builder.clip_store,
             config: builder.config,
@@ -897,13 +897,10 @@ impl<'a> SceneBuilder<'a> {
             },
         };
 
-        let current_offset = self.current_offset(spatial_node_index);
-        let clip_rect = info.clip_rect.translate(current_offset);
-
         self.add_rect_clip_node(
             ClipId::root(iframe_pipeline_id),
             &info.space_and_clip,
-            &clip_rect,
+            &info.clip_rect,
         );
 
         self.clip_store.push_clip_root(
@@ -912,7 +909,7 @@ impl<'a> SceneBuilder<'a> {
         );
 
         let bounds = self.snap_rect(
-            &info.bounds.translate(current_offset),
+            &info.bounds,
             spatial_node_index,
         );
 
@@ -1455,18 +1452,10 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::ImageMaskClip(ref info) => {
                 profile_scope!("image_clip");
 
-                let parent_space = self.get_space(info.parent_space_and_clip.spatial_id);
-                let current_offset = self.current_offset(parent_space);
-
-                let image_mask = ImageMask {
-                    rect: info.image_mask.rect.translate(current_offset),
-                    ..info.image_mask
-                };
-
                 self.add_image_mask_clip_node(
                     info.id,
                     &info.parent_space_and_clip,
-                    &image_mask,
+                    &info.image_mask,
                     info.fill_rule,
                     item.points(),
                 );
@@ -1474,27 +1463,19 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::RoundedRectClip(ref info) => {
                 profile_scope!("rounded_clip");
 
-                let parent_space = self.get_space(info.parent_space_and_clip.spatial_id);
-                let current_offset = self.current_offset(parent_space);
-
                 self.add_rounded_rect_clip_node(
                     info.id,
                     &info.parent_space_and_clip,
                     &info.clip,
-                    current_offset,
                 );
             }
             DisplayItem::RectClip(ref info) => {
                 profile_scope!("rect_clip");
 
-                let parent_space = self.get_space(info.parent_space_and_clip.spatial_id);
-                let current_offset = self.current_offset(parent_space);
-                let clip_rect = info.clip_rect.translate(current_offset);
-
                 self.add_rect_clip_node(
                     info.id,
                     &info.parent_space_and_clip,
-                    &clip_rect,
+                    &info.clip_rect,
                 );
             }
             DisplayItem::ClipChain(ref info) => {
@@ -2064,7 +2045,7 @@ impl<'a> SceneBuilder<'a> {
         if stacking_context.flags.contains(StackingContextFlags::IS_BLEND_CONTAINER) &&
            self.sc_stack.is_empty() &&
            self.tile_cache_builder.can_add_container_tile_cache() &&
-           self.spatial_tree.get_spatial_node(stacking_context.spatial_node_index).is_root_coord_system
+           self.spatial_tree.get_node_info(stacking_context.spatial_node_index).is_root_coord_system
         {
             self.tile_cache_builder.add_tile_cache(
                 stacking_context.prim_list,
@@ -2488,17 +2469,16 @@ impl<'a> SceneBuilder<'a> {
         );
     }
 
-    pub fn add_rounded_rect_clip_node(
+    fn add_rounded_rect_clip_node(
         &mut self,
         new_node_id: ClipId,
         space_and_clip: &SpaceAndClipInfo,
         clip: &ComplexClipRegion,
-        current_offset: LayoutVector2D,
     ) {
         let spatial_node_index = self.id_to_index_mapper.get_spatial_node_index(space_and_clip.spatial_id);
 
         let snapped_region_rect = self.snap_rect(
-            &clip.rect.translate(current_offset),
+            &clip.rect,
             spatial_node_index,
         );
         let item = ClipItemKey {
