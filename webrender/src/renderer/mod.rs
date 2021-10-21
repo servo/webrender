@@ -71,7 +71,7 @@ use crate::glyph_cache::GlyphCache;
 use crate::glyph_rasterizer::{GlyphFormat, GlyphRasterizer};
 use crate::gpu_cache::{GpuCacheUpdate, GpuCacheUpdateList};
 use crate::gpu_cache::{GpuCacheDebugChunk, GpuCacheDebugCmd};
-use crate::gpu_types::{PrimitiveInstanceData, ScalingInstance, SvgFilterInstance};
+use crate::gpu_types::{PrimitiveInstanceData, ScalingInstance, SvgFilterInstance, CopyInstance};
 use crate::gpu_types::{BlurInstance, ClearInstance, CompositeInstance, ZBufferId, CompositorTransform};
 use crate::internal_types::{TextureSource, ResourceCacheError, TextureCacheCategory, FrameId};
 #[cfg(any(feature = "capture", feature = "replay"))]
@@ -2249,6 +2249,45 @@ impl Renderer {
         let mut delete_cache_texture_time = 0;
 
         for update_list in pending_texture_updates.drain(..) {
+            // Handle copies from one texture to another.
+            for ((src_tex, dst_tex), copies) in &update_list.copies {
+
+                let dest_texture = &self.texture_resolver.texture_cache_map[&dst_tex].texture;
+                let dst_texture_size = dest_texture.get_dimensions().to_f32();
+
+                let mut copy_instances = Vec::new();
+                for copy in copies {
+                    copy_instances.push(CopyInstance {
+                        src_rect: copy.src_rect.to_f32(),
+                        dst_rect: copy.dst_rect.to_f32(),
+                        dst_texture_size,
+                    });
+                }
+
+                let draw_target = DrawTarget::from_texture(dest_texture, false);
+                self.device.bind_draw_target(draw_target);
+
+                self.shaders
+                    .borrow_mut()
+                    .ps_copy
+                    .bind(
+                        &mut self.device,
+                        &Transform3D::identity(),
+                        None,
+                        &mut self.renderer_errors,
+                        &mut self.profile,
+                    );
+
+                self.draw_instanced_batch(
+                    &copy_instances,
+                    VertexArrayKind::Copy,
+                    &BatchTextures::composite_rgb(
+                        TextureSource::TextureCache(*src_tex, Swizzle::default())
+                    ),
+                    &mut RendererStats::default(),
+                );
+            }
+
             // Find any textures that will need to be deleted in this group of allocations.
             let mut pending_deletes = Vec::new();
             for allocation in &update_list.allocations {
@@ -2294,6 +2333,7 @@ impl Renderer {
                     TextureCacheAllocationKind::Free => {}
                 }
             }
+
             // Now that we've saved as many deletions for reuse as we can, actually delete whatever is left.
             if !pending_deletes.is_empty() {
                 let delete_texture_start = precise_time_ns();
