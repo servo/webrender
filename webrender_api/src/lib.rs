@@ -562,6 +562,11 @@ bitflags! {
         /// to see which frames were driven by the vsync scheduler so
         /// we store a bit for it.
         const VSYNC                         = 1 << 16;
+        const SKIPPED_COMPOSITE             = 1 << 17;
+        /// Gecko does some special things when it starts observing vsync
+        /// so it can be useful to know what frames are associated with it.
+        const START_OBSERVING_VSYNC         = 1 << 18;
+        const ASYNC_IMAGE_COMPOSITE_UNTIL   = 1 << 19;
     }
 }
 
