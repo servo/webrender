@@ -34,7 +34,7 @@ swgl = { path = "../swgl", optional = true }
 tracy-rs = "0.1.2"
 
 [dependencies.image]
-version = "0.23"
+version = "0.24"
 default-features = false
 features = ["png"]
 
