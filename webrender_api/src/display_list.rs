@@ -1936,14 +1936,14 @@ impl DisplayListBuilder {
 
     pub fn define_clip_image_mask(
         &mut self,
-        parent_space_and_clip: &di::SpaceAndClipInfo,
+        spatial_id: di::SpatialId,
         image_mask: di::ImageMask,
         points: &[LayoutPoint],
         fill_rule: di::FillRule,
     ) -> di::ClipId {
         let id = self.generate_clip_index();
 
-        let current_offset = self.current_offset(parent_space_and_clip.spatial_id);
+        let current_offset = self.current_offset(spatial_id);
 
         let image_mask = di::ImageMask {
             rect: image_mask.rect.translate(current_offset),
@@ -1952,7 +1952,7 @@ impl DisplayListBuilder {
 
         let item = di::DisplayItem::ImageMaskClip(di::ImageMaskClipDisplayItem {
             id,
-            parent_space_and_clip: *parent_space_and_clip,
+            spatial_id,
             image_mask,
             fill_rule,
         });
@@ -1991,12 +1991,12 @@ impl DisplayListBuilder {
 
     pub fn define_clip_rounded_rect(
         &mut self,
-        parent_space_and_clip: &di::SpaceAndClipInfo,
+        spatial_id: di::SpatialId,
         clip: di::ComplexClipRegion,
     ) -> di::ClipId {
         let id = self.generate_clip_index();
 
-        let current_offset = self.current_offset(parent_space_and_clip.spatial_id);
+        let current_offset = self.current_offset(spatial_id);
 
         let clip = di::ComplexClipRegion {
             rect: clip.rect.translate(current_offset),
@@ -2005,7 +2005,7 @@ impl DisplayListBuilder {
 
         let item = di::DisplayItem::RoundedRectClip(di::RoundedRectClipDisplayItem {
             id,
-            parent_space_and_clip: *parent_space_and_clip,
+            spatial_id,
             clip,
         });
 
