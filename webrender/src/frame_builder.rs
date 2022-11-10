@@ -4,6 +4,7 @@
 
 use api::{ColorF, DebugFlags, FontRenderMode, PremultipliedColorF};
 use api::units::*;
+use plane_split::BspSplitter;
 use crate::batch::{BatchBuilder, AlphaBatchBuilder, AlphaBatchContainer, CommandBufferList};
 use crate::clip::{ClipStore, ClipTree};
 use crate::spatial_tree::{SpatialTree, SpatialNodeIndex};
@@ -35,7 +36,6 @@ use crate::surface::SurfaceBuilder;
 use std::{f32, mem};
 use crate::util::{VecHelper, Preallocator};
 use crate::visibility::{update_prim_visibility, FrameVisibilityState, FrameVisibilityContext};
-use plane_split::Splitter;
 
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -137,6 +137,8 @@ pub struct FrameBuilder {
     prim_headers_prealloc: Preallocator,
     #[cfg_attr(feature = "capture", serde(skip))]
     composite_state_prealloc: CompositeStatePreallocator,
+    #[cfg_attr(feature = "capture", serde(skip))]
+    plane_splitters: Vec<PlaneSplitter>,
 }
 
 pub struct FrameBuildingContext<'a> {
@@ -210,6 +212,7 @@ impl FrameBuilder {
             globals: FrameGlobalResources::empty(),
             prim_headers_prealloc: Preallocator::new(0),
             composite_state_prealloc: CompositeStatePreallocator::default(),
+            plane_splitters: Vec::new(),
         }
     }
 
@@ -243,7 +246,8 @@ impl FrameBuilder {
 
         // Reset all plane splitters. These are retained from frame to frame to reduce
         // per-frame allocations
-        for splitter in &mut scene.plane_splitters {
+        self.plane_splitters.resize_with(scene.num_plane_splitters, BspSplitter::new);
+        for splitter in &mut self.plane_splitters {
             splitter.reset();
         }
 
@@ -378,7 +382,7 @@ impl FrameBuilder {
             dirty_region_stack: scratch.frame.dirty_region_stack.take(),
             composite_state,
             num_visible_primitives: 0,
-            plane_splitters: &mut scene.plane_splitters,
+            plane_splitters: &mut self.plane_splitters,
             surface_builder: SurfaceBuilder::new(),
             cmd_buffers,
             clip_tree: &mut scene.clip_tree,
