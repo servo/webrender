@@ -132,15 +132,39 @@ impl Example for App {
 
         let bounds = (150, 150).to(250, 250);
         let key0 = self.property_key0;
-        self.add_rounded_rect(bounds, ColorF::new(1.0, 0.0, 0.0, 0.5), builder, pipeline_id, key0, Some(opacity_key), SpatialTreeItemKey::new(0, 0));
+        self.add_rounded_rect(
+            bounds,
+            ColorF::new(1.0, 0.0, 0.0, 0.5),
+            builder,
+            pipeline_id,
+            key0,
+            Some(opacity_key),
+            SpatialTreeItemKey::new(0, 0)
+        );
 
         let bounds = (400, 400).to(600, 600);
         let key1 = self.property_key1;
-        self.add_rounded_rect(bounds, ColorF::new(0.0, 1.0, 0.0, 0.5), builder, pipeline_id, key1, None, SpatialTreeItemKey::new(0, 1));
+        self.add_rounded_rect(
+            bounds,
+            ColorF::new(0.0, 1.0, 0.0, 0.5),
+            builder,
+            pipeline_id,
+            key1,
+            None,
+            SpatialTreeItemKey::new(0, 1)
+        );
 
         let bounds = (200, 500).to(350, 580);
         let key2 = self.property_key2;
-        self.add_rounded_rect(bounds, ColorF::new(0.0, 0.0, 1.0, 0.5), builder, pipeline_id, key2, None, SpatialTreeItemKey::new(0, 2));
+        self.add_rounded_rect(
+            bounds,
+            ColorF::new(0.0, 0.0, 1.0, 0.5),
+            builder,
+            pipeline_id,
+            key2,
+            None,
+            SpatialTreeItemKey::new(0, 2)
+        );
     }
 
     fn on_event(
