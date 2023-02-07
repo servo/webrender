@@ -5,7 +5,7 @@
 //! A generic backing store for caches.
 //!
 //! `FreeList` is a simple vector-backed data structure where each entry in the
-//! vector contains an Option<T>. It maintains an index-based (rather than
+//! vector contains an `Option<T>`. It maintains an index-based (rather than
 //! pointer-based) free list to efficiently locate the next unused entry. If all
 //! entries are occupied, insertion appends a new element to the vector.
 //!

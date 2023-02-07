@@ -14,25 +14,25 @@ WebRender currently depends on [FreeType](https://www.freetype.org/)
 # Api Structure
 The main entry point to WebRender is the [`crate::Renderer`].
 
-By calling [`Renderer::new(...)`](crate::Renderer::new) you get a [`Renderer`], as well as
-a [`RenderApiSender`](api::RenderApiSender). Your [`Renderer`] is responsible to render the
+By calling [`create_webrender_instance`] you get a [`Renderer`], as well as
+a [`RenderApiSender`]. Your [`Renderer`] is responsible to render the
 previously processed frames onto the screen.
 
-By calling [`yourRenderApiSender.create_api()`](api::RenderApiSender::create_api), you'll
-get a [`RenderApi`](api::RenderApi) instance, which is responsible for managing resources
+By calling [`yourRenderApiSender.create_api()`](RenderApiSender::create_api), you'll
+get a [`RenderApi`] instance, which is responsible for managing resources
 and documents. A worker thread is used internally to untie the workload from the application
 thread and therefore be able to make better use of multicore systems.
 
 ## Frame
 
 What is referred to as a `frame`, is the current geometry on the screen.
-A new Frame is created by calling [`set_display_list()`](api::Transaction::set_display_list)
-on the [`RenderApi`](api::RenderApi). When the geometry is processed, the application will be
+A new Frame is created by calling [`set_display_list()`](Transaction::set_display_list)
+and [sending](RenderApi::send_transaction) the transaction to the [`RenderApi`]. When the geometry is processed, the application will be
 informed via a [`RenderNotifier`](api::RenderNotifier), a callback which you pass to
-[`Renderer::new`].
+[`create_webrender_instance`].
 More information about [stacking contexts][stacking_contexts].
 
-[`set_display_list()`](api::Transaction::set_display_list) also needs to be supplied with
+[`set_display_list()`](Transaction::set_display_list) also needs to be supplied with
 [`BuiltDisplayList`](api::BuiltDisplayList)s. These are obtained by finalizing a
 [`DisplayListBuilder`](api::DisplayListBuilder). These are used to draw your geometry. But it
 doesn't only contain trivial geometry, it can also store another

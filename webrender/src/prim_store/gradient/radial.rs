@@ -4,7 +4,7 @@
 
 //! Radial gradients
 //!
-//! Specification: https://drafts.csswg.org/css-images-4/#radial-gradients
+//! Specification: <https://drafts.csswg.org/css-images-4/#radial-gradients>
 //!
 //! Radial gradients are rendered via cached render tasks and composited with the image brush.
 

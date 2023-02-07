@@ -109,13 +109,13 @@ pub enum ImageBufferKind {
     /// is similar to a standard texture, with a few subtle differences
     /// (no mipmaps, non-power-of-two dimensions, different coordinate space)
     /// that make it useful for representing the kinds of textures we use
-    /// in WebRender. See https://www.khronos.org/opengl/wiki/Rectangle_Texture
+    /// in WebRender. See <https://www.khronos.org/opengl/wiki/Rectangle_Texture>
     /// for background on Rectangle textures.
     TextureRect = 1,
     /// External texture. This maps to GL_TEXTURE_EXTERNAL_OES in OpenGL, which
     /// is an extension. This is used for image formats that OpenGL doesn't
     /// understand, particularly YUV. See
-    /// https://www.khronos.org/registry/OpenGL/extensions/OES/OES_EGL_image_external.txt
+    /// <https://www.khronos.org/registry/OpenGL/extensions/OES/OES_EGL_image_external.txt>
     TextureExternal = 2,
 }
 

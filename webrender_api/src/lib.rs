@@ -194,7 +194,7 @@ pub struct SampledScrollOffset {
 
 /// A flag in each scrollable frame to represent whether the owner of the frame document
 /// has any scroll-linked effect.
-/// See https://firefox-source-docs.mozilla.org/performance/scroll-linked_effects.html
+/// See <https://firefox-source-docs.mozilla.org/performance/scroll-linked_effects.html>
 /// for a definition of scroll-linked effect.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]

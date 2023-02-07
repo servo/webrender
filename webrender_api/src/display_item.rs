@@ -1122,7 +1122,7 @@ pub struct CompositePrimitive {
     pub operator: CompositeOperator,
 }
 
-/// See: https://github.com/eqrion/cbindgen/issues/9
+/// See: <https://github.com/eqrion/cbindgen/issues/9>
 /// cbindgen:derive-eq=false
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, PeekPoke)]
@@ -1168,7 +1168,7 @@ impl FilterPrimitiveKind {
 }
 
 /// SVG Filter Primitive.
-/// See: https://github.com/eqrion/cbindgen/issues/9
+/// See: <https://github.com/eqrion/cbindgen/issues/9>
 /// cbindgen:derive-eq=false
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]

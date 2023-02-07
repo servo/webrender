@@ -4,7 +4,7 @@
 
 //! Conic gradients
 //!
-//! Specification: https://drafts.csswg.org/css-images-4/#conic-gradients
+//! Specification: <https://drafts.csswg.org/css-images-4/#conic-gradients>
 //!
 //! Conic gradients are rendered via cached render tasks and composited with the image brush.
 
