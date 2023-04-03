@@ -326,7 +326,7 @@ dependencies = [
  "num-integer",
  "num-traits",
  "serde",
- "time",
+ "time 0.1.45",
  "winapi",
 ]
 
@@ -953,7 +953,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "time",
+ "time 0.1.45",
  "uuid",
  "whatsys",
 ]
@@ -976,7 +976,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "time",
+ "time 0.1.45",
  "uniffi",
  "uuid",
  "zeitstempel",
@@ -2564,14 +2564,20 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.1.44"
+version = "0.1.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6db9e6914ab8b1ae1c260a4ae7a49b6c5611b40328a735b21862567685e73255"
+checksum = "1b797afad3f312d1c66a56d11d0316f916356d11bd158fbc6ca6389ff6bf805a"
 dependencies = [
  "libc",
  "wasi 0.10.0+wasi-snapshot-preview1",
  "winapi",
 ]
+
+[[package]]
+name = "time"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fcc26de0a81a07c8352b548977862908fa9863e0e6e4f0eb36b2a9f4f8845585"
 
 [[package]]
 name = "tiny-keccak"
@@ -2997,7 +3003,7 @@ dependencies = [
  "smallvec",
  "svg_fmt",
  "swgl",
- "time",
+ "time 0.2.0",
  "topological-sort",
  "tracy-rs",
  "webrender_api",
@@ -3035,7 +3041,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_derive",
- "time",
+ "time 0.2.0",
  "wr_malloc_size_of",
 ]
 
@@ -3272,7 +3278,7 @@ dependencies = [
  "serde",
  "serde_json",
  "swgl",
- "time",
+ "time 0.2.0",
  "tracy-rs",
  "webrender",
  "webrender_build",
