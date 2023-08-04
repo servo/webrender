@@ -180,10 +180,12 @@ pub struct PrimTask {
     pub content_origin: DevicePoint,
     pub prim_address: GpuBufferAddress,
     pub prim_spatial_node_index: SpatialNodeIndex,
+    pub raster_spatial_node_index: SpatialNodeIndex,
     pub transform_id: TransformPaletteId,
     pub edge_flags: EdgeAaSegmentMask,
     pub quad_flags: QuadFlags,
     pub clip_node_range: ClipNodeRange,
+    pub needs_scissor_rect: bool,
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -504,6 +506,7 @@ impl RenderTaskKind {
 
     pub fn new_prim(
         prim_spatial_node_index: SpatialNodeIndex,
+        raster_spatial_node_index: SpatialNodeIndex,
         device_pixel_scale: DevicePixelScale,
         content_origin: DevicePoint,
         prim_address: GpuBufferAddress,
@@ -511,9 +514,11 @@ impl RenderTaskKind {
         edge_flags: EdgeAaSegmentMask,
         quad_flags: QuadFlags,
         clip_node_range: ClipNodeRange,
+        needs_scissor_rect: bool,
     ) -> Self {
         RenderTaskKind::Prim(PrimTask {
             prim_spatial_node_index,
+            raster_spatial_node_index,
             device_pixel_scale,
             content_origin,
             prim_address,
@@ -521,6 +526,7 @@ impl RenderTaskKind {
             edge_flags,
             quad_flags,
             clip_node_range,
+            needs_scissor_rect,
         })
     }
 

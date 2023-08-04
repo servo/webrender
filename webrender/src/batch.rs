@@ -14,7 +14,7 @@ use crate::gpu_types::{BrushFlags, BrushInstance, PrimitiveHeaders, ZBufferId, Z
 use crate::gpu_types::{SplitCompositeInstance, QuadInstance};
 use crate::gpu_types::{PrimitiveInstanceData, RasterizationSpace, GlyphInstance};
 use crate::gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex, TransformPaletteId, TransformPalette};
-use crate::gpu_types::{ImageBrushData, get_shader_opacity, BoxShadowData};
+use crate::gpu_types::{ImageBrushData, get_shader_opacity, BoxShadowData, MaskInstance};
 use crate::gpu_types::{ClipMaskInstanceCommon, ClipMaskInstanceImage, ClipMaskInstanceRect, ClipMaskInstanceBoxShadow};
 use crate::internal_types::{FastHashMap, Swizzle, TextureSource, Filter};
 use crate::picture::{Picture3DContext, PictureCompositeMode, calculate_screen_uv};
@@ -3383,6 +3383,28 @@ impl BrushBatchParameters {
 }
 
 /// A list of clip instances to be drawn into a target.
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct ClipMaskInstanceList {
+    pub mask_instances_fast: Vec<MaskInstance>,
+    pub mask_instances_slow: Vec<MaskInstance>,
+
+    pub mask_instances_fast_with_scissor: FastHashMap<DeviceIntRect, Vec<MaskInstance>>,
+    pub mask_instances_slow_with_scissor: FastHashMap<DeviceIntRect, Vec<MaskInstance>>,
+}
+
+impl ClipMaskInstanceList {
+    pub fn new() -> Self {
+        ClipMaskInstanceList {
+            mask_instances_fast: Vec::new(),
+            mask_instances_slow: Vec::new(),
+            mask_instances_fast_with_scissor: FastHashMap::default(),
+            mask_instances_slow_with_scissor: FastHashMap::default(),
+        }
+    }
+}
+
+/// A list of clip instances to be drawn into a target.
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -3884,6 +3906,7 @@ pub fn add_quad_to_batch<F>(
         Top = 2,
         Right = 3,
         Bottom = 4,
+        All = 5,
     }
 
     let texture = match task_id {
@@ -3910,7 +3933,9 @@ pub fn add_quad_to_batch<F>(
         BlendMode::PremultipliedAlpha
     };
 
-    let inner_batch_key = BatchKey {
+    let edge_flags_bits = edge_flags.bits();
+
+    let prim_batch_key = BatchKey {
         blend_mode: default_blend_mode,
         kind: BatchKind::Primitive,
         textures,
@@ -3922,50 +3947,76 @@ pub fn add_quad_to_batch<F>(
         textures,
     };
 
-    let edge_flags_bits = edge_flags.bits();
+    if edge_flags.is_empty() {
+        let instance = QuadInstance {
+            render_task_address,
+            prim_address: gpu_buffer_address,
+            z_id,
+            transform_id,
+            edge_flags: edge_flags_bits,
+            quad_flags: quad_flags.bits(),
+            part_index: PartIndex::All as u8,
+            segment_index,
+        };
 
-    let main_instance = QuadInstance {
-        render_task_address,
-        prim_address: gpu_buffer_address,
-        z_id,
-        transform_id,
-        edge_flags: edge_flags_bits,
-        quad_flags: quad_flags.bits(),
-        part_index: PartIndex::Center as u8,
-        segment_index,
-    };
+        f(prim_batch_key, instance.into());
+    } else if quad_flags.contains(QuadFlags::USE_AA_SEGMENTS) {
+        let main_instance = QuadInstance {
+            render_task_address,
+            prim_address: gpu_buffer_address,
+            z_id,
+            transform_id,
+            edge_flags: edge_flags_bits,
+            quad_flags: quad_flags.bits(),
+            part_index: PartIndex::Center as u8,
+            segment_index,
+        };
 
-    if edge_flags.contains(EdgeAaSegmentMask::LEFT) {
-        let instance = QuadInstance {
-            part_index: PartIndex::Left as u8,
-            ..main_instance
-        };
-        f(edge_batch_key, instance.into());
-    }
-    if edge_flags.contains(EdgeAaSegmentMask::RIGHT) {
-        let instance = QuadInstance {
-            part_index: PartIndex::Top as u8,
-            ..main_instance
-        };
-        f(edge_batch_key, instance.into());
-    }
-    if edge_flags.contains(EdgeAaSegmentMask::TOP) {
-        let instance = QuadInstance {
-            part_index: PartIndex::Right as u8,
-            ..main_instance
-        };
-        f(edge_batch_key, instance.into());
-    }
-    if edge_flags.contains(EdgeAaSegmentMask::BOTTOM) {
-        let instance = QuadInstance {
-            part_index: PartIndex::Bottom as u8,
-            ..main_instance
-        };
-        f(edge_batch_key, instance.into());
-    }
+        if edge_flags.contains(EdgeAaSegmentMask::LEFT) {
+            let instance = QuadInstance {
+                part_index: PartIndex::Left as u8,
+                ..main_instance
+            };
+            f(edge_batch_key, instance.into());
+        }
+        if edge_flags.contains(EdgeAaSegmentMask::RIGHT) {
+            let instance = QuadInstance {
+                part_index: PartIndex::Top as u8,
+                ..main_instance
+            };
+            f(edge_batch_key, instance.into());
+        }
+        if edge_flags.contains(EdgeAaSegmentMask::TOP) {
+            let instance = QuadInstance {
+                part_index: PartIndex::Right as u8,
+                ..main_instance
+            };
+            f(edge_batch_key, instance.into());
+        }
+        if edge_flags.contains(EdgeAaSegmentMask::BOTTOM) {
+            let instance = QuadInstance {
+                part_index: PartIndex::Bottom as u8,
+                ..main_instance
+            };
+            f(edge_batch_key, instance.into());
+        }
 
-    let instance = QuadInstance {
-        ..main_instance
-    };
-    f(inner_batch_key, instance.into());
+        let instance = QuadInstance {
+            ..main_instance
+        };
+        f(prim_batch_key, instance.into());
+    } else {
+        let instance = QuadInstance {
+            render_task_address,
+            prim_address: gpu_buffer_address,
+            z_id,
+            transform_id,
+            edge_flags: edge_flags_bits,
+            quad_flags: quad_flags.bits(),
+            part_index: PartIndex::All as u8,
+            segment_index,
+        };
+
+        f(edge_batch_key, instance.into());
+    }
 }
