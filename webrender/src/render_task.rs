@@ -175,6 +175,14 @@ pub struct ClipRegionTask {
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct EmptyTask {
+    pub content_origin: DevicePoint,
+    pub device_pixel_scale: DevicePixelScale,
+    pub raster_spatial_node_index: SpatialNodeIndex,
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimTask {
     pub device_pixel_scale: DevicePixelScale,
     pub content_origin: DevicePoint,
@@ -185,7 +193,7 @@ pub struct PrimTask {
     pub edge_flags: EdgeAaSegmentMask,
     pub quad_flags: QuadFlags,
     pub clip_node_range: ClipNodeRange,
-    pub needs_scissor_rect: bool,
+    pub prim_needs_scissor_rect: bool,
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -363,6 +371,7 @@ pub enum RenderTaskKind {
     SvgFilter(SvgFilterTask),
     TileComposite(TileCompositeTask),
     Prim(PrimTask),
+    Empty(EmptyTask),
     #[cfg(test)]
     Test(RenderTargetKind),
 }
@@ -413,6 +422,7 @@ impl RenderTaskKind {
             RenderTaskKind::SvgFilter(..) => "SvgFilter",
             RenderTaskKind::TileComposite(..) => "TileComposite",
             RenderTaskKind::Prim(..) => "Prim",
+            RenderTaskKind::Empty(..) => "Empty",
             #[cfg(test)]
             RenderTaskKind::Test(..) => "Test",
         }
@@ -437,7 +447,8 @@ impl RenderTaskKind {
             }
 
             RenderTaskKind::ClipRegion(..) |
-            RenderTaskKind::CacheMask(..) => {
+            RenderTaskKind::CacheMask(..) |
+            RenderTaskKind::Empty(..) => {
                 RenderTargetKind::Alpha
             }
 
@@ -514,7 +525,7 @@ impl RenderTaskKind {
         edge_flags: EdgeAaSegmentMask,
         quad_flags: QuadFlags,
         clip_node_range: ClipNodeRange,
-        needs_scissor_rect: bool,
+        prim_needs_scissor_rect: bool,
     ) -> Self {
         RenderTaskKind::Prim(PrimTask {
             prim_spatial_node_index,
@@ -526,7 +537,7 @@ impl RenderTaskKind {
             edge_flags,
             quad_flags,
             clip_node_range,
-            needs_scissor_rect,
+            prim_needs_scissor_rect,
         })
     }
 
@@ -717,6 +728,15 @@ impl RenderTaskKind {
                     0.0,
                 ]
             }
+            RenderTaskKind::Empty(ref task) => {
+                [
+                    // NOTE: This must match the render task data format for Picture tasks currently
+                    task.device_pixel_scale.0,
+                    task.content_origin.x,
+                    task.content_origin.y,
+                    0.0,
+                ]
+            }
             RenderTaskKind::CacheMask(ref task) => {
                 [
                     task.device_pixel_scale.0,
@@ -860,10 +880,25 @@ pub type TaskDependencies = SmallVec<[RenderTaskId;2]>;
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct MaskSubPass {
+    pub clip_node_range: ClipNodeRange,
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub enum SubPass {
+    Masks {
+        masks: MaskSubPass,
+    },
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTask {
     pub location: RenderTaskLocation,
     pub children: TaskDependencies,
     pub kind: RenderTaskKind,
+    pub sub_pass: Option<SubPass>,
 
     // TODO(gw): These fields and perhaps others can become private once the
     //           frame_graph / render_task source files are unified / cleaned up.
@@ -895,6 +930,7 @@ impl RenderTask {
             uv_rect_handle: GpuCacheHandle::new(),
             uv_rect_kind: UvRectKind::Rect,
             cache_handle: None,
+            sub_pass: None,
         }
     }
 
@@ -934,6 +970,7 @@ impl RenderTask {
             uv_rect_handle: GpuCacheHandle::new(),
             uv_rect_kind: UvRectKind::Rect,
             cache_handle: None,
+            sub_pass: None,
         }
     }
 
@@ -952,6 +989,7 @@ impl RenderTask {
             uv_rect_handle: GpuCacheHandle::new(),
             uv_rect_kind: UvRectKind::Rect,
             cache_handle: None,
+            sub_pass: None,
         }
     }
 
@@ -1452,6 +1490,14 @@ impl RenderTask {
         }
 
         task_id
+    }
+
+    pub fn add_sub_pass(
+        &mut self,
+        sub_pass: SubPass,
+    ) {
+        assert!(self.sub_pass.is_none(), "multiple sub-passes are not supported for now");
+        self.sub_pass = Some(sub_pass);
     }
 
     pub fn uv_rect_kind(&self) -> UvRectKind {

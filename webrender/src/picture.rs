@@ -2084,6 +2084,7 @@ impl TileCacheInstance {
                 frame_context.global_device_pixel_scale,
                 &frame_context.global_screen_world_rect,
                 &mut frame_state.data_stores.clip,
+                frame_state.rg_builder,
                 true,
             );
 
@@ -4452,27 +4453,6 @@ impl PicturePrimitive {
         pt.end_level();
     }
 
-    /// Returns true if this picture supports segmented rendering.
-    pub fn can_use_segments(&self) -> bool {
-        match self.raster_config {
-            // TODO(gw): Support brush segment rendering for filter and mix-blend
-            //           shaders. It's possible this already works, but I'm just
-            //           applying this optimization to Blit mode for now.
-            Some(RasterConfig { composite_mode: PictureCompositeMode::MixBlend(..), .. }) |
-            Some(RasterConfig { composite_mode: PictureCompositeMode::Filter(..), .. }) |
-            Some(RasterConfig { composite_mode: PictureCompositeMode::ComponentTransferFilter(..), .. }) |
-            Some(RasterConfig { composite_mode: PictureCompositeMode::TileCache { .. }, .. }) |
-            Some(RasterConfig { composite_mode: PictureCompositeMode::SvgFilter(..), .. }) |
-            Some(RasterConfig { composite_mode: PictureCompositeMode::IntermediateSurface, .. }) |
-            None => {
-                false
-            }
-            Some(RasterConfig { composite_mode: PictureCompositeMode::Blit(reason), ..}) => {
-                reason == BlitReason::CLIP
-            }
-        }
-    }
-
     fn resolve_scene_properties(&mut self, properties: &SceneProperties) {
         match self.composite_mode {
             Some(PictureCompositeMode::Filter(ref mut filter)) => {
@@ -6127,6 +6107,7 @@ impl PicturePrimitive {
                 );
 
                 let surface_index = SurfaceIndex(surfaces.len());
+
                 surfaces.push(surface);
 
                 self.raster_config = Some(RasterConfig {

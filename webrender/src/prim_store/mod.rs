@@ -667,6 +667,7 @@ impl InternablePrimitive for PrimitiveKeyKind {
 pub struct VisibleMaskImageTile {
     pub tile_offset: TileOffset,
     pub tile_rect: LayoutRect,
+    pub task_id: RenderTaskId,
 }
 
 #[derive(Debug)]
@@ -958,7 +959,6 @@ pub enum PrimitiveInstanceKind {
         /// Handle to the common interned data for this primitive.
         data_handle: PictureDataHandle,
         pic_index: PictureIndex,
-        segment_instance_index: SegmentInstanceIndex,
     },
     /// A run of glyphs, with associated font parameters.
     TextRun {
