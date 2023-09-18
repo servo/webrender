@@ -10,7 +10,10 @@ use api::{IdNamespace, BlobImageResources};
 use api::channel::crossbeam::{unbounded, Receiver, Sender};
 use api::units::*;
 use api::ImageFormat;
+#[cfg(feature = "backend_native")]
 use crate::platform::font::FontContext;
+#[cfg(not(feature = "backend_native"))]
+use crate::backend::font::FontContext;
 use crate::profiler::GlyphRasterizeProfiler;
 use crate::types::{FastHashMap, FastHashSet};
 use crate::telemetry::Telemetry;

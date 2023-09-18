@@ -37,6 +37,7 @@ extern crate serde;
 
 extern crate malloc_size_of;
 
+#[cfg(feature = "backend_native")]
 pub mod platform {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     pub use crate::platform::macos::font;
@@ -55,6 +56,17 @@ pub mod platform {
     }
     #[cfg(target_os = "windows")]
     pub mod windows {
+        pub mod font;
+    }
+}
+
+#[cfg(not(feature = "backend_native"))]
+pub mod backend {
+    #[cfg(feature = "backend_swash")]
+    pub use crate::backend::swash::font;
+
+    #[cfg(feature = "backend_swash")]
+    pub mod swash {
         pub mod font;
     }
 }

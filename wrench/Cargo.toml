@@ -46,6 +46,7 @@ core-foundation = "0.9"
 default = [ "env_logger" ]
 headless = [ "osmesa-sys", "osmesa-src" ]
 software = [ "swgl" ]
+font_backend_swash = [ "webrender/font_backend_swash" ]
 
 [target.'cfg(target_os = "windows")'.dependencies]
 dwrote = "0.11"
