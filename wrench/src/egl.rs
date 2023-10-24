@@ -114,9 +114,10 @@ impl Context {
                 GlRequest::Specific(_, _) => return Err(CreationError::OpenGlVersionNotSupported),
                 GlRequest::GlThenGles { opengles_version, opengl_version } => {
                     if egl_version >= (1, 4) {
-                        if egl::BindAPI(ffi::egl::OPENGL_API) != 0 {
+                        /*if egl::BindAPI(ffi::egl::OPENGL_API) != 0 {
                             (Some(opengl_version), Api::OpenGl)
-                        } else if egl::BindAPI(ffi::egl::OPENGL_ES_API) != 0 {
+                        } else */
+                        if egl::BindAPI(ffi::egl::OPENGL_ES_API) != 0 {
                             (Some(opengles_version), Api::OpenGlEs)
                         } else {
                             return Err(CreationError::OpenGlVersionNotSupported);
