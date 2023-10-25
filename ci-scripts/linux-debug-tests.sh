@@ -24,6 +24,7 @@ popd
 
 pushd wrench
 cargo build ${CARGOFLAGS} --features env_logger
+cargo test
 OPTIMIZED=0 python3 script/headless.py reftest
 popd
 
@@ -32,5 +33,5 @@ cargo build ${CARGOFLAGS}
 popd
 
 cargo test ${CARGOFLAGS} \
-    --all --exclude compositor --exclude compositor-wayland \
-    --exclude compositor-windows --exclude glsl-to-cxx --exclude swgl
+--all --exclude compositor --exclude compositor-wayland --exclude wrench \
+--exclude compositor-windows --exclude glsl-to-cxx --exclude swgl
