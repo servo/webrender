@@ -186,10 +186,6 @@ void brush_vs(
     int color_mode = prim_user_data.x & 0xffff;
     int blend_mode = prim_user_data.x >> 16;
 
-    if (color_mode == COLOR_MODE_FROM_PASS) {
-        color_mode = uMode;
-    }
-
 #endif
 
     // Derive the texture coordinates for this image, based on
@@ -239,14 +235,11 @@ void brush_vs(
     //   adjusted_offset = (1 - fract(repeat/2 - 1/2 + 1)) * uv_size
     //
     // We then separate the normalized part of the offset which we also need elsewhere.
-    if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X_CENTERED) != 0) {
-        normalized_offset.x = 1.0 - fract(repeat.x * 0.5 + 0.5);
-        v_uv.x += normalized_offset.x * (max_uv.x - min_uv.x);
-    }
-    if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y_CENTERED) != 0) {
-        normalized_offset.y = 1.0 - fract(repeat.y * 0.5 + 0.5);
-        v_uv.y += normalized_offset.y * (max_uv.y - min_uv.y);
-    }
+    bvec2 centered = bvec2(brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X_CENTERED,
+                           brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y_CENTERED);
+    // Use mix() rather than if statements due to a miscompilation on Adreno 3xx. See bug 1853573.
+    normalized_offset = mix(vec2(0.0), 1.0 - fract(repeat * 0.5 + 0.5), centered);
+    v_uv += normalized_offset * (max_uv - min_uv);
 #endif
     v_uv /= texture_size;
     if (perspective_interpolate == 0.0) {
@@ -292,19 +285,13 @@ void brush_vs(
                 v_color = image_data.color;
             #endif
             break;
-        case COLOR_MODE_SUBPX_BG_PASS2:
         case COLOR_MODE_IMAGE:
             v_mask_swizzle = vec2(1.0, 0.0);
             v_color = image_data.color;
             break;
-        case COLOR_MODE_SUBPX_BG_PASS0:
         case COLOR_MODE_COLOR_BITMAP:
             v_mask_swizzle = vec2(1.0, 0.0);
             v_color = vec4(image_data.color.a);
-            break;
-        case COLOR_MODE_SUBPX_BG_PASS1:
-            v_mask_swizzle = vec2(-1.0, 1.0);
-            v_color = vec4(image_data.color.a) * image_data.background_color;
             break;
         case COLOR_MODE_SUBPX_DUAL_SOURCE:
             v_mask_swizzle = vec2(image_data.color.a, 0.0);

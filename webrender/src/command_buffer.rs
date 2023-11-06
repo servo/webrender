@@ -71,6 +71,7 @@ bitflags! {
     #[repr(transparent)]
     #[cfg_attr(feature = "capture", derive(Serialize))]
     #[cfg_attr(feature = "replay", derive(Deserialize))]
+    #[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
     pub struct QuadFlags : u8 {
         const IS_OPAQUE = 1 << 0;
 
@@ -93,6 +94,7 @@ bitflags! {
     #[repr(transparent)]
     #[cfg_attr(feature = "capture", derive(Serialize))]
     #[cfg_attr(feature = "replay", derive(Deserialize))]
+    #[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
     pub struct MaskFlags : i32 {
         const PRIM_SPACE = 1 << 0;
     }
@@ -234,7 +236,7 @@ impl CommandBuffer {
                 self.commands.push(Command::draw_quad(prim_instance_index));
                 self.commands.push(Command::data((gpu_buffer_address.u as u32) << 16 | gpu_buffer_address.v as u32));
                 self.commands.push(Command::data(transform_id.0));
-                self.commands.push(Command::data((quad_flags.bits as u32) << 16 | edge_flags.bits() as u32));
+                self.commands.push(Command::data((quad_flags.bits() as u32) << 16 | edge_flags.bits() as u32));
             }
         }
     }

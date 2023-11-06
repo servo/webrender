@@ -11,7 +11,6 @@ use std::sync::Arc;
 // local imports
 use crate::IdNamespace;
 use crate::channel::Sender;
-use crate::color::ColorU;
 use crate::units::LayoutPoint;
 
 /// Hashable floating-point storage for font size.
@@ -181,10 +180,12 @@ impl Default for GlyphOptions {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Deserialize, MallocSizeOf, Serialize, PeekPoke)]
+pub struct FontInstanceFlags(u32);
+
 bitflags! {
-    #[repr(C)]
-    #[derive(Deserialize, MallocSizeOf, Serialize, PeekPoke)]
-    pub struct FontInstanceFlags: u32 {
+    impl FontInstanceFlags: u32 {
         // Common flags
         // Use native synthetic bold, if supported.
         const SYNTHETIC_BOLD    = 1 << 1;
@@ -287,10 +288,6 @@ impl Default for SyntheticItalics {
 pub struct FontInstanceOptions {
     pub render_mode: FontRenderMode,
     pub flags: FontInstanceFlags,
-    /// When bg_color.a is != 0 and render_mode is FontRenderMode::Subpixel,
-    /// the text will be rendered with bg_color.r/g/b as an opaque estimated
-    /// background color.
-    pub bg_color: ColorU,
     pub synthetic_italics: SyntheticItalics,
 }
 
@@ -299,7 +296,6 @@ impl Default for FontInstanceOptions {
         FontInstanceOptions {
             render_mode: FontRenderMode::Subpixel,
             flags: Default::default(),
-            bg_color: ColorU::new(0, 0, 0, 0),
             synthetic_italics: SyntheticItalics::disabled(),
         }
     }

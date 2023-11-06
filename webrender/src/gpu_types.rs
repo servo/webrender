@@ -583,6 +583,15 @@ pub struct QuadSegment {
     pub task_id: RenderTaskId,
 }
 
+#[derive(Copy, Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[repr(u32)]
+pub enum ClipSpace {
+    Raster = 0,
+    Primitive = 1,
+}
+
 #[repr(C)]
 #[derive(Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -591,20 +600,23 @@ pub struct MaskInstance {
     pub prim: PrimitiveInstanceData,
     pub clip_transform_id: TransformPaletteId,
     pub clip_address: i32,
-    pub info: [i32; 2],
+    pub clip_space: ClipSpace,
+    pub unused: i32,
 }
 
 
-bitflags! {
-    // Note: This can use up to 12 bits due to how it will
-    // be packed in the instance data.
+// Note: This can use up to 12 bits due to how it will
+// be packed in the instance data.
 
-    /// Flags that define how the common brush shader
-    /// code should process this instance.
-    #[cfg_attr(feature = "capture", derive(Serialize))]
-    #[cfg_attr(feature = "replay", derive(Deserialize))]
-    #[derive(MallocSizeOf)]
-    pub struct BrushFlags: u16 {
+/// Flags that define how the common brush shader
+/// code should process this instance.
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, MallocSizeOf)]
+pub struct BrushFlags(u16);
+
+bitflags! {
+    impl BrushFlags: u16 {
         /// Apply perspective interpolation to UVs
         const PERSPECTIVE_INTERPOLATION = 1;
         /// Do interpolation relative to segment rect,

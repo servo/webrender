@@ -28,7 +28,7 @@ webrender_build = { version = "0.0.2", path = "../webrender_build" }
 
 [dependencies]
 bincode = "1.0"
-bitflags = "1.2"
+bitflags = { version = "2", features = ["serde"] }
 byteorder = "1.0"
 euclid = { version = "0.22.0", features = ["serde"] }
 fxhash = "0.2.1"
@@ -52,7 +52,7 @@ svg_fmt = "0.4"
 tracy-rs = "0.1.2"
 derive_more = { version = "0.99", default-features = false, features = ["add_assign"] }
 etagere = "0.2.6"
-glean = "53.2.0"
+glean = "54.0.0"
 firefox-on-glean = { version = "0.1.0", optional = true }
 swgl = { path = "../swgl", optional = true }
 topological-sort = "0.1"
