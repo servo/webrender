@@ -114,7 +114,7 @@ use std::{
 };
 #[cfg(any(feature = "capture", feature = "replay"))]
 use std::collections::hash_map::Entry;
-use time::precise_time_ns;
+use crate::util::precise_time_ns;
 
 mod debug;
 mod gpu_buffer;

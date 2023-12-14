@@ -34,7 +34,7 @@ use crate::spatial_tree::{SceneSpatialTree, SpatialTreeUpdates};
 use crate::telemetry::Telemetry;
 use crate::SceneBuilderHooks;
 use std::iter;
-use time::precise_time_ns;
+use crate::util::precise_time_ns;
 use crate::util::drain_filter;
 use std::thread;
 use std::time::Duration;

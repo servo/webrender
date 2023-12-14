@@ -32,7 +32,7 @@ use std::fmt::{Write, Debug};
 use std::f32;
 use std::ops::Range;
 use std::time::Duration;
-use time::precise_time_ns;
+use crate::util::precise_time_ns;
 
 macro_rules! set_text {
     ($dst:expr, $($arg:tt)*) => {
