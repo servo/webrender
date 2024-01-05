@@ -1788,7 +1788,7 @@ dependencies = [
 [[package]]
 name = "mozangle"
 version = "0.5.0"
-source = "git+https://github.com/sagudev/mozangle.git?branch=bump#1152fe6924cfa5a54aaa72c9d32720d71304a1e7"
+source = "git+https://github.com/atbrakhi/mozangle.git?branch=shared_object#b1d7238f4df32108febd2a7fd27727376c5a2767"
 dependencies = [
  "bindgen",
  "cc",

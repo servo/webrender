@@ -50,7 +50,7 @@ software = [ "swgl" ]
 
 [target.'cfg(target_os = "windows")'.dependencies]
 dwrote = "0.11"
-mozangle = { git = "https://github.com/sagudev/mozangle.git", branch = "bump", features = ["egl"] }
+mozangle = { git = "https://github.com/atbrakhi/mozangle.git", branch = "shared_object", features = ["egl"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 libc = "0.2"
