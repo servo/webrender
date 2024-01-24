@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::u32;
-use api::MinimapData;
+use api::{HitTestFlags, MinimapData};
 use time::precise_time_ns;
 use crate::api::channel::{Sender, single_msg_channel, unbounded_channel};
 use crate::api::{BuiltDisplayList, IdNamespace, ExternalScrollId, Parameter, BoolParameter};
@@ -792,7 +792,7 @@ pub enum FrameMsg {
     ///
     UpdateEpoch(PipelineId, Epoch),
     ///
-    HitTest(WorldPoint, Sender<HitTestResult>),
+    HitTest(Option<PipelineId>, WorldPoint, HitTestFlags, Sender<HitTestResult>),
     ///
     RequestHitTester(Sender<Arc<dyn ApiHitTester>>),
     ///
@@ -1276,13 +1276,15 @@ impl RenderApi {
     /// front to back.
     pub fn hit_test(&self,
         document_id: DocumentId,
+        pipeline_id: Option<PipelineId>,
         point: WorldPoint,
+        flags: HitTestFlags,
     ) -> HitTestResult {
         let (tx, rx) = single_msg_channel();
 
         self.send_frame_msg(
             document_id,
-            FrameMsg::HitTest(point, tx)
+            FrameMsg::HitTest(pipeline_id, point, flags, tx)
         );
         rx.recv().unwrap()
     }
