@@ -27,18 +27,15 @@ apt-get install -y \
     libx11-dev \
     llvm-dev \
     ninja-build \
-    openjdk-8-jdk \
     pkg-config \
-    python \
-    python-mako \
-    python-pip \
-    python-setuptools \
-    python-voluptuous \
-    python-yaml \
-    python3-pip \
-    python3-mako \
     software-properties-common \
     clang
 
-# Other stuff we need
-pip install servo-tidy==0.3.0
+# some reftests fail with freetype >= 2.10, so downgrade to the version in
+# Debian buster. See bug 1804782.
+apt-get -y remove libfreetype-dev
+curl -LO http://snapshot.debian.org/archive/debian/20220718T031307Z/pool/main/f/freetype/libfreetype6_2.9.1-3%2Bdeb10u3_amd64.deb
+curl -LO http://snapshot.debian.org/archive/debian/20220718T031307Z/pool/main/f/freetype/libfreetype6-dev_2.9.1-3%2Bdeb10u3_amd64.deb
+
+dpkg -i libfreetype6*.deb
+rm libfreetype6*.deb

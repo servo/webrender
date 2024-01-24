@@ -15,6 +15,8 @@ set -o xtrace
 
 CARGOFLAGS=${CARGOFLAGS:-"--verbose"}  # default to --verbose if not set
 
+python3 -m pip install -r $(dirname ${0})/requirements.txt
+
 pushd webrender
 cargo build ${CARGOFLAGS} --no-default-features
 cargo build ${CARGOFLAGS} --no-default-features --features capture
@@ -24,7 +26,7 @@ popd
 
 pushd wrench
 cargo build ${CARGOFLAGS} --features env_logger
-OPTIMIZED=0 python script/headless.py reftest
+OPTIMIZED=0 python3 script/headless.py reftest
 popd
 
 pushd examples
