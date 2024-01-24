@@ -336,9 +336,11 @@ impl NotificationRequest {
 /// the RenderBackendThread.
 pub trait ApiHitTester: Send + Sync {
     /// Does a hit test on display items in the specified document, at the given
-    /// point. The vector of hit results will contain all display items that match,
-    /// ordered from front to back.
-    fn hit_test(&self, point: WorldPoint) -> HitTestResult;
+    /// point. If a pipeline_id is specified, it is used to further restrict the
+    /// hit results so that only items inside that pipeline are matched. The vector
+    /// of hit results will contain all display items that match, ordered from
+    /// front to back.
+    fn hit_test(&self, pipeline_id: Option<PipelineId>, point: WorldPoint, flags: HitTestFlags) -> HitTestResult;
 }
 
 /// A hit tester requested to the render backend thread but not necessarily ready yet.
@@ -367,6 +369,15 @@ pub struct HitTestResultItem {
 
     /// The animation id from the stacking context.
     pub animation_id: u64,
+
+    /// The hit point in the coordinate space of the "viewport" of the display item. The
+    /// viewport is the scroll node formed by the root reference frame of the display item's
+    /// pipeline.
+    pub point_in_viewport: LayoutPoint,
+
+    /// The coordinates of the original hit test point relative to the origin of this item.
+    /// This is useful for calculating things like text offsets in the client.
+    pub point_relative_to_item: LayoutPoint,
 }
 
 /// Returned by `RenderApi::hit_test`.
@@ -374,6 +385,17 @@ pub struct HitTestResultItem {
 pub struct HitTestResult {
     /// List of items that are match the hit-test query.
     pub items: Vec<HitTestResultItem>,
+}
+
+bitflags! {
+    #[derive(Deserialize, Serialize)]
+    ///
+    pub struct HitTestFlags: u8 {
+        ///
+        const FIND_ALL = 0b00000001;
+        ///
+        const POINT_RELATIVE_TO_PIPELINE_VIEWPORT = 0b00000010;
+    }
 }
 
 impl Drop for NotificationRequest {
