@@ -387,6 +387,11 @@ pub struct HitTestResultItem {
 
     /// The animation id from the stacking context.
     pub animation_id: u64,
+
+    /// The hit point in the coordinate space of the "viewport" of the display item. The
+    /// viewport is the scroll node formed by the root reference frame of the display item's
+    /// pipeline.
+    pub point_in_viewport: LayoutPoint,
 }
 
 /// Returned by `RenderApi::hit_test`.
