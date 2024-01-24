@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  merge_group:
+    types: [checks_requested]
+
+
+jobs:
+  linux-debug:
+    name: Linux (Debug)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install freetype
+        run: sudo apt install libfreetype-dev
+      - name: Build wrench
+        run: |
+          cd wrench
+          cargo build
+
+  build_result:
+    name: Result
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs:
+      - linux-debug
+    steps:
+      - name: Success
+        if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+        run: exit 0
+      - name: Failure
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+
