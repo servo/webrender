@@ -10,7 +10,8 @@ use crate::clip::{rounded_rectangle_contains_point, ClipDataHandle, ClipNodeId, 
 use crate::clip::{ClipItemKey, ClipItemKeyKind};
 use crate::prim_store::PolygonKey;
 use crate::scene_builder_thread::SceneDlStores;
-use crate::spatial_tree::{SpatialNodeIndex, SpatialTree};
+use crate::spatial_node::SpatialNodeType;
+use crate::spatial_tree::{SpatialNodeContainer, SpatialNodeIndex, SpatialTree};
 use crate::internal_types::{FastHashMap, LayoutPrimitiveInfo};
 use std::sync::{Arc, Mutex};
 use crate::util::{FastTransform, LayoutToWorldFastTransform};
@@ -42,9 +43,7 @@ impl SharedHitTester {
 }
 
 impl ApiHitTester for SharedHitTester {
-    fn hit_test(&self,
-        point: WorldPoint,
-    ) -> HitTestResult {
+    fn hit_test(&self, point: WorldPoint) -> HitTestResult {
         self.get_ref().hit_test(HitTest::new(point))
     }
 }
@@ -59,6 +58,12 @@ struct HitTestSpatialNode {
 
     /// World transform for content transformed by this node.
     world_content_transform: LayoutToWorldFastTransform,
+
+    /// World viewport transform for content transformed by this node.
+    world_viewport_transform: LayoutToWorldFastTransform,
+
+    /// The accumulated external scroll offset for this spatial node.
+    external_scroll_offset: LayoutVector2D,
 }
 
 #[derive(MallocSizeOf)]
@@ -82,12 +87,8 @@ impl HitTestClipNode {
         spatial_node_index: SpatialNodeIndex,
     ) -> Self {
         let region = match item.kind {
-            ClipItemKeyKind::Rectangle(mode) => {
-                HitTestRegion::Rectangle(clip_rect, mode)
-            }
-            ClipItemKeyKind::Border(_) => {
-                HitTestRegion::Rectangle(clip_rect, ClipMode::Clip)
-            }
+            ClipItemKeyKind::Rectangle(mode) => HitTestRegion::Rectangle(clip_rect, mode),
+            ClipItemKeyKind::Border(_) => HitTestRegion::Rectangle(clip_rect, ClipMode::Clip),
             ClipItemKeyKind::RoundedRectangle(radius, _, mode) => {
                 // TODO(wsmind): implement hit-testing for corner-shape
                 HitTestRegion::RoundedRectangle(clip_rect, radius.into(), mode)
@@ -232,11 +233,7 @@ impl HitTestingScene {
 
             self.clip_nodes.insert(clip_node_id, clip_node);
 
-            self.add_clip_node(
-                src_clip_node.parent,
-                clip_tree_builder,
-                stores,
-            );
+            self.add_clip_node(src_clip_node.parent, clip_tree_builder, stores);
         }
     }
 
@@ -251,19 +248,9 @@ impl HitTestingScene {
         clip_tree_builder: &ClipTreeBuilder,
         stores: &SceneDlStores,
     ) {
-        self.add_clip_node(
-            clip_node_id,
-            clip_tree_builder,
-            stores,
-        );
+        self.add_clip_node(clip_node_id, clip_tree_builder, stores);
 
-        let item = HitTestingItem::new(
-            tag,
-            anim_id,
-            info,
-            spatial_node_index,
-            clip_node_id,
-        );
+        let item = HitTestingItem::new(tag, anim_id, info, spatial_node_index, clip_node_id);
 
         self.items.push(item);
     }
@@ -281,16 +268,17 @@ impl HitTestRegion {
     /// `transform` maps the region's space to world space.
     fn contains(&self, point: &LayoutPoint, transform: &LayoutToWorldFastTransform) -> bool {
         match *self {
-            HitTestRegion::Rectangle(ref rectangle, ClipMode::Clip) =>
-                rectangle.contains(*point),
-            HitTestRegion::Rectangle(ref rectangle, ClipMode::ClipOut) =>
-                !rectangle.contains(*point),
-            HitTestRegion::RoundedRectangle(rect, radii, ClipMode::Clip) =>
-                rounded_rectangle_contains_point(point, &rect, &radii),
-            HitTestRegion::RoundedRectangle(rect, radii, ClipMode::ClipOut) =>
-                !rounded_rectangle_contains_point(point, &rect, &radii),
-            HitTestRegion::Polygon(rect, polygon) =>
-                polygon_contains_point(point, &rect, &polygon),
+            HitTestRegion::Rectangle(ref rectangle, ClipMode::Clip) => rectangle.contains(*point),
+            HitTestRegion::Rectangle(ref rectangle, ClipMode::ClipOut) => {
+                !rectangle.contains(*point)
+            }
+            HitTestRegion::RoundedRectangle(rect, radii, ClipMode::Clip) => {
+                rounded_rectangle_contains_point(point, &rect, &radii)
+            }
+            HitTestRegion::RoundedRectangle(rect, radii, ClipMode::ClipOut) => {
+                !rounded_rectangle_contains_point(point, &rect, &radii)
+            }
+            HitTestRegion::Polygon(rect, polygon) => polygon_contains_point(point, &rect, &polygon),
             HitTestRegion::Path(ref rect, ref path, fill_rule) => {
                 let tolerance = flattening_tolerance_for_transform(transform);
                 path_contains_point(*point, rect, path, fill_rule, tolerance)
@@ -304,6 +292,7 @@ pub struct HitTester {
     #[ignore_malloc_size_of = "Arc"]
     scene: Arc<HitTestingScene>,
     spatial_nodes: FastHashMap<SpatialNodeIndex, HitTestSpatialNode>,
+    pipeline_root_nodes: FastHashMap<PipelineId, SpatialNodeIndex>,
 }
 
 impl HitTester {
@@ -311,39 +300,51 @@ impl HitTester {
         HitTester {
             scene: Arc::new(HitTestingScene::new(&HitTestingSceneStats::empty())),
             spatial_nodes: FastHashMap::default(),
+            pipeline_root_nodes: FastHashMap::default(),
         }
     }
 
-    pub fn new(
-        scene: Arc<HitTestingScene>,
-        spatial_tree: &SpatialTree,
-    ) -> HitTester {
+    pub fn new(scene: Arc<HitTestingScene>, spatial_tree: &SpatialTree) -> HitTester {
         let mut hit_tester = HitTester {
             scene,
             spatial_nodes: FastHashMap::default(),
+            pipeline_root_nodes: FastHashMap::default(),
         };
         hit_tester.read_spatial_tree(spatial_tree);
         hit_tester
     }
 
-    fn read_spatial_tree(
-        &mut self,
-        spatial_tree: &SpatialTree,
-    ) {
+    fn read_spatial_tree(&mut self, spatial_tree: &SpatialTree) {
         self.spatial_nodes.clear();
-        self.spatial_nodes.reserve(spatial_tree.spatial_node_count());
+        self.spatial_nodes
+            .reserve(spatial_tree.spatial_node_count());
+
+        self.pipeline_root_nodes.clear();
 
         spatial_tree.visit_nodes(|index, node| {
+            // If we haven't already seen a node for this pipeline, record this one as the root
+            // node.
+            self.pipeline_root_nodes
+                .entry(node.pipeline_id)
+                .or_insert(index);
+
             //TODO: avoid inverting more than necessary:
             //  - if the coordinate system is non-invertible, no need to try any of these concrete transforms
             //  - if there are other places where inversion is needed, let's not repeat the step
 
-            self.spatial_nodes.insert(index, HitTestSpatialNode {
-                pipeline_id: node.pipeline_id,
-                world_content_transform: spatial_tree
-                    .get_world_transform(index)
-                    .into_fast_transform(),
-            });
+            self.spatial_nodes.insert(
+                index,
+                HitTestSpatialNode {
+                    pipeline_id: node.pipeline_id,
+                    world_content_transform: spatial_tree
+                        .get_world_transform(index)
+                        .into_fast_transform(),
+                    world_viewport_transform: spatial_tree
+                        .get_world_viewport_transform(index)
+                        .into_fast_transform(),
+                    external_scroll_offset: get_external_scroll_offset(spatial_tree, index),
+                },
+            );
         });
     }
 
@@ -352,6 +353,8 @@ impl HitTester {
 
         let mut current_spatial_node_index = SpatialNodeIndex::INVALID;
         let mut point_in_layer = None;
+        let mut current_root_spatial_node_index = SpatialNodeIndex::INVALID;
+        let mut point_in_viewport = None;
 
         // For each hit test primitive
         for item in self.scene.items.iter().rev() {
@@ -387,9 +390,8 @@ impl HitTester {
             while current_clip_node_id != ClipNodeId::NONE {
                 let clip_node = &self.scene.clip_nodes[&current_clip_node_id];
 
-                let transform = self
-                    .spatial_nodes[&clip_node.spatial_node_index]
-                    .world_content_transform;
+                let transform =
+                    self.spatial_nodes[&clip_node.spatial_node_index].world_content_transform;
                 if let Some(transformed_point) = transform
                     .inverse()
                     .and_then(|inverted| inverted.project_point2d(test.point))
@@ -408,15 +410,36 @@ impl HitTester {
             }
 
             // Don't hit items with backface-visibility:hidden if they are facing the back.
-            if !item.is_backface_visible && scroll_node.world_content_transform.is_backface_visible() {
+            if !item.is_backface_visible
+                && scroll_node.world_content_transform.is_backface_visible()
+            {
                 continue;
             }
 
-            result.items.push(HitTestResultItem {
-                pipeline: pipeline_id,
-                tag: item.tag,
-                animation_id: item.animation_id,
-            });
+            // We need to calculate the position of the test point relative to the origin of
+            // the pipeline of the hit item. If we cannot get a transformed point, we are
+            // in a situation with an uninvertible transformation so we should just skip this
+            // result.
+            let root_spatial_node_index = self.pipeline_root_nodes[&pipeline_id];
+            if root_spatial_node_index != current_root_spatial_node_index {
+                let root_node = &self.spatial_nodes[&root_spatial_node_index];
+                point_in_viewport = root_node
+                    .world_viewport_transform
+                    .inverse()
+                    .and_then(|inverted| inverted.transform_point2d(test.point))
+                    .map(|pt| pt - scroll_node.external_scroll_offset);
+
+                current_root_spatial_node_index = root_spatial_node_index;
+            }
+
+            if let Some(point_in_viewport) = point_in_viewport {
+                result.items.push(HitTestResultItem {
+                    pipeline: pipeline_id,
+                    tag: item.tag,
+                    animation_id: item.animation_id,
+                    point_in_viewport,
+                });
+            }
         }
 
         result.items.dedup();
@@ -430,20 +453,12 @@ pub struct HitTest {
 }
 
 impl HitTest {
-    pub fn new(
-        point: WorldPoint,
-    ) -> HitTest {
-        HitTest {
-            point,
-        }
+    pub fn new(point: WorldPoint) -> HitTest {
+        HitTest { point }
     }
 }
 
-fn polygon_contains_point(
-    point: &LayoutPoint,
-    rect: &LayoutRect,
-    polygon: &PolygonKey,
-) -> bool {
+fn polygon_contains_point(point: &LayoutPoint, rect: &LayoutRect, polygon: &PolygonKey) -> bool {
     if !rect.contains(*point) {
         return false;
     }
@@ -486,14 +501,7 @@ fn polygon_contains_point(
 /// > 0 is left of the line
 /// < 0 is right of the line
 /// == 0 is on the line
-fn is_left_of_line(
-    p_x: f32,
-    p_y: f32,
-    p0_x: f32,
-    p0_y: f32,
-    p1_x: f32,
-    p1_y: f32,
-) -> f32 {
+fn is_left_of_line(p_x: f32, p_y: f32, p0_x: f32, p0_y: f32, p1_x: f32, p1_y: f32) -> f32 {
     (p1_x - p0_x) * (p_y - p0_y) - (p_x - p0_x) * (p1_y - p0_y)
 }
 
@@ -537,11 +545,7 @@ fn path_contains_point(
     }
 }
 
-fn path_winding_number_at_position(
-    point: LayoutPoint,
-    path: &Path,
-    tolerance: f32,
-) -> i32 {
+fn path_winding_number_at_position(point: LayoutPoint, path: &Path, tolerance: f32) -> i32 {
     let mut winding = 0;
     for evt in path.iter() {
         match evt {
@@ -566,7 +570,12 @@ fn path_winding_number_at_position(
                     current = next;
                 });
             }
-            PathEvent::Cubic { from, ctrl1, ctrl2, to } => {
+            PathEvent::Cubic {
+                from,
+                ctrl1,
+                ctrl2,
+                to,
+            } => {
                 let min_y = from.y.min(ctrl1.y).min(ctrl2.y).min(to.y);
                 let max_y = from.y.max(ctrl1.y).max(ctrl2.y).max(to.y);
 
@@ -586,22 +595,13 @@ fn path_winding_number_at_position(
     winding
 }
 
-fn test_segment(
-    point: LayoutPoint,
-    from: LayoutPoint,
-    to: LayoutPoint,
-    winding: &mut i32,
-) {
+fn test_segment(point: LayoutPoint, from: LayoutPoint, to: LayoutPoint, winding: &mut i32) {
     let y0 = from.y;
     let y1 = to.y;
     let min_y = f32::min(y0, y1);
     let max_y = f32::max(y0, y1);
 
-    if min_y > point.y
-        || max_y <= point.y
-        || f32::min(from.x, to.x) > point.x
-        || y0 == y1
-    {
+    if min_y > point.y || max_y <= point.y || f32::min(from.x, to.x) > point.x || y0 == y1 {
         return;
     }
 
@@ -621,7 +621,6 @@ fn test_segment(
 
     *winding += if positive_winding { 1 } else { -1 };
 }
-
 
 #[test]
 fn polygon_clip_is_left_of_point() {
@@ -662,18 +661,14 @@ fn polygon_clip_contains_point() {
     let p4 = LayoutPoint::new(8.0, 1.0);
     let p5 = LayoutPoint::new(6.0, 7.0);
 
-    let poly_clockwise_nonzero = PolygonKey::new(
-        &[p5, p4, p3, p2, p1, p0].to_vec(), FillRule::Nonzero
-    );
-    let poly_clockwise_evenodd = PolygonKey::new(
-        &[p5, p4, p3, p2, p1, p0].to_vec(), FillRule::Evenodd
-    );
-    let poly_counter_clockwise_nonzero = PolygonKey::new(
-        &[p0, p1, p2, p3, p4, p5].to_vec(), FillRule::Nonzero
-    );
-    let poly_counter_clockwise_evenodd = PolygonKey::new(
-        &[p0, p1, p2, p3, p4, p5].to_vec(), FillRule::Evenodd
-    );
+    let poly_clockwise_nonzero =
+        PolygonKey::new(&[p5, p4, p3, p2, p1, p0].to_vec(), FillRule::Nonzero);
+    let poly_clockwise_evenodd =
+        PolygonKey::new(&[p5, p4, p3, p2, p1, p0].to_vec(), FillRule::Evenodd);
+    let poly_counter_clockwise_nonzero =
+        PolygonKey::new(&[p0, p1, p2, p3, p4, p5].to_vec(), FillRule::Nonzero);
+    let poly_counter_clockwise_evenodd =
+        PolygonKey::new(&[p0, p1, p2, p3, p4, p5].to_vec(), FillRule::Evenodd);
 
     // We define a rect that provides a bounding clip area of
     // the polygon.
@@ -688,15 +683,60 @@ fn polygon_clip_contains_point() {
     // counter-clockwise polygons.
     // For nonzero polygons, the inside twice point is considered inside.
     for poly_nonzero in vec![poly_clockwise_nonzero, poly_counter_clockwise_nonzero].iter() {
-        assert_eq!(polygon_contains_point(&p_inside_once, &rect, &poly_nonzero), true);
-        assert_eq!(polygon_contains_point(&p_inside_twice, &rect, &poly_nonzero), true);
-        assert_eq!(polygon_contains_point(&p_outside, &rect, &poly_nonzero), false);
+        assert_eq!(
+            polygon_contains_point(&p_inside_once, &rect, &poly_nonzero),
+            true
+        );
+        assert_eq!(
+            polygon_contains_point(&p_inside_twice, &rect, &poly_nonzero),
+            true
+        );
+        assert_eq!(
+            polygon_contains_point(&p_outside, &rect, &poly_nonzero),
+            false
+        );
     }
     // For evenodd polygons, the inside twice point is considered outside.
     for poly_evenodd in vec![poly_clockwise_evenodd, poly_counter_clockwise_evenodd].iter() {
-        assert_eq!(polygon_contains_point(&p_inside_once, &rect, &poly_evenodd), true);
-        assert_eq!(polygon_contains_point(&p_inside_twice, &rect, &poly_evenodd), false);
-        assert_eq!(polygon_contains_point(&p_outside, &rect, &poly_evenodd), false);
+        assert_eq!(
+            polygon_contains_point(&p_inside_once, &rect, &poly_evenodd),
+            true
+        );
+        assert_eq!(
+            polygon_contains_point(&p_inside_twice, &rect, &poly_evenodd),
+            false
+        );
+        assert_eq!(
+            polygon_contains_point(&p_outside, &rect, &poly_evenodd),
+            false
+        );
     }
 }
 
+fn get_external_scroll_offset(
+    spatial_tree: &SpatialTree,
+    node_index: SpatialNodeIndex,
+) -> LayoutVector2D {
+    let mut offset = LayoutVector2D::zero();
+    let mut current_node = Some(node_index);
+
+    while let Some(node_index) = current_node {
+        let node_info = spatial_tree.get_node_info(node_index);
+
+        match node_info.node_type {
+            SpatialNodeType::ScrollFrame(ref scrolling) => {
+                offset += scrolling.external_scroll_offset;
+            }
+            SpatialNodeType::StickyFrame(..) => {}
+            SpatialNodeType::ReferenceFrame(..) => {
+                // External scroll offsets are not propagated across
+                // reference frames.
+                break;
+            }
+        }
+
+        current_node = node_info.parent;
+    }
+
+    offset
+}
