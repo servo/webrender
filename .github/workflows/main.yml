@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  merge_group:
+    types: [checks_requested]
+
+
+jobs:
+  linux-debug:
+    name: Linux (Debug)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: CI Setup
+        run: |
+          sudo ./ci-scripts/docker-image/setup.sh
+          sudo apt install meson -y
+      - name: Run Tests
+        run: ./ci-scripts/linux-debug-tests.sh
+        env:
+          RUST_BACKTRACE: 1
+
+  linux-release:
+    name: Linux (Release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: CI Setup
+        run: |
+          sudo ./ci-scripts/docker-image/setup.sh
+          sudo apt install meson -y
+      - name: Run Tests
+        run: ./ci-scripts/linux-release-tests.sh
+        env:
+          RUST_BACKTRACE: 1
+
+  build_result:
+    name: Result
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs:
+      - linux-debug
+      - linux-release
+    steps:
+      - name: Success
+        if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+        run: exit 0
+      - name: Failure
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+
