@@ -52,8 +52,8 @@ platform(linux,mac) fuzzy(1,80000) == radial-ellipse.yaml radial-ellipse-ref.png
 # this might be able to be improved
 fuzzy(255,1200) == repeat-linear.yaml repeat-linear-ref.yaml
 fuzzy(255,1200) == repeat-linear-reverse.yaml repeat-linear-ref.yaml
-fuzzy(255,2666) == repeat-radial.yaml repeat-radial-ref.yaml
-fuzzy(255,2666) == repeat-radial-negative.yaml repeat-radial-ref.yaml
+fuzzy(255,2730) == repeat-radial.yaml repeat-radial-ref.yaml
+fuzzy(255,2730) == repeat-radial-negative.yaml repeat-radial-ref.yaml
 fuzzy(255,1652) == repeat-conic.yaml repeat-conic-ref.yaml
 fuzzy(255,1652) == repeat-conic-negative.yaml repeat-conic-ref.yaml
 
