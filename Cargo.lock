@@ -23,7 +23,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b7f09f89872c2b6b29e319377b1fbe91c6f5947df19a25596e121cf19a7b35e"
 dependencies = [
- "bitflags",
+ "bitflags 1.2.1",
  "line_drawing",
  "rusttype 0.7.9",
  "walkdir",
@@ -110,6 +110,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
 
 [[package]]
+name = "base64"
+version = "0.21.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
+
+[[package]]
 name = "binary-space-partition"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -130,6 +136,15 @@ name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
+
+[[package]]
+name = "bitflags"
+version = "2.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed570934406eb16438a4e976b1b4500774099c13b8cb96eec99f620f05090ddf"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "block"
@@ -209,7 +224,7 @@ checksum = "5067f5bb2d80ef5d68b4c87db81601f0b75bca627bc2ef76b141d7b846a3c6d9"
 dependencies = [
  "ansi_term",
  "atty",
- "bitflags",
+ "bitflags 1.2.1",
  "strsim",
  "textwrap",
  "unicode-width",
@@ -223,7 +238,7 @@ version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddfc5b9aa5d4507acaf872de71051dfd0e309860e88966e1051e462a077aac4f"
 dependencies = [
- "bitflags",
+ "bitflags 1.2.1",
 ]
 
 [[package]]
@@ -241,7 +256,7 @@ version = "0.18.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1706996401131526e36b3b49f0c4d912639ce110996f3ca144d78946727bce54"
 dependencies = [
- "bitflags",
+ "bitflags 1.2.1",
  "block",
  "core-foundation 0.6.4",
  "core-graphics 0.17.3",
@@ -335,7 +350,7 @@ version = "0.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56790968ab1c8a1202a102e6de05fc6e1ec87da99e4e93e9a7d13efbfc1e95a9"
 dependencies = [
- "bitflags",
+ "bitflags 1.2.1",
  "core-foundation 0.6.4",
  "foreign-types",
  "libc",
@@ -347,7 +362,7 @@ version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6082396a349fa49674ba1bda4077332a18bf150e8fa75745ece07085e29a113"
 dependencies = [
- "bitflags",
+ "bitflags 1.2.1",
  "core-foundation 0.9.0",
  "core-graphics-types",
  "foreign-types",
@@ -360,7 +375,7 @@ version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e92f5d519093a4178296707dbaa3880eae85a5ef5386675f361a1cf25376e93c"
 dependencies = [
- "bitflags",
+ "bitflags 1.2.1",
  "core-foundation 0.9.0",
  "foreign-types",
  "libc",
@@ -941,7 +956,7 @@ version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c722bee1037d430d0f8e687bbdbf222f27cc6e4e68d5caf630857bb2b6dbdce"
 dependencies = [
- "bitflags",
+ "bitflags 1.2.1",
  "cc",
  "cfg-if 0.1.10",
  "libc",
@@ -1127,7 +1142,7 @@ version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "910f09135b1ed14bb16be445a8c23ddf0777eca485fbfc7cee00d81fecab158a"
 dependencies = [
- "bitflags",
+ "bitflags 1.2.1",
  "crc32fast",
  "deflate",
  "inflate",
@@ -1272,13 +1287,14 @@ checksum = "7fe5bd57d1d7414c6b5ed48563a2c855d995ff777729dcd91c369ec7fea395ae"
 
 [[package]]
 name = "ron"
-version = "0.6.2"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8a58080b7bb83b2ea28c3b7a9a994fd5e310330b7c8ca5258d99b98128ecfe4"
+checksum = "b91f7eff05f748767f183df4320a63d6936e9c6107d97c9e6bdd9784f4289c94"
 dependencies = [
- "base64",
- "bitflags",
+ "base64 0.21.7",
+ "bitflags 2.4.2",
  "serde",
+ "serde_derive",
 ]
 
 [[package]]
@@ -1448,7 +1464,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ccb8c57049b2a34d2cc2b203fa785020ba0129d31920ef0d317430adaf748fa"
 dependencies = [
  "andrew",
- "bitflags",
+ "bitflags 1.2.1",
  "dlib",
  "lazy_static",
  "memmap",
@@ -1623,7 +1639,7 @@ version = "0.21.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49963e5f9eeaf637bfcd1b9f0701c99fd5cd05225eb51035550d4272806f2713"
 dependencies = [
- "bitflags",
+ "bitflags 1.2.1",
  "downcast-rs",
  "libc",
  "nix",
@@ -1648,7 +1664,7 @@ version = "0.21.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4afde2ea2a428eee6d7d2c8584fdbe8b82eee8b6c353e129a434cd6e07f42145"
 dependencies = [
- "bitflags",
+ "bitflags 1.2.1",
  "wayland-client",
  "wayland-commons",
  "wayland-scanner",
@@ -1681,7 +1697,7 @@ name = "webrender"
 version = "0.61.0"
 dependencies = [
  "bincode",
- "bitflags",
+ "bitflags 1.2.1",
  "build-parallel",
  "byteorder",
  "core-foundation 0.9.0",
@@ -1739,7 +1755,7 @@ name = "webrender_api"
 version = "0.61.0"
 dependencies = [
  "app_units",
- "bitflags",
+ "bitflags 1.2.1",
  "byteorder",
  "core-foundation 0.9.0",
  "core-graphics 0.22.0",
@@ -1759,7 +1775,7 @@ dependencies = [
 name = "webrender_build"
 version = "0.0.1"
 dependencies = [
- "bitflags",
+ "bitflags 1.2.1",
  "lazy_static",
  "serde",
 ]
@@ -1802,7 +1818,7 @@ source = "git+https://github.com/jrmuizel/winit?branch=wr#947af776e1a3ab47000b89
 dependencies = [
  "android_glue",
  "backtrace",
- "bitflags",
+ "bitflags 1.2.1",
  "cocoa",
  "core-foundation 0.6.4",
  "core-graphics 0.17.3",
@@ -1840,7 +1856,7 @@ dependencies = [
 name = "wrench"
 version = "0.3.0"
 dependencies = [
- "base64",
+ "base64 0.12.3",
  "chrono",
  "clap",
  "core-foundation 0.9.0",
