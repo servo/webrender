@@ -237,6 +237,23 @@ impl Default for HasScrollLinkedEffect {
     }
 }
 
+#[repr(C)]
+pub struct MinimapData {
+  pub is_root_content: bool,
+  // All rects in local coords relative to the scrolled content's origin.
+  pub visual_viewport: LayoutRect,
+  pub layout_viewport: LayoutRect,
+  pub scrollable_rect: LayoutRect,
+  pub displayport: LayoutRect,
+  // Populated for root content nodes only, otherwise the identity
+  pub zoom_transform: LayoutTransform,
+  // Populated for nodes in the subtree of a root content node
+  // (outside such subtrees we'll have `root_content_scroll_id == 0`).
+  // Stores the enclosing root content node's ExternalScrollId.
+  pub root_content_pipeline_id: PipelineId,
+  pub root_content_scroll_id: u64
+}
+
 /// A handler to integrate WebRender with the thread that contains the `Renderer`.
 pub trait RenderNotifier: Send {
     ///
@@ -577,7 +594,7 @@ pub enum IntParameter {
 
 /// Flags to track why we are rendering.
 #[repr(C)]
-#[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Default, Deserialize, MallocSizeOf, Serialize)]
+#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Default, Deserialize, MallocSizeOf, Serialize)]
 pub struct RenderReasons(u32);
 
 bitflags! {
@@ -615,13 +632,23 @@ bitflags! {
     }
 }
 
+impl core::fmt::Debug for RenderReasons {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if self.is_empty() {
+            write!(f, "{:#x}", Self::empty().bits())
+        } else {
+            bitflags::parser::to_writer(self, f)
+        }
+    }
+}
+
 impl RenderReasons {
     pub const NUM_BITS: u32 = 17;
 }
 
 /// Flags to enable/disable various builtin debugging tools.
 #[repr(C)]
-#[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Default, Deserialize, MallocSizeOf, Serialize)]
+#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Default, Deserialize, MallocSizeOf, Serialize)]
 pub struct DebugFlags(u32);
 
 bitflags! {
@@ -692,6 +719,16 @@ bitflags! {
         /// Render large blobs with at a smaller size (incorrectly). This is a temporary workaround for
         /// fuzzing.
         const RESTRICT_BLOB_SIZE        = 1 << 28;
+    }
+}
+
+impl core::fmt::Debug for DebugFlags {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if self.is_empty() {
+            write!(f, "{:#x}", Self::empty().bits())
+        } else {
+            bitflags::parser::to_writer(self, f)
+        }
     }
 }
 

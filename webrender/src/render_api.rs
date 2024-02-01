@@ -344,6 +344,11 @@ impl Transaction {
         self.frame_ops.push(FrameMsg::SetIsTransformAsyncZooming(is_zooming, animation_id));
     }
 
+    /// Specify data for APZ minimap debug overlay to be composited
+    pub fn set_minimap_data(&mut self, id: ExternalScrollId, minimap_data: MinimapData) {
+      self.frame_ops.push(FrameMsg::SetMinimapData(id, minimap_data));
+    }
+
     /// Generate a new frame. When it's done and a RenderNotifier has been set
     /// in `webrender::Renderer`, [new_frame_ready()][notifier] gets called.
     /// Note that the notifier is called even if the frame generation was a
@@ -799,6 +804,8 @@ pub enum FrameMsg {
     AppendDynamicTransformProperties(Vec<PropertyValue<LayoutTransform>>),
     ///
     SetIsTransformAsyncZooming(bool, PropertyBindingId),
+    ///
+    SetMinimapData(ExternalScrollId, MinimapData)
 }
 
 impl fmt::Debug for SceneMsg {
@@ -825,6 +832,7 @@ impl fmt::Debug for FrameMsg {
             FrameMsg::AppendDynamicProperties(..) => "FrameMsg::AppendDynamicProperties",
             FrameMsg::AppendDynamicTransformProperties(..) => "FrameMsg::AppendDynamicTransformProperties",
             FrameMsg::SetIsTransformAsyncZooming(..) => "FrameMsg::SetIsTransformAsyncZooming",
+            FrameMsg::SetMinimapData(..) => "FrameMsg::SetMinimapData",
         })
     }
 }
