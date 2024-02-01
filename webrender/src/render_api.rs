@@ -10,6 +10,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::u32;
+use api::MinimapData;
 use crate::util::precise_time_ns;
 use crate::api::channel::{Sender, single_msg_channel, unbounded_channel};
 use crate::api::{BuiltDisplayList, IdNamespace, ExternalScrollId, Parameter, BoolParameter};
