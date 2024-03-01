@@ -3088,7 +3088,7 @@ dependencies = [
 
 [[package]]
 name = "webrender"
-version = "0.62.0"
+version = "0.65.0"
 dependencies = [
  "bincode",
  "bitflags 2.4.2",
@@ -3143,7 +3143,7 @@ dependencies = [
 
 [[package]]
 name = "webrender_api"
-version = "0.62.0"
+version = "0.65.0"
 dependencies = [
  "app_units",
  "bitflags 2.4.2",
@@ -3359,7 +3359,7 @@ dependencies = [
 
 [[package]]
 name = "wr_malloc_size_of"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "app_units",
  "euclid",
