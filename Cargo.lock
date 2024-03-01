@@ -3140,7 +3140,7 @@ dependencies = [
 
 [[package]]
 name = "webrender"
-version = "0.62.0"
+version = "0.66.0"
 dependencies = [
  "allocator-api2",
  "bincode",
@@ -3196,7 +3196,7 @@ dependencies = [
 
 [[package]]
 name = "webrender_api"
-version = "0.62.0"
+version = "0.66.0"
 dependencies = [
  "app_units",
  "bitflags 2.4.2",
