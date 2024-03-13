@@ -1,0 +1,9 @@
+# Filters and renames use git-filter-repo(1) --paths-from-file:
+# https://htmlpreview.github.io/?https://github.com/newren/git-filter-repo/blob/docs/html/git-filter-repo.html#_filtering_based_on_many_paths
+#
+# WARNING: Do not modify this file without also updating UPSTREAM_COMMIT. If you
+# do that, it's likely that the sync will fail or add all commits again to the
+# repository. See the documentation in `sync.sh` for more details.
+
+gfx/wr/
+regex:gfx/wr/(.+)==>\1
