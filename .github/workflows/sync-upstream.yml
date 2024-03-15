@@ -20,3 +20,5 @@ jobs:
           key: upstream
       - name: Run synchronization script
         run:  ./.github/sync/sync.sh _filtered
+      - name: Pushing new `main`
+        run: git push origin main
