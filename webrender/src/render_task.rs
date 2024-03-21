@@ -10,7 +10,7 @@ use crate::clip::{ClipDataStore, ClipItemKind, ClipStore, ClipNodeRange};
 use crate::command_buffer::{CommandBufferIndex, QuadFlags};
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::filterdata::SFilterData;
-use crate::frame_builder::{FrameBuilderConfig};
+use crate::frame_builder::FrameBuilderConfig;
 use crate::gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use crate::gpu_types::{BorderInstance, ImageSource, UvRectKind, TransformPaletteId};
 use crate::internal_types::{CacheTextureId, FastHashMap, TextureSource, Swizzle};
@@ -22,7 +22,7 @@ use crate::prim_store::gradient::{
 };
 use crate::resource_cache::{ResourceCache, ImageRequest};
 use std::{usize, f32, i32, u32};
-use crate::renderer::{GpuBufferAddress, GpuBufferBuilder};
+use crate::renderer::{GpuBufferAddress, GpuBufferBuilderF};
 use crate::render_target::{ResolveOp, RenderTargetKind};
 use crate::render_task_graph::{PassId, RenderTaskId, RenderTaskGraphBuilder};
 use crate::render_task_cache::{RenderTaskCacheEntryHandle, RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent};
@@ -46,11 +46,11 @@ fn render_task_sanity_check(size: &DeviceIntSize) {
 #[repr(C)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct RenderTaskAddress(pub u16);
+pub struct RenderTaskAddress(pub i32);
 
 impl Into<RenderTaskAddress> for RenderTaskId {
     fn into(self) -> RenderTaskAddress {
-        RenderTaskAddress(self.index as u16)
+        RenderTaskAddress(self.index as i32)
     }
 }
 
@@ -186,7 +186,7 @@ pub struct EmptyTask {
 pub struct PrimTask {
     pub device_pixel_scale: DevicePixelScale,
     pub content_origin: DevicePoint,
-    pub prim_address: GpuBufferAddress,
+    pub prim_address_f: GpuBufferAddress,
     pub prim_spatial_node_index: SpatialNodeIndex,
     pub raster_spatial_node_index: SpatialNodeIndex,
     pub transform_id: TransformPaletteId,
@@ -520,7 +520,7 @@ impl RenderTaskKind {
         raster_spatial_node_index: SpatialNodeIndex,
         device_pixel_scale: DevicePixelScale,
         content_origin: DevicePoint,
-        prim_address: GpuBufferAddress,
+        prim_address_f: GpuBufferAddress,
         transform_id: TransformPaletteId,
         edge_flags: EdgeAaSegmentMask,
         quad_flags: QuadFlags,
@@ -532,7 +532,7 @@ impl RenderTaskKind {
             raster_spatial_node_index,
             device_pixel_scale,
             content_origin,
-            prim_address,
+            prim_address_f,
             transform_id,
             edge_flags,
             quad_flags,
@@ -588,12 +588,12 @@ impl RenderTaskKind {
     }
 
     pub fn new_mask(
-        outer_rect: DeviceRect,
+        outer_rect: DeviceIntRect,
         clip_node_range: ClipNodeRange,
         root_spatial_node_index: SpatialNodeIndex,
         clip_store: &mut ClipStore,
         gpu_cache: &mut GpuCache,
-        gpu_buffer_builder: &mut GpuBufferBuilder,
+        gpu_buffer_builder: &mut GpuBufferBuilderF,
         resource_cache: &mut ResourceCache,
         rg_builder: &mut RenderTaskGraphBuilder,
         clip_data_store: &mut ClipDataStore,
@@ -610,7 +610,7 @@ impl RenderTaskKind {
         // TODO(gw): If this ever shows up in a profile, we could pre-calculate
         //           whether a ClipSources contains any box-shadows and skip
         //           this iteration for the majority of cases.
-        let task_size = outer_rect.size().to_i32();
+        let task_size = outer_rect.size();
 
         // If we have a potentially tiled clip mask, clear the mask area first. Otherwise,
         // the first (primary) clip mask will overwrite all the clip mask pixels with
@@ -620,7 +620,7 @@ impl RenderTaskKind {
             RenderTask::new_dynamic(
                 task_size,
                 RenderTaskKind::CacheMask(CacheMaskTask {
-                    actual_rect: outer_rect,
+                    actual_rect: outer_rect.to_f32(),
                     clip_node_range,
                     root_spatial_node_index,
                     device_pixel_scale,
@@ -883,7 +883,7 @@ pub type TaskDependencies = SmallVec<[RenderTaskId;2]>;
 pub struct MaskSubPass {
     pub clip_node_range: ClipNodeRange,
     pub prim_spatial_node_index: SpatialNodeIndex,
-    pub main_prim_address: GpuBufferAddress,
+    pub prim_address_f: GpuBufferAddress,
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -940,6 +940,9 @@ impl RenderTask {
         size: DeviceIntSize,
         kind: RenderTaskKind,
     ) -> Self {
+        if size.is_empty() {
+            log::warn!("Bad {} render task size: {:?}", kind.as_str(), size);
+        }
         RenderTask::new(
             RenderTaskLocation::Unallocated { size },
             kind,

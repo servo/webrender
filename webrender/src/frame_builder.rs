@@ -25,7 +25,7 @@ use crate::prim_store::{PictureIndex, PrimitiveScratchBuffer};
 use crate::prim_store::{DeferredResolve, PrimitiveInstance};
 use crate::profiler::{self, TransactionProfile};
 use crate::render_backend::{DataStores, ScratchBuffer};
-use crate::renderer::{GpuBuffer, GpuBufferBuilder};
+use crate::renderer::{GpuBufferF, GpuBufferBuilderF, GpuBufferI, GpuBufferBuilderI, GpuBufferBuilder};
 use crate::render_target::{RenderTarget, PictureCacheTarget, TextureCacheRenderTarget, PictureCacheTargetKind};
 use crate::render_target::{RenderTargetContext, RenderTargetKind, AlphaRenderTarget, ColorRenderTarget};
 use crate::render_task_graph::{RenderTaskGraph, Pass, SubPassSurface};
@@ -558,7 +558,10 @@ impl FrameBuilder {
         let mut cmd_buffers = CommandBufferList::new();
 
         // TODO(gw): Recycle backing vec buffers for gpu buffer builder between frames
-        let mut gpu_buffer_builder = GpuBufferBuilder::new();
+        let mut gpu_buffer_builder = GpuBufferBuilder {
+            f32: GpuBufferBuilderF::new(),
+            i32: GpuBufferBuilderI::new(),
+        };
 
         self.build_layer_screen_rects_and_cull_layers(
             scene,
@@ -690,7 +693,8 @@ impl FrameBuilder {
         scene.clip_store.end_frame(&mut scratch.clip_store);
         scratch.end_frame();
 
-        let gpu_buffer = gpu_buffer_builder.finalize(&render_tasks);
+        let gpu_buffer_f = gpu_buffer_builder.f32.finalize(&render_tasks);
+        let gpu_buffer_i = gpu_buffer_builder.i32.finalize(&render_tasks);
 
         Frame {
             device_rect: DeviceIntRect::from_origin_and_size(
@@ -707,7 +711,8 @@ impl FrameBuilder {
             prim_headers,
             debug_items: mem::replace(&mut scratch.primitive.debug_items, Vec::new()),
             composite_state,
-            gpu_buffer,
+            gpu_buffer_f,
+            gpu_buffer_i,
         }
     }
 
@@ -759,7 +764,6 @@ impl FrameBuilder {
             const LAYOUT_PORT_COLOR: ColorF = debug_colors::RED;
             const VISUAL_PORT_COLOR: ColorF = debug_colors::BLUE;
             const DISPLAYPORT_COLOR: ColorF = debug_colors::LIME;
-            const NOTHING: ColorF = ColorF { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
 
             let viewport = scroll_frame_info.viewport_rect;
 
@@ -805,9 +809,10 @@ impl FrameBuilder {
             }
 
             let mut add_rect = |rect, border, fill| -> Option<()> {
+              const STROKE_WIDTH: f32 = 2.0;
               // Place rect in scroll frame's local coordinate space
               let transformed_rect = transform.outer_transformed_box2d(&rect)?;
-              
+
               // Transform to world coordinates, using root-content coords as an intermediate step.
               let mut root_content_rect = local_to_root_content.outer_transformed_box2d(&transformed_rect)?;
               // In root-content coords, apply the root content node's viewport clip.
@@ -820,21 +825,28 @@ impl FrameBuilder {
               }
               let world_rect = root_content_to_world.outer_transformed_box2d(&root_content_rect)?;
 
+              scratch.push_debug_rect_with_stroke_width(world_rect, border, STROKE_WIDTH);
+
               // Add world coordinate rects to scratch.debug_items
-              // TODO: Add a parameter to control the border thickness of the rects, and make them a bit thicker. 
-              scratch.push_debug_rect(world_rect * DevicePixelScale::new(1.0), border, fill);
+              if let Some(fill_color) = fill {
+                let interior_world_rect = WorldRect::new(
+                    world_rect.min + WorldVector2D::new(STROKE_WIDTH, STROKE_WIDTH),
+                    world_rect.max - WorldVector2D::new(STROKE_WIDTH, STROKE_WIDTH)
+                );
+                scratch.push_debug_rect(interior_world_rect * DevicePixelScale::new(1.0), border, fill_color);
+              }
 
               Some(())
             };
 
-            add_rect(minimap_data.scrollable_rect, PAGE_BORDER_COLOR, BACKGROUND_COLOR);
-            add_rect(minimap_data.visual_viewport, VISUAL_PORT_COLOR, NOTHING);
-            add_rect(minimap_data.displayport, DISPLAYPORT_COLOR, DISPLAYPORT_BACKGROUND_COLOR);
+            add_rect(minimap_data.scrollable_rect, PAGE_BORDER_COLOR, Some(BACKGROUND_COLOR));
+            add_rect(minimap_data.displayport, DISPLAYPORT_COLOR, Some(DISPLAYPORT_BACKGROUND_COLOR));
             // Only render a distinct layout viewport for the root content.
             // For other scroll frames, the visual and layout viewports coincide.
             if minimap_data.is_root_content {
-              add_rect(minimap_data.layout_viewport, LAYOUT_PORT_COLOR, NOTHING);
+              add_rect(minimap_data.layout_viewport, LAYOUT_PORT_COLOR, None);
             }
+            add_rect(minimap_data.visual_viewport, VISUAL_PORT_COLOR, None);
           }
         }
       });
@@ -967,7 +979,6 @@ pub fn build_render_pass(
                 let task_id = sub_pass.task_ids[0];
                 let task = &render_tasks[task_id];
                 let target_rect = task.get_target_rect();
-                let mut gpu_buffer_builder = GpuBufferBuilder::new();
 
                 match task.kind {
                     RenderTaskKind::Picture(ref pic_task) => {
@@ -998,7 +1009,7 @@ pub fn build_render_pass(
                                 pic_task.surface_spatial_node_index,
                                 z_generator,
                                 prim_instances,
-                                &mut gpu_buffer_builder,
+                                gpu_buffer_builder,
                                 segments,
                             );
                         });
@@ -1072,6 +1083,7 @@ pub fn build_render_pass(
         z_generator,
         prim_instances,
         cmd_buffers,
+        gpu_buffer_builder,
     );
     pass.alpha.build(
         ctx,
@@ -1082,6 +1094,7 @@ pub fn build_render_pass(
         z_generator,
         prim_instances,
         cmd_buffers,
+        gpu_buffer_builder,
     );
 
     pass
@@ -1127,7 +1140,8 @@ pub struct Frame {
 
     /// Main GPU data buffer constructed (primarily) during the prepare
     /// pass for primitives that were visible and dirty.
-    pub gpu_buffer: GpuBuffer,
+    pub gpu_buffer_f: GpuBufferF,
+    pub gpu_buffer_i: GpuBufferI,
 }
 
 impl Frame {

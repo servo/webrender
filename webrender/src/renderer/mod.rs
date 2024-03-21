@@ -59,7 +59,7 @@ use crate::composite::{CompositorConfig, NativeSurfaceOperationDetails, NativeSu
 use crate::composite::{TileKind};
 use crate::debug_colors;
 use crate::device::{DepthFunction, Device, DrawTarget, ExternalTexture, GpuFrameId, UploadPBOPool};
-use crate::device::{ReadTarget, ShaderError, Texture, TextureFilter, TextureFlags, TextureSlot};
+use crate::device::{ReadTarget, ShaderError, Texture, TextureFilter, TextureFlags, TextureSlot, Texel};
 use crate::device::query::{GpuSampler, GpuTimer};
 #[cfg(feature = "capture")]
 use crate::device::FBOId;
@@ -127,7 +127,7 @@ pub(crate) mod init;
 pub use debug::DebugRenderer;
 pub use shade::{Shaders, SharedShaders};
 pub use vertex::{desc, VertexArrayKind, MAX_VERTEX_TEXTURE_WIDTH};
-pub use gpu_buffer::{GpuBuffer, GpuBufferBuilder, GpuBufferAddress};
+pub use gpu_buffer::{GpuBuffer, GpuBufferF, GpuBufferBuilderF, GpuBufferI, GpuBufferBuilderI, GpuBufferAddress, GpuBufferBuilder};
 
 /// The size of the array of each type of vertex data texture that
 /// is round-robin-ed each frame during bind_frame_data. Doing this
@@ -341,7 +341,8 @@ pub(crate) enum TextureSampler {
     PrimitiveHeadersF,
     PrimitiveHeadersI,
     ClipMask,
-    GpuBuffer,
+    GpuBufferF,
+    GpuBufferI,
 }
 
 impl TextureSampler {
@@ -370,7 +371,8 @@ impl Into<TextureSlot> for TextureSampler {
             TextureSampler::PrimitiveHeadersF => TextureSlot(7),
             TextureSampler::PrimitiveHeadersI => TextureSlot(8),
             TextureSampler::ClipMask => TextureSlot(9),
-            TextureSampler::GpuBuffer => TextureSlot(10),
+            TextureSampler::GpuBufferF => TextureSlot(10),
+            TextureSampler::GpuBufferI => TextureSlot(11),
         }
     }
 }
@@ -3616,7 +3618,6 @@ impl Renderer {
     fn draw_clip_batch_list(
         &mut self,
         list: &ClipBatchList,
-        draw_target: &DrawTarget,
         projection: &default::Transform3D<f32>,
         stats: &mut RendererStats,
     ) {
@@ -3670,42 +3671,6 @@ impl Renderer {
                 &textures,
                 stats,
             );
-        }
-
-        // draw image masks
-        let mut using_scissor = false;
-        for ((mask_texture_id, clip_rect), items) in list.images.iter() {
-            let _gm2 = self.gpu_profiler.start_marker("clip images");
-            // Some image masks may require scissoring to ensure they don't draw
-            // outside their task's target bounds. Axis-aligned primitives will
-            // be clamped inside the shader and should not require scissoring.
-            // TODO: We currently assume scissor state is off by default for
-            // alpha targets here, but in the future we may want to track the
-            // current scissor state so that this can be properly saved and
-            // restored here.
-            if let Some(clip_rect) = clip_rect {
-                if !using_scissor {
-                    self.device.enable_scissor();
-                    using_scissor = true;
-                }
-                let scissor_rect = draw_target.build_scissor_rect(Some(*clip_rect));
-                self.device.set_scissor_rect(scissor_rect);
-            } else if using_scissor {
-                self.device.disable_scissor();
-                using_scissor = false;
-            }
-            let textures = BatchTextures::composite_rgb(*mask_texture_id);
-            self.shaders.borrow_mut().cs_clip_image
-                .bind(&mut self.device, projection, None, &mut self.renderer_errors, &mut self.profile);
-            self.draw_instanced_batch(
-                items,
-                VertexArrayKind::ClipImage,
-                &textures,
-                stats,
-            );
-        }
-        if using_scissor {
-            self.device.disable_scissor();
         }
     }
 
@@ -3861,7 +3826,6 @@ impl Renderer {
             self.set_blend(false, FramebufferKind::Other);
             self.draw_clip_batch_list(
                 &target.clip_batcher.primary_clips,
-                &draw_target,
                 projection,
                 stats,
             );
@@ -3872,7 +3836,6 @@ impl Renderer {
             self.set_blend_mode_multiply(FramebufferKind::Other);
             self.draw_clip_batch_list(
                 &target.clip_batcher.secondary_clips,
-                &draw_target,
                 projection,
                 stats,
             );
@@ -4452,6 +4415,38 @@ impl Renderer {
         }
     }
 
+    fn create_gpu_buffer_texture<T: Texel>(
+        &mut self,
+        buffer: &GpuBuffer<T>,
+        sampler: TextureSampler,
+    ) -> Option<Texture> {
+        if buffer.is_empty() {
+            None
+        } else {
+            let gpu_buffer_texture = self.device.create_texture(
+                ImageBufferKind::Texture2D,
+                buffer.format,
+                buffer.size.width,
+                buffer.size.height,
+                TextureFilter::Nearest,
+                None,
+            );
+
+            self.device.bind_texture(
+                sampler,
+                &gpu_buffer_texture,
+                Swizzle::default(),
+            );
+
+            self.device.upload_texture_immediate(
+                &gpu_buffer_texture,
+                &buffer.data,
+            );
+
+            Some(gpu_buffer_texture)
+        }
+    }
+
     fn draw_frame(
         &mut self,
         frame: &mut Frame,
@@ -4478,31 +4473,14 @@ impl Renderer {
 
         // Upload experimental GPU buffer texture if there is any data present
         // TODO: Recycle these textures, upload via PBO or best approach for platform
-        let gpu_buffer_texture = if frame.gpu_buffer.is_empty() {
-            None
-        } else {
-            let gpu_buffer_texture = self.device.create_texture(
-                ImageBufferKind::Texture2D,
-                ImageFormat::RGBAF32,
-                frame.gpu_buffer.size.width,
-                frame.gpu_buffer.size.height,
-                TextureFilter::Nearest,
-                None,
-            );
-
-            self.device.bind_texture(
-                TextureSampler::GpuBuffer,
-                &gpu_buffer_texture,
-                Swizzle::default(),
-            );
-
-            self.device.upload_texture_immediate(
-                &gpu_buffer_texture,
-                &frame.gpu_buffer.data,
-            );
-
-            Some(gpu_buffer_texture)
-        };
+        let gpu_buffer_texture_f = self.create_gpu_buffer_texture(
+            &frame.gpu_buffer_f,
+            TextureSampler::GpuBufferF,
+        );
+        let gpu_buffer_texture_i = self.create_gpu_buffer_texture(
+            &frame.gpu_buffer_i,
+            TextureSampler::GpuBufferI,
+        );
 
         // Determine the present mode and dirty rects, if device_size
         // is Some(..). If it's None, no composite will occur and only
@@ -4761,8 +4739,11 @@ impl Renderer {
             present_mode,
         );
 
-        if let Some(gpu_buffer_texture) = gpu_buffer_texture {
-            self.device.delete_texture(gpu_buffer_texture);
+        if let Some(gpu_buffer_texture_f) = gpu_buffer_texture_f {
+            self.device.delete_texture(gpu_buffer_texture_f);
+        }
+        if let Some(gpu_buffer_texture_i) = gpu_buffer_texture_i {
+            self.device.delete_texture(gpu_buffer_texture_i);
         }
 
         frame.has_been_rendered = true;

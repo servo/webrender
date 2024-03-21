@@ -138,9 +138,13 @@ pub enum UploadMethod {
 }
 
 /// Plain old data that can be used to initialize a texture.
-pub unsafe trait Texel: Copy {}
-unsafe impl Texel for u8 {}
-unsafe impl Texel for f32 {}
+pub unsafe trait Texel: Copy + Default {
+    fn image_format() -> ImageFormat;
+}
+
+unsafe impl Texel for u8 {
+    fn image_format() -> ImageFormat { ImageFormat::R8 }
+}
 
 /// Returns the size in bytes of a depth target with the given dimensions.
 fn depth_target_size_in_bytes(dimensions: &DeviceIntSize) -> usize {
@@ -1480,7 +1484,10 @@ impl Device {
         // On debug builds, assert that each GL call is error-free. We don't do
         // this on release builds because the synchronous call can stall the
         // pipeline.
-        let supports_khr_debug = supports_extension(&extensions, "GL_KHR_debug");
+        // We block this on Mali Valhall GPUs as the extension's functions always return
+        // GL_OUT_OF_MEMORY, causing us to panic in debug builds.
+        let supports_khr_debug =
+            supports_extension(&extensions, "GL_KHR_debug") && !is_mali_valhall(&renderer_name);
         if panic_on_gl_error || cfg!(debug_assertions) {
             gl = gl::ErrorReactingGl::wrap(gl, move |gl, name, code| {
                 if supports_khr_debug {
@@ -1973,12 +1980,12 @@ impl Device {
                 }
             }
             Parameter::Bool(BoolParameter::BatchedUploads, enabled) => {
-                self.use_batched_texture_uploads = *enabled;
+                if self.capabilities.requires_batched_texture_uploads.is_none() {
+                    self.use_batched_texture_uploads = *enabled;
+                }
             }
             Parameter::Bool(BoolParameter::DrawCallsForTextureCopy, enabled) => {
-                if self.capabilities.requires_batched_texture_uploads.is_none() {
-                    self.use_draw_calls_for_texture_copy = *enabled;
-                }
+                self.use_draw_calls_for_texture_copy = *enabled;
             }
             Parameter::Int(IntParameter::BatchedUploadThreshold, threshold) => {
                 self.batched_upload_threshold = *threshold;

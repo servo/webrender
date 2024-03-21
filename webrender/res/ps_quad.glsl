@@ -2,12 +2,40 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+/// The common infrastructure for ps_quad_* shaders.
+///
+/// # Memory layout
+///
+/// The diagram below shows the the various pieces of data fectched in the vertex shader:
+///
+///```ascii
+///                                       (int gpu buffer)
+///                                       +---------------+    (sGpuCache)
+///  (instance-step vertex attr)          |  Int header   |   +-----------+
+/// +-----------------------------+       |               |   | Transform |
+/// |    Quad instance (uvec4)    |  +--> | transform id +--> +-----------+
+/// |                             |  |    | z id          |
+/// | x: int prim address        +---+    +---------------+   (float gpu buffer)
+/// | y: float prim address      +--------------------------> +-----------+--------------+-+-+
+/// | z: quad flags               |      (sGpuCache)          | Quad Prim | Quad Segment | | |
+/// |    edge flags               |   +--------------------+  |           |              | | |
+/// |    part index               |   |     Picture task   |  | bounds    | rect         | | |
+/// |    segment index            |   |                    |  | clip      | uv rect      | | |
+/// | w: picture task address    +--> | task rect          |  | color     |              | | |
+/// +-----------------------------+   | device pixel scale |  +-----------+--------------+-+-+
+///                                   | content origin     |
+///                                   +--------------------+
+///```
+
 #define WR_FEATURE_TEXTURE_2D
 
 #include shared,rect,transform,render_task,gpu_buffer
 
 flat varying mediump vec4 v_color;
 flat varying mediump vec4 v_uv_sample_bounds;
+// x: (in ps_quad_textured) has edge flags
+// y: has uv rect
+// z: (in ps_quad_textured) sample as mask
 flat varying lowp ivec4 v_flags;
 varying highp vec2 v_uv;
 
@@ -61,7 +89,7 @@ struct QuadPrimitive {
 QuadSegment fetch_segment(int base, int index) {
     QuadSegment seg;
 
-    vec4 texels[2] = fetch_from_gpu_buffer_2(base + 3 + index * 2);
+    vec4 texels[2] = fetch_from_gpu_buffer_2f(base + 3 + index * 2);
 
     seg.rect = RectWithEndpoint(texels[0].xy, texels[0].zw);
     seg.uv_rect = texels[1];
@@ -72,7 +100,7 @@ QuadSegment fetch_segment(int base, int index) {
 QuadPrimitive fetch_primitive(int index) {
     QuadPrimitive prim;
 
-    vec4 texels[3] = fetch_from_gpu_buffer_3(index);
+    vec4 texels[3] = fetch_from_gpu_buffer_3f(index);
 
     prim.bounds = RectWithEndpoint(texels[0].xy, texels[0].zw);
     prim.clip = RectWithEndpoint(texels[1].xy, texels[1].zw);
@@ -81,37 +109,51 @@ QuadPrimitive fetch_primitive(int index) {
     return prim;
 }
 
+struct QuadHeader {
+    int transform_id;
+    int z_id;
+};
+
+QuadHeader fetch_header(int address) {
+    ivec4 header = fetch_from_gpu_buffer_1i(address);
+
+    QuadHeader qh = QuadHeader(
+        header.x,
+        header.y
+    );
+
+    return qh;
+}
+
 struct QuadInstance {
     // x
-    int prim_address;
+    int prim_address_i;
 
     // y
-    int quad_flags;
-    int edge_flags;
-    int picture_task_address;
+    int prim_address_f;
 
     // z
+    int quad_flags;
+    int edge_flags;
     int part_index;
-    int z_id;
+    int segment_index;
 
     // w
-    int segment_index;
-    int transform_id;
+    int picture_task_address;
 };
 
 QuadInstance decode_instance() {
     QuadInstance qi = QuadInstance(
         aData.x,
 
-        (aData.y >> 24) & 0xff,
-        (aData.y >> 16) & 0xff,
-        aData.y & 0xffff,
+        aData.y,
 
         (aData.z >> 24) & 0xff,
-        aData.z & 0xffffff,
+        (aData.z >> 16) & 0xff,
+        (aData.z >>  8) & 0xff,
+        (aData.z >>  0) & 0xff,
 
-        (aData.w >> 24) & 0xff,
-        aData.w & 0xffffff
+        aData.w
     );
 
     return qi;
@@ -165,17 +207,18 @@ float edge_aa_offset(int edge, int flags) {
 PrimitiveInfo ps_quad_main(void) {
     QuadInstance qi = decode_instance();
 
-    Transform transform = fetch_transform(qi.transform_id);
+    QuadHeader qh = fetch_header(qi.prim_address_i);
+    Transform transform = fetch_transform(qh.transform_id);
     PictureTask task = fetch_picture_task(qi.picture_task_address);
-    QuadPrimitive prim = fetch_primitive(qi.prim_address);
-    float z = float(qi.z_id);
+    QuadPrimitive prim = fetch_primitive(qi.prim_address_f);
+    float z = float(qh.z_id);
 
     QuadSegment seg;
     if (qi.segment_index == INVALID_SEGMENT_INDEX) {
         seg.rect = prim.bounds;
         seg.uv_rect = vec4(0.0);
     } else {
-        seg = fetch_segment(qi.prim_address, qi.segment_index);
+        seg = fetch_segment(qi.prim_address_f, qi.segment_index);
     }
 
     // The local space rect that we will draw, which is effectively:

@@ -139,11 +139,11 @@ use std::collections::hash_map::Entry;
 use std::ops::Range;
 use crate::picture_textures::PictureCacheTextureHandle;
 use crate::util::{MaxRect, VecHelper, MatrixHelpers, Recycler, ScaleOffset};
-use crate::filterdata::{FilterDataHandle};
+use crate::filterdata::FilterDataHandle;
 use crate::tile_cache::{SliceDebugInfo, TileDebugInfo, DirtyTileDebugInfo};
 use crate::visibility::{PrimitiveVisibilityFlags, FrameVisibilityContext};
 use crate::visibility::{VisibilityState, FrameVisibilityState};
-use crate::scene_building::{SliceFlags};
+use crate::scene_building::SliceFlags;
 
 // Maximum blur radius for blur filter (different than box-shadow blur).
 // Taken from FilterNodeSoftware.cpp in Gecko.
@@ -3951,7 +3951,7 @@ impl SurfaceInfo {
         &self,
         local_rect: &PictureRect,
         spatial_tree: &SpatialTree,
-    ) -> Option<DeviceRect> {
+    ) -> Option<DeviceIntRect> {
         let local_rect = match local_rect.intersection(&self.clipping_rect) {
             Some(rect) => rect,
             None => return None,
@@ -3969,10 +3969,21 @@ impl SurfaceInfo {
 
             local_to_world.map(&local_rect).unwrap()
         } else {
+            // The content should have been culled out earlier.
+            assert!(self.device_pixel_scale.0 > 0.0);
+
             local_rect.cast_unit()
         };
 
-        Some((raster_rect * self.device_pixel_scale).round_out())
+        let surface_rect = (raster_rect * self.device_pixel_scale).round_out().to_i32();
+        if surface_rect.is_empty() {
+            // The local_rect computed above may have non-empty size that is very
+            // close to zero. Due to limited arithmetic precision, the SpaceMapper
+            // might transform the near-zero-sized rect into a zero-sized one.
+            return None;
+        }
+
+        Some(surface_rect)
     }
 }
 
@@ -5014,7 +5025,7 @@ impl PicturePrimitive {
 
                                     let content_device_rect = content_device_rect
                                         .intersection(&max_content_rect)
-                                        .expect("bug: no intersection with tile dirty rect");
+                                        .expect("bug: no intersection with tile dirty rect: {content_device_rect:?} / {max_content_rect:?}");
 
                                     let content_task_size = content_device_rect.size();
                                     let normalized_content_rect = content_task_size.into();
@@ -6128,22 +6139,28 @@ impl PicturePrimitive {
                     PictureCompositeMode::TileCache { slice_id } => {
                         let tile_cache = tile_caches.get_mut(&slice_id).unwrap();
 
+                        // Get the complete scale-offset from local space to device space
+                        let local_to_device = get_relative_scale_offset(
+                            tile_cache.spatial_node_index,
+                            frame_context.root_spatial_node_index,
+                            frame_context.spatial_tree,
+                        );
+                        let local_to_cur_raster_scale = local_to_device.scale.x / tile_cache.current_raster_scale;
+
                         // We only update the raster scale if we're in high quality zoom mode, or there is no
-                        // pinch-zoom active. This means that in low quality pinch-zoom, we retain the initial
-                        // scale factor until the zoom ends, then select a high quality zoom factor for the next
-                        // frame to be drawn.
-                        let update_raster_scale =
-                            !frame_context.fb_config.low_quality_pinch_zoom ||
-                            !frame_context.spatial_tree.get_spatial_node(tile_cache.spatial_node_index).is_ancestor_or_self_zooming;
-
-                        if update_raster_scale {
-                            // Get the complete scale-offset from local space to device space
-                            let local_to_device = get_relative_scale_offset(
-                                tile_cache.spatial_node_index,
-                                frame_context.root_spatial_node_index,
-                                frame_context.spatial_tree,
-                            );
-
+                        // pinch-zoom active, or the zoom has doubled or halved since the raster scale was
+                        // last updated. During a low-quality zoom we therefore typically retain the previous
+                        // scale factor, which avoids expensive re-rasterizations, except for when the zoom
+                        // has become too large or too small when we re-rasterize to avoid bluriness or a
+                        // proliferation of picture cache tiles. When the zoom ends we select a high quality
+                        // scale factor for the next frame to be drawn.
+                        if !frame_context.fb_config.low_quality_pinch_zoom
+                            || !frame_context
+                                .spatial_tree.get_spatial_node(tile_cache.spatial_node_index)
+                                .is_ancestor_or_self_zooming
+                            || local_to_cur_raster_scale <= 0.5
+                            || local_to_cur_raster_scale >= 2.0
+                        {
                             tile_cache.current_raster_scale = local_to_device.scale.x;
                         }
 

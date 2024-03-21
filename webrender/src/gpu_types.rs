@@ -125,6 +125,7 @@ pub struct SvgFilterInstance {
     pub kind: u16,
     pub input_count: u16,
     pub generic_int: u16,
+    pub padding: u16,
     pub extra_data_address: GpuCacheAddress,
 }
 
@@ -169,17 +170,6 @@ pub struct ClipMaskInstanceCommon {
     pub device_pixel_scale: f32,
     pub clip_transform_id: TransformPaletteId,
     pub prim_transform_id: TransformPaletteId,
-}
-
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[repr(C)]
-pub struct ClipMaskInstanceImage {
-    pub common: ClipMaskInstanceCommon,
-    pub tile_rect: LayoutRect,
-    pub resource_address: GpuCacheAddress,
-    pub local_rect: LayoutRect,
 }
 
 #[derive(Clone, Debug)]
@@ -428,6 +418,7 @@ impl PrimitiveHeaders {
         &mut self,
         prim_header: &PrimitiveHeader,
         z: ZBufferId,
+        render_task_address: RenderTaskAddress,
         user_data: [i32; 4],
     ) -> PrimitiveHeaderIndex {
         debug_assert_eq!(self.headers_int.len(), self.headers_float.len());
@@ -440,7 +431,7 @@ impl PrimitiveHeaders {
 
         self.headers_int.push(PrimitiveHeaderI {
             z,
-            unused: 0,
+            render_task_address,
             specific_prim_address: prim_header.specific_prim_address.as_int(),
             transform_id: prim_header.transform_id,
             user_data,
@@ -480,7 +471,7 @@ pub struct PrimitiveHeaderI {
     pub z: ZBufferId,
     pub specific_prim_address: i32,
     pub transform_id: TransformPaletteId,
-    pub unused: i32,                    // To ensure required 16 byte alignment of vertex textures
+    pub render_task_address: RenderTaskAddress,
     pub user_data: [i32; 4],
 }
 
@@ -501,7 +492,6 @@ impl GlyphInstance {
     //           header since they are constant, and some can be
     //           compressed to a smaller size.
     pub fn build(&self,
-        render_task: RenderTaskAddress,
         clip_task: RenderTaskAddress,
         subpx_dir: SubpixelDirection,
         glyph_index_in_text_run: i32,
@@ -511,8 +501,7 @@ impl GlyphInstance {
         PrimitiveInstanceData {
             data: [
                 self.prim_header_index.0 as i32,
-                ((render_task.0 as i32) << 16)
-                | clip_task.0 as i32,
+                clip_task.0 as i32,
                 (subpx_dir as u32 as i32) << 24
                 | (color_mode as u32 as i32) << 16
                 | glyph_index_in_text_run,
@@ -536,7 +525,7 @@ impl From<SplitCompositeInstance> for PrimitiveInstanceData {
                 instance.prim_header_index.0,
                 instance.polygons_address,
                 instance.z.0,
-                instance.render_task_address.0 as i32,
+                instance.render_task_address.0,
             ],
         }
     }
@@ -547,7 +536,8 @@ impl From<SplitCompositeInstance> for PrimitiveInstanceData {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct QuadInstance {
     pub render_task_address: RenderTaskAddress,
-    pub prim_address: GpuBufferAddress,
+    pub prim_address_i: GpuBufferAddress,
+    pub prim_address_f: GpuBufferAddress,
     pub z_id: ZBufferId,
     pub transform_id: TransformPaletteId,
     pub quad_flags: u8,
@@ -559,19 +549,23 @@ pub struct QuadInstance {
 impl From<QuadInstance> for PrimitiveInstanceData {
     fn from(instance: QuadInstance) -> Self {
         /*
-            [32 bits prim address]
-            [8 bits quad flags] [8 bits edge flags] [16 bits render task address]
-            [8 bits segment flags] [24 bits z_id]
-            [8 bits segment index] [24 bits xf_id]
-         */
+            [32 prim address_i]
+            [32 prim address_f]
+            [8888 qf ef pi si]
+            [32 render task address]
+        */
+
         PrimitiveInstanceData {
             data: [
-                instance.prim_address.as_int(),
-                ((instance.quad_flags as i32) << 24) |
-                ((instance.edge_flags as i32) << 16) |
-                instance.render_task_address.0 as i32,
-                ((instance.part_index as i32) << 24) | instance.z_id.0,
-                ((instance.segment_index as i32) << 24) | instance.transform_id.0 as i32,
+                instance.prim_address_i.as_int(),
+                instance.prim_address_f.as_int(),
+
+                ((instance.quad_flags as i32)    << 24) |
+                ((instance.edge_flags as i32)    << 16) |
+                ((instance.part_index as i32)    <<  8) |
+                ((instance.segment_index as i32) <<  0),
+
+                instance.render_task_address.0,
             ],
         }
     }
@@ -659,7 +653,6 @@ impl core::fmt::Debug for BrushFlags {
 /// Convenience structure to encode into PrimitiveInstanceData.
 pub struct BrushInstance {
     pub prim_header_index: PrimitiveHeaderIndex,
-    pub render_task_address: RenderTaskAddress,
     pub clip_task_address: RenderTaskAddress,
     pub segment_index: i32,
     pub edge_flags: EdgeAaSegmentMask,
@@ -672,8 +665,7 @@ impl From<BrushInstance> for PrimitiveInstanceData {
         PrimitiveInstanceData {
             data: [
                 instance.prim_header_index.0,
-                ((instance.render_task_address.0 as i32) << 16)
-                | instance.clip_task_address.0 as i32,
+                instance.clip_task_address.0,
                 instance.segment_index
                 | ((instance.brush_flags.bits() as i32) << 16)
                 | ((instance.edge_flags.bits() as i32) << 28),

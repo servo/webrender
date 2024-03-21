@@ -28,18 +28,18 @@ use crate::prim_store::line_dec::MAX_LINE_DECORATION_RESOLUTION;
 use crate::prim_store::*;
 use crate::prim_store::gradient::GradientGpuBlockBuilder;
 use crate::render_backend::DataStores;
-use crate::render_task_graph::{RenderTaskId};
+use crate::render_task_graph::RenderTaskId;
 use crate::render_task_cache::RenderTaskCacheKeyKind;
 use crate::render_task_cache::{RenderTaskCacheKey, to_cache_size, RenderTaskParent};
 use crate::render_task::{RenderTaskKind, RenderTask, SubPass, MaskSubPass, EmptyTask};
-use crate::renderer::{GpuBufferBuilder, GpuBufferAddress};
+use crate::renderer::{GpuBufferBuilderF, GpuBufferAddress};
 use crate::segment::{EdgeAaSegmentMask, SegmentBuilder};
 use crate::space::SpaceMapper;
 use crate::util::{clamp_to_scale_factor, pack_as_float, MaxRect};
 use crate::visibility::{compute_conservative_visible_rect, PrimitiveVisibility, VisibilityState};
 
 
-const MAX_MASK_SIZE: f32 = 4096.0;
+const MAX_MASK_SIZE: i32 = 4096;
 
 const MIN_BRUSH_SPLIT_SIZE: f32 = 256.0;
 const MIN_BRUSH_SPLIT_AREA: f32 = 128.0 * 128.0;
@@ -141,14 +141,32 @@ fn can_use_clip_chain_for_quad_path(
     true
 }
 
+/// Describes how clipping affects the rendering of a quad primitive.
+///
+/// As a general rule, parts of the quad that require masking are prerendered in an
+/// intermediate target and the mask is applied using multiplicative blending to
+/// the intermediate result before compositing it into the destination target.
+///
+/// Each segment can opt in or out of masking independently.
 #[derive(Debug, Copy, Clone)]
 pub enum QuadRenderStrategy {
+    /// The quad is not affected by any mask and is drawn directly in the destination
+    /// target.
     Direct,
+    /// The quad is drawn entirely in an intermediate target and a mask is applied
+    /// before compositing in the destination target.
     Indirect,
+    /// A rounded rectangle clip is applied to the quad primitive via a nine-patch.
+    /// The segments of the nine-patch that require a mask are rendered and masked in
+    /// an intermediate target, while other segments are drawn directly in the destination
+    /// target.
     NinePatch {
         radius: LayoutVector2D,
         clip_rect: LayoutRect,
     },
+    /// Split the primitive into coarse tiles so that each tile independently
+    /// has the opportunity to be drawn directly in the destination target or
+    /// via an intermediate target if it is affected by a mask.
     Tiled {
         x_tiles: u16,
         y_tiles: u16,
@@ -163,69 +181,67 @@ fn get_prim_render_strategy(
     can_use_nine_patch: bool,
     spatial_tree: &SpatialTree,
 ) -> QuadRenderStrategy {
-    if clip_chain.needs_mask {
-        fn tile_count_for_size(size: f32) -> u16 {
-            (size / MIN_BRUSH_SPLIT_SIZE).min(4.0).max(1.0).ceil() as u16
-        }
+    if !clip_chain.needs_mask {
+        return QuadRenderStrategy::Direct
+    }
 
-        let prim_coverage_size = clip_chain.pic_coverage_rect.size();
-        let x_tiles = tile_count_for_size(prim_coverage_size.width);
-        let y_tiles = tile_count_for_size(prim_coverage_size.height);
-        let try_split_prim = x_tiles > 1 || y_tiles > 1;
+    fn tile_count_for_size(size: f32) -> u16 {
+        (size / MIN_BRUSH_SPLIT_SIZE).min(4.0).max(1.0).ceil() as u16
+    }
 
-        if try_split_prim {
-            if can_use_nine_patch {
-                if clip_chain.clips_range.count == 1 {
-                    let clip_instance = clip_store.get_instance_from_range(&clip_chain.clips_range, 0);
-                    let clip_node = &data_stores.clip[clip_instance.handle];
+    let prim_coverage_size = clip_chain.pic_coverage_rect.size();
+    let x_tiles = tile_count_for_size(prim_coverage_size.width);
+    let y_tiles = tile_count_for_size(prim_coverage_size.height);
+    let try_split_prim = x_tiles > 1 || y_tiles > 1;
 
-                    if let ClipItemKind::RoundedRectangle { ref radius, mode: ClipMode::Clip, rect, .. } = clip_node.item.kind {
-                        let max_corner_width = radius.top_left.width
-                                                    .max(radius.bottom_left.width)
-                                                    .max(radius.top_right.width)
-                                                    .max(radius.bottom_right.width);
-                        let max_corner_height = radius.top_left.height
-                                                    .max(radius.bottom_left.height)
-                                                    .max(radius.top_right.height)
-                                                    .max(radius.bottom_right.height);
+    if !try_split_prim {
+        return QuadRenderStrategy::Indirect;
+    }
 
-                        if max_corner_width <= 0.5 * rect.size().width &&
-                           max_corner_height <= 0.5 * rect.size().height {
+    if can_use_nine_patch && clip_chain.clips_range.count == 1 {
+        let clip_instance = clip_store.get_instance_from_range(&clip_chain.clips_range, 0);
+        let clip_node = &data_stores.clip[clip_instance.handle];
 
-                            let clip_prim_coords_match = spatial_tree.is_matching_coord_system(
-                                prim_spatial_node_index,
-                                clip_node.item.spatial_node_index,
-                            );
+        if let ClipItemKind::RoundedRectangle { ref radius, mode: ClipMode::Clip, rect, .. } = clip_node.item.kind {
+            let max_corner_width = radius.top_left.width
+                                        .max(radius.bottom_left.width)
+                                        .max(radius.top_right.width)
+                                        .max(radius.bottom_right.width);
+            let max_corner_height = radius.top_left.height
+                                        .max(radius.bottom_left.height)
+                                        .max(radius.top_right.height)
+                                        .max(radius.bottom_right.height);
 
-                            if clip_prim_coords_match {
-                                let map_clip_to_prim = SpaceMapper::new_with_target(
-                                    prim_spatial_node_index,
-                                    clip_node.item.spatial_node_index,
-                                    LayoutRect::max_rect(),
-                                    spatial_tree,
-                                );
+            if max_corner_width <= 0.5 * rect.size().width &&
+                max_corner_height <= 0.5 * rect.size().height {
 
-                                if let Some(rect) = map_clip_to_prim.map(&rect) {
-                                    return QuadRenderStrategy::NinePatch {
-                                        radius: LayoutVector2D::new(max_corner_width, max_corner_height),
-                                        clip_rect: rect,
-                                    };
-                                }
-                            }
-                        }
+                let clip_prim_coords_match = spatial_tree.is_matching_coord_system(
+                    prim_spatial_node_index,
+                    clip_node.item.spatial_node_index,
+                );
+
+                if clip_prim_coords_match {
+                    let map_clip_to_prim = SpaceMapper::new_with_target(
+                        prim_spatial_node_index,
+                        clip_node.item.spatial_node_index,
+                        LayoutRect::max_rect(),
+                        spatial_tree,
+                    );
+
+                    if let Some(rect) = map_clip_to_prim.map(&rect) {
+                        return QuadRenderStrategy::NinePatch {
+                            radius: LayoutVector2D::new(max_corner_width, max_corner_height),
+                            clip_rect: rect,
+                        };
                     }
                 }
             }
-
-            QuadRenderStrategy::Tiled {
-                x_tiles,
-                y_tiles,
-            }
-        } else {
-            QuadRenderStrategy::Indirect
         }
-    } else {
-        QuadRenderStrategy::Direct
+    }
+
+    QuadRenderStrategy::Tiled {
+        x_tiles,
+        y_tiles,
     }
 }
 
@@ -452,7 +468,7 @@ fn prepare_interned_prim_for_render(
                         kind: RenderTaskCacheKeyKind::LineDecoration(cache_key.clone()),
                     },
                     frame_state.gpu_cache,
-                    frame_state.frame_gpu_data,
+                    &mut frame_state.frame_gpu_data.f32,
                     frame_state.rg_builder,
                     None,
                     false,
@@ -607,7 +623,7 @@ fn prepare_interned_prim_for_render(
                 handles.push(frame_state.resource_cache.request_render_task(
                     cache_key,
                     frame_state.gpu_cache,
-                    frame_state.frame_gpu_data,
+                    &mut frame_state.frame_gpu_data.f32,
                     frame_state.rg_builder,
                     None,
                     false,          // TODO(gw): We don't calculate opacity for borders yet!
@@ -764,7 +780,7 @@ fn prepare_interned_prim_for_render(
                 //           the written block count) to gpu-buffer, we could add a trait for
                 //           writing typed data?
                 let main_prim_address = write_prim_blocks(
-                    frame_state.frame_gpu_data,
+                    &mut frame_state.frame_gpu_data.f32,
                     prim_data.common.prim_rect,
                     prim_instance.vis.clip_chain.local_clip_rect,
                     premul_color,
@@ -787,24 +803,21 @@ fn prepare_interned_prim_for_render(
                     }
                     QuadRenderStrategy::Indirect => {
                         let surface = &frame_state.surfaces[pic_context.surface_index.0];
-                        let clipped_surface_rect = surface.get_surface_rect(
+                        let Some(clipped_surface_rect) = surface.get_surface_rect(
                             &prim_instance.vis.clip_chain.pic_coverage_rect,
                             frame_context.spatial_tree,
-                        ).expect("bug: what can cause this?");
+                        ) else {
+                            return;
+                        };
 
-                        let p0 = clipped_surface_rect.min.floor();
-                        let p1 = clipped_surface_rect.max.ceil();
-
-                        let x0 = p0.x;
-                        let y0 = p0.y;
-                        let x1 = p1.x;
-                        let y1 = p1.y;
+                        let p0 = clipped_surface_rect.min.to_f32();
+                        let p1 = clipped_surface_rect.max.to_f32();
 
                         let segment = add_segment(
-                            x0,
-                            y0,
-                            x1,
-                            y1,
+                            p0.x,
+                            p0.y,
+                            p1.x,
+                            p1.y,
                             true,
                             prim_instance,
                             prim_spatial_node_index,
@@ -820,7 +833,7 @@ fn prepare_interned_prim_for_render(
 
                         add_composite_prim(
                             prim_instance_index,
-                            LayoutRect::new(LayoutPoint::new(x0, y0), LayoutPoint::new(x1, y1)),
+                            LayoutRect::new(p0.cast_unit(), p1.cast_unit()),
                             premul_color,
                             quad_flags,
                             frame_state,
@@ -831,10 +844,12 @@ fn prepare_interned_prim_for_render(
                     QuadRenderStrategy::Tiled { x_tiles, y_tiles } => {
                         let surface = &frame_state.surfaces[pic_context.surface_index.0];
 
-                        let clipped_surface_rect = surface.get_surface_rect(
+                        let Some(clipped_surface_rect) = surface.get_surface_rect(
                             &prim_instance.vis.clip_chain.pic_coverage_rect,
                             frame_context.spatial_tree,
-                        ).expect("bug: what can cause this?");
+                        ) else {
+                            return;
+                        };
 
                         let unclipped_surface_rect = surface.map_to_device_rect(
                             &prim_instance.vis.clip_chain.pic_coverage_rect,
@@ -843,21 +858,21 @@ fn prepare_interned_prim_for_render(
 
                         scratch.quad_segments.clear();
 
-                        let mut x_coords = vec![clipped_surface_rect.min.x.round()];
-                        let mut y_coords = vec![clipped_surface_rect.min.y.round()];
+                        let mut x_coords = vec![clipped_surface_rect.min.x];
+                        let mut y_coords = vec![clipped_surface_rect.min.y];
 
-                        let dx = (clipped_surface_rect.max.x - clipped_surface_rect.min.x) / x_tiles as f32;
-                        let dy = (clipped_surface_rect.max.y - clipped_surface_rect.min.y) / y_tiles as f32;
+                        let dx = (clipped_surface_rect.max.x - clipped_surface_rect.min.x) as f32 / x_tiles as f32;
+                        let dy = (clipped_surface_rect.max.y - clipped_surface_rect.min.y) as f32 / y_tiles as f32;
 
-                        for x in 1 .. x_tiles {
-                            x_coords.push((clipped_surface_rect.min.x + x as f32 * dx).round());
+                        for x in 1 .. (x_tiles as i32) {
+                            x_coords.push((clipped_surface_rect.min.x as f32 + x as f32 * dx).round() as i32);
                         }
-                        for y in 1 .. y_tiles {
-                            y_coords.push((clipped_surface_rect.min.y + y as f32 * dy).round());
+                        for y in 1 .. (y_tiles as i32) {
+                            y_coords.push((clipped_surface_rect.min.y as f32 + y as f32 * dy).round() as i32);
                         }
 
-                        x_coords.push(clipped_surface_rect.max.x.round());
-                        y_coords.push(clipped_surface_rect.max.y.round());
+                        x_coords.push(clipped_surface_rect.max.x);
+                        y_coords.push(clipped_surface_rect.max.y);
 
                         for y in 0 .. y_coords.len()-1 {
                             let y0 = y_coords[y];
@@ -877,18 +892,11 @@ fn prepare_interned_prim_for_render(
 
                                 let create_task = true;
 
-                                let r = DeviceRect::new(DevicePoint::new(x0, y0), DevicePoint::new(x1, y1));
-
-                                let x0 = r.min.x;
-                                let y0 = r.min.y;
-                                let x1 = r.max.x;
-                                let y1 = r.max.y;
-
                                 let segment = add_segment(
-                                    x0,
-                                    y0,
-                                    x1,
-                                    y1,
+                                    x0 as f32,
+                                    y0 as f32,
+                                    x1 as f32,
+                                    y1 as f32,
                                     create_task,
                                     prim_instance,
                                     prim_spatial_node_index,
@@ -917,10 +925,12 @@ fn prepare_interned_prim_for_render(
                     }
                     QuadRenderStrategy::NinePatch { clip_rect, radius } => {
                         let surface = &frame_state.surfaces[pic_context.surface_index.0];
-                        let clipped_surface_rect = surface.get_surface_rect(
+                        let Some(clipped_surface_rect) = surface.get_surface_rect(
                             &prim_instance.vis.clip_chain.pic_coverage_rect,
                             frame_context.spatial_tree,
-                        ).expect("bug: what can cause this?");
+                        ) else {
+                            return;
+                        };
 
                         let unclipped_surface_rect = surface.map_to_device_rect(
                             &prim_instance.vis.clip_chain.pic_coverage_rect,
@@ -943,17 +953,17 @@ fn prepare_interned_prim_for_render(
                         let surface_rect_0 = surface.map_to_device_rect(
                             &pic_corner_0,
                             frame_context.spatial_tree,
-                        );
+                        ).round_out().to_i32();
 
                         let surface_rect_1 = surface.map_to_device_rect(
                             &pic_corner_1,
                             frame_context.spatial_tree,
-                        );
+                        ).round_out().to_i32();
 
-                        let p0 = surface_rect_0.min.floor();
-                        let p1 = surface_rect_0.max.ceil();
-                        let p2 = surface_rect_1.min.floor();
-                        let p3 = surface_rect_1.max.ceil();
+                        let p0 = surface_rect_0.min;
+                        let p1 = surface_rect_0.max;
+                        let p2 = surface_rect_1.min;
+                        let p3 = surface_rect_1.max;
 
                         let mut x_coords = [p0.x, p1.x, p2.x, p3.x];
                         let mut y_coords = [p0.y, p1.y, p2.y, p3.y];
@@ -985,7 +995,10 @@ fn prepare_interned_prim_for_render(
                                     true
                                 };
 
-                                let r = DeviceRect::new(DevicePoint::new(x0, y0), DevicePoint::new(x1, y1));
+                                let r = DeviceIntRect::new(
+                                    DeviceIntPoint::new(x0, y0),
+                                    DeviceIntPoint::new(x1, y1),
+                                );
 
                                 let r = match r.intersection(&clipped_surface_rect) {
                                     Some(r) => r,
@@ -994,16 +1007,11 @@ fn prepare_interned_prim_for_render(
                                     }
                                 };
 
-                                let x0 = r.min.x;
-                                let y0 = r.min.y;
-                                let x1 = r.max.x;
-                                let y1 = r.max.y;
-
                                 let segment = add_segment(
-                                    x0,
-                                    y0,
-                                    x1,
-                                    y1,
+                                    r.min.x as f32,
+                                    r.min.y as f32,
+                                    r.max.x as f32,
+                                    r.max.y as f32,
                                     create_task,
                                     prim_instance,
                                     prim_spatial_node_index,
@@ -1138,7 +1146,7 @@ fn prepare_interned_prim_for_render(
 
             let stops_address = GradientGpuBlockBuilder::build(
                 prim_data.reverse_stops,
-                frame_state.frame_gpu_data,
+                &mut frame_state.frame_gpu_data.f32,
                 &prim_data.stops,
             );
 
@@ -1296,8 +1304,8 @@ fn prepare_interned_prim_for_render(
                     .clipped_local_rect
                     .cast_unit();
 
-                let main_prim_address = write_prim_blocks(
-                    frame_state.frame_gpu_data,
+                let prim_address_f = write_prim_blocks(
+                    &mut frame_state.frame_gpu_data.f32,
                     prim_local_rect,
                     prim_instance.vis.clip_chain.local_clip_rect,
                     PremultipliedColorF::WHITE,
@@ -1333,7 +1341,7 @@ fn prepare_interned_prim_for_render(
                     let masks = MaskSubPass {
                         clip_node_range,
                         prim_spatial_node_index,
-                        main_prim_address,
+                        prim_address_f,
                     };
 
                     // Add the mask as a sub-pass of the picture
@@ -1353,30 +1361,22 @@ fn prepare_interned_prim_for_render(
                     let device_pixel_scale = surface.device_pixel_scale;
                     let raster_spatial_node_index = surface.raster_spatial_node_index;
 
-                    let clipped_surface_rect = surface.get_surface_rect(
+                    let Some(clipped_surface_rect) = surface.get_surface_rect(
                         &coverage_rect,
                         frame_context.spatial_tree,
-                    ).expect("bug: what can cause this?");
-
-                    let p0 = clipped_surface_rect.min.floor();
-                    let x0 = p0.x;
-                    let y0 = p0.y;
-
-                    let content_origin = DevicePoint::new(x0, y0);
+                    ) else {
+                        return;
+                    };
 
                     // Draw a normal screens-space mask to an alpha target that
                     // can be sampled when compositing this picture.
                     let empty_task = EmptyTask {
-                        content_origin,
+                        content_origin: clipped_surface_rect.min.to_f32(),
                         device_pixel_scale,
                         raster_spatial_node_index,
                     };
 
-                    let p1 = clipped_surface_rect.max.ceil();
-                    let x1 = p1.x;
-                    let y1 = p1.y;
-
-                    let task_size = DeviceSize::new(x1 - x0, y1 - y0).round().to_i32();
+                    let task_size = clipped_surface_rect.size();
 
                     let clip_task_id = frame_state.rg_builder.add().init(RenderTask::new_dynamic(
                         task_size,
@@ -1406,7 +1406,7 @@ fn prepare_interned_prim_for_render(
                     let masks = MaskSubPass {
                         clip_node_range,
                         prim_spatial_node_index,
-                        main_prim_address,
+                        prim_address_f,
                     };
 
                     let clip_task = frame_state.rg_builder.get_task_mut(clip_task_id);
@@ -1814,13 +1814,19 @@ pub fn update_clip_task(
             unadjusted_device_rect,
             device_pixel_scale,
         );
+
+        if device_rect.size().to_i32().is_empty() {
+            log::warn!("Bad adjusted clip task size {:?} (was {:?})", device_rect.size(), unadjusted_device_rect.size());
+            return false;
+        }
+
         let clip_task_id = RenderTaskKind::new_mask(
             device_rect,
             instance.vis.clip_chain.clips_range,
             root_spatial_node_index,
             frame_state.clip_store,
             frame_state.gpu_cache,
-            frame_state.frame_gpu_data,
+            &mut frame_state.frame_gpu_data.f32,
             frame_state.resource_cache,
             frame_state.rg_builder,
             &mut data_stores.clip,
@@ -1865,7 +1871,7 @@ pub fn update_brush_segment_clip_task(
         return ClipMaskKind::None;
     }
 
-    let device_rect = match frame_state.surfaces[surface_index.0].get_surface_rect(
+    let unadjusted_device_rect = match frame_state.surfaces[surface_index.0].get_surface_rect(
         &clip_chain.pic_coverage_rect,
         frame_context.spatial_tree,
     ) {
@@ -1873,7 +1879,12 @@ pub fn update_brush_segment_clip_task(
         None => return ClipMaskKind::Clipped,
     };
 
-    let (device_rect, device_pixel_scale) = adjust_mask_scale_for_max_size(device_rect, device_pixel_scale);
+    let (device_rect, device_pixel_scale) = adjust_mask_scale_for_max_size(unadjusted_device_rect, device_pixel_scale);
+
+    if device_rect.size().to_i32().is_empty() {
+        log::warn!("Bad adjusted mask size {:?} (was {:?})", device_rect.size(), unadjusted_device_rect.size());
+        return ClipMaskKind::Clipped;
+    }
 
     let clip_task_id = RenderTaskKind::new_mask(
         device_rect,
@@ -1881,7 +1892,7 @@ pub fn update_brush_segment_clip_task(
         root_spatial_node_index,
         frame_state.clip_store,
         frame_state.gpu_cache,
-        frame_state.frame_gpu_data,
+        &mut frame_state.frame_gpu_data.f32,
         frame_state.resource_cache,
         frame_state.rg_builder,
         clip_data_store,
@@ -2101,15 +2112,17 @@ fn build_segments_if_needed(
 }
 
 // Ensures that the size of mask render tasks are within MAX_MASK_SIZE.
-fn adjust_mask_scale_for_max_size(device_rect: DeviceRect, device_pixel_scale: DevicePixelScale) -> (DeviceRect, DevicePixelScale) {
+fn adjust_mask_scale_for_max_size(device_rect: DeviceIntRect, device_pixel_scale: DevicePixelScale) -> (DeviceIntRect, DevicePixelScale) {
     if device_rect.width() > MAX_MASK_SIZE || device_rect.height() > MAX_MASK_SIZE {
         // round_out will grow by 1 integer pixel if origin is on a
         // fractional position, so keep that margin for error with -1:
-        let scale = (MAX_MASK_SIZE - 1.0) /
-            f32::max(device_rect.width(), device_rect.height());
+        let device_rect_f = device_rect.to_f32();
+        let scale = (MAX_MASK_SIZE - 1) as f32 /
+            f32::max(device_rect_f.width(), device_rect_f.height());
         let new_device_pixel_scale = device_pixel_scale * Scale::new(scale);
-        let new_device_rect = (device_rect.to_f32() * Scale::new(scale))
-            .round_out();
+        let new_device_rect = (device_rect_f * Scale::new(scale))
+            .round_out()
+            .to_i32();
         (new_device_rect, new_device_pixel_scale)
     } else {
         (device_rect, device_pixel_scale)
@@ -2117,7 +2130,7 @@ fn adjust_mask_scale_for_max_size(device_rect: DeviceRect, device_pixel_scale: D
 }
 
 pub fn write_prim_blocks(
-    builder: &mut GpuBufferBuilder,
+    builder: &mut GpuBufferBuilderF,
     prim_rect: LayoutRect,
     clip_rect: LayoutRect,
     color: PremultipliedColorF,
@@ -2153,7 +2166,7 @@ fn add_segment(
     prim_instance: &PrimitiveInstance,
     prim_spatial_node_index: SpatialNodeIndex,
     raster_spatial_node_index: SpatialNodeIndex,
-    main_prim_address: GpuBufferAddress,
+    prim_address_f: GpuBufferAddress,
     transform_id: TransformPaletteId,
     aa_flags: EdgeAaSegmentMask,
     quad_flags: QuadFlags,
@@ -2177,7 +2190,7 @@ fn add_segment(
                 raster_spatial_node_index,
                 device_pixel_scale,
                 content_origin,
-                main_prim_address,
+                prim_address_f,
                 transform_id,
                 aa_flags,
                 quad_flags,
@@ -2189,7 +2202,7 @@ fn add_segment(
         let masks = MaskSubPass {
             clip_node_range: prim_instance.vis.clip_chain.clips_range,
             prim_spatial_node_index,
-            main_prim_address,
+            prim_address_f,
         };
 
         let task = frame_state.rg_builder.get_task_mut(task_id);
@@ -2223,7 +2236,7 @@ fn add_composite_prim(
     segments: &[QuadSegment],
 ) {
     let composite_prim_address = write_prim_blocks(
-        frame_state.frame_gpu_data,
+        &mut frame_state.frame_gpu_data.f32,
         rect,
         rect,
         color,
