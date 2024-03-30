@@ -3,7 +3,7 @@ name = "zng-webrender-api"
 version = "0.62.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
-repository = "https://github.com/servo/webrender"
+repository = "https://github.com/zng-ui/zng-webrender"
 description = "Public API for WebRender"
 edition = "2018"
 
