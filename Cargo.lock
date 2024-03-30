@@ -291,7 +291,7 @@ dependencies = [
  "compositor-wayland",
  "compositor-windows",
  "gleam",
- "webrender",
+ "zng-webrender",
 ]
 
 [[package]]
@@ -902,13 +902,6 @@ checksum = "2db6674176dc42051c1b9d2f1b994d91cdd96176b2be067d9f245873db20d8b7"
 dependencies = [
  "lang-util",
  "thiserror",
-]
-
-[[package]]
-name = "glsl-to-cxx"
-version = "0.1.0"
-dependencies = [
- "glsl",
 ]
 
 [[package]]
@@ -1640,25 +1633,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "peek-poke"
-version = "0.3.0"
-dependencies = [
- "euclid",
- "peek-poke-derive",
-]
-
-[[package]]
-name = "peek-poke-derive"
-version = "0.3.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.25",
- "synstructure 0.13.0",
- "unicode-xid",
-]
-
-[[package]]
 name = "percent-encoding"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2140,16 +2114,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fb1df15f412ee2e9dfc1c504260fa695c1c3f10fe9f4a6ee2d2184d7d6450e2"
 
 [[package]]
-name = "swgl"
-version = "0.1.0"
-dependencies = [
- "cc",
- "gleam",
- "glsl-to-cxx",
- "webrender_build",
-]
-
-[[package]]
 name = "syn"
 version = "1.0.91"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2486,43 +2450,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "webrender"
-version = "0.62.0"
-dependencies = [
- "bincode",
- "bitflags 2.4.2",
- "build-parallel",
- "byteorder",
- "derive_more",
- "etagere",
- "euclid",
- "fxhash",
- "gleam",
- "glslopt",
- "lazy_static",
- "log",
- "malloc_size_of_derive",
- "mozangle",
- "num-traits",
- "peek-poke",
- "plane-split",
- "png",
- "rand 0.4.6",
- "rayon",
- "ron",
- "serde",
- "smallvec",
- "svg_fmt",
- "swgl",
- "topological-sort",
- "tracy-rs",
- "webrender_api",
- "webrender_build",
- "wr_glyph_rasterizer",
- "wr_malloc_size_of",
-]
-
-[[package]]
 name = "webrender-examples"
 version = "0.1.0"
 dependencies = [
@@ -2533,34 +2460,8 @@ dependencies = [
  "gleam",
  "glutin",
  "rayon",
- "webrender",
  "winit",
-]
-
-[[package]]
-name = "webrender_api"
-version = "0.62.0"
-dependencies = [
- "app_units",
- "bitflags 2.4.2",
- "byteorder",
- "crossbeam-channel",
- "euclid",
- "malloc_size_of_derive",
- "peek-poke",
- "serde",
- "serde_bytes",
- "serde_derive",
- "wr_malloc_size_of",
-]
-
-[[package]]
-name = "webrender_build"
-version = "0.0.2"
-dependencies = [
- "bitflags 2.4.2",
- "lazy_static",
- "serde",
+ "zng-webrender",
 ]
 
 [[package]]
@@ -2703,42 +2604,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wr_glyph_rasterizer"
-version = "0.1.0"
-dependencies = [
- "core-foundation 0.9.2",
- "core-graphics 0.23.1",
- "core-text 20.1.0",
- "dwrote",
- "env_logger",
- "euclid",
- "freetype",
- "fxhash",
- "gleam",
- "glutin",
- "lazy_static",
- "libc",
- "log",
- "malloc_size_of_derive",
- "objc",
- "rayon",
- "serde",
- "smallvec",
- "tracy-rs",
- "webrender_api",
- "winit",
- "wr_malloc_size_of",
-]
-
-[[package]]
-name = "wr_malloc_size_of"
-version = "0.0.2"
-dependencies = [
- "app_units",
- "euclid",
-]
-
-[[package]]
 name = "wrench"
 version = "0.3.0"
 dependencies = [
@@ -2764,13 +2629,13 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "swgl",
  "time",
  "tracy-rs",
- "webrender",
- "webrender_build",
  "winit",
  "yaml-rust",
+ "zng-swgl",
+ "zng-webrender",
+ "zng-webrender-build",
 ]
 
 [[package]]
@@ -2813,6 +2678,141 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65923dd1784f44da1d2c3dbbc5e822045628c590ba72123e1c73d3c230c4434d"
 dependencies = [
  "linked-hash-map",
+]
+
+[[package]]
+name = "zng-glsl-to-cxx"
+version = "0.1.0"
+dependencies = [
+ "glsl",
+]
+
+[[package]]
+name = "zng-peek-poke"
+version = "0.3.0"
+dependencies = [
+ "euclid",
+ "zng-peek-poke-derive",
+]
+
+[[package]]
+name = "zng-peek-poke-derive"
+version = "0.3.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.25",
+ "synstructure 0.13.0",
+ "unicode-xid",
+]
+
+[[package]]
+name = "zng-swgl"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "gleam",
+ "zng-glsl-to-cxx",
+ "zng-webrender-build",
+]
+
+[[package]]
+name = "zng-webrender"
+version = "0.62.0"
+dependencies = [
+ "bincode",
+ "bitflags 2.4.2",
+ "build-parallel",
+ "byteorder",
+ "derive_more",
+ "etagere",
+ "euclid",
+ "fxhash",
+ "gleam",
+ "glslopt",
+ "lazy_static",
+ "log",
+ "malloc_size_of_derive",
+ "mozangle",
+ "num-traits",
+ "plane-split",
+ "png",
+ "rand 0.4.6",
+ "rayon",
+ "ron",
+ "serde",
+ "smallvec",
+ "svg_fmt",
+ "topological-sort",
+ "tracy-rs",
+ "zng-peek-poke",
+ "zng-swgl",
+ "zng-webrender-api",
+ "zng-webrender-build",
+ "zng-wr-glyph-rasterizer",
+ "zng-wr-malloc-size-of",
+]
+
+[[package]]
+name = "zng-webrender-api"
+version = "0.62.0"
+dependencies = [
+ "app_units",
+ "bitflags 2.4.2",
+ "byteorder",
+ "crossbeam-channel",
+ "euclid",
+ "malloc_size_of_derive",
+ "serde",
+ "serde_bytes",
+ "serde_derive",
+ "zng-peek-poke",
+ "zng-wr-malloc-size-of",
+]
+
+[[package]]
+name = "zng-webrender-build"
+version = "0.0.2"
+dependencies = [
+ "bitflags 2.4.2",
+ "lazy_static",
+ "serde",
+]
+
+[[package]]
+name = "zng-wr-glyph-rasterizer"
+version = "0.1.0"
+dependencies = [
+ "core-foundation 0.9.2",
+ "core-graphics 0.23.1",
+ "core-text 20.1.0",
+ "dwrote",
+ "env_logger",
+ "euclid",
+ "freetype",
+ "fxhash",
+ "gleam",
+ "glutin",
+ "lazy_static",
+ "libc",
+ "log",
+ "malloc_size_of_derive",
+ "objc",
+ "rayon",
+ "serde",
+ "smallvec",
+ "tracy-rs",
+ "winit",
+ "zng-webrender-api",
+ "zng-wr-malloc-size-of",
+]
+
+[[package]]
+name = "zng-wr-malloc-size-of"
+version = "0.0.2"
+dependencies = [
+ "app_units",
+ "euclid",
 ]
 
 [[patch.unused]]

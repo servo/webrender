@@ -1,5 +1,5 @@
 [package]
-name = "glsl-to-cxx"
+name = "zng-glsl-to-cxx"
 version = "0.1.0"
 license = "MPL-2.0"
 authors = ["The Mozilla Project Developers", "Dimitri Sabadie"]

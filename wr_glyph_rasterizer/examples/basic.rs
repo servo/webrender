@@ -15,8 +15,8 @@ use glutin::event::{Event, WindowEvent};
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use rayon::ThreadPoolBuilder;
-use wr_glyph_rasterizer::RasterizedGlyph;
-use wr_glyph_rasterizer::{
+use zng_wr_glyph_rasterizer::RasterizedGlyph;
+use zng_wr_glyph_rasterizer::{
     SharedFontResources, BaseFontInstance, GlyphRasterizer, FontInstance, GlyphKey,
     SubpixelDirection, profiler::GlyphRasterizeProfiler,
 };

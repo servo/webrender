@@ -6,7 +6,7 @@ edition = "2018"
 license = "MPL-2.0"
 
 [dependencies]
-webrender = { path = "../../webrender" }
+webrender = { path = "../../webrender", package = "zng-webrender" }
 gleam = "0.15"
 
 [target.'cfg(windows)'.dependencies]

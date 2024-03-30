@@ -60,7 +60,7 @@ euclid = "0.22"
 gleam = "0.15"
 glutin = "0.28"
 rayon = "1"
-webrender = { path = "../webrender" }
+webrender = { path = "../webrender", package = "zng-webrender" }
 winit = "0.26"
 
 [target.'cfg(target_os = "macos")'.dependencies]

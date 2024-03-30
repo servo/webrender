@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 extern crate mozangle;
-extern crate webrender;
+extern crate zng_webrender as webrender;
 extern crate webrender_build;
 
 use mozangle::shaders::{BuiltInResources, Output, ShaderSpec, ShaderValidator};
