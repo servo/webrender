@@ -6,6 +6,7 @@ use api::{ImageBufferKind, units::DeviceSize};
 use crate::batch::{BatchKey, BatchKind, BrushBatchKind, BatchFeatures};
 use crate::composite::{CompositeFeatures, CompositeSurfaceFormat};
 use crate::device::{Device, Program, ShaderError};
+use crate::pattern::PatternKind;
 use euclid::default::Transform3D;
 use glyph_rasterizer::GlyphFormat;
 use crate::renderer::{
@@ -1153,6 +1154,16 @@ impl Shaders {
             .expect("bug: unsupported scale shader requested")
     }
 
+    pub fn get_quad_shader(
+        &mut self,
+        pattern: PatternKind
+    ) -> &mut LazilyCompiledShader {
+        match pattern {
+            PatternKind::ColorOrTexture => &mut self.ps_quad_textured,
+            PatternKind::Mask => unreachable!(),
+        }
+    }
+
     pub fn get(&
         mut self,
         key: &BatchKey,
@@ -1161,8 +1172,11 @@ impl Shaders {
         device: &Device,
     ) -> &mut LazilyCompiledShader {
         match key.kind {
-            BatchKind::Primitive => {
+            BatchKind::Quad(PatternKind::ColorOrTexture) => {
                 &mut self.ps_quad_textured
+            }
+            BatchKind::Quad(PatternKind::Mask) => {
+                unreachable!();
             }
             BatchKind::SplitComposite => {
                 &mut self.ps_split_composite
