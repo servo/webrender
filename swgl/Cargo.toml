@@ -9,7 +9,7 @@ description = "Software OpenGL implementation for WebRender."
 include = ["**"]
 
 [build-dependencies]
-cc = "<1.0.91" # .91 does not build
+cc = "=1.0.90" # .91 does not build
 glsl-to-cxx = { path = "../glsl-to-cxx", version = "0.1.0", package = "zng-glsl-to-cxx" }
 webrender-build = { path = "../webrender_build", version = "0.0.2", package = "zng-webrender-build" }
 
