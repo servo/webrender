@@ -6,6 +6,8 @@ authors = ["The Mozilla Project Developers"]
 build = "build.rs"
 description = "Software OpenGL implementation for WebRender."
 
+include = ["**"]
+
 [build-dependencies]
 cc = "1.0.46"
 glsl-to-cxx = { path = "../glsl-to-cxx", version = "0.1.0", package = "zng-glsl-to-cxx" }

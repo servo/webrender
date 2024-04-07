@@ -110,7 +110,7 @@ fn translate_shader(shader_key: &str, shader_dir: &str) {
 }
 
 fn main() {
-    let shader_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap() + "/res";
+    let shader_dir = "res";
 
     let shader_flags =
         ShaderFeatureFlags::GL |
