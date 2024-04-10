@@ -6,6 +6,7 @@ license = "MPL-2.0"
 repository = "https://github.com/zng-ui/zng-webrender"
 description = "Code shared between precompilation (build.rs) and the rest of WebRender"
 edition = "2018"
+readme = "../FORK.md"
 
 [features]
 serialize_program = ["serde"]

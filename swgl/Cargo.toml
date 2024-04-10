@@ -6,6 +6,7 @@ authors = ["The Mozilla Project Developers"]
 build = "build.rs"
 description = "Software OpenGL implementation for WebRender."
 repository = "https://github.com/zng-ui/zng-webrender"
+readme = "../FORK.md"
 
 include = ["**"]
 

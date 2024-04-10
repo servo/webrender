@@ -6,6 +6,7 @@ repository = "https://github.com/zng-ui/zng-webrender"
 description = "Derive macro for peek-poke."
 license = "MIT OR Apache-2.0"
 edition = "2018"
+readme = "../../FORK.md"
 
 [lib]
 doctest = false

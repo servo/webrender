@@ -6,6 +6,7 @@ version = "0.0.3"
 license = "MIT/Apache-2.0"
 edition = "2018"
 repository = "https://github.com/zng-ui/zng-webrender"
+readme = "../FORK.md"
 
 [lib]
 path = "lib.rs"

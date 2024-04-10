@@ -6,6 +6,7 @@ repository = "https://github.com/zng-ui/zng-webrender"
 description = "A mechanism for serializing and deserializing data into/from byte buffers, for use in WebRender."
 license = "MIT OR Apache-2.0"
 edition = "2018"
+readme = "../FORK.md"
 
 [dependencies]
 euclid = { version = "0.22.0", optional = true }

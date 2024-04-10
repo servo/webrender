@@ -6,6 +6,7 @@ authors = ["The Mozilla Project Developers", "Dimitri Sabadie"]
 edition = "2018"
 description = "Translates GLSL to vectorized C++."
 repository = "https://github.com/zng-ui/zng-webrender"
+readme = "../FORK.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
