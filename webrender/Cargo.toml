@@ -11,14 +11,14 @@ edition = "2018"
 [features]
 default = ["static_freetype"]
 profiler = ["tracy-rs/enable_profiler"]
-capture = ["api/serialize", "ron", "serde", "smallvec/serde", "etagere/serialization", "glyph_rasterizer/capture"]
-replay = ["api/deserialize", "ron", "serde", "smallvec/serde", "etagere/serialization", "glyph_rasterizer/replay"]
+capture = ["api/serialize", "dep:ron", "dep:serde", "smallvec/serde", "etagere/serialization", "glyph_rasterizer/capture"]
+replay = ["api/deserialize", "dep:ron", "dep:serde", "smallvec/serde", "etagere/serialization", "glyph_rasterizer/replay"]
 display_list_stats = ["api/display_list_stats"]
-serialize_program = ["serde", "webrender_build/serialize_program"]
+serialize_program = ["dep:serde", "webrender_build/serialize_program"]
 dynamic_freetype = ["glyph_rasterizer/dynamic_freetype"]
 static_freetype = ["glyph_rasterizer/static_freetype"]
 leak_checks = []
-sw_compositor = ["swgl"]
+sw_compositor = ["dep:swgl"]
 
 [build-dependencies]
 build-parallel = "0.1.2"

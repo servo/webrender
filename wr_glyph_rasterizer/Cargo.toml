@@ -11,8 +11,8 @@ repository = "https://github.com/zng-ui/zng-webrender"
 default = ["static_freetype"]
 dynamic_freetype = []
 static_freetype = ["freetype/freetype-sys"]
-capture = ["api/serialize", "serde", "smallvec/serde"]
-replay = ["api/deserialize", "serde", "smallvec/serde"]
+capture = ["api/serialize", "dep:serde", "smallvec/serde"]
+replay = ["api/deserialize", "dep:serde", "smallvec/serde"]
 
 [dependencies]
 api = { version = "0.62.1", path = "../webrender_api", package = "zng-webrender-api" }

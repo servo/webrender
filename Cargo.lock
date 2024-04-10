@@ -2824,7 +2824,7 @@ dependencies = [
 
 [[package]]
 name = "zng-peek-poke"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "euclid",
  "zng-peek-poke-derive",
@@ -2832,7 +2832,7 @@ dependencies = [
 
 [[package]]
 name = "zng-peek-poke-derive"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "proc-macro2",
  "quote",
