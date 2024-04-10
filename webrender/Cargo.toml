@@ -33,16 +33,16 @@ byteorder = "1.0"
 euclid = { version = "0.22.0", features = ["serde"] }
 fxhash = "0.2.1"
 gleam = "0.15.0"
-lazy_static = "1"
+lazy_static = "1.4"
 log = "0.4"
 malloc_size_of_derive = "0.1"
 num-traits = "0.2"
 plane-split = "0.18"
 png = { optional = true, version = "0.16" }
-rayon = "1"
+rayon = "1.10"
 ron = { optional = true, version = "0.8" }
 serde = { optional = true, version = "1.0", features = ["serde_derive"] }
-smallvec = "1"
+smallvec = "1.13"
 api = { version = "0.62.1", path = "../webrender_api", package = "zng-webrender-api" }
 webrender_build = { version = "0.0.2", path = "../webrender_build", package = "zng-webrender-build" }
 malloc_size_of = { version = "0.0.3", path = "../wr_malloc_size_of", package = "zng-wr-malloc-size-of" }

@@ -20,11 +20,11 @@ api = { version = "0.62.1", path = "../webrender_api", package = "zng-webrender-
 euclid = { version = "0.22.0", features = ["serde"] }
 malloc_size_of = { version = "0.0.3", path = "../wr_malloc_size_of", package = "zng-wr-malloc-size-of" }
 malloc_size_of_derive = "0.1"
-rayon = "1"
-smallvec = "1"
+rayon = "1.10"
+smallvec = "1.13"
 tracy-rs = "0.1.2"
 log = "0.4"
-lazy_static = "1"
+lazy_static = "1.4"
 fxhash = "0.2.1"
 serde = { optional = true, version = "1.0", features = ["serde_derive"] }
 
