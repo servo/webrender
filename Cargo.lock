@@ -187,9 +187,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.0.90"
+version = "1.0.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cd6604a82acf3039f1144f54b8eb34e91ffba622051189e71b781822d5ee1f5"
+checksum = "2678b2e3449475e95b0aa6f9b506a28e61b3dc8996592b983695e8ebb58a8b41"
 dependencies = [
  "jobserver",
  "libc",
@@ -2817,7 +2817,7 @@ dependencies = [
 
 [[package]]
 name = "zng-glsl-to-cxx"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "glsl",
 ]
@@ -2843,7 +2843,7 @@ dependencies = [
 
 [[package]]
 name = "zng-swgl"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cc",
  "gleam",
@@ -2853,7 +2853,7 @@ dependencies = [
 
 [[package]]
 name = "zng-webrender"
-version = "0.62.1"
+version = "0.62.2"
 dependencies = [
  "bincode",
  "bitflags 2.5.0",
@@ -2890,7 +2890,7 @@ dependencies = [
 
 [[package]]
 name = "zng-webrender-api"
-version = "0.62.0"
+version = "0.62.1"
 dependencies = [
  "app_units",
  "bitflags 2.5.0",
@@ -2916,7 +2916,7 @@ dependencies = [
 
 [[package]]
 name = "zng-wr-glyph-rasterizer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "core-foundation 0.9.4",
  "core-graphics 0.23.2",
@@ -2944,7 +2944,7 @@ dependencies = [
 
 [[package]]
 name = "zng-wr-malloc-size-of"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "app_units",
  "euclid",

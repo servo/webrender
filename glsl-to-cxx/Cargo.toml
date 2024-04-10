@@ -1,10 +1,11 @@
 [package]
 name = "zng-glsl-to-cxx"
-version = "0.1.0"
+version = "0.1.1"
 license = "MPL-2.0"
 authors = ["The Mozilla Project Developers", "Dimitri Sabadie"]
 edition = "2018"
 description = "Translates GLSL to vectorized C++."
+repository = "https://github.com/zng-ui/zng-webrender"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

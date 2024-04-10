@@ -1,6 +1,6 @@
 [package]
 name = "zng-webrender-api"
-version = "0.62.0"
+version = "0.62.1"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 repository = "https://github.com/zng-ui/zng-webrender"
@@ -22,6 +22,6 @@ malloc_size_of_derive = "0.1"
 serde = { version = "1.0", features = ["rc"] }
 serde_derive = "1.0"
 serde_bytes = "0.11"
-malloc_size_of = { version = "0.0.2", path = "../wr_malloc_size_of", package = "zng-wr-malloc-size-of" }
+malloc_size_of = { version = "0.0.3", path = "../wr_malloc_size_of", package = "zng-wr-malloc-size-of" }
 peek-poke = { version = "0.3", path = "../peek-poke", package = "zng-peek-poke", features = ["extras"] }
 crossbeam-channel = "0.5"

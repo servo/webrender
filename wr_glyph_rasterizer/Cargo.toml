@@ -1,10 +1,11 @@
 [package]
 name = "zng-wr-glyph-rasterizer"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["The Mozilla Project Developers"]
 description = "A glyph rasterizer for WebRender"
 license = "MPL-2.0"
 edition = "2018"
+repository = "https://github.com/zng-ui/zng-webrender"
 
 [features]
 default = ["static_freetype"]
@@ -14,9 +15,9 @@ capture = ["api/serialize", "serde", "smallvec/serde"]
 replay = ["api/deserialize", "serde", "smallvec/serde"]
 
 [dependencies]
-api = { version = "0.62.0", path = "../webrender_api", package = "zng-webrender-api" }
+api = { version = "0.62.1", path = "../webrender_api", package = "zng-webrender-api" }
 euclid = { version = "0.22.0", features = ["serde"] }
-malloc_size_of = { version = "0.0.2", path = "../wr_malloc_size_of", package = "zng-wr-malloc-size-of" }
+malloc_size_of = { version = "0.0.3", path = "../wr_malloc_size_of", package = "zng-wr-malloc-size-of" }
 malloc_size_of_derive = "0.1"
 rayon = "1"
 smallvec = "1"
