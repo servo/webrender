@@ -591,9 +591,12 @@ impl RenderTaskGraphBuilder {
             }
         }
 
-        // By now, all surfaces that were borrowed from the render target pool must
-        // be returned to the resource cache, or we are leaking intermediate surfaces!
-        assert!(self.active_surfaces.is_empty());
+        if !self.active_surfaces.is_empty() {
+            graph.print();
+            // By now, all surfaces that were borrowed from the render target pool must
+            // be returned to the resource cache, or we are leaking intermediate surfaces!
+            assert!(self.active_surfaces.is_empty());
+        }
 
         // Each task is now allocated to a surface and target rect. Write that to the
         // GPU blocks and task_data. After this point, the graph is returned and is
@@ -656,29 +659,30 @@ impl RenderTaskGraph {
     pub fn print(
         &self,
     ) {
-        debug!("-- RenderTaskGraph --");
+        print!("-- RenderTaskGraph --\n");
 
         for (i, task) in self.tasks.iter().enumerate() {
-            debug!("Task {} [{}]: render_on={} free_after={} children={:?}",
+            print!("Task {} [{}]: render_on={} free_after={} children={:?} target_size={:?}\n",
                 i,
                 task.kind.as_str(),
                 task.render_on.0,
                 task.free_after.0,
                 task.children,
+                task.get_target_size(),
             );
         }
 
         for (p, pass) in self.passes.iter().enumerate() {
-            debug!("Pass {}:", p);
+            print!("Pass {}:\n", p);
 
             for (s, sub_pass) in pass.sub_passes.iter().enumerate() {
-                debug!("\tSubPass {}: {:?}",
+                print!("\tSubPass {}: {:?}\n",
                     s,
                     sub_pass.surface,
                 );
 
                 for task_id in &sub_pass.task_ids {
-                    debug!("\t\tTask {:?}", task_id.index);
+                    print!("\t\tTask {:?}\n", task_id.index);
                 }
             }
         }
@@ -823,12 +827,8 @@ impl RenderPass {
     /// Creates an intermediate off-screen pass.
     pub fn new(src: &Pass) -> Self {
         RenderPass {
-            color: RenderTargetList::new(
-                ImageFormat::RGBA8,
-            ),
-            alpha: RenderTargetList::new(
-                ImageFormat::R8,
-            ),
+            color: RenderTargetList::new(),
+            alpha: RenderTargetList::new(),
             texture_cache: FastHashMap::default(),
             picture_cache: Vec::new(),
             textures_to_invalidate: src.textures_to_invalidate.clone(),

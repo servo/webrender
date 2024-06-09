@@ -437,16 +437,19 @@ impl OpaqueBatchList {
         // `current_batch_index` instead of iterating the batches.
         z_bounding_rect: &PictureRect,
     ) -> &mut Vec<PrimitiveInstanceData> {
-        if self.current_batch_index == usize::MAX ||
+        // If the area of this primitive is larger than the given threshold,
+        // then it is large enough to warrant breaking a batch for. In this
+        // case we just see if it can be added to the existing batch or
+        // create a new one.
+        let is_large_occluder = z_bounding_rect.area() > self.pixel_area_threshold_for_new_batch;
+        // Since primitives of the same kind tend to come in succession, we keep track
+        // of the current batch index to skip the search in some cases. We ignore the
+        // current batch index in the case of large occluders to make sure they get added
+        // at the top of the bach list.
+        if is_large_occluder || self.current_batch_index == usize::MAX ||
            !self.batches[self.current_batch_index].key.is_compatible_with(&key) {
             let mut selected_batch_index = None;
-            let item_area = z_bounding_rect.area();
-
-            // If the area of this primitive is larger than the given threshold,
-            // then it is large enough to warrant breaking a batch for. In this
-            // case we just see if it can be added to the existing batch or
-            // create a new one.
-            if item_area > self.pixel_area_threshold_for_new_batch {
+            if is_large_occluder {
                 if let Some(batch) = self.batches.last() {
                     if batch.key.is_compatible_with(&key) {
                         selected_batch_index = Some(self.batches.len() - 1);
@@ -1742,7 +1745,8 @@ impl BatchBuilder {
                                             Filter::ComponentTransfer |
                                             Filter::Blur { .. } |
                                             Filter::DropShadows(..) |
-                                            Filter::Opacity(..) => unreachable!(),
+                                            Filter::Opacity(..) |
+                                            Filter::SVGGraphNode(..) => unreachable!(),
                                         };
 
                                         // Other filters that may introduce opacity are handled via different
@@ -2137,6 +2141,53 @@ impl BatchBuilder {
                                 }
                             }
                             PictureCompositeMode::SvgFilter(..) => {
+                                let (clip_task_address, clip_mask_texture_id) = ctx.get_prim_clip_task_and_texture(
+                                    prim_info.clip_task_index,
+                                    render_tasks,
+                                ).unwrap();
+
+                                let kind = BatchKind::Brush(
+                                    BrushBatchKind::Image(ImageBufferKind::Texture2D)
+                                );
+                                let (uv_rect_address, texture) = render_tasks.resolve_location(
+                                    pic_task_id,
+                                    gpu_cache,
+                                ).unwrap();
+                                let textures = BatchTextures::prim_textured(
+                                    texture,
+                                    clip_mask_texture_id,
+                                );
+                                let key = BatchKey::new(
+                                    kind,
+                                    blend_mode,
+                                    textures,
+                                );
+                                let prim_header_index = prim_headers.push(
+                                    &prim_header,
+                                    z_id,
+                                    self.batcher.render_task_address,
+                                    ImageBrushData {
+                                        color_mode: ShaderColorMode::Image,
+                                        alpha_type: AlphaType::PremultipliedAlpha,
+                                        raster_space: RasterizationSpace::Screen,
+                                        opacity: 1.0,
+                                    }.encode(),
+                                );
+
+                                self.add_brush_instance_to_batches(
+                                    key,
+                                    batch_features,
+                                    bounding_rect,
+                                    z_id,
+                                    INVALID_SEGMENT_INDEX,
+                                    EdgeAaSegmentMask::all(),
+                                    clip_task_address,
+                                    brush_flags,
+                                    prim_header_index,
+                                    uv_rect_address.as_int(),
+                                );
+                            }
+                            PictureCompositeMode::SVGFEGraph(..) => {
                                 let (clip_task_address, clip_mask_texture_id) = ctx.get_prim_clip_task_and_texture(
                                     prim_info.clip_task_index,
                                     render_tasks,

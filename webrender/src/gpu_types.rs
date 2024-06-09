@@ -95,6 +95,15 @@ pub enum BlurDirection {
     Vertical,
 }
 
+impl BlurDirection {
+    pub fn as_int(self) -> i32 {
+        match self {
+            BlurDirection::Horizontal => 0,
+            BlurDirection::Vertical => 1,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 #[repr(C)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -102,7 +111,7 @@ pub enum BlurDirection {
 pub struct BlurInstance {
     pub task_address: RenderTaskAddress,
     pub src_task_address: RenderTaskAddress,
-    pub blur_direction: BlurDirection,
+    pub blur_direction: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -126,6 +135,21 @@ pub struct SvgFilterInstance {
     pub input_count: u16,
     pub generic_int: u16,
     pub padding: u16,
+    pub extra_data_address: GpuCacheAddress,
+}
+
+#[derive(Clone, Debug)]
+#[repr(C)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct SVGFEFilterInstance {
+    pub target_rect: DeviceRect,
+    pub input_1_content_scale_and_offset: [f32; 4],
+    pub input_2_content_scale_and_offset: [f32; 4],
+    pub input_1_task_address: RenderTaskAddress,
+    pub input_2_task_address: RenderTaskAddress,
+    pub kind: u16,
+    pub input_count: u16,
     pub extra_data_address: GpuCacheAddress,
 }
 
@@ -202,26 +226,6 @@ pub struct ClipMaskInstanceBoxShadow {
     pub common: ClipMaskInstanceCommon,
     pub resource_address: GpuCacheAddress,
     pub shadow_data: BoxShadowData,
-}
-
-/// A clipping primitive drawn into the clipping mask.
-/// Could be an image or a rectangle, which defines the
-/// way `address` is treated.
-#[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[repr(C)]
-pub struct ClipMaskInstance {
-    pub clip_transform_id: TransformPaletteId,
-    pub prim_transform_id: TransformPaletteId,
-    pub clip_data_address: GpuCacheAddress,
-    pub resource_address: GpuCacheAddress,
-    pub local_pos: LayoutPoint,
-    pub tile_rect: LayoutRect,
-    pub sub_rect: DeviceRect,
-    pub task_origin: DevicePoint,
-    pub screen_origin: DevicePoint,
-    pub device_pixel_scale: f32,
 }
 
 // 16 bytes per instance should be enough for anyone!
@@ -535,11 +539,9 @@ impl From<SplitCompositeInstance> for PrimitiveInstanceData {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct QuadInstance {
-    pub render_task_address: RenderTaskAddress,
+    pub dst_task_address: RenderTaskAddress,
     pub prim_address_i: GpuBufferAddress,
     pub prim_address_f: GpuBufferAddress,
-    pub z_id: ZBufferId,
-    pub transform_id: TransformPaletteId,
     pub quad_flags: u8,
     pub edge_flags: u8,
     pub part_index: u8,
@@ -565,12 +567,13 @@ impl From<QuadInstance> for PrimitiveInstanceData {
                 ((instance.part_index as i32)    <<  8) |
                 ((instance.segment_index as i32) <<  0),
 
-                instance.render_task_address.0,
+                instance.dst_task_address.0,
             ],
         }
     }
 }
 
+#[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct QuadSegment {
     pub rect: LayoutRect,
@@ -586,6 +589,15 @@ pub enum ClipSpace {
     Primitive = 1,
 }
 
+impl ClipSpace {
+    pub fn as_int(self) -> u32 {
+        match self {
+            ClipSpace::Raster => 0,
+            ClipSpace::Primitive => 1,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -594,7 +606,7 @@ pub struct MaskInstance {
     pub prim: PrimitiveInstanceData,
     pub clip_transform_id: TransformPaletteId,
     pub clip_address: i32,
-    pub clip_space: ClipSpace,
+    pub clip_space: u32,
     pub unused: i32,
 }
 

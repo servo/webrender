@@ -199,10 +199,6 @@ pub fn get_unoptimized_shader_source(shader_name: &str, base_path: Option<&PathB
     }
 }
 
-pub trait FileWatcherHandler: Send {
-    fn file_changed(&self, path: PathBuf);
-}
-
 impl VertexAttributeKind {
     fn size_in_bytes(&self) -> u32 {
         match *self {
@@ -1412,7 +1408,8 @@ fn parse_mali_version(version_string: &str) -> Option<(u32, u32, u32)> {
     let (r_str, version_string) = version_string.split_once("p")?;
     let r = r_str.parse().ok()?;
 
-    let (p_str, _) = version_string.split_once("-")?;
+    // Not all devices have the trailing string following the "p" number.
+    let (p_str, _) = version_string.split_once("-").unwrap_or((version_string, ""));
     let p = p_str.parse().ok()?;
 
     Some((v, r, p))

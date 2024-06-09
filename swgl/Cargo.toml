@@ -1,6 +1,6 @@
 [package]
 name = "zng-swgl"
-version = "0.1.2"
+version = "0.2.0"
 license = "MPL-2.0"
 authors = ["The Mozilla Project Developers"]
 build = "build.rs"
@@ -13,7 +13,7 @@ include = ["**"]
 [build-dependencies]
 cc = "1.0.92"
 glsl-to-cxx = { path = "../glsl-to-cxx", version = "0.1.1", package = "zng-glsl-to-cxx" }
-webrender-build = { path = "../webrender_build", version = "0.0.3", package = "zng-webrender-build" }
+webrender-build = { path = "../webrender_build", version = "0.0.4", package = "zng-webrender-build" }
 
 [dependencies]
 gleam = "0.15"

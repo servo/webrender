@@ -285,8 +285,8 @@ impl GlyphRasterizer {
 }
 
 #[derive(Clone, Copy, Debug, MallocSizeOf, PartialEq, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[cfg_attr(feature = "capture", derive(serde::Serialize))]
+#[cfg_attr(feature = "replay", derive(serde::Deserialize))]
 pub struct FontTransform {
     pub scale_x: f32,
     pub skew_x: f32,
@@ -441,8 +441,8 @@ pub const FONT_SIZE_LIMIT: f32 = 320.0;
 ///
 /// `BaseFontInstance` can be identified by a `FontInstanceKey` to avoid hashing it.
 #[derive(Clone, Debug, Ord, PartialOrd, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[cfg_attr(feature = "capture", derive(serde::Serialize))]
+#[cfg_attr(feature = "replay", derive(serde::Deserialize))]
 pub struct BaseFontInstance {
     ///
     pub instance_key: FontInstanceKey,
@@ -907,8 +907,8 @@ impl BlobImageResources for SharedFontResources {
 /// Performance is sensitive to the size of this structure, so it should only contain
 /// the fields that we need to modify from the original base font instance.
 #[derive(Clone, Debug, Ord, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[cfg_attr(feature = "capture", derive(serde::Serialize))]
+#[cfg_attr(feature = "replay", derive(serde::Deserialize))]
 pub struct FontInstance {
     pub base: Arc<BaseFontInstance>,
     pub transform: FontTransform,
@@ -1096,8 +1096,8 @@ impl SubpixelDirection {
 
 #[repr(u8)]
 #[derive(Hash, Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[cfg_attr(feature = "capture", derive(serde::Serialize))]
+#[cfg_attr(feature = "replay", derive(serde::Deserialize))]
 pub enum SubpixelOffset {
     Zero = 0,
     Quarter = 1,
@@ -1140,8 +1140,8 @@ impl Into<f64> for SubpixelOffset {
 }
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[cfg_attr(feature = "capture", derive(serde::Serialize))]
+#[cfg_attr(feature = "replay", derive(serde::Deserialize))]
 pub struct GlyphKey(u32);
 
 impl GlyphKey {
@@ -1177,8 +1177,8 @@ impl GlyphKey {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[cfg_attr(feature = "capture", derive(serde::Serialize))]
+#[cfg_attr(feature = "replay", derive(serde::Deserialize))]
 #[allow(dead_code)]
 pub enum GlyphFormat {
     Alpha,
@@ -1690,8 +1690,8 @@ pub enum GlyphRasterError {
 pub type GlyphRasterResult = Result<RasterizedGlyph, GlyphRasterError>;
 
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[cfg_attr(feature = "capture", derive(serde::Serialize))]
+#[cfg_attr(feature = "replay", derive(serde::Deserialize))]
 pub struct GpuGlyphCacheKey(pub u32);
 
 #[cfg(test)]
