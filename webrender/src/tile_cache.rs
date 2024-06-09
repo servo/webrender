@@ -226,6 +226,7 @@ impl TileCacheBuilder {
                 cluster.spatial_node_index,
                 &mut self.prev_scroll_root_cache,
                 spatial_tree,
+                true,
             );
 
             *scroll_root_occurrences.entry(scroll_root).or_insert(0) += 1;
@@ -324,6 +325,9 @@ impl TileCacheBuilder {
                     spatial_node_index,
                     &mut self.prev_scroll_root_cache,
                     spatial_tree,
+                    // Allow sticky frames as scroll roots, unless our quality settings prefer
+                    // subpixel AA over performance.
+                    !quality_settings.force_subpixel_aa_where_possible,
                 );
 
                 let current_scroll_root = secondary_slices
@@ -369,6 +373,7 @@ impl TileCacheBuilder {
                                         clip_node_data.key.spatial_node_index,
                                         &mut self.prev_scroll_root_cache,
                                         spatial_tree,
+                                        true,
                                     );
 
                                     if spatial_root != self.root_spatial_node_index {
@@ -509,12 +514,13 @@ fn find_scroll_root(
     spatial_node_index: SpatialNodeIndex,
     prev_scroll_root_cache: &mut (SpatialNodeIndex, SpatialNodeIndex),
     spatial_tree: &SceneSpatialTree,
+    allow_sticky_frames: bool,
 ) -> SpatialNodeIndex {
     if prev_scroll_root_cache.0 == spatial_node_index {
         return prev_scroll_root_cache.1;
     }
 
-    let scroll_root = spatial_tree.find_scroll_root(spatial_node_index);
+    let scroll_root = spatial_tree.find_scroll_root(spatial_node_index, allow_sticky_frames);
     *prev_scroll_root_cache = (spatial_node_index, scroll_root);
 
     scroll_root
@@ -602,15 +608,6 @@ fn create_tile_cache(
 
     let slice_id = SliceId::new(slice);
 
-    // If we found an opaque compositor surface, use underlays. This implies
-    // we disable overlays for any transparent compositor surfaces and composite
-    // them in to regular picture cache tiles.
-    let overlay_surface_count = if prim_list.has_opaque_compositor_surface {
-        0
-    } else {
-        prim_list.overlay_surface_count
-    };
-
     // Store some information about the picture cache slice. This is used when we swap the
     // new scene into the frame builder to either reuse existing slices, or create new ones.
     tile_caches.insert(slice_id, TileCacheParams {
@@ -621,7 +618,7 @@ fn create_tile_cache(
         shared_clip_node_id,
         shared_clip_leaf_id,
         virtual_surface_size: frame_builder_config.compositor_kind.get_virtual_surface_size(),
-        overlay_surface_count,
+        overlay_surface_count: prim_list.overlay_surface_count,
     });
 
     let pic_index = prim_store.pictures.alloc().init(PicturePrimitive::new_image(

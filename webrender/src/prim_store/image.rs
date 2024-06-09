@@ -13,8 +13,7 @@ use crate::scene_building::{CreateShadow, IsVisible};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState};
 use crate::gpu_cache::{GpuCache, GpuDataRequest};
 use crate::intern::{Internable, InternDebug, Handle as InternHandle};
-use crate::internal_types::{LayoutPrimitiveInfo};
-use crate::picture::SurfaceIndex;
+use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
     EdgeAaSegmentMask, PrimitiveInstanceKind,
     PrimitiveOpacity, PrimKey,
@@ -136,7 +135,6 @@ impl ImageData {
         &mut self,
         common: &mut PrimTemplateCommonData,
         image_instance: &mut ImageInstance,
-        parent_surface: SurfaceIndex,
         prim_spatial_node_index: SpatialNodeIndex,
         frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
@@ -261,7 +259,7 @@ impl ImageData {
                         frame_state.rg_builder,
                         None,
                         descriptor.is_opaque(),
-                        RenderTaskParent::Surface(parent_surface),
+                        RenderTaskParent::Surface,
                         &mut frame_state.surface_builder,
                         |rg_builder, _| {
                             // Create a task to blit from the texture cache to
@@ -442,7 +440,6 @@ impl InternablePrimitive for Image {
         _key: ImageKey,
         data_handle: ImageDataHandle,
         prim_store: &mut PrimitiveStore,
-        _reference_frame_relative_offset: LayoutVector2D,
     ) -> PrimitiveInstanceKind {
         // TODO(gw): Refactor this to not need a separate image
         //           instance (see ImageInstance struct).
@@ -648,7 +645,6 @@ impl InternablePrimitive for YuvImage {
         _key: YuvImageKey,
         data_handle: YuvImageDataHandle,
         _prim_store: &mut PrimitiveStore,
-        _reference_frame_relative_offset: LayoutVector2D,
     ) -> PrimitiveInstanceKind {
         PrimitiveInstanceKind::YuvImage {
             data_handle,

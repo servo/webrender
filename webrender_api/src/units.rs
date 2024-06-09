@@ -48,8 +48,7 @@ pub type FramebufferIntPoint = Point2D<i32, FramebufferPixel>;
 pub type FramebufferIntSize = Size2D<i32, FramebufferPixel>;
 pub type FramebufferIntRect = Box2D<i32, FramebufferPixel>;
 
-/// Geometry in the coordinate system of a Picture (intermediate
-/// surface) in physical pixels.
+/// Geometry in the coordinate system of a Picture.
 #[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct PicturePixel;
 
@@ -156,6 +155,7 @@ pub type BlobToDeviceTranslation = Translation2D<i32, LayoutPixel, DevicePixel>;
 /// the UVs in the vertex shader means nothing needs to be
 /// updated on the CPU when the texture size changes.
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[repr(C)]
 pub struct TexelRect {
     pub uv0: DevicePoint,
     pub uv1: DevicePoint,

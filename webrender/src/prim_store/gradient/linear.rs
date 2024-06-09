@@ -26,7 +26,6 @@ use crate::render_task_graph::RenderTaskId;
 use crate::render_task_cache::{RenderTaskCacheKeyKind, RenderTaskCacheKey, RenderTaskParent};
 use crate::renderer::GpuBufferAddress;
 use crate::segment::EdgeAaSegmentMask;
-use crate::picture::{SurfaceIndex};
 use crate::util::pack_as_float;
 use super::{stops_and_min_alpha, GradientStopKey, GradientGpuBlockBuilder, apply_gradient_local_clip};
 use std::ops::{Deref, DerefMut};
@@ -450,7 +449,6 @@ impl LinearGradientTemplate {
     pub fn update(
         &mut self,
         frame_state: &mut FrameBuildingState,
-        parent_surface: SurfaceIndex,
     ) {
         if let Some(mut request) = frame_state.gpu_cache.request(
             &mut self.common.gpu_cache_handle
@@ -526,7 +524,7 @@ impl LinearGradientTemplate {
                 frame_state.rg_builder,
                 None,
                 false,
-                RenderTaskParent::Surface(parent_surface),
+                RenderTaskParent::Surface,
                 &mut frame_state.surface_builder,
                 |rg_builder, _| {
                     rg_builder.add().init(RenderTask::new_dynamic(
@@ -556,7 +554,7 @@ impl LinearGradientTemplate {
                 frame_state.rg_builder,
                 None,
                 false,
-                RenderTaskParent::Surface(parent_surface),
+                RenderTaskParent::Surface,
                 &mut frame_state.surface_builder,
                 |rg_builder, gpu_buffer_builder| {
                     let stops = Some(GradientGpuBlockBuilder::build(
@@ -620,7 +618,6 @@ impl InternablePrimitive for LinearGradient {
         key: LinearGradientKey,
         data_handle: LinearGradientDataHandle,
         _prim_store: &mut PrimitiveStore,
-        _reference_frame_relative_offset: LayoutVector2D,
     ) -> PrimitiveInstanceKind {
         if key.cached {
             PrimitiveInstanceKind::CachedLinearGradient {

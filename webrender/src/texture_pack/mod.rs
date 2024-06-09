@@ -57,8 +57,6 @@ pub trait AtlasAllocatorList<TextureParameters> {
 
     fn set_handle(&mut self, texture_id: CacheTextureId, alloc_id: AllocId, handle: &TextureCacheHandle);
 
-    fn remove_handle(&mut self, texture_id: CacheTextureId, alloc_id: AllocId);
-
     /// Deallocate a rectangle and return its size.
     fn deallocate(&mut self, texture_id: CacheTextureId, alloc_id: AllocId);
 
@@ -235,14 +233,6 @@ for AllocatorList<Allocator, TextureParameters> {
         unit.handles.insert(alloc_id, handle.clone());
     }
 
-    fn remove_handle(&mut self, texture_id: CacheTextureId, alloc_id: AllocId) {
-        let unit = self.units
-            .iter_mut()
-            .find(|unit| unit.texture_id == texture_id)
-            .expect("Unable to find the associated texture array unit");
-        unit.handles.remove(&alloc_id);
-    }
-
     fn deallocate(&mut self, texture_id: CacheTextureId, alloc_id: AllocId) {
         self.deallocate(texture_id, alloc_id);
     }
@@ -314,7 +304,6 @@ impl AtlasAllocator for ShelfAllocator {
 
 pub struct CompactionChange {
     pub handle: TextureCacheHandle,
-    pub old_id: AllocId,
     pub old_tex: CacheTextureId,
     pub old_rect: DeviceIntRect,
     pub new_id: AllocId,
@@ -372,7 +361,6 @@ impl<P> AllocatorList<ShelfAllocator, P> {
             // Record the change so that the texture cache can do additional bookkeeping.
             changes.push(CompactionChange {
                 handle,
-                old_id: AllocId(alloc.id.serialize()),
                 old_tex: self.units[last_unit].texture_id,
                 old_rect: alloc.rectangle.cast_unit(),
                 new_id: AllocId(new_alloc.id.serialize()),

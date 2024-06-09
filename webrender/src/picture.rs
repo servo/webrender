@@ -95,7 +95,7 @@
 //! improved as a follow up).
 
 use api::{MixBlendMode, PremultipliedColorF, FilterPrimitiveKind};
-use api::{PropertyBinding, PropertyBindingId, FilterPrimitive, RasterSpace};
+use api::{PropertyBinding, PropertyBindingId, FilterPrimitive, FilterOpGraphPictureBufferId, RasterSpace};
 use api::{DebugFlags, ImageKey, ColorF, ColorU, PrimitiveFlags};
 use api::{ImageRendering, ColorDepth, YuvRangedColorSpace, YuvFormat, AlphaType};
 use api::units::*;
@@ -111,7 +111,7 @@ use euclid::{vec3, Point2D, Scale, Vector2D, Box2D};
 use euclid::approxeq::ApproxEq;
 use crate::filterdata::SFilterData;
 use crate::intern::ItemUid;
-use crate::internal_types::{FastHashMap, FastHashSet, PlaneSplitter, Filter, FrameId};
+use crate::internal_types::{FastHashMap, FastHashSet, PlaneSplitter, FilterGraphOp, FilterGraphNode, Filter, FrameId};
 use crate::internal_types::{PlaneSplitterIndex, PlaneSplitAnchor, TextureSource};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PictureContext};
 use crate::gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
@@ -281,9 +281,10 @@ pub const TILE_SIZE_SCROLLBAR_VERTICAL: DeviceIntSize = DeviceIntSize {
     _unit: marker::PhantomData,
 };
 
-/// The maximum size per axis of a surface,
-///  in WorldPixel coordinates.
-const MAX_SURFACE_SIZE: usize = 4096;
+/// The maximum size per axis of a surface, in DevicePixel coordinates.
+/// Render tasks larger than this size are scaled down to fit, which may cause
+/// some blurriness.
+pub const MAX_SURFACE_SIZE: usize = 4096;
 /// Maximum size of a compositor surface.
 const MAX_COMPOSITOR_SURFACES_SIZE: f32 = 8192.0;
 
@@ -1828,12 +1829,12 @@ pub struct TileCacheInstance {
     frame_id: FrameId,
     /// Registered transform in CompositeState for this picture cache
     pub transform_index: CompositorTransformIndex,
-    /// Current transform mapping local picture space to compositor surface space
-    local_to_surface: ScaleOffset,
+    /// Current transform mapping local picture space to compositor surface raster space
+    local_to_raster: ScaleOffset,
+    /// Current transform mapping compositor surface raster space to final device space
+    raster_to_device: ScaleOffset,
     /// If true, we need to invalidate all tiles during `post_update`
     invalidate_all_tiles: bool,
-    /// Current transform mapping compositor surface space to final device space
-    surface_to_device: ScaleOffset,
     /// The current raster scale for tiles in this cache
     current_raster_scale: f32,
     /// Depth of off-screen surfaces that are currently pushed during dependency updates
@@ -1846,6 +1847,8 @@ pub struct TileCacheInstance {
     pub backdrop_surface: Option<BackdropSurface>,
     /// List of underlay compositor surfaces that exist in this picture cache
     pub underlays: Vec<ExternalSurfaceDescriptor>,
+    /// "Region" (actually a spanning rect) containing all overlay promoted surfaces
+    pub overlay_region: PictureRect,
 }
 
 enum SurfacePromotionResult {
@@ -1900,8 +1903,8 @@ impl TileCacheInstance {
             external_native_surface_cache: FastHashMap::default(),
             frame_id: FrameId::INVALID,
             transform_index: CompositorTransformIndex::INVALID,
-            surface_to_device: ScaleOffset::identity(),
-            local_to_surface: ScaleOffset::identity(),
+            raster_to_device: ScaleOffset::identity(),
+            local_to_raster: ScaleOffset::identity(),
             invalidate_all_tiles: true,
             current_raster_scale: 1.0,
             current_surface_traversal_depth: 0,
@@ -1909,6 +1912,7 @@ impl TileCacheInstance {
             found_prims_after_backdrop: false,
             backdrop_surface: None,
             underlays: Vec::new(),
+            overlay_region: PictureRect::zero(),
         }
     }
 
@@ -2052,6 +2056,7 @@ impl TileCacheInstance {
         self.local_clip_rect = PictureRect::max_rect();
         self.deferred_dirty_tests.clear();
         self.underlays.clear();
+        self.overlay_region = PictureRect::zero();
 
         for sub_slice in &mut self.sub_slices {
             sub_slice.reset();
@@ -2077,14 +2082,14 @@ impl TileCacheInstance {
         // which will provide a local clip rect. This is useful for establishing things
         // like whether the backdrop rect supplied by Gecko can be considered opaque.
         if let Some(shared_clip_leaf_id) = self.shared_clip_leaf_id {
-            let map_local_to_surface = SpaceMapper::new(
+            let map_local_to_picture = SpaceMapper::new(
                 self.spatial_node_index,
                 pic_rect,
             );
 
             frame_state.clip_store.set_active_clips(
                 self.spatial_node_index,
-                map_local_to_surface.ref_spatial_node_index,
+                map_local_to_picture.ref_spatial_node_index,
                 shared_clip_leaf_id,
                 frame_context.spatial_tree,
                 &mut frame_state.data_stores.clip,
@@ -2093,7 +2098,7 @@ impl TileCacheInstance {
 
             let clip_chain_instance = frame_state.clip_store.build_clip_chain_instance(
                 pic_rect.cast_unit(),
-                &map_local_to_surface,
+                &map_local_to_picture,
                 &pic_to_world_mapper,
                 frame_context.spatial_tree,
                 frame_state.gpu_cache,
@@ -2184,29 +2189,29 @@ impl TileCacheInstance {
         );
 
         // Get the compositor transform, which depends on pinch-zoom mode
-        let mut surface_to_device = local_to_device;
+        let mut raster_to_device = local_to_device;
 
         if frame_context.config.low_quality_pinch_zoom {
-            surface_to_device.scale.x /= self.current_raster_scale;
-            surface_to_device.scale.y /= self.current_raster_scale;
+            raster_to_device.scale.x /= self.current_raster_scale;
+            raster_to_device.scale.y /= self.current_raster_scale;
         } else {
-            surface_to_device.scale.x = 1.0;
-            surface_to_device.scale.y = 1.0;
+            raster_to_device.scale.x = 1.0;
+            raster_to_device.scale.y = 1.0;
         }
 
         // Use that compositor transform to calculate a relative local to surface
-        let local_to_surface = local_to_device.accumulate(&surface_to_device.inverse());
+        let local_to_raster = local_to_device.accumulate(&raster_to_device.inverse());
 
         const EPSILON: f32 = 0.001;
         let compositor_translation_changed =
-            !surface_to_device.offset.x.approx_eq_eps(&self.surface_to_device.offset.x, &EPSILON) ||
-            !surface_to_device.offset.y.approx_eq_eps(&self.surface_to_device.offset.y, &EPSILON);
+            !raster_to_device.offset.x.approx_eq_eps(&self.raster_to_device.offset.x, &EPSILON) ||
+            !raster_to_device.offset.y.approx_eq_eps(&self.raster_to_device.offset.y, &EPSILON);
         let compositor_scale_changed =
-            !surface_to_device.scale.x.approx_eq_eps(&self.surface_to_device.scale.x, &EPSILON) ||
-            !surface_to_device.scale.y.approx_eq_eps(&self.surface_to_device.scale.y, &EPSILON);
+            !raster_to_device.scale.x.approx_eq_eps(&self.raster_to_device.scale.x, &EPSILON) ||
+            !raster_to_device.scale.y.approx_eq_eps(&self.raster_to_device.scale.y, &EPSILON);
         let surface_scale_changed =
-            !local_to_surface.scale.x.approx_eq_eps(&self.local_to_surface.scale.x, &EPSILON) ||
-            !local_to_surface.scale.y.approx_eq_eps(&self.local_to_surface.scale.y, &EPSILON);
+            !local_to_raster.scale.x.approx_eq_eps(&self.local_to_raster.scale.x, &EPSILON) ||
+            !local_to_raster.scale.y.approx_eq_eps(&self.local_to_raster.scale.y, &EPSILON);
 
         if compositor_translation_changed ||
            compositor_scale_changed ||
@@ -2215,8 +2220,8 @@ impl TileCacheInstance {
             frame_state.composite_state.dirty_rects_are_valid = false;
         }
 
-        self.surface_to_device = surface_to_device;
-        self.local_to_surface = local_to_surface;
+        self.raster_to_device = raster_to_device;
+        self.local_to_raster = local_to_raster;
         self.invalidate_all_tiles = surface_scale_changed || frame_context.config.force_invalidation;
 
         // Do a hacky diff of opacity binding values from the last frame. This is
@@ -2259,8 +2264,8 @@ impl TileCacheInstance {
         );
 
         self.tile_size = PictureSize::new(
-            world_tile_size.width / self.local_to_surface.scale.x,
-            world_tile_size.height / self.local_to_surface.scale.y,
+            world_tile_size.width / self.local_to_raster.scale.x,
+            world_tile_size.height / self.local_to_raster.scale.y,
         );
 
         // Inflate the needed rect a bit, so that we retain tiles that we have drawn
@@ -2456,6 +2461,7 @@ impl TileCacheInstance {
         is_root_tile_cache: bool,
         sub_slice_index: usize,
         surface_kind: CompositorSurfaceKind,
+        pic_coverage_rect: PictureRect,
         frame_context: &FrameVisibilityContext,
     ) -> SurfacePromotionResult {
         // Check if this primitive _wants_ to be promoted to a compositor surface.
@@ -2474,8 +2480,7 @@ impl TileCacheInstance {
                 }
 
                 // If a complex clip is being applied to this primitive, it can't be
-                // promoted directly to a compositor surface unless it's opaque (in
-                // which case we draw as an underlay + alpha cutout)
+                // promoted directly to a compositor surface.
                 if prim_clip_chain.needs_mask {
                     return SurfacePromotionResult::Failed;
                 }
@@ -2484,6 +2489,12 @@ impl TileCacheInstance {
                 // Underlay strategy relies on the slice being opaque if a mask is needed,
                 // and only one underlay can rely on a mask.
                 if prim_clip_chain.needs_mask && (self.backdrop.kind.is_none() || !self.underlays.is_empty()) {
+                    return SurfacePromotionResult::Failed;
+                }
+
+                // Underlays can't appear on top of overlays, because they can't punch
+                // through the existing overlay.
+                if self.overlay_region.intersects(&pic_coverage_rect) {
                     return SurfacePromotionResult::Failed;
                 }
             }
@@ -2531,6 +2542,7 @@ impl TileCacheInstance {
         color_depth: ColorDepth,
         color_space: YuvRangedColorSpace,
         format: YuvFormat,
+        surface_kind: CompositorSurfaceKind,
     ) -> bool {
         for &key in api_keys {
             if key != ImageKey::DUMMY {
@@ -2564,7 +2576,7 @@ impl TileCacheInstance {
             composite_state,
             image_rendering,
             true,
-            CompositorSurfaceKind::Underlay,
+            surface_kind,
         )
     }
 
@@ -2642,7 +2654,7 @@ impl TileCacheInstance {
         is_opaque: bool,
         surface_kind: CompositorSurfaceKind,
     ) -> bool {
-        let map_local_to_surface = SpaceMapper::new_with_target(
+        let map_local_to_picture = SpaceMapper::new_with_target(
             self.spatial_node_index,
             prim_spatial_node_index,
             self.local_rect,
@@ -2650,7 +2662,7 @@ impl TileCacheInstance {
         );
 
         // Map the primitive local rect into picture space.
-        let prim_rect = match map_local_to_surface.map(&local_prim_rect) {
+        let prim_rect = match map_local_to_picture.map(&local_prim_rect) {
             Some(rect) => rect,
             None => return true,
         };
@@ -2686,8 +2698,8 @@ impl TileCacheInstance {
 
         let normalized_prim_to_device = prim_offset.accumulate(&local_prim_to_device);
 
-        let local_to_surface = ScaleOffset::identity();
-        let surface_to_device = normalized_prim_to_device;
+        let local_to_raster = ScaleOffset::identity();
+        let raster_to_device = normalized_prim_to_device;
 
         // If this primitive is an external image, and supports being used
         // directly by a native compositor, then lookup the external image id
@@ -2705,14 +2717,14 @@ impl TileCacheInstance {
         if let CompositorKind::Native { capabilities, .. } = composite_state.compositor_kind {
             if external_image_id.is_some() &&
                !capabilities.supports_external_compositor_surface_negative_scaling &&
-               (surface_to_device.scale.x < 0.0 || surface_to_device.scale.y < 0.0) {
+               (raster_to_device.scale.x < 0.0 || raster_to_device.scale.y < 0.0) {
                 external_image_id = None;
             }
         }
 
         let compositor_transform_index = composite_state.register_transform(
-            local_to_surface,
-            surface_to_device,
+            local_to_raster,
+            raster_to_device,
         );
 
         let surface_size = composite_state.get_surface_rect(
@@ -2854,6 +2866,11 @@ impl TileCacheInstance {
                     is_opaque,
                     descriptor,
                 });
+
+                // Add the pic_coverage_rect to the overlay region. This prevents
+                // future promoted surfaces from becoming underlays if they would
+                // intersect with the overlay region.
+                self.overlay_region = self.overlay_region.union(&pic_coverage_rect);
             }
             CompositorSurfaceKind::Blit => unreachable!(),
         }
@@ -2874,14 +2891,14 @@ impl TileCacheInstance {
     ) {
         // Only need to evaluate sub-slice regions if we have compositor surfaces present
         if self.current_surface_traversal_depth == 0 && self.sub_slices.len() > 1 {
-            let map_local_to_surface = SpaceMapper::new_with_target(
+            let map_local_to_picture = SpaceMapper::new_with_target(
                 self.spatial_node_index,
                 surface_spatial_node_index,
                 self.local_rect,
                 spatial_tree,
             );
 
-            if let Some(pic_rect) = map_local_to_surface.map(&estimated_local_rect) {
+            if let Some(pic_rect) = map_local_to_picture.map(&estimated_local_rect) {
                 // Find the first sub-slice we can add this primitive to (we want to add
                 // prims to the primary surface if possible, so they get subpixel AA).
                 for sub_slice in &mut self.sub_slices {
@@ -2940,17 +2957,17 @@ impl TileCacheInstance {
 
         // If the primitive is directly drawn onto this picture cache surface, then
         // the pic_coverage_rect is in the same space. If not, we need to map it from
-        // the surface space into the picture cache space.
+        // the intermediate picture space into the picture cache space.
         let on_picture_surface = prim_surface_index == self.surface_index;
         let pic_coverage_rect = if on_picture_surface {
             prim_clip_chain.pic_coverage_rect
         } else {
-            // We want to get the rect in the tile cache surface space that this primitive
+            // We want to get the rect in the tile cache picture space that this primitive
             // occupies, in order to enable correct invalidation regions. Each surface
             // that exists in the chain between this primitive and the tile cache surface
             // may have an arbitrary inflation factor (for example, in the case of a series
             // of nested blur elements). To account for this, step through the current
-            // surface stack, mapping the primitive rect into each surface space, including
+            // surface stack, mapping the primitive rect into each picture space, including
             // the inflation factor from each intermediate surface.
             let mut current_pic_coverage_rect = prim_clip_chain.pic_coverage_rect;
             let mut current_spatial_node_index = surfaces[prim_surface_index.0]
@@ -2960,7 +2977,7 @@ impl TileCacheInstance {
                 let surface = &surfaces[surface_index.0];
                 let pic = &pictures[pic_index.0];
 
-                let map_local_to_surface = SpaceMapper::new_with_target(
+                let map_local_to_parent = SpaceMapper::new_with_target(
                     surface.surface_spatial_node_index,
                     current_spatial_node_index,
                     surface.unclipped_local_rect,
@@ -2970,7 +2987,7 @@ impl TileCacheInstance {
                 // Map the rect into the parent surface, and inflate if this surface requires
                 // it. If the rect can't be mapping (e.g. due to an invalid transform) then
                 // just bail out from the dependencies and cull this primitive.
-                current_pic_coverage_rect = match map_local_to_surface.map(&current_pic_coverage_rect) {
+                current_pic_coverage_rect = match map_local_to_parent.map(&current_pic_coverage_rect) {
                     Some(rect) => {
                         // TODO(gw): The casts here are a hack. We have some interface inconsistencies
                         //           between layout/picture rects which don't really work with the
@@ -3137,6 +3154,7 @@ impl TileCacheInstance {
                                                   is_root_tile_cache,
                                                   sub_slice_index,
                                                   CompositorSurfaceKind::Overlay,
+                                                  pic_coverage_rect,
                                                   frame_context) {
                     SurfacePromotionResult::Failed => {
                     }
@@ -3189,18 +3207,35 @@ impl TileCacheInstance {
             }
             PrimitiveInstanceKind::YuvImage { data_handle, ref mut compositor_surface_kind, .. } => {
                 let prim_data = &data_stores.yuv_image[data_handle];
-                let mut promote_to_surface = match self.can_promote_to_surface(
-                                            prim_data.common.flags,
-                                            prim_clip_chain,
-                                            prim_spatial_node_index,
-                                            is_root_tile_cache,
-                                            sub_slice_index,
-                                            CompositorSurfaceKind::Underlay,
-                                            frame_context) {
-                    SurfacePromotionResult::Failed => false,
-                    SurfacePromotionResult::Success => true,
+
+                let clip_on_top = prim_clip_chain.needs_mask;
+                let prefer_underlay = clip_on_top || !cfg!(target_os = "macos");
+                let promotion_attempts = if prefer_underlay {
+                    [CompositorSurfaceKind::Underlay, CompositorSurfaceKind::Overlay]
+                } else {
+                    [CompositorSurfaceKind::Overlay, CompositorSurfaceKind::Underlay]
                 };
 
+                let mut promotion_kind = None;
+                for kind in promotion_attempts {
+                    let success = match self.can_promote_to_surface(
+                                                prim_data.common.flags,
+                                                prim_clip_chain,
+                                                prim_spatial_node_index,
+                                                is_root_tile_cache,
+                                                sub_slice_index,
+                                                kind,
+                                                pic_coverage_rect,
+                                                frame_context) {
+                        SurfacePromotionResult::Failed => false,
+                        SurfacePromotionResult::Success => true,
+                    };
+                    if success {
+                        promotion_kind = Some(kind);
+                        break;
+                    }
+                }
+                
                 // TODO(gw): When we support RGBA images for external surfaces, we also
                 //           need to check if opaque (YUV images are implicitly opaque).
 
@@ -3209,7 +3244,7 @@ impl TileCacheInstance {
                 // add the image keys for this primitive as a dependency if this is _not_
                 // a promoted surface, since we don't want the tiles to invalidate when the
                 // video content changes, if it's a compositor surface!
-                if promote_to_surface {
+                if let Some(kind) = promotion_kind {
                     // Build dependency for each YUV plane, with current image generation for
                     // later detection of when the composited surface has changed.
                     let mut image_dependencies = [ImageDependency::INVALID; 3];
@@ -3220,7 +3255,7 @@ impl TileCacheInstance {
                         }
                     }
 
-                    promote_to_surface = self.setup_compositor_surfaces_yuv(
+                    let success = self.setup_compositor_surfaces_yuv(
                         sub_slice_index,
                         &mut prim_info,
                         prim_data.common.flags,
@@ -3237,15 +3272,22 @@ impl TileCacheInstance {
                         prim_data.kind.color_depth,
                         prim_data.kind.color_space.with_range(prim_data.kind.color_range),
                         prim_data.kind.format,
+                        kind,
                     );
+                    if !success {
+                        promotion_kind = None;
+                    }
                 }
 
                 // Store on the YUV primitive instance whether this is a promoted surface.
                 // This is used by the batching code to determine whether to draw the
                 // image to the content tiles, or just a transparent z-write.
-
-                if promote_to_surface {
-                    *compositor_surface_kind = CompositorSurfaceKind::Underlay;
+                if let Some(kind) = promotion_kind {
+                    *compositor_surface_kind = kind;
+                    if kind == CompositorSurfaceKind::Overlay {
+                        prim_instance.vis.state = VisibilityState::Culled;
+                        return;
+                    } 
                 } else {
                     *compositor_surface_kind = CompositorSurfaceKind::Blit;
 
@@ -3596,10 +3638,10 @@ impl TileCacheInstance {
         self.subpixel_mode = self.calculate_subpixel_mode();
 
         self.transform_index = frame_state.composite_state.register_transform(
-            self.local_to_surface,
+            self.local_to_raster,
             // TODO(gw): Once we support scaling of picture cache tiles during compositing,
             //           that transform gets plugged in here!
-            self.surface_to_device,
+            self.raster_to_device,
         );
 
         let map_pic_to_world = SpaceMapper::new_with_target(
@@ -3821,7 +3863,7 @@ pub struct SurfaceIndex(pub usize);
 /// frames and display lists.
 pub struct SurfaceInfo {
     /// A local rect defining the size of this surface, in the
-    /// coordinate system of the surface itself. This contains
+    /// coordinate system of the parent surface. This contains
     /// the unclipped bounding rect of child primitives.
     pub unclipped_local_rect: PictureRect,
     /// The local space coverage of child primitives after they are
@@ -3833,12 +3875,12 @@ pub struct SurfaceInfo {
     /// to reduce the size of render target allocation.
     pub clipping_rect: PictureRect,
     /// Helper structs for mapping local rects in different
-    /// coordinate systems into the surface coordinates.
-    pub map_local_to_surface: SpaceMapper<LayoutPixel, PicturePixel>,
-    /// Defines the positioning node for the surface itself,
-    /// and the rasterization root for this surface.
-    pub raster_spatial_node_index: SpatialNodeIndex,
+    /// coordinate systems into the picture coordinates.
+    pub map_local_to_picture: SpaceMapper<LayoutPixel, PicturePixel>,
+    /// The positioning node for the surface itself,
     pub surface_spatial_node_index: SpatialNodeIndex,
+    /// The rasterization root for this surface.
+    pub raster_spatial_node_index: SpatialNodeIndex,
     /// The device pixel ratio specific to this surface.
     pub device_pixel_scale: DevicePixelScale,
     /// The scale factors of the surface to world transform.
@@ -3874,7 +3916,7 @@ impl SurfaceInfo {
             .unmap(&map_surface_to_world.bounds)
             .unwrap_or_else(PictureRect::max_rect);
 
-        let map_local_to_surface = SpaceMapper::new(
+        let map_local_to_picture = SpaceMapper::new(
             surface_spatial_node_index,
             pic_bounds,
         );
@@ -3884,7 +3926,7 @@ impl SurfaceInfo {
             clipped_local_rect: PictureRect::zero(),
             is_opaque: false,
             clipping_rect: PictureRect::zero(),
-            map_local_to_surface,
+            map_local_to_picture,
             raster_spatial_node_index,
             surface_spatial_node_index,
             device_pixel_scale,
@@ -4048,6 +4090,8 @@ pub enum PictureCompositeMode {
     },
     /// Apply an SVG filter
     SvgFilter(Vec<FilterPrimitive>, Vec<SFilterData>),
+    /// Apply an SVG filter graph
+    SVGFEGraph(Vec<(FilterGraphNode, FilterGraphOp)>),
     /// A surface that is used as an input to another primitive
     IntermediateSurface,
 }
@@ -4136,6 +4180,9 @@ impl PictureCompositeMode {
                     result_rect = result_rect.union(&output_rect);
                 }
                 result_rect
+            }
+            PictureCompositeMode::SVGFEGraph(ref filters) => {
+                self.get_coverage_svgfe(filters, surface_rect.cast_unit(), true, false).0
             }
             _ => {
                 surface_rect
@@ -4232,10 +4279,337 @@ impl PictureCompositeMode {
                 }
                 result_rect
             }
+            PictureCompositeMode::SVGFEGraph(ref filters) => {
+                let mut rect = self.get_coverage_svgfe(filters, surface_rect.cast_unit(), true, true).0;
+                // Inflate a bit for invalidation purposes, but we don't do this in get_surface_rects or get_surface_rect.'
+                if !rect.is_empty() {
+                    rect = rect.inflate(1.0, 1.0);
+                }
+                rect
+            }
             _ => {
                 surface_rect
             }
         }
+    }
+
+    /// Returns a static str describing the type of PictureCompositeMode (and
+    /// filter type if applicable)
+    pub fn kind(&self) -> &'static str {
+        match *self {
+            PictureCompositeMode::Blit(..) => "Blit",
+            PictureCompositeMode::ComponentTransferFilter(..) => "ComponentTransferFilter",
+            PictureCompositeMode::IntermediateSurface => "IntermediateSurface",
+            PictureCompositeMode::MixBlend(..) => "MixBlend",
+            PictureCompositeMode::SVGFEGraph(..) => "SVGFEGraph",
+            PictureCompositeMode::SvgFilter(..) => "SvgFilter",
+            PictureCompositeMode::TileCache{..} => "TileCache",
+            PictureCompositeMode::Filter(Filter::Blur{..}) => "Filter::Blur",
+            PictureCompositeMode::Filter(Filter::Brightness(..)) => "Filter::Brightness",
+            PictureCompositeMode::Filter(Filter::ColorMatrix(..)) => "Filter::ColorMatrix",
+            PictureCompositeMode::Filter(Filter::ComponentTransfer) => "Filter::ComponentTransfer",
+            PictureCompositeMode::Filter(Filter::Contrast(..)) => "Filter::Contrast",
+            PictureCompositeMode::Filter(Filter::DropShadows(..)) => "Filter::DropShadows",
+            PictureCompositeMode::Filter(Filter::Flood(..)) => "Filter::Flood",
+            PictureCompositeMode::Filter(Filter::Grayscale(..)) => "Filter::Grayscale",
+            PictureCompositeMode::Filter(Filter::HueRotate(..)) => "Filter::HueRotate",
+            PictureCompositeMode::Filter(Filter::Identity) => "Filter::Identity",
+            PictureCompositeMode::Filter(Filter::Invert(..)) => "Filter::Invert",
+            PictureCompositeMode::Filter(Filter::LinearToSrgb) => "Filter::LinearToSrgb",
+            PictureCompositeMode::Filter(Filter::Opacity(..)) => "Filter::Opacity",
+            PictureCompositeMode::Filter(Filter::Saturate(..)) => "Filter::Saturate",
+            PictureCompositeMode::Filter(Filter::Sepia(..)) => "Filter::Sepia",
+            PictureCompositeMode::Filter(Filter::SrgbToLinear) => "Filter::SrgbToLinear",
+            PictureCompositeMode::Filter(Filter::SVGGraphNode(..)) => "Filter::SVGGraphNode",
+        }
+    }
+
+    /// Here we compute the source and target rects for SVGFEGraph by walking
+    /// the whole graph and propagating subregions based on the provided
+    /// invalidation rect (in either source or target space), and we want it to
+    /// be a tight fit so we don't waste time applying multiple filters to
+    /// pixels that do not contribute to the invalidated rect.
+    ///
+    /// The interesting parts of the handling of SVG filters are:
+    /// * scene_building.rs : wrap_prim_with_filters
+    /// * picture.rs : get_coverage_svgfe (you are here)
+    /// * render_task.rs : new_svg_filter_graph
+    /// * render_target.rs : add_svg_filter_node_instances
+    pub fn get_coverage_svgfe(
+        &self,
+        filters: &[(FilterGraphNode, FilterGraphOp)],
+        surface_rect: LayoutRect,
+        surface_rect_is_source: bool,
+        skip_subregion_clips: bool,
+    ) -> (LayoutRect, LayoutRect, LayoutRect) {
+
+        // The value of BUFFER_LIMIT here must be the same as in
+        // scene_building.rs, or we'll hit asserts here.
+        const BUFFER_LIMIT: usize = 256;
+
+        fn calc_target_from_source(
+            source_rect: LayoutRect,
+            filters: &[(FilterGraphNode, FilterGraphOp)],
+            skip_subregion_clips: bool,
+        ) -> LayoutRect {
+            // We need to evaluate the subregions based on the proposed
+            // SourceGraphic rect as it isn't known at scene build time.
+            let mut subregion_by_buffer_id: [LayoutRect; BUFFER_LIMIT] = [LayoutRect::zero(); BUFFER_LIMIT];
+            for (id, (node, op)) in filters.iter().enumerate() {
+                let full_subregion = node.subregion;
+                let mut used_subregion = LayoutRect::zero();
+                for input in &node.inputs {
+                    match input.buffer_id {
+                        FilterOpGraphPictureBufferId::BufferId(id) => {
+                            assert!((id as usize) < BUFFER_LIMIT, "BUFFER_LIMIT must be the same in frame building and scene building");
+                            // This id lookup should always succeed.
+                            let input_subregion = subregion_by_buffer_id[id as usize];
+                            // Now add the padding that transforms from
+                            // source to target, this was determined during
+                            // scene build based on the operation.
+                            let input_subregion =
+                                LayoutRect::new(
+                                    LayoutPoint::new(
+                                        input_subregion.min.x + input.target_padding.min.x,
+                                        input_subregion.min.y + input.target_padding.min.y,
+                                    ),
+                                    LayoutPoint::new(
+                                        input_subregion.max.x + input.target_padding.max.x,
+                                        input_subregion.max.y + input.target_padding.max.y,
+                                    ),
+                                );
+                            used_subregion = used_subregion
+                                .union(&input_subregion);
+                        }
+                        FilterOpGraphPictureBufferId::None => {
+                            panic!("Unsupported BufferId type");
+                        }
+                    }
+                }
+                // We can clip the used subregion.
+                if !skip_subregion_clips {
+                    used_subregion = used_subregion
+                        .intersection(&full_subregion)
+                        .unwrap_or(LayoutRect::zero());
+                }
+                match op {
+                    FilterGraphOp::SVGFEBlendColor => {}
+                    FilterGraphOp::SVGFEBlendColorBurn => {}
+                    FilterGraphOp::SVGFEBlendColorDodge => {}
+                    FilterGraphOp::SVGFEBlendDarken => {}
+                    FilterGraphOp::SVGFEBlendDifference => {}
+                    FilterGraphOp::SVGFEBlendExclusion => {}
+                    FilterGraphOp::SVGFEBlendHardLight => {}
+                    FilterGraphOp::SVGFEBlendHue => {}
+                    FilterGraphOp::SVGFEBlendLighten => {}
+                    FilterGraphOp::SVGFEBlendLuminosity => {}
+                    FilterGraphOp::SVGFEBlendMultiply => {}
+                    FilterGraphOp::SVGFEBlendNormal => {}
+                    FilterGraphOp::SVGFEBlendOverlay => {}
+                    FilterGraphOp::SVGFEBlendSaturation => {}
+                    FilterGraphOp::SVGFEBlendScreen => {}
+                    FilterGraphOp::SVGFEBlendSoftLight => {}
+                    FilterGraphOp::SVGFEColorMatrix { values } => {
+                        if values[3] != 0.0 ||
+                            values[7] != 0.0 ||
+                            values[11] != 0.0 ||
+                            values[19] != 0.0 {
+                            // Manipulating alpha can easily create new
+                            // pixels outside of input subregions
+                            used_subregion = full_subregion;
+                        }
+                    }
+                    FilterGraphOp::SVGFEComponentTransfer => unreachable!(),
+                    FilterGraphOp::SVGFEComponentTransferInterned{handle: _, creates_pixels} => {
+                        // Check if the value of alpha[0] is modified, if so
+                        // the whole subregion is used because it will be
+                        // creating new pixels outside of input subregions
+                        if *creates_pixels {
+                            used_subregion = full_subregion;
+                        }
+                    }
+                    FilterGraphOp::SVGFECompositeArithmetic { k1, k2, k3, k4 } => {
+                        // Optimization opportunity - some inputs may be
+                        // smaller subregions due to the way the math works,
+                        // k1 is the intersection of the two inputs, k2 is
+                        // the first input only, k3 is the second input
+                        // only, and k4 changes the whole subregion.
+                        //
+                        // See logic for SVG_FECOMPOSITE_OPERATOR_ARITHMETIC
+                        // in FilterSupport.cpp
+                        //
+                        // We can at least ignore the entire node if
+                        // everything is zero.
+                        if *k1 <= 0.0 &&
+                            *k2 <= 0.0 &&
+                            *k3 <= 0.0 {
+                            used_subregion = LayoutRect::zero();
+                        }
+                        // Check if alpha is added to pixels as it means it
+                        // can fill pixels outside input subregions
+                        if *k4 > 0.0 {
+                            used_subregion = full_subregion;
+                        }
+                    }
+                    FilterGraphOp::SVGFECompositeATop => {}
+                    FilterGraphOp::SVGFECompositeIn => {}
+                    FilterGraphOp::SVGFECompositeLighter => {}
+                    FilterGraphOp::SVGFECompositeOut => {}
+                    FilterGraphOp::SVGFECompositeOver => {}
+                    FilterGraphOp::SVGFECompositeXOR => {}
+                    FilterGraphOp::SVGFEConvolveMatrixEdgeModeDuplicate{..} => {}
+                    FilterGraphOp::SVGFEConvolveMatrixEdgeModeNone{..} => {}
+                    FilterGraphOp::SVGFEConvolveMatrixEdgeModeWrap{..} => {}
+                    FilterGraphOp::SVGFEDiffuseLightingDistant{..} => {}
+                    FilterGraphOp::SVGFEDiffuseLightingPoint{..} => {}
+                    FilterGraphOp::SVGFEDiffuseLightingSpot{..} => {}
+                    FilterGraphOp::SVGFEDisplacementMap{..} => {}
+                    FilterGraphOp::SVGFEDropShadow{..} => {}
+                    FilterGraphOp::SVGFEFlood { color } => {
+                        // Subregion needs to be set to the full node
+                        // subregion for fills (unless the fill is a no-op)
+                        if color.a > 0.0 {
+                            used_subregion = full_subregion;
+                        }
+                    }
+                    FilterGraphOp::SVGFEGaussianBlur{..} => {}
+                    FilterGraphOp::SVGFEIdentity => {}
+                    FilterGraphOp::SVGFEImage { sampling_filter: _sampling_filter, matrix: _matrix } => {
+                        // TODO: calculate the actual subregion
+                        used_subregion = full_subregion;
+                    }
+                    FilterGraphOp::SVGFEMorphologyDilate{..} => {}
+                    FilterGraphOp::SVGFEMorphologyErode{..} => {}
+                    FilterGraphOp::SVGFEOpacity { valuebinding: _valuebinding, value } => {
+                        // If fully transparent, we can ignore this node
+                        if *value <= 0.0 {
+                            used_subregion = LayoutRect::zero();
+                        }
+                    }
+                    FilterGraphOp::SVGFESourceAlpha |
+                    FilterGraphOp::SVGFESourceGraphic => {
+                        used_subregion = source_rect;
+                    }
+                    FilterGraphOp::SVGFESpecularLightingDistant{..} => {}
+                    FilterGraphOp::SVGFESpecularLightingPoint{..} => {}
+                    FilterGraphOp::SVGFESpecularLightingSpot{..} => {}
+                    FilterGraphOp::SVGFETile => {
+                        // feTile fills the entire output with
+                        // source pixels, so it's effectively a flood.
+                        used_subregion = full_subregion;
+                    }
+                    FilterGraphOp::SVGFEToAlpha => {}
+                    FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithNoStitching{..} |
+                    FilterGraphOp::SVGFETurbulenceWithFractalNoiseWithStitching{..} |
+                    FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithNoStitching{..} |
+                    FilterGraphOp::SVGFETurbulenceWithTurbulenceNoiseWithStitching{..} => {
+                        // Turbulence produces pixel values throughout the
+                        // node subregion.
+                        used_subregion = full_subregion;
+                    }
+                }
+                // Store the subregion so later nodes can refer back
+                // to this and propagate rects properly
+                assert!((id as usize) < BUFFER_LIMIT, "BUFFER_LIMIT must be the same in frame building and scene building");
+                subregion_by_buffer_id[id] = used_subregion;
+            }
+            subregion_by_buffer_id[filters.len() - 1]
+        }
+
+        fn calc_source_from_target(
+            target_rect: LayoutRect,
+            filters: &[(FilterGraphNode, FilterGraphOp)],
+            skip_subregion_clips: bool,
+        ) -> LayoutRect {
+            // We're solving the source rect from target rect (e.g. due
+            // to invalidation of a region, we need to know how much of
+            // SourceGraphic is needed to draw that region accurately),
+            // so we need to walk the DAG in reverse and accumulate the source
+            // subregion for each input onto the referenced node, which can then
+            // propagate that to its inputs when it is iterated.
+            let mut source_subregion = LayoutRect::zero();
+            let mut subregion_by_buffer_id: [LayoutRect; BUFFER_LIMIT] =
+                [LayoutRect::zero(); BUFFER_LIMIT];
+            let final_buffer_id = filters.len() - 1;
+            assert!(final_buffer_id < BUFFER_LIMIT, "BUFFER_LIMIT must be the same in frame building and scene building");
+            subregion_by_buffer_id[final_buffer_id] = target_rect;
+            for (node_buffer_id, (node, op)) in filters.iter().enumerate().rev() {
+                // This is the subregion this node outputs, we can clip
+                // the inputs based on source_padding relative to this,
+                // and accumulate a new subregion for them.
+                assert!(node_buffer_id < BUFFER_LIMIT, "BUFFER_LIMIT must be the same in frame building and scene building");
+                let full_subregion = node.subregion;
+                let mut used_subregion =
+                    subregion_by_buffer_id[node_buffer_id];
+                // We can clip the used subregion.
+                if !skip_subregion_clips {
+                    used_subregion = used_subregion
+                        .intersection(&full_subregion)
+                        .unwrap_or(LayoutRect::zero());
+                }
+                if !used_subregion.is_empty() {
+                    for input in &node.inputs {
+                        let input_subregion = LayoutRect::new(
+                            LayoutPoint::new(
+                                used_subregion.min.x + input.source_padding.min.x,
+                                used_subregion.min.y + input.source_padding.min.y,
+                            ),
+                            LayoutPoint::new(
+                                used_subregion.max.x + input.source_padding.max.x,
+                                used_subregion.max.y + input.source_padding.max.y,
+                            ),
+                        );
+                        match input.buffer_id {
+                            FilterOpGraphPictureBufferId::BufferId(id) => {
+                                // Add the used area to the input, later when
+                                // the referneced node is iterated as a node it
+                                // will propagate the used bounds.
+                                subregion_by_buffer_id[id as usize] =
+                                    subregion_by_buffer_id[id as usize]
+                                    .union(&input_subregion);
+                            }
+                            FilterOpGraphPictureBufferId::None => {}
+                        }
+                    }
+                }
+                // If this is the SourceGraphic, we now have the subregion.
+                match op {
+                    FilterGraphOp::SVGFESourceAlpha |
+                    FilterGraphOp::SVGFESourceGraphic => {
+                        source_subregion = used_subregion;
+                    }
+                    _ => {}
+                }
+            }
+
+            // Note that this can be zero if SourceGraphic is not in the graph.
+            source_subregion
+        }
+
+        let (source, target) = match surface_rect_is_source {
+            true => {
+                // If we have a surface_rect for SourceGraphic, transform
+                // it to a target rect, and then transform the target
+                // rect back to a source rect (because blurs need the
+                // source to be enlarged).
+                let target = calc_target_from_source(surface_rect, filters, skip_subregion_clips);
+                let source = calc_source_from_target(target, filters, skip_subregion_clips);
+                (source, target)
+            }
+            false => {
+                // If we have a surface_rect for invalidation of target,
+                // we want to calculate the source rect from it
+                let target = surface_rect;
+                let source = calc_source_from_target(target, filters, skip_subregion_clips);
+                (source, target)
+            }
+        };
+
+        // Combine the source and target rect because other code assumes just
+        // a single rect expanded for blurs
+        let combined = source.union(&target);
+
+        (combined, source, target)
     }
 }
 
@@ -4358,10 +4732,8 @@ pub struct PrimitiveList {
     pub clusters: Vec<PrimitiveCluster>,
     pub child_pictures: Vec<PictureIndex>,
     /// The number of preferred compositor surfaces that were found when
-    /// adding prims to this list, which would be rendered as overlays
+    /// adding prims to this list, which might be rendered as overlays
     pub overlay_surface_count: usize,
-    /// If true, we found an opaque compositor surface
-    pub has_opaque_compositor_surface: bool,
     pub needs_scissor_rect: bool,
 }
 
@@ -4376,7 +4748,6 @@ impl PrimitiveList {
             child_pictures: Vec::new(),
             overlay_surface_count: 0,
             needs_scissor_rect: false,
-            has_opaque_compositor_surface: false,
         }
     }
 
@@ -4385,7 +4756,6 @@ impl PrimitiveList {
         self.child_pictures.extend(other.child_pictures);
         self.overlay_surface_count += other.overlay_surface_count;
         self.needs_scissor_rect |= other.needs_scissor_rect;
-        self.has_opaque_compositor_surface |= other.has_opaque_compositor_surface;
     }
 
     /// Add a primitive instance to the end of the list
@@ -4410,9 +4780,14 @@ impl PrimitiveList {
                 self.needs_scissor_rect = true;
             }
             PrimitiveInstanceKind::YuvImage { .. } => {
-                // Any YUV image that requests a compositor surface is implicitly opaque
+                // Any YUV image that requests a compositor surface is implicitly
+                // opaque. Though we might treat this prim as an underlay, which
+                // doesn't require an overlay surface, we add to the count anyway
+                // in case we opt to present it as an overlay. This means we may
+                // be allocating more subslices than we actually need, but it
+                // gives us maximum flexibility.
                 if prim_flags.contains(PrimitiveFlags::PREFER_COMPOSITOR_SURFACE) {
-                    self.has_opaque_compositor_surface = true;
+                    self.overlay_surface_count += 1;
                 }
             }
             PrimitiveInstanceKind::Image { .. } => {
@@ -4500,6 +4875,7 @@ pub struct PicturePrimitive {
     /// it will be considered invisible.
     pub is_backface_visible: bool,
 
+    /// All render tasks have 0-2 input tasks.
     pub primary_render_task_id: Option<RenderTaskId>,
     /// If a mix-blend-mode, contains the render task for
     /// the readback of the framebuffer that we use to sample
@@ -4507,6 +4883,8 @@ pub struct PicturePrimitive {
     /// For drop-shadow filter, this will store the original
     /// picture task which would be rendered on screen after
     /// blur pass.
+    /// This is also used by SVGFEBlend, SVGFEComposite and
+    /// SVGFEDisplacementMap filters.
     pub secondary_render_task_id: Option<RenderTaskId>,
     /// How this picture should be composited.
     /// If None, don't composite - just draw directly on parent surface.
@@ -4646,6 +5024,7 @@ impl PicturePrimitive {
         parent_subpixel_mode: SubpixelMode,
         frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
+        data_stores: &mut DataStores,
         scratch: &mut PrimitiveScratchBuffer,
         tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
     ) -> Option<(PictureContext, PictureState, PrimitiveList)> {
@@ -4701,6 +5080,23 @@ impl PicturePrimitive {
 
                 for (sub_slice_index, sub_slice) in tile_cache.sub_slices.iter_mut().enumerate() {
                     for tile in sub_slice.tiles.values_mut() {
+                        // Ensure that the dirty rect doesn't extend outside the local valid rect.
+                        tile.local_dirty_rect = tile.local_dirty_rect
+                            .intersection(&tile.current_descriptor.local_valid_rect)
+                            .unwrap_or_else(|| { tile.is_valid = true; PictureRect::zero() });
+
+                        let scissor_rect = frame_state.composite_state.get_surface_rect(
+                            &tile.local_dirty_rect,
+                            &tile.local_tile_rect,
+                            tile_cache.transform_index,
+                        ).to_i32();
+
+                        let valid_rect = frame_state.composite_state.get_surface_rect(
+                            &tile.current_descriptor.local_valid_rect,
+                            &tile.local_tile_rect,
+                            tile_cache.transform_index,
+                        ).to_i32();
+
                         if tile.is_visible {
                             // Get the world space rect that this tile will actually occupy on screen
                             let world_draw_rect = world_clip_rect.intersection(&tile.world_valid_rect);
@@ -4741,6 +5137,17 @@ impl PicturePrimitive {
                                 None => {
                                     tile.is_visible = false;
                                 }
+                            }
+
+                            // In extreme zoom/offset cases, we may end up with a local scissor/valid rect
+                            // that becomes empty after transformation to device space (e.g. if the local
+                            // rect height is 0.00001 and the compositor transform has large scale + offset).
+                            // DirectComposition panics if we try to BeginDraw with an empty rect, so catch
+                            // that here and mark the tile non-visible. This is a bit of a hack - we should
+                            // ideally handle these in a more accurate way so we don't end up with an empty
+                            // rect here.
+                            if !tile.is_valid && (scissor_rect.is_empty() || valid_rect.is_empty()) {
+                                tile.is_visible = false;
                             }
                         }
 
@@ -4834,10 +5241,11 @@ impl PicturePrimitive {
                             }
                         }
 
-                        // Ensure that the dirty rect doesn't extend outside the local valid rect.
+                        // Ensure - again - that the dirty rect doesn't extend outside the local valid rect,
+                        // as the tile could have been invalidated since the first computation.
                         tile.local_dirty_rect = tile.local_dirty_rect
                             .intersection(&tile.current_descriptor.local_valid_rect)
-                            .unwrap_or_else(PictureRect::zero);
+                            .unwrap_or_else(|| { tile.is_valid = true; PictureRect::zero() });
 
                         surface_local_dirty_rect = surface_local_dirty_rect.union(&tile.local_dirty_rect);
 
@@ -4947,14 +5355,9 @@ impl PicturePrimitive {
                                     tile_cache.current_tile_size,
                                 );
 
+                                // Recompute the scissor rect as the tile could have been invalidated since the first computation.
                                 let scissor_rect = frame_state.composite_state.get_surface_rect(
                                     &tile.local_dirty_rect,
-                                    &tile.local_tile_rect,
-                                    tile_cache.transform_index,
-                                ).to_i32();
-
-                                let valid_rect = frame_state.composite_state.get_surface_rect(
-                                    &tile.current_descriptor.local_valid_rect,
                                     &tile.local_tile_rect,
                                     tile_cache.transform_index,
                                 ).to_i32();
@@ -5746,6 +6149,47 @@ impl PicturePrimitive {
                             surface_rects.clipped_local,
                         );
                     }
+                    PictureCompositeMode::SVGFEGraph(ref filters) => {
+                        let cmd_buffer_index = frame_state.cmd_buffers.create_cmd_buffer();
+
+                        let picture_task_id = frame_state.rg_builder.add().init(
+                            RenderTask::new_dynamic(
+                                surface_rects.task_size,
+                                RenderTaskKind::new_picture(
+                                    surface_rects.task_size,
+                                    surface_rects.needs_scissor_rect,
+                                    surface_rects.clipped.min,
+                                    surface_spatial_node_index,
+                                    raster_spatial_node_index,
+                                    device_pixel_scale,
+                                    None,
+                                    None,
+                                    None,
+                                    cmd_buffer_index,
+                                    can_use_shared_surface,
+                                )
+                            ).with_uv_rect_kind(surface_rects.uv_rect_kind)
+                        );
+
+                        let filter_task_id = RenderTask::new_svg_filter_graph(
+                            filters,
+                            frame_state,
+                            data_stores,
+                            surface_rects.uv_rect_kind,
+                            picture_task_id,
+                            surface_rects.task_size,
+                            surface_rects.clipped,
+                            surface_rects.clipped_local,
+                        );
+
+                        primary_render_task_id = filter_task_id;
+
+                        surface_descriptor = SurfaceDescriptor::new_chained(
+                            picture_task_id,
+                            filter_task_id,
+                            surface_rects.clipped_local,
+                        );
+                    }
                 }
 
                 let is_sub_graph = self.flags.contains(PictureFlags::IS_SUB_GRAPH);
@@ -5792,7 +6236,8 @@ impl PicturePrimitive {
                     PictureCompositeMode::Filter(..) |
                     PictureCompositeMode::MixBlend(..) |
                     PictureCompositeMode::IntermediateSurface |
-                    PictureCompositeMode::SvgFilter(..) => {
+                    PictureCompositeMode::SvgFilter(..) |
+                    PictureCompositeMode::SVGFEGraph(..) => {
                         // TODO(gw): We can take advantage of the same logic that
                         //           exists in the opaque rect detection for tile
                         //           caches, to allow subpixel text on other surfaces
@@ -6292,7 +6737,7 @@ impl PicturePrimitive {
 
             // Map the cluster bounding rect into the space of the surface, and
             // include it in the surface bounding rect.
-            surface.map_local_to_surface.set_target_spatial_node(
+            surface.map_local_to_picture.set_target_spatial_node(
                 cluster.spatial_node_index,
                 frame_context.spatial_tree,
             );
@@ -6300,7 +6745,7 @@ impl PicturePrimitive {
             // Mark the cluster visible, since it passed the invertible and
             // backface checks.
             cluster.flags.insert(ClusterFlags::IS_VISIBLE);
-            if let Some(cluster_rect) = surface.map_local_to_surface.map(&cluster.bounding_rect) {
+            if let Some(cluster_rect) = surface.map_local_to_picture.map(&cluster.bounding_rect) {
                 surface.unclipped_local_rect = surface.unclipped_local_rect.union(&cluster_rect);
             }
         }
@@ -6317,7 +6762,7 @@ impl PicturePrimitive {
                 );
 
                 let parent_surface = &mut surfaces[parent_surface_index.0];
-                parent_surface.map_local_to_surface.set_target_spatial_node(
+                parent_surface.map_local_to_picture.set_target_spatial_node(
                     self.spatial_node_index,
                     frame_context.spatial_tree,
                 );
@@ -6326,7 +6771,7 @@ impl PicturePrimitive {
                 // rect of any surfaces to be composited in parent surfaces correctly.
 
                 if let Some(parent_surface_rect) = parent_surface
-                    .map_local_to_surface
+                    .map_local_to_picture
                     .map(&surface_rect)
                 {
                     parent_surface.unclipped_local_rect =
@@ -6425,6 +6870,18 @@ impl PicturePrimitive {
             PictureCompositeMode::Blit(_) |
             PictureCompositeMode::IntermediateSurface |
             PictureCompositeMode::SvgFilter(..) => {}
+            PictureCompositeMode::SVGFEGraph(ref filters) => {
+                // Update interned filter data
+                for (_node, op) in filters {
+                    match op {
+                        FilterGraphOp::SVGFEComponentTransferInterned { handle, creates_pixels: _ } => {
+                            let filter_data = &mut data_stores.filter_data[*handle];
+                            filter_data.update(frame_state);
+                        }
+                        _ => {}
+                    }
+                }
+            }
         }
 
         true
@@ -7109,6 +7566,38 @@ fn get_surface_rects(
     let surface = &mut surfaces[surface_index.0];
 
     let (clipped_local, unclipped_local) = match composite_mode {
+        PictureCompositeMode::SVGFEGraph(ref filters) => {
+            // We need to get the primitive rect, and get_coverage for
+            // SVGFEGraph requires the provided rect is in user space (defined
+            // in SVG spec) for subregion calculations to work properly
+            let clipped: LayoutRect = surface.clipped_local_rect
+                .cast_unit();
+            let unclipped: LayoutRect = surface.unclipped_local_rect
+                .cast_unit();
+
+            // Get the rects of SourceGraphic and target based on the local rect
+            // and clip rect.
+            let (coverage, _source, target) = composite_mode.get_coverage_svgfe(
+                filters, clipped, true, false);
+
+            // If no part of the source rect contributes to target pixels, we're
+            // done here; this is the hot path for quick culling of composited
+            // pictures, where the view doesn't overlap the target.
+            //
+            // Note that the filter may contain fill regions such as feFlood
+            // which do not depend on the source at all, so the source rect is
+            // largely irrelevant to our decision here as it may be empty.
+            if target.is_empty() {
+                return None;
+            }
+
+            // Since the design of WebRender PictureCompositeMode does not
+            // actually permit source and target rects as separate concepts, we
+            // have to use the combined coverage rect.
+            let clipped = coverage;
+
+            (clipped.cast_unit(), unclipped)
+        }
         PictureCompositeMode::Filter(Filter::DropShadows(ref shadows)) => {
             let local_prim_rect = surface.clipped_local_rect;
 
@@ -7285,7 +7774,7 @@ fn test_large_surface_scale_1() {
     spatial_tree.apply_updates(cst.end_frame_and_get_pending_updates());
     spatial_tree.update_tree(&SceneProperties::new());
 
-    let map_local_to_surface = SpaceMapper::new_with_target(
+    let map_local_to_picture = SpaceMapper::new_with_target(
         root_reference_frame_index,
         root_reference_frame_index,
         PictureRect::max_rect(),
@@ -7298,7 +7787,7 @@ fn test_large_surface_scale_1() {
             clipped_local_rect: PictureRect::max_rect(),
             is_opaque: true,
             clipping_rect: PictureRect::max_rect(),
-            map_local_to_surface: map_local_to_surface.clone(),
+            map_local_to_picture: map_local_to_picture.clone(),
             raster_spatial_node_index: root_reference_frame_index,
             surface_spatial_node_index: root_reference_frame_index,
             device_pixel_scale: DevicePixelScale::new(1.0),
@@ -7315,7 +7804,7 @@ fn test_large_surface_scale_1() {
             clipped_local_rect: PictureRect::max_rect(),
             is_opaque: true,
             clipping_rect: PictureRect::max_rect(),
-            map_local_to_surface,
+            map_local_to_picture,
             raster_spatial_node_index: root_reference_frame_index,
             surface_spatial_node_index: root_reference_frame_index,
             device_pixel_scale: DevicePixelScale::new(43.82798767089844),
@@ -7354,7 +7843,7 @@ fn test_drop_filter_dirty_region_outside_prim() {
     spatial_tree.apply_updates(cst.end_frame_and_get_pending_updates());
     spatial_tree.update_tree(&SceneProperties::new());
 
-    let map_local_to_surface = SpaceMapper::new_with_target(
+    let map_local_to_picture = SpaceMapper::new_with_target(
         root_reference_frame_index,
         root_reference_frame_index,
         PictureRect::max_rect(),
@@ -7367,7 +7856,7 @@ fn test_drop_filter_dirty_region_outside_prim() {
             clipped_local_rect: PictureRect::max_rect(),
             is_opaque: true,
             clipping_rect: PictureRect::max_rect(),
-            map_local_to_surface: map_local_to_surface.clone(),
+            map_local_to_picture: map_local_to_picture.clone(),
             raster_spatial_node_index: root_reference_frame_index,
             surface_spatial_node_index: root_reference_frame_index,
             device_pixel_scale: DevicePixelScale::new(1.0),
@@ -7387,7 +7876,7 @@ fn test_drop_filter_dirty_region_outside_prim() {
             ),
             is_opaque: true,
             clipping_rect: PictureRect::max_rect(),
-            map_local_to_surface,
+            map_local_to_picture,
             raster_spatial_node_index: root_reference_frame_index,
             surface_spatial_node_index: root_reference_frame_index,
             device_pixel_scale: DevicePixelScale::new(1.0),
