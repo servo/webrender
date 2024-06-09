@@ -2832,7 +2832,7 @@ dependencies = [
 
 [[package]]
 name = "zng-peek-poke"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "euclid",
  "zng-peek-poke-derive",
@@ -2851,7 +2851,7 @@ dependencies = [
 
 [[package]]
 name = "zng-swgl"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "cc",
  "gleam",
@@ -2861,7 +2861,7 @@ dependencies = [
 
 [[package]]
 name = "zng-webrender"
-version = "0.62.2"
+version = "0.63.0"
 dependencies = [
  "bincode",
  "bitflags 2.5.0",
@@ -2898,7 +2898,7 @@ dependencies = [
 
 [[package]]
 name = "zng-webrender-api"
-version = "0.62.1"
+version = "0.63.0"
 dependencies = [
  "app_units",
  "bitflags 2.5.0",
@@ -2915,7 +2915,7 @@ dependencies = [
 
 [[package]]
 name = "zng-webrender-build"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "bitflags 2.5.0",
  "lazy_static",
@@ -2924,7 +2924,7 @@ dependencies = [
 
 [[package]]
 name = "zng-wr-glyph-rasterizer"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "core-foundation 0.9.4",
  "core-graphics 0.23.2",
