@@ -1,6 +1,6 @@
 [package]
 name = "zng-wr-glyph-rasterizer"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["The Mozilla Project Developers"]
 description = "A glyph rasterizer for WebRender"
 license = "MPL-2.0"

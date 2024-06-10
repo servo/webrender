@@ -1,6 +1,6 @@
 [package]
 name = "zng-webrender"
-version = "0.63.0"
+version = "0.63.1"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 repository = "https://github.com/zng-ui/zng-webrender"
@@ -46,7 +46,7 @@ smallvec = "1.13"
 api = { version = "0.63.0", path = "../webrender_api", package = "zng-webrender-api" }
 webrender_build = { version = "0.0.4", path = "../webrender_build", package = "zng-webrender-build" }
 malloc_size_of = { version = "0.0.3", path = "../wr_malloc_size_of", package = "zng-wr-malloc-size-of" }
-glyph_rasterizer = { version = "0.1.2", path = "../wr_glyph_rasterizer", package = "zng-wr-glyph-rasterizer", default-features = false }
+glyph_rasterizer = { version = "0.2.0", path = "../wr_glyph_rasterizer", package = "zng-wr-glyph-rasterizer", default-features = false }
 svg_fmt = "0.4"
 tracy-rs = "0.1.2"
 derive_more = { version = "0.99", default-features = false, features = ["add_assign"] }

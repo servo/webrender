@@ -2861,7 +2861,7 @@ dependencies = [
 
 [[package]]
 name = "zng-webrender"
-version = "0.63.0"
+version = "0.63.1"
 dependencies = [
  "bincode",
  "bitflags 2.5.0",
@@ -2924,7 +2924,7 @@ dependencies = [
 
 [[package]]
 name = "zng-wr-glyph-rasterizer"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "core-foundation 0.9.4",
  "core-graphics 0.23.2",
