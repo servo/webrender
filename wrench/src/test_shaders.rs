@@ -119,7 +119,7 @@ fn test_varying_explicit_precision(
 
 pub fn test_shaders() {
     let mut flags = ShaderFeatureFlags::all();
-    if cfg!(any(target_os = "windows", target_os = "android")) {
+    if cfg!(any(target_os = "windows", target_os = "android",  target_env = "ohos")) {
         flags.remove(ShaderFeatureFlags::GL);
     } else {
         flags.remove(ShaderFeatureFlags::GLES);

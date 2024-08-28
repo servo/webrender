@@ -128,9 +128,11 @@ fn write_optimized_shaders(
 
     // The full set of optimized shaders can be quite large, so only optimize
     // for the GL version we expect to be used on the target platform. If a different GL
-    // version is used we will simply fall back to the unoptimized shaders.
-    let shader_versions = match env::var("CARGO_CFG_TARGET_OS").as_ref().map(|s| &**s) {
-        Ok("android") | Ok("windows") => [ShaderVersion::Gles],
+    // version is used we will simply fall back to the unoptimized shaders. 
+    let target_os = env::var("CARGO_CFG_TARGET_OS").expect("Cargo error");
+    let target_env = env::var("CARGO_CFG_TARGET_ENV").expect("Cargo error");
+    let shader_versions = match (target_os.as_str(), target_env.as_str()) {
+        ("android", _) | ("windows", _) | ("linux", "ohos") => [ShaderVersion::Gles],
         _ => [ShaderVersion::Gl],
     };
 
