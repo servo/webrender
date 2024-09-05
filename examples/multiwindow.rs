@@ -41,17 +41,18 @@ impl RenderNotifier for Notifier {
         let _ = self.events_proxy.send_event(());
     }
 
-    fn new_frame_ready(&self,
-                       _: DocumentId,
-                       _scrolled: bool,
-                       composite_needed: bool,
-                       _: FramePublishId) {
+    fn new_frame_ready(
+        &self,
+        _: DocumentId,
+        _scrolled: bool,
+        composite_needed: bool,
+        _: FramePublishId,
+    ) {
         self.wake_up(composite_needed);
     }
 }
 
 struct Window {
-    events_loop: winit::event_loop::EventLoop<()>, //TODO: share events loop?
     context: Option<glutin::WindowedContext<NotCurrent>>,
     renderer: webrender::Renderer,
     name: &'static str,
@@ -63,8 +64,11 @@ struct Window {
 }
 
 impl Window {
-    fn new(name: &'static str, clear_color: ColorF) -> Self {
-        let events_loop = winit::event_loop::EventLoop::new();
+    fn new(
+        name: &'static str,
+        clear_color: ColorF,
+        events_loop: &winit::event_loop::EventLoop<()>,
+    ) -> Self {
         let window_builder = winit::window::WindowBuilder::new()
             .with_title(name)
             .with_inner_size(LogicalSize::new(800. as f64, 600. as f64));
@@ -94,13 +98,12 @@ impl Window {
         };
 
         let device_size = {
-            let size = context
-                .window()
-                .inner_size();
+            let size = context.window().inner_size();
             DeviceIntSize::new(size.width as i32, size.height as i32)
         };
         let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
-        let (renderer, sender) = webrender::create_webrender_instance(gl.clone(), notifier, opts, None).unwrap();
+        let (renderer, sender) =
+            webrender::create_webrender_instance(gl.clone(), notifier, opts, None).unwrap();
         let mut api = sender.create_api();
         let document_id = api.add_document(device_size);
 
@@ -118,7 +121,6 @@ impl Window {
         api.send_transaction(document_id, txn);
 
         Window {
-            events_loop,
             context: Some(unsafe { context.make_not_current().unwrap() }),
             renderer,
             name,
@@ -130,52 +132,50 @@ impl Window {
         }
     }
 
-    fn tick(&mut self) -> bool {
+    fn tick(&mut self, events_loop: &mut winit::event_loop::EventLoop<()>) -> bool {
         let mut do_exit = false;
         let my_name = &self.name;
         let renderer = &mut self.renderer;
         let api = &mut self.api;
 
-        self.events_loop.run_return(|global_event, _elwt, control_flow| {
+        events_loop.run_return(|global_event, _elwt, control_flow| {
             *control_flow = winit::event_loop::ControlFlow::Exit;
             match global_event {
                 winit::event::Event::WindowEvent { event, .. } => match event {
-                    winit::event::WindowEvent::CloseRequested |
-                    winit::event::WindowEvent::KeyboardInput {
-                        input: winit::event::KeyboardInput {
-                            virtual_keycode: Some(winit::event::VirtualKeyCode::Escape),
-                            ..
-                        },
+                    winit::event::WindowEvent::CloseRequested
+                    | winit::event::WindowEvent::KeyboardInput {
+                        input:
+                            winit::event::KeyboardInput {
+                                virtual_keycode: Some(winit::event::VirtualKeyCode::Escape),
+                                ..
+                            },
                         ..
-                    } => {
-                        do_exit = true
-                    }
+                    } => do_exit = true,
                     winit::event::WindowEvent::KeyboardInput {
-                        input: winit::event::KeyboardInput {
-                            state: winit::event::ElementState::Pressed,
-                            virtual_keycode: Some(winit::event::VirtualKeyCode::P),
-                            ..
-                        },
+                        input:
+                            winit::event::KeyboardInput {
+                                state: winit::event::ElementState::Pressed,
+                                virtual_keycode: Some(winit::event::VirtualKeyCode::P),
+                                ..
+                            },
                         ..
                     } => {
                         println!("set flags {}", my_name);
                         api.send_debug_cmd(DebugCommand::SetFlags(DebugFlags::PROFILER_DBG))
                     }
                     _ => {}
-                }
+                },
                 _ => {}
             }
         });
         if do_exit {
-            return true
+            return true;
         }
 
         let context = unsafe { self.context.take().unwrap().make_current().unwrap() };
         let device_pixel_ratio = context.window().scale_factor() as f32;
         let device_size = {
-            let size = context
-                .window()
-                .inner_size();
+            let size = context.window().inner_size();
             DeviceIntSize::new(size.width as i32, size.height as i32)
         };
         let layout_size = device_size.to_f32() / euclid::Scale::new(device_pixel_ratio);
@@ -203,11 +203,12 @@ impl Window {
                 LayoutPoint::new(100.0, 200.0),
                 LayoutSize::new(100.0, 200.0),
             ),
-            ColorF::new(0.0, 1.0, 0.0, 1.0));
+            ColorF::new(0.0, 1.0, 0.0, 1.0),
+        );
 
         let text_bounds = LayoutRect::from_origin_and_size(
             LayoutPoint::new(100.0, 50.0),
-            LayoutSize::new(700.0, 200.0)
+            LayoutSize::new(700.0, 200.0),
         );
         let glyphs = vec![
             GlyphInstance {
@@ -261,10 +262,7 @@ impl Window {
         ];
 
         builder.push_text(
-            &CommonItemProperties::new(
-                text_bounds,
-                space_and_clip,
-            ),
+            &CommonItemProperties::new(text_bounds, space_and_clip),
             text_bounds,
             &glyphs,
             self.font_instance_key,
@@ -274,10 +272,7 @@ impl Window {
 
         builder.pop_stacking_context();
 
-        txn.set_display_list(
-            self.epoch,
-            builder.end(),
-        );
+        txn.set_display_list(self.epoch, builder.end());
         txn.set_root_pipeline(self.pipeline_id);
         txn.generate_frame(0, RenderReasons::empty());
         api.send_transaction(self.document_id, txn);
@@ -297,14 +292,15 @@ impl Window {
 }
 
 fn main() {
-    let mut win1 = Window::new("window1", ColorF::new(0.3, 0.0, 0.0, 1.0));
-    let mut win2 = Window::new("window2", ColorF::new(0.0, 0.3, 0.0, 1.0));
+    let mut events_loop = winit::event_loop::EventLoop::new();
+    let mut win1 = Window::new("window1", ColorF::new(0.3, 0.0, 0.0, 1.0), &events_loop);
+    let mut win2 = Window::new("window2", ColorF::new(0.0, 0.3, 0.0, 1.0), &events_loop);
 
     loop {
-        if win1.tick() {
+        if win1.tick(&mut events_loop) {
             break;
         }
-        if win2.tick() {
+        if win2.tick(&mut events_loop) {
             break;
         }
     }
