@@ -171,6 +171,9 @@ pub enum ImageFormat {
     RGBAI32 = 7,
     /// Four channels, byte storage.
     RGBA8 = 8,
+    
+    /// Four channels, float16 storage.
+    RGBAF16 = 9,
 }
 
 impl ImageFormat {
@@ -185,6 +188,7 @@ impl ImageFormat {
             ImageFormat::RG16 => 4,
             ImageFormat::RGBAI32 => 16,
             ImageFormat::RGBA8 => 4,
+            ImageFormat::RGBAF16 => 8,
         }
     }
 }

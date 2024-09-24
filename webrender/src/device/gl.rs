@@ -4113,6 +4113,12 @@ impl Device {
                 read: gl::RG,
                 pixel_type: gl::UNSIGNED_SHORT,
             },
+            ImageFormat::RGBAF16 => FormatDesc {
+                internal: gl::RGBA16F,
+                external: gl::RGBA,
+                read: gl::RGBA,
+                pixel_type: gl::HALF_FLOAT,
+            },
         }
     }
 
@@ -4754,6 +4760,7 @@ impl<'a> TextureUploader<'a> {
             ImageFormat::RG16 => (gl::RG, 4, gl::UNSIGNED_SHORT),
             ImageFormat::RGBAF32 => (gl::RGBA, 16, gl::FLOAT),
             ImageFormat::RGBAI32 => (gl::RGBA_INTEGER, 16, gl::INT),
+            ImageFormat::RGBAF16 => (gl::RGBA, 8, gl::HALF_FLOAT),
         };
 
         let row_length = match chunk.stride {
