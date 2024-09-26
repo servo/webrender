@@ -198,6 +198,7 @@ fn generate_checkerboard_image(
     tile_x_count: u32,
     tile_y_count: u32,
     kind: CheckerboardKind,
+    format: ImageFormat,
 ) -> (ImageDescriptor, ImageData) {
     let width = 2 * border + tile_x_size * tile_x_count;
     let height = 2 * border + tile_y_size * tile_y_count;
@@ -240,7 +241,7 @@ fn generate_checkerboard_image(
     };
 
     (
-        ImageDescriptor::new(width as i32, height as i32, ImageFormat::BGRA8, flags),
+        ImageDescriptor::new(width as i32, height as i32, format, flags),
         ImageData::new(pixels),
     )
 }
@@ -632,18 +633,20 @@ impl YamlFrameReader {
                     (name @ "checkerboard", args, _) => {
                         let border = args.get(0).unwrap_or(&"4").parse::<u32>().unwrap();
 
-                        let (x_size, y_size, x_count, y_count) = match args.len() {
-                            3 => {
+                        let (x_size, y_size, x_count, y_count, format) = match args.len() {
+                            3 | 4 => {
                                 let size = args.get(1).unwrap_or(&"32").parse::<u32>().unwrap();
                                 let count = args.get(2).unwrap_or(&"8").parse::<u32>().unwrap();
-                                (size, size, count, count)
+                                let format = args.get(3).map(|x| x.parse::<ImageFormat>().unwrap()).unwrap_or(ImageFormat::BGRA8);
+                                (size, size, count, count, format)
                             }
-                            5 => {
+                            5 | 6 => {
                                 let x_size = args.get(1).unwrap_or(&"32").parse::<u32>().unwrap();
                                 let y_size = args.get(2).unwrap_or(&"32").parse::<u32>().unwrap();
                                 let x_count = args.get(3).unwrap_or(&"8").parse::<u32>().unwrap();
                                 let y_count = args.get(4).unwrap_or(&"8").parse::<u32>().unwrap();
-                                (x_size, y_size, x_count, y_count)
+                                let format = args.get(5).map(|x| x.parse::<ImageFormat>().unwrap()).unwrap_or(ImageFormat::BGRA8);
+                                (x_size, y_size, x_count, y_count, format)
                             }
                             _ => {
                                 panic!("invalid checkerboard function");
@@ -663,6 +666,7 @@ impl YamlFrameReader {
                             x_count,
                             y_count,
                             kind,
+                            format,
                         )
                     }
                     _ => {

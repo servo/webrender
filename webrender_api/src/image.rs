@@ -7,6 +7,7 @@
 use euclid::{size2, Box2D, num::Zero};
 use peek_poke::PeekPoke;
 use std::ops::{Add, Sub};
+use std::str::FromStr;
 use std::sync::Arc;
 // local imports
 use crate::{IdNamespace, TileSize};
@@ -171,6 +172,18 @@ pub enum ImageFormat {
     RGBAI32 = 7,
     /// Four channels, byte storage.
     RGBA8 = 8,
+}
+
+impl FromStr for ImageFormat {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "rgba" | "rgba8" => Ok(Self::RGBA8),
+            "bgra" | "bgra8" => Ok(Self::BGRA8),
+            _ => Err(())
+        }
+    }
 }
 
 impl ImageFormat {
