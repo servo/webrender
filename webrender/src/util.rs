@@ -1672,3 +1672,10 @@ fn scale_offset_pre_post() {
     assert_eq!(a.then_scale(10.0), a.then(&ScaleOffset::from_scale(Vector2D::new(10.0, 10.0))));
     assert_eq!(a.pre_scale(10.0), a.pre_transform(&ScaleOffset::from_scale(Vector2D::new(10.0, 10.0))));
 }
+
+pub fn precise_time_ns() -> u64 {
+    std::time::SystemTime::UNIX_EPOCH
+        .elapsed()
+        .unwrap()
+        .as_nanos() as u64
+}
