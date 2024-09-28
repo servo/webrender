@@ -11,9 +11,11 @@
 
  */
 
+use crate::gpu_types::UvRectKind;
+use crate::internal_types::{FrameMemory, FrameVec};
 use crate::renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use crate::util::ScaleOffset;
-use api::units::{DeviceIntRect, DeviceIntSize, LayoutRect, PictureRect, DeviceRect};
+use api::units::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceRect, LayoutRect, PictureRect};
 use api::{PremultipliedColorF, ImageFormat};
 use crate::device::Texel;
 use crate::render_task_graph::{RenderTaskGraph, RenderTaskId};
@@ -208,7 +210,7 @@ struct DeferredBlock {
 
 /// Interface to allow writing multiple GPU blocks, possibly of different types
 pub struct GpuBufferWriter<'a, T> {
-    buffer: &'a mut Vec<T>,
+    buffer: &'a mut FrameVec<T>,
     deferred: &'a mut Vec<DeferredBlock>,
     index: usize,
     block_count: usize,
@@ -216,7 +218,7 @@ pub struct GpuBufferWriter<'a, T> {
 
 impl<'a, T> GpuBufferWriter<'a, T> where T: Texel {
     fn new(
-        buffer: &'a mut Vec<T>,
+        buffer: &'a mut FrameVec<T>,
         deferred: &'a mut Vec<DeferredBlock>,
         index: usize,
         block_count: usize,
@@ -237,11 +239,18 @@ impl<'a, T> GpuBufferWriter<'a, T> where T: Texel {
     /// Push a reference to a render task in to the writer. Once the render
     /// task graph is resolved, this will be patched with the UV rect of the task
     pub fn push_render_task(&mut self, task_id: RenderTaskId) {
-        self.deferred.push(DeferredBlock {
-            task_id,
-            index: self.buffer.len(),
-        });
-        self.buffer.push(T::default());
+        match task_id {
+            RenderTaskId::INVALID => {
+                self.buffer.push(T::default());
+            }
+            task_id => {
+                self.deferred.push(DeferredBlock {
+                    task_id,
+                    index: self.buffer.len(),
+                });
+                self.buffer.push(T::default());
+            }
+        }
     }
 
     /// Close this writer, returning the GPU address of this set of block(s).
@@ -262,14 +271,18 @@ impl<'a, T> Drop for GpuBufferWriter<'a, T> {
 }
 
 pub struct GpuBufferBuilderImpl<T> {
-    data: Vec<T>,
+    // `data` will become the backing store of the GpuBuffer sent along
+    // with the frame so it uses the frame allocator.
+    data: FrameVec<T>,
+    // `deferred` is only used during frame building and not sent with the
+    // built frame, so it does not use the same allocator.
     deferred: Vec<DeferredBlock>,
 }
 
 impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRect> {
-    pub fn new() -> Self {
+    pub fn new(memory: &FrameMemory) -> Self {
         GpuBufferBuilderImpl {
-            data: Vec::new(),
+            data: memory.new_vec(),
             deferred: Vec::new(),
         }
     }
@@ -340,7 +353,28 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
         for block in self.deferred.drain(..) {
             let render_task = &render_tasks[block.task_id];
             let target_rect = render_task.get_target_rect();
-            self.data[block.index] = target_rect.into();
+
+            let uv_rect = match render_task.uv_rect_kind() {
+                UvRectKind::Rect => {
+                    target_rect
+                }
+                UvRectKind::Quad { top_left, bottom_right, .. } => {
+                    let size = target_rect.size();
+
+                    DeviceIntRect::new(
+                        DeviceIntPoint::new(
+                            target_rect.min.x + (top_left.x * size.width as f32).round() as i32,
+                            target_rect.min.y + (top_left.y * size.height as f32).round() as i32,
+                        ),
+                        DeviceIntPoint::new(
+                            target_rect.min.x + (bottom_right.x * size.width as f32).round() as i32,
+                            target_rect.min.y + (bottom_right.y * size.height as f32).round() as i32,
+                        ),
+                    )
+                }
+            };
+
+            self.data[block.index] = uv_rect.into();
         }
 
         GpuBuffer {
@@ -354,7 +388,7 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GpuBuffer<T> {
-    pub data: Vec<T>,
+    pub data: FrameVec<T>,
     pub size: DeviceIntSize,
     pub format: ImageFormat,
 }
@@ -365,11 +399,11 @@ impl<T> GpuBuffer<T> {
     }
 }
 
-
 #[test]
 fn test_gpu_buffer_sizing_push() {
+    let frame_memory = FrameMemory::fallback();
     let render_task_graph = RenderTaskGraph::new_for_testing();
-    let mut builder = GpuBufferBuilderF::new();
+    let mut builder = GpuBufferBuilderF::new(&frame_memory);
 
     let row = vec![GpuBufferBlockF::EMPTY; MAX_VERTEX_TEXTURE_WIDTH];
     builder.push(&row);
@@ -383,8 +417,9 @@ fn test_gpu_buffer_sizing_push() {
 
 #[test]
 fn test_gpu_buffer_sizing_writer() {
+    let frame_memory = FrameMemory::fallback();
     let render_task_graph = RenderTaskGraph::new_for_testing();
-    let mut builder = GpuBufferBuilderF::new();
+    let mut builder = GpuBufferBuilderF::new(&frame_memory);
 
     let mut writer = builder.write_blocks(MAX_VERTEX_TEXTURE_WIDTH);
     for _ in 0 .. MAX_VERTEX_TEXTURE_WIDTH {

@@ -7,7 +7,7 @@ use api::{APZScrollGeneration, HasScrollLinkedEffect, PipelineId, SampledScrollO
 use api::units::*;
 use euclid::Transform3D;
 use crate::gpu_types::TransformPalette;
-use crate::internal_types::{FastHashMap, FastHashSet, PipelineInstanceId};
+use crate::internal_types::{FastHashMap, FastHashSet, FrameMemory, PipelineInstanceId};
 use crate::print_tree::{PrintableTree, PrintTree, PrintTreePrinter};
 use crate::scene::SceneProperties;
 use crate::spatial_node::{ReferenceFrameInfo, SpatialNode, SpatialNodeType, StickyFrameInfo, SpatialNodeDescriptor};
@@ -1041,9 +1041,7 @@ impl SpatialTree {
         );
 
         if child.coordinate_system_id == parent.coordinate_system_id {
-            let scale_offset = parent.content_transform
-                .inverse()
-                .accumulate(&child.content_transform);
+            let scale_offset = child.content_transform.then(&parent.content_transform.inverse());
             return CoordinateSpaceMapping::ScaleOffset(scale_offset);
         }
 
@@ -1249,9 +1247,9 @@ impl SpatialTree {
         }
     }
 
-    pub fn build_transform_palette(&self) -> TransformPalette {
+    pub fn build_transform_palette(&self, memory: &FrameMemory) -> TransformPalette {
         profile_scope!("build_transform_palette");
-        TransformPalette::new(self.spatial_nodes.len())
+        TransformPalette::new(self.spatial_nodes.len(), memory)
     }
 
     fn print_node<T: PrintTreePrinter>(
@@ -1409,8 +1407,7 @@ fn calculate_snapping_transform(
                     match ScaleOffset::from_transform(value) {
                         Some(scale_offset) => {
                             let origin_offset = info.origin_in_parent_reference_frame;
-                            ScaleOffset::from_offset(origin_offset.to_untyped())
-                                .accumulate(&scale_offset)
+                            scale_offset.then(&ScaleOffset::from_offset(origin_offset.to_untyped()))
                         }
                         None => return None,
                     }
@@ -1428,7 +1425,7 @@ fn calculate_snapping_transform(
         _ => ScaleOffset::identity(),
     };
 
-    Some(parent_scale_offset.accumulate(&scale_offset))
+    Some(scale_offset.then(&parent_scale_offset))
 }
 
 #[cfg(test)]

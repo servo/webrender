@@ -19,6 +19,8 @@ use crate::{
     render_task::RenderTaskData,
 };
 
+use crate::internal_types::{FrameVec};
+
 pub const VERTEX_TEXTURE_EXTRA_ROWS: i32 = 10;
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = webrender_build::MAX_VERTEX_TEXTURE_WIDTH;
@@ -60,6 +62,11 @@ pub mod desc {
                 name: "aBlurDirection",
                 count: 1,
                 kind: VertexAttributeKind::I32,
+            },
+            VertexAttribute {
+                name: "aBlurParams",
+                count: 3,
+                kind: VertexAttributeKind::F32,
             },
         ],
     };
@@ -339,6 +346,11 @@ pub mod desc {
             VertexAttribute {
                 name: "aScaleSourceRect",
                 count: 4,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aSourceRectType",
+                count: 1,
                 kind: VertexAttributeKind::F32,
             },
         ],
@@ -725,7 +737,7 @@ pub mod desc {
         }],
         instance_attributes: &[
             VertexAttribute {
-                name: "aLocalRect",
+                name: "aDeviceRect",
                 count: 4,
                 kind: VertexAttributeKind::F32,
             },
@@ -760,8 +772,8 @@ pub mod desc {
                 kind: VertexAttributeKind::F32,
             },
             VertexAttribute {
-                name: "aTransform",
-                count: 4,
+                name: "aFlip",
+                count: 2,
                 kind: VertexAttributeKind::F32,
             },
         ],
@@ -866,7 +878,7 @@ impl<T> VertexDataTexture<T> {
         &'a mut self,
         device: &mut Device,
         texture_uploader: &mut TextureUploader<'a>,
-        data: &mut Vec<T>,
+        data: &mut FrameVec<T>,
     ) {
         debug_assert!(mem::size_of::<T>() % 16 == 0);
         let texels_per_item = mem::size_of::<T>() / 16;

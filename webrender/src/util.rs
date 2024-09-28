@@ -15,6 +15,8 @@ use std::os::raw::c_void;
 use std::sync::Arc;
 use std::mem::replace;
 
+use crate::internal_types::FrameVec;
+
 // Matches the definition of SK_ScalarNearlyZero in Skia.
 const NEARLY_ZERO: f32 = 1.0 / 4096.0;
 
@@ -197,24 +199,33 @@ impl ScaleOffset {
         }
     }
 
-    pub fn offset(&self, offset: default::Vector2D<f32>) -> Self {
-        self.accumulate(&ScaleOffset {
-            scale: Vector2D::new(1.0, 1.0),
-            offset,
-        })
+    pub fn pre_offset(&self, offset: default::Vector2D<f32>) -> Self {
+        self.pre_transform(
+            &ScaleOffset {
+                scale: Vector2D::new(1.0, 1.0),
+                offset,
+            }
+        )
     }
 
-    pub fn scale(&self, scale: f32) -> Self {
-        self.accumulate(&ScaleOffset {
-            scale: Vector2D::new(scale, scale),
-            offset: Vector2D::zero(),
-        })
+    pub fn pre_scale(&self, scale: f32) -> Self {
+        ScaleOffset {
+            scale: self.scale * scale,
+            offset: self.offset,
+        }
+    }
+
+    pub fn then_scale(&self, scale: f32) -> Self {
+        ScaleOffset {
+            scale: self.scale * scale,
+            offset: self.offset * scale,
+        }
     }
 
     /// Produce a ScaleOffset that includes both self and other.
-    /// The 'self' ScaleOffset is applied after other.
+    /// The 'self' ScaleOffset is applied after `other`.
     /// This is equivalent to `Transform3D::pre_transform`.
-    pub fn accumulate(&self, other: &ScaleOffset) -> Self {
+    pub fn pre_transform(&self, other: &ScaleOffset) -> Self {
         ScaleOffset {
             scale: Vector2D::new(self.scale.x * other.scale.x, self.scale.y * other.scale.y),
             offset: Vector2D::new(
@@ -223,6 +234,24 @@ impl ScaleOffset {
             ),
         }
     }
+
+    /// Produce a ScaleOffset that includes both self and other.
+    /// The 'other' ScaleOffset is applied after `self`.
+    /// This is equivalent to `Transform3D::then`.
+    #[allow(unused)]
+    pub fn then(&self, other: &ScaleOffset) -> Self {
+        ScaleOffset {
+            scale: Vector2D::new(
+                self.scale.x * other.scale.x,
+                self.scale.y * other.scale.y,
+            ),
+            offset: Vector2D::new(
+                other.scale.x * self.offset.x + other.offset.x,
+                other.scale.y * self.offset.y + other.offset.y,
+            ),
+        }
+    }
+
 
     pub fn map_rect<F, T>(&self, rect: &Box2D<f32, F>) -> Box2D<f32, T> {
         // TODO(gw): The logic below can return an unexpected result if the supplied
@@ -297,6 +326,13 @@ impl ScaleOffset {
 
     pub fn map_vector<F, T>(&self, vector: &Vector2D<f32, F>) -> Vector2D<f32, T> {
         Vector2D::new(vector.x * self.scale.x, vector.y * self.scale.y)
+    }
+
+    pub fn map_size<F, T>(&self, size: &Size2D<f32, F>) -> Size2D<f32, T> {
+        Size2D::new(
+            size.width * self.scale.x,
+            size.height * self.scale.y,
+        )
     }
 
     pub fn unmap_vector<F, T>(&self, vector: &Vector2D<f32, F>) -> Vector2D<f32, T> {
@@ -623,6 +659,17 @@ pub fn extract_inner_rect_safe<U>(
     extract_inner_rect_impl(rect, radii, 1.0)
 }
 
+/// Return an aligned rectangle that is inside the clip region and doesn't intersect
+/// any of the bounding rectangles of the rounded corners, with a specific k factor
+/// to control how much of the rounded corner is included.
+pub fn extract_inner_rect_k<U>(
+    rect: &Box2D<f32, U>,
+    radii: &BorderRadius,
+    k: f32,
+) -> Option<Box2D<f32, U>> {
+    extract_inner_rect_impl(rect, radii, k)
+}
+
 #[cfg(test)]
 use euclid::vec3;
 
@@ -755,15 +802,13 @@ pub mod test {
 
     fn validate_inverse(xref: &LayoutTransform) {
         let s0 = ScaleOffset::from_transform(xref).unwrap();
-        let s1 = s0.inverse().accumulate(&s0);
-        assert!(
-            (s1.scale.x - 1.0).abs() < NEARLY_ZERO
-                && (s1.scale.y - 1.0).abs() < NEARLY_ZERO
-                && s1.offset.x.abs() < NEARLY_ZERO
-                && s1.offset.y.abs() < NEARLY_ZERO,
-            "{:?}",
-            s1
-        );
+        let s1 = s0.inverse().pre_transform(&s0);
+        assert!((s1.scale.x - 1.0).abs() < NEARLY_ZERO &&
+                (s1.scale.y - 1.0).abs() < NEARLY_ZERO &&
+                s1.offset.x.abs() < NEARLY_ZERO &&
+                s1.offset.y.abs() < NEARLY_ZERO,
+                "{:?}",
+                s1);
     }
 
     #[test]
@@ -788,7 +833,7 @@ pub mod test {
         let s0 = ScaleOffset::from_transform(x0).unwrap();
         let s1 = ScaleOffset::from_transform(x1).unwrap();
 
-        let s = s0.accumulate(&s1).to_transform();
+        let s = s0.pre_transform(&s1).to_transform();
 
         assert!(x.approx_eq(&s), "{:?}\n{:?}", x, s);
     }
@@ -1348,7 +1393,7 @@ impl Preallocator {
     }
 
     /// Record the size of a vector to preallocate it the next frame.
-    pub fn record_vec<T>(&mut self, vec: &Vec<T>) {
+    pub fn record_vec<T>(&mut self, vec: &[T]) {
         let len = vec.len();
         if len > self.size {
             self.size = len;
@@ -1369,6 +1414,18 @@ impl Preallocator {
     /// The preallocated amount depends on the length recorded in the last
     /// record_vec call.
     pub fn preallocate_vec<T>(&self, vec: &mut Vec<T>) {
+        let len = vec.len();
+        let cap = self.preallocation_size();
+        if len < cap {
+            vec.reserve(cap - len);
+        }
+    }
+
+    /// Preallocate vector storage.
+    ///
+    /// The preallocated amount depends on the length recorded in the last
+    /// record_vec call.
+    pub fn preallocate_framevec<T>(&self, vec: &mut FrameVec<T>) {
         let len = vec.len();
         let cap = self.preallocation_size();
         if len < cap {
@@ -1606,9 +1663,12 @@ fn weak_table() {
     assert!(tbl.inner.capacity() <= 4);
 }
 
-pub fn precise_time_ns() -> u64 {
-    std::time::SystemTime::UNIX_EPOCH
-        .elapsed()
-        .unwrap()
-        .as_nanos() as u64
+#[test]
+fn scale_offset_pre_post() {
+    let a = ScaleOffset::new(1.0, 2.0, 3.0, 4.0);
+    let b = ScaleOffset::new(5.0, 6.0, 7.0, 8.0);
+
+    assert_eq!(a.then(&b), b.pre_transform(&a));
+    assert_eq!(a.then_scale(10.0), a.then(&ScaleOffset::from_scale(Vector2D::new(10.0, 10.0))));
+    assert_eq!(a.pre_scale(10.0), a.pre_transform(&ScaleOffset::from_scale(Vector2D::new(10.0, 10.0))));
 }

@@ -9,7 +9,7 @@ use crate::image_source::resolve_image;
 use euclid::Box2D;
 use crate::gpu_cache::GpuCache;
 use crate::gpu_types::{ZBufferId, ZBufferIdGenerator};
-use crate::internal_types::TextureSource;
+use crate::internal_types::{FrameAllocator, FrameMemory, FrameVec, TextureSource};
 use crate::picture::{ImageDependency, ResolvedSurfaceTexture, TileCacheInstance, TileId, TileSurface};
 use crate::prim_store::DeferredResolve;
 use crate::resource_cache::{ImageRequest, ResourceCache};
@@ -483,17 +483,17 @@ impl CompositeStatePreallocator {
         self.tiles.record_vec(&state.tiles);
         self.external_surfaces.record_vec(&state.external_surfaces);
         self.occluders.record_vec(&state.occluders.occluders);
-        self.occluders_events.record_vec(&state.occluders.events);
-        self.occluders_active.record_vec(&state.occluders.active);
+        self.occluders_events.record_vec(&state.occluders.scratch.events);
+        self.occluders_active.record_vec(&state.occluders.scratch.active);
         self.descriptor_surfaces.record_vec(&state.descriptor.surfaces);
     }
 
     pub fn preallocate(&self, state: &mut CompositeState) {
-        self.tiles.preallocate_vec(&mut state.tiles);
-        self.external_surfaces.preallocate_vec(&mut state.external_surfaces);
-        self.occluders.preallocate_vec(&mut state.occluders.occluders);
-        self.occluders_events.preallocate_vec(&mut state.occluders.events);
-        self.occluders_active.preallocate_vec(&mut state.occluders.active);
+        self.tiles.preallocate_framevec(&mut state.tiles);
+        self.external_surfaces.preallocate_framevec(&mut state.external_surfaces);
+        self.occluders.preallocate_framevec(&mut state.occluders.occluders);
+        self.occluders_events.preallocate_framevec(&mut state.occluders.scratch.events);
+        self.occluders_active.preallocate_framevec(&mut state.occluders.scratch.active);
         self.descriptor_surfaces.preallocate_vec(&mut state.descriptor.surfaces);
     }
 }
@@ -538,9 +538,9 @@ pub struct CompositeState {
     /// List of tiles to be drawn by the Draw compositor.
     /// Tiles are accumulated in this vector and sorted from front to back at the end of the
     /// frame.
-    pub tiles: Vec<CompositeTile>,
+    pub tiles: FrameVec<CompositeTile>,
     /// List of primitives that were promoted to be compositor surfaces.
-    pub external_surfaces: Vec<ResolvedExternalSurface>,
+    pub external_surfaces: FrameVec<ResolvedExternalSurface>,
     /// Used to generate z-id values for tiles in the Draw compositor mode.
     pub z_generator: ZBufferIdGenerator,
     // If false, we can't rely on the dirty rects in the CompositeTile
@@ -559,7 +559,7 @@ pub struct CompositeState {
     /// Debugging information about the state of the pictures cached for regression testing.
     pub picture_cache_debug: PictureCacheDebugInfo,
     /// List of registered transforms used by picture cache or external surfaces
-    pub transforms: Vec<CompositorTransform>,
+    pub transforms: FrameVec<CompositorTransform>,
     /// Whether we have low quality pinch zoom enabled
     low_quality_pinch_zoom: bool,
 }
@@ -572,17 +572,18 @@ impl CompositeState {
         max_depth_ids: i32,
         dirty_rects_are_valid: bool,
         low_quality_pinch_zoom: bool,
+        memory: &FrameMemory,
     ) -> Self {
         CompositeState {
-            tiles: Vec::new(),
+            tiles: memory.new_vec(),
             z_generator: ZBufferIdGenerator::new(max_depth_ids),
             dirty_rects_are_valid,
             compositor_kind,
-            occluders: Occluders::new(),
+            occluders: Occluders::new(memory),
             descriptor: CompositeDescriptor::empty(),
-            external_surfaces: Vec::new(),
+            external_surfaces: memory.new_vec(),
             picture_cache_debug: PictureCacheDebugInfo::new(),
-            transforms: Vec::new(),
+            transforms: memory.new_vec(),
             low_quality_pinch_zoom,
         }
     }
@@ -595,7 +596,7 @@ impl CompositeState {
     ) -> CompositorTransformIndex {
         let index = CompositorTransformIndex(self.transforms.len());
 
-        let local_to_device = local_to_raster.accumulate(&raster_to_device);
+        let local_to_device = local_to_raster.then(&raster_to_device);
 
         self.transforms.push(CompositorTransform {
             local_to_raster,
@@ -675,7 +676,7 @@ impl CompositeState {
         device_clip_rect: DeviceRect,
         resource_cache: &ResourceCache,
         gpu_cache: &mut GpuCache,
-        deferred_resolves: &mut Vec<DeferredResolve>,
+        deferred_resolves: &mut FrameVec<DeferredResolve>,
     ) {
         let clip_rect = external_surface
             .clip_rect
@@ -778,7 +779,7 @@ impl CompositeState {
         device_clip_rect: DeviceRect,
         resource_cache: &ResourceCache,
         gpu_cache: &mut GpuCache,
-        deferred_resolves: &mut Vec<DeferredResolve>,
+        deferred_resolves: &mut FrameVec<DeferredResolve>,
     ) {
         let slice_transform = self.get_compositor_transform(tile_cache.transform_index);
 
@@ -929,7 +930,7 @@ impl CompositeState {
         required_plane_count: usize,
         resource_cache: &ResourceCache,
         gpu_cache: &mut GpuCache,
-        deferred_resolves: &mut Vec<DeferredResolve>,
+        deferred_resolves: &mut FrameVec<DeferredResolve>,
     ) -> ResolvedExternalSurfaceIndex {
         let mut planes = [
             ExternalPlaneDescriptor::invalid(),
@@ -1406,29 +1407,44 @@ impl OcclusionEvent {
     }
 }
 
+/// This struct exists to provide a Default impl and allow #[serde(skip)]
+/// on the two frame vectors. Unfortunately FrameVec does not have a Default
+/// implementation (vectors only implement it with the global allocator).
+pub struct OccludersScratchBuffers {
+    events: FrameVec<OcclusionEvent>,
+    active: FrameVec<ops::Range<i32>>,
+}
+
+impl Default for OccludersScratchBuffers {
+    fn default() -> Self {
+        OccludersScratchBuffers {
+            events: FrameVec::new_in(FrameAllocator::fallback()),
+            active: FrameVec::new_in(FrameAllocator::fallback()),
+        }
+    }
+}
+
 /// List of registered occluders.
 ///
 /// Also store a couple of vectors for reuse.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct Occluders {
-    occluders: Vec<Occluder>,
+    occluders: FrameVec<Occluder>,
 
-    // The two vectors below are kept to avoid unnecessary reallocations in area().
-
-    #[cfg_attr(feature = "serde", serde(skip))]
-    events: Vec<OcclusionEvent>,
-
-    #[cfg_attr(feature = "serde", serde(skip))]
-    active: Vec<ops::Range<i32>>,
+    // The two vectors in scratch are kept to avoid unnecessary reallocations in area().
+    #[cfg_attr(any(feature = "capture", feature = "replay"), serde(skip))]
+    scratch: OccludersScratchBuffers,
 }
 
 impl Occluders {
-    fn new() -> Self {
+    fn new(memory: &FrameMemory) -> Self {
         Occluders {
-            occluders: Vec::new(),
-            events: Vec::new(),
-            active: Vec::new(),
+            occluders: memory.new_vec(),
+            scratch: OccludersScratchBuffers {
+                events: memory.new_vec(),
+                active: memory.new_vec(),    
+            }
         }
     }
 
@@ -1478,8 +1494,8 @@ impl Occluders {
         // This is not a particularly efficient implementation (it skips building segment trees), however
         // we typically use this where the length of the rectangles array is < 10, so simplicity is more important.
 
-        self.events.clear();
-        self.active.clear();
+        self.scratch.events.clear();
+        self.scratch.active.clear();
 
         let mut area = 0;
 
@@ -1492,37 +1508,37 @@ impl Occluders {
                 if let Some(rect) = occluder.world_rect.intersection(clip_rect) {
                     let x0 = rect.min.x;
                     let x1 = x0 + rect.width();
-                    self.events.push(OcclusionEvent::new(rect.min.y, OcclusionEventKind::Begin, x0, x1));
-                    self.events.push(OcclusionEvent::new(rect.min.y + rect.height(), OcclusionEventKind::End, x0, x1));
+                    self.scratch.events.push(OcclusionEvent::new(rect.min.y, OcclusionEventKind::Begin, x0, x1));
+                    self.scratch.events.push(OcclusionEvent::new(rect.min.y + rect.height(), OcclusionEventKind::End, x0, x1));
                 }
             }
         }
 
         // If we didn't end up with any valid events, the area must be 0
-        if self.events.is_empty() {
+        if self.scratch.events.is_empty() {
             return 0;
         }
 
         // Sort the events by y-value
-        self.events.sort_by_key(|e| e.y);
-        let mut cur_y = self.events[0].y;
+        self.scratch.events.sort_by_key(|e| e.y);
+        let mut cur_y = self.scratch.events[0].y;
 
         // Step through each y interval
-        for event in &self.events {
+        for event in &self.scratch.events {
             // This is the dimension of the y-axis we are accumulating areas for
             let dy = event.y - cur_y;
 
             // If we have active events covering x-ranges in this y-interval, process them
-            if dy != 0 && !self.active.is_empty() {
+            if dy != 0 && !self.scratch.active.is_empty() {
                 assert!(dy > 0);
 
                 // Step through the x-ranges, ordered by x0 of each event
-                self.active.sort_by_key(|i| i.start);
+                self.scratch.active.sort_by_key(|i| i.start);
                 let mut query = 0;
-                let mut cur = self.active[0].start;
+                let mut cur = self.scratch.active[0].start;
 
                 // Accumulate the non-overlapping x-interval that contributes to area for this y-interval.
-                for interval in &self.active {
+                for interval in &self.scratch.active {
                     cur = interval.start.max(cur);
                     query += (interval.end - cur).max(0);
                     cur = cur.max(interval.end);
@@ -1535,11 +1551,11 @@ impl Occluders {
             // Update the active events list
             match event.kind {
                 OcclusionEventKind::Begin => {
-                    self.active.push(event.x_range.clone());
+                    self.scratch.active.push(event.x_range.clone());
                 }
                 OcclusionEventKind::End => {
-                    let index = self.active.iter().position(|i| *i == event.x_range).unwrap();
-                    self.active.remove(index);
+                    let index = self.scratch.active.iter().position(|i| *i == event.x_range).unwrap();
+                    self.scratch.active.remove(index);
                 }
             }
 

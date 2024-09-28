@@ -37,9 +37,13 @@
 #include shared,rect,transform,render_task,gpu_buffer
 
 flat varying mediump vec4 v_color;
+// z: is_mask
 // w: has edge flags
-// x,y,z are avaible for patterns to use.
+// x,y are avaible for patterns to use.
 flat varying lowp ivec4 v_flags;
+#define v_flags_is_mask v_flags.z
+#define v_flags_has_edge_mask v_flags.w
+
 
 #ifndef SWGL_ANTIALIAS
 varying highp vec2 vLocalPos;
@@ -63,7 +67,7 @@ varying highp vec2 vLocalPos;
 #define QF_APPLY_DEVICE_CLIP    2
 #define QF_IGNORE_DEVICE_SCALE  4
 #define QF_USE_AA_SEGMENTS      8
-#define QF_SAMPLE_AS_MASK       16
+#define QF_IS_MASK              16
 
 #define INVALID_SEGMENT_INDEX   0xff
 
@@ -92,6 +96,7 @@ struct PrimitiveInfo {
 struct QuadPrimitive {
     RectWithEndpoint bounds;
     RectWithEndpoint clip;
+    RectWithEndpoint uv_rect;
     vec4 pattern_scale_offset;
     vec4 color;
 };
@@ -99,7 +104,7 @@ struct QuadPrimitive {
 QuadSegment fetch_segment(int base, int index) {
     QuadSegment seg;
 
-    vec4 texels[2] = fetch_from_gpu_buffer_2f(base + 4 + index * 2);
+    vec4 texels[2] = fetch_from_gpu_buffer_2f(base + 5 + index * 2);
 
     seg.rect = RectWithEndpoint(texels[0].xy, texels[0].zw);
     seg.uv_rect = RectWithEndpoint(texels[1].xy, texels[1].zw);
@@ -110,12 +115,13 @@ QuadSegment fetch_segment(int base, int index) {
 QuadPrimitive fetch_primitive(int index) {
     QuadPrimitive prim;
 
-    vec4 texels[4] = fetch_from_gpu_buffer_4f(index);
+    vec4 texels[5] = fetch_from_gpu_buffer_5f(index);
 
     prim.bounds = RectWithEndpoint(texels[0].xy, texels[0].zw);
     prim.clip = RectWithEndpoint(texels[1].xy, texels[1].zw);
-    prim.pattern_scale_offset = texels[2];
-    prim.color = texels[3];
+    prim.uv_rect = RectWithEndpoint(texels[2].xy, texels[2].zw);
+    prim.pattern_scale_offset = texels[3];
+    prim.color = texels[4];
 
     return prim;
 }
@@ -242,7 +248,7 @@ PrimitiveInfo quad_primive_info(void) {
     QuadSegment seg;
     if (qi.segment_index == INVALID_SEGMENT_INDEX) {
         seg.rect = prim.bounds;
-        seg.uv_rect = RectWithEndpoint(vec2(0.0), vec2(0.0));
+        seg.uv_rect = prim.uv_rect;
     } else {
         seg = fetch_segment(qi.prim_address_f, qi.segment_index);
     }
@@ -363,15 +369,22 @@ void antialiasing_vertex(PrimitiveInfo prim) {
     vLocalPos = prim.local_pos;
 
     if (prim.edge_flags == 0) {
-        v_flags.w = 0;
+        v_flags_has_edge_mask = 0;
     } else {
-        v_flags.w = 1;
+        v_flags_has_edge_mask = 1;
     }
 #endif
 }
 
 void main() {
     PrimitiveInfo prim = quad_primive_info();
+
+    if ((prim.quad_flags & QF_IS_MASK) != 0) {
+        v_flags_is_mask = 1;
+    } else {
+        v_flags_is_mask = 0;
+    }
+
     antialiasing_vertex(prim);
     pattern_vertex(prim);
 }
@@ -383,8 +396,8 @@ vec4 pattern_fragment(vec4 base_color);
 float antialiasing_fragment() {
     float alpha = 1.0;
 #ifndef SWGL_ANTIALIAS
-    if (v_flags.w != 0) {
-        alpha = init_transform_fs(vLocalPos);
+    if (v_flags_has_edge_mask != 0) {
+        alpha = rectangle_aa_fragment(vLocalPos);
     }
 #endif
     return alpha;
@@ -393,7 +406,13 @@ float antialiasing_fragment() {
 void main() {
     vec4 base_color = v_color;
     base_color *= antialiasing_fragment();
-    oFragColor = pattern_fragment(base_color);
+    vec4 output_color = pattern_fragment(base_color);
+
+    if (v_flags_is_mask != 0) {
+        output_color = output_color.rrrr;
+    }
+
+    oFragColor = output_color;
 }
 
 #endif

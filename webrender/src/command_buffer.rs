@@ -76,8 +76,9 @@ bitflags! {
     pub struct QuadFlags : u8 {
         const IS_OPAQUE = 1 << 0;
 
-        /// If true, the prim is 2d and we can apply a clip to the task rect in vertex shader
-        const APPLY_DEVICE_CLIP = 1 << 1;
+        /// If true, the prim is 2d and axis-aligned in device space. The render task rect can
+        /// cheaply be used as a device-space clip in the vertex shader.
+        const APPLY_RENDER_TASK_CLIP = 1 << 1;
 
         /// If true, the device-pixel scale is already applied, so ignore in vertex shaders
         const IGNORE_DEVICE_PIXEL_SCALE = 1 << 2;
@@ -85,8 +86,10 @@ bitflags! {
         /// If true, use segments for drawing the AA edges, to allow inner section to be opaque
         const USE_AA_SEGMENTS = 1 << 3;
 
-        /// If true, apply texture sample as mask
-        const SAMPLE_AS_MASK = 1 << 4;
+        /// If true, render as a mask. This ignores the blue, green and alpha channels and replaces
+        /// them with the red channel in the fragment shader. Used with multiply blending, on top
+        /// of premultiplied alpha content, it has the effect of applying a mask to the content under ir.
+        const IS_MASK = 1 << 4;
     }
 }
 
@@ -118,6 +121,7 @@ pub enum PrimitiveCommand {
     Quad {
         pattern: PatternKind,
         pattern_input: PatternShaderInput,
+        src_color_task_id: RenderTaskId,
         // TODO(gw): Used for bounding rect only, could possibly remove
         prim_instance_index: PrimitiveInstanceIndex,
         gpu_buffer_address: GpuBufferAddress,
@@ -149,6 +153,7 @@ impl PrimitiveCommand {
     pub fn quad(
         pattern: PatternKind,
         pattern_input: PatternShaderInput,
+        src_color_task_id: RenderTaskId,
         prim_instance_index: PrimitiveInstanceIndex,
         gpu_buffer_address: GpuBufferAddress,
         transform_id: TransformPaletteId,
@@ -158,6 +163,7 @@ impl PrimitiveCommand {
         PrimitiveCommand::Quad {
             pattern,
             pattern_input,
+            src_color_task_id,
             prim_instance_index,
             gpu_buffer_address,
             transform_id,
@@ -239,11 +245,12 @@ impl CommandBuffer {
                 self.commands.push(Command::draw_instance(prim_instance_index));
                 self.commands.push(Command::data((gpu_buffer_address.u as u32) << 16 | gpu_buffer_address.v as u32));
             }
-            PrimitiveCommand::Quad { pattern, pattern_input, prim_instance_index, gpu_buffer_address, transform_id, quad_flags, edge_flags } => {
+            PrimitiveCommand::Quad { pattern, pattern_input, prim_instance_index, gpu_buffer_address, transform_id, quad_flags, edge_flags, src_color_task_id } => {
                 self.commands.push(Command::draw_quad(prim_instance_index));
                 self.commands.push(Command::data(pattern as u32));
                 self.commands.push(Command::data(pattern_input.0 as u32));
                 self.commands.push(Command::data(pattern_input.1 as u32));
+                self.commands.push(Command::data(src_color_task_id.index));
                 self.commands.push(Command::data((gpu_buffer_address.u as u32) << 16 | gpu_buffer_address.v as u32));
                 self.commands.push(Command::data(transform_id.0));
                 self.commands.push(Command::data((quad_flags.bits() as u32) << 16 | edge_flags.bits() as u32));
@@ -294,6 +301,7 @@ impl CommandBuffer {
                         cmd_iter.next().unwrap().0 as i32,
                         cmd_iter.next().unwrap().0 as i32,
                     );
+                    let src_color_task_id = RenderTaskId { index: cmd_iter.next().unwrap().0 };
                     let data = cmd_iter.next().unwrap();
                     let transform_id = TransformPaletteId(cmd_iter.next().unwrap().0);
                     let bits = cmd_iter.next().unwrap().0;
@@ -306,6 +314,7 @@ impl CommandBuffer {
                     let cmd = PrimitiveCommand::quad(
                         pattern,
                         pattern_input,
+                        src_color_task_id,
                         prim_instance_index,
                         gpu_buffer_address,
                         transform_id,

@@ -9,9 +9,9 @@
 //! Conic gradients are rendered via cached render tasks and composited with the image brush.
 
 use euclid::vec2;
-use api::{ExtendMode, GradientStop, PremultipliedColorF};
+use api::{ColorF, ExtendMode, GradientStop, PremultipliedColorF};
 use api::units::*;
-use crate::pattern::{Pattern, PatternKind, PatternShaderInput};
+use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState, PatternKind, PatternShaderInput, PatternTextureInput};
 use crate::scene_building::IsVisible;
 use crate::frame_builder::FrameBuildingState;
 use crate::intern::{Internable, InternDebug, Handle as InternHandle};
@@ -99,6 +99,41 @@ pub struct ConicGradientTemplate {
     pub stops_opacity: PrimitiveOpacity,
     pub stops: Vec<GradientStop>,
     pub src_color: Option<RenderTaskId>,
+}
+
+impl PatternBuilder for ConicGradientTemplate {
+    fn build(
+        &self,
+        _sub_rect: Option<DeviceRect>,
+        _ctx: &PatternBuilderContext,
+        state: &mut PatternBuilderState,
+    ) -> Pattern {
+        // The scaling parameter is used to compensate for when we reduce the size
+        // of the render task for cached gradients. Here we aren't applying any.
+        let no_scale = DeviceVector2D::one();
+
+        conic_gradient_pattern(
+            self.center,
+            no_scale,
+            &self.params,
+            self.extend_mode,
+            &self.stops,
+            state.frame_gpu_data,
+        )
+    }
+
+    fn get_base_color(
+        &self,
+        _ctx: &PatternBuilderContext,
+    ) -> ColorF {
+        ColorF::WHITE
+    }
+
+    fn use_shared_pattern(
+        &self,
+    ) -> bool {
+        true
+    }
 }
 
 impl Deref for ConicGradientTemplate {
@@ -433,7 +468,8 @@ pub fn conic_gradient_pattern(
             gradient_address.as_int(),
             stops_address.as_int(),
         ),
-        base_color: PremultipliedColorF::WHITE,
+        texture_input: PatternTextureInput::default(),
+        base_color: ColorF::WHITE,
         is_opaque,
     }
 }

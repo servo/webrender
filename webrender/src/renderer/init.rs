@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BlobImageHandler, ColorF, IdNamespace, DocumentId, CrashAnnotator};
+use api::{BlobImageHandler, ColorF, CrashAnnotator, DocumentId, IdNamespace};
 use api::{VoidPtrToSizeFn, FontRenderMode, ImageFormat};
 use api::{RenderNotifier, ImageBufferKind};
 use api::units::*;
@@ -16,7 +16,7 @@ use crate::device::{
 };
 use crate::frame_builder::FrameBuilderConfig;
 use crate::glyph_cache::GlyphCache;
-use glyph_rasterizer::{GlyphRasterizer, SharedFontResources};
+use glyph_rasterizer::{GlyphRasterThread, GlyphRasterizer, SharedFontResources};
 use crate::gpu_types::PrimitiveInstanceData;
 use crate::internal_types::{FastHashMap, FastHashSet, FrameId};
 use crate::picture;
@@ -111,6 +111,10 @@ pub trait AsyncPropertySampler {
     fn deregister(&self);
 }
 
+pub trait RenderBackendHooks {
+    fn init_thread(&self);
+}
+
 pub struct WebRenderOptions {
     pub resource_override_path: Option<PathBuf>,
     /// Whether to use shaders that have been optimized at build time.
@@ -130,6 +134,7 @@ pub struct WebRenderOptions {
     pub upload_pbo_default_size: usize,
     pub batched_upload_threshold: i32,
     pub workers: Option<Arc<ThreadPool>>,
+    pub dedicated_glyph_raster_thread: Option<GlyphRasterThread>,
     pub enable_multithreading: bool,
     pub blob_image_handler: Option<Box<dyn BlobImageHandler>>,
     pub crash_annotator: Option<Box<dyn CrashAnnotator>>,
@@ -139,6 +144,7 @@ pub struct WebRenderOptions {
     pub debug_flags: DebugFlags,
     pub renderer_id: Option<u64>,
     pub scene_builder_hooks: Option<Box<dyn SceneBuilderHooks + Send>>,
+    pub render_backend_hooks: Option<Box<dyn RenderBackendHooks + Send>>,
     pub sampler: Option<Box<dyn AsyncPropertySampler + Send>>,
     pub support_low_priority_transactions: bool,
     pub namespace_alloc_by_client: bool,
@@ -228,6 +234,7 @@ impl Default for WebRenderOptions {
             upload_pbo_default_size: 512 * 512 * 4,
             batched_upload_threshold: 512 * 512,
             workers: None,
+            dedicated_glyph_raster_thread: None,
             enable_multithreading: true,
             blob_image_handler: None,
             crash_annotator: None,
@@ -236,6 +243,7 @@ impl Default for WebRenderOptions {
             renderer_id: None,
             cached_programs: None,
             scene_builder_hooks: None,
+            render_backend_hooks: None,
             sampler: None,
             support_low_priority_transactions: false,
             namespace_alloc_by_client: false,
@@ -576,7 +584,12 @@ pub fn create_webrender_instance(
     let rb_thread_name = format!("WRRenderBackend#{}", options.renderer_id.unwrap_or(0));
     let scene_thread_name = format!("WRSceneBuilder#{}", options.renderer_id.unwrap_or(0));
     let lp_scene_thread_name = format!("WRSceneBuilderLP#{}", options.renderer_id.unwrap_or(0));
-    let glyph_rasterizer = GlyphRasterizer::new(workers, device.get_capabilities().supports_r8_texture_upload);
+
+    let glyph_rasterizer = GlyphRasterizer::new(
+        workers,
+        options.dedicated_glyph_raster_thread,
+        device.get_capabilities().supports_r8_texture_upload,
+    );
 
     let (scene_builder_channels, scene_tx) =
         SceneBuilderThreadChannels::new(api_tx.clone());
@@ -604,6 +617,7 @@ pub fn create_webrender_instance(
         let lp_builder = LowPrioritySceneBuilderThread {
             rx: low_priority_scene_rx,
             tx: scene_tx.clone(),
+            tile_pool: api::BlobTilePool::new(),
         };
 
         thread::Builder::new().name(lp_scene_thread_name.clone()).spawn(move || {
@@ -637,10 +651,15 @@ pub fn create_webrender_instance(
         TextureFilter::Nearest
     };
 
+    let render_backend_hooks = options.render_backend_hooks.take();
+
     let rb_scene_tx = scene_tx.clone();
     let rb_fonts = fonts.clone();
     let enable_multithreading = options.enable_multithreading;
     thread::Builder::new().name(rb_thread_name.clone()).spawn(move || {
+        if let Some(hooks) = render_backend_hooks {
+            hooks.init_thread();
+        }
         register_thread_with_profiler(rb_thread_name.clone());
         profiler::register_thread(&rb_thread_name);
 

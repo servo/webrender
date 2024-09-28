@@ -35,6 +35,12 @@ use crate::capture::ExternalCaptureImage;
 #[cfg(feature = "replay")]
 use crate::capture::PlainExternalImage;
 
+pub use crate::frame_allocator::{FrameAllocator, FrameMemory};
+pub type FrameVec<T> = allocator_api2::vec::Vec<T, FrameAllocator>;
+pub fn size_of_frame_vec<T>(vec: &FrameVec<T>) -> usize {
+    vec.capacity() * std::mem::size_of::<T>()
+}
+
 pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 pub type FastHashSet<K> = HashSet<K, BuildHasherDefault<FxHasher>>;
 
@@ -1015,6 +1021,15 @@ impl CacheTextureId {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct DeferredResolveIndex(pub u32);
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct TextureSourceExternal {
+    pub index: DeferredResolveIndex,
+    pub kind: ImageBufferKind,
+    pub normalized_uvs: bool,
+}
+
 /// Identifies the source of an input texture to a shader.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -1025,7 +1040,7 @@ pub enum TextureSource {
     /// An entry in the texture cache.
     TextureCache(CacheTextureId, Swizzle),
     /// An external image texture, mananged by the embedding.
-    External(DeferredResolveIndex, ImageBufferKind),
+    External(TextureSourceExternal),
     /// Select a dummy 1x1 white texture. This can be used by image
     /// shaders that want to draw a solid color.
     Dummy,
@@ -1036,12 +1051,19 @@ impl TextureSource {
         match *self {
             TextureSource::TextureCache(..) => ImageBufferKind::Texture2D,
 
-            TextureSource::External(_, image_buffer_kind) => image_buffer_kind,
+            TextureSource::External(TextureSourceExternal { kind, .. }) => kind,
 
             // Render tasks use texture arrays for now.
             TextureSource::Dummy => ImageBufferKind::Texture2D,
 
             TextureSource::Invalid => ImageBufferKind::Texture2D,
+        }
+    }
+
+    pub fn uses_normalized_uvs(&self) -> bool {
+        match *self {
+            TextureSource::External(TextureSourceExternal { normalized_uvs, .. }) => normalized_uvs,
+            _ => false,
         }
     }
 

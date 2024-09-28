@@ -11,6 +11,7 @@ use euclid::{SideOffsets2D, Size2D};
 use malloc_size_of::MallocSizeOf;
 use crate::composite::CompositorSurfaceKind;
 use crate::clip::ClipLeafId;
+use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState};
 use crate::quad::QuadTileClassifier;
 use crate::segment::EdgeAaSegmentMask;
 use crate::border::BorderSegmentCacheKey;
@@ -49,6 +50,7 @@ use image::{ImageDataHandle, ImageInstance, YuvImageDataHandle};
 use line_dec::LineDecorationDataHandle;
 use picture::PictureDataHandle;
 use text_run::{TextRunDataHandle, TextRunPrimitive};
+use crate::box_shadow::BoxShadowDataHandle;
 
 pub const VECS_PER_SEGMENT: usize = 2;
 
@@ -569,6 +571,41 @@ pub struct PrimitiveTemplate {
     pub kind: PrimitiveTemplateKind,
 }
 
+impl PatternBuilder for PrimitiveTemplate {
+    fn build(
+        &self,
+        _sub_rect: Option<DeviceRect>,
+        ctx: &PatternBuilderContext,
+        _state: &mut PatternBuilderState,
+    ) -> crate::pattern::Pattern {
+        match self.kind {
+            PrimitiveTemplateKind::Clear => Pattern::clear(),
+            PrimitiveTemplateKind::Rectangle { ref color, .. } => {
+                let color = ctx.scene_properties.resolve_color(color);
+                Pattern::color(color)
+            }
+        }
+    }
+
+    fn get_base_color(
+        &self,
+        ctx: &PatternBuilderContext,
+    ) -> ColorF {
+        match self.kind {
+            PrimitiveTemplateKind::Clear => ColorF::BLACK,
+            PrimitiveTemplateKind::Rectangle { ref color, .. } => {
+                ctx.scene_properties.resolve_color(color)
+            }
+        }
+    }
+
+    fn use_shared_pattern(
+        &self,
+    ) -> bool {
+        true
+    }
+}
+
 impl ops::Deref for PrimitiveTemplate {
     type Target = PrimTemplateCommonData;
     fn deref(&self) -> &Self::Target {
@@ -1050,6 +1087,9 @@ pub enum PrimitiveInstanceKind {
         data_handle: BackdropRenderDataHandle,
         pic_index: PictureIndex,
     },
+    BoxShadow {
+        data_handle: BoxShadowDataHandle,
+    },
 }
 
 impl PrimitiveInstanceKind {
@@ -1150,6 +1190,9 @@ impl PrimitiveInstance {
             PrimitiveInstanceKind::BackdropRender { data_handle, .. } => {
                 data_handle.uid()
             }
+            PrimitiveInstanceKind::BoxShadow { data_handle, .. } => {
+                data_handle.uid()
+            }
         }
     }
 }
@@ -1218,6 +1261,7 @@ pub struct PrimitiveScratchBuffer {
 
     /// Temporary buffers for building segments in to during prepare pass
     pub quad_direct_segments: Vec<QuadSegment>,
+    pub quad_color_segments: Vec<QuadSegment>,
     pub quad_indirect_segments: Vec<QuadSegment>,
 
     /// A retained classifier for checking which segments of a tiled primitive
@@ -1238,6 +1282,7 @@ impl Default for PrimitiveScratchBuffer {
             messages: Vec::new(),
             required_sub_graphs: FastHashSet::default(),
             quad_direct_segments: Vec::new(),
+            quad_color_segments: Vec::new(),
             quad_indirect_segments: Vec::new(),
             quad_tile_classifier: QuadTileClassifier::new(),
         }
@@ -1254,6 +1299,7 @@ impl PrimitiveScratchBuffer {
         self.gradient_tiles.recycle(recycler);
         recycler.recycle_vec(&mut self.debug_items);
         recycler.recycle_vec(&mut self.quad_direct_segments);
+        recycler.recycle_vec(&mut self.quad_color_segments);
         recycler.recycle_vec(&mut self.quad_indirect_segments);
     }
 
@@ -1264,6 +1310,7 @@ impl PrimitiveScratchBuffer {
         self.clip_mask_instances.clear();
         self.clip_mask_instances.push(ClipMaskKind::None);
         self.quad_direct_segments.clear();
+        self.quad_color_segments.clear();
         self.quad_indirect_segments.clear();
 
         self.border_cache_handles.clear();
@@ -1443,6 +1490,14 @@ impl PrimitiveStore {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.pictures.clear();
+        self.text_runs.clear();
+        self.images.clear();
+        self.color_bindings.clear();
+        self.linear_gradients.clear();
+    }
+
     pub fn get_stats(&self) -> PrimitiveStoreStats {
         PrimitiveStoreStats {
             picture_count: self.pictures.len(),
@@ -1458,6 +1513,12 @@ impl PrimitiveStore {
         use crate::print_tree::PrintTree;
         let mut pt = PrintTree::new("picture tree");
         self.pictures[root.0].print(&self.pictures, root, &mut pt);
+    }
+}
+
+impl Default for PrimitiveStore {
+    fn default() -> Self {
+        PrimitiveStore::new(&PrimitiveStoreStats::empty())
     }
 }
 

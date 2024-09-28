@@ -8,7 +8,7 @@ use crate::composite::CompositeFeatures;
 use crate::segment::EdgeAaSegmentMask;
 use crate::spatial_tree::{SpatialTree, SpatialNodeIndex};
 use crate::gpu_cache::{GpuCacheAddress, GpuDataRequest};
-use crate::internal_types::FastHashMap;
+use crate::internal_types::{FastHashMap, FrameVec, FrameMemory};
 use crate::prim_store::ClipData;
 use crate::render_task::RenderTaskAddress;
 use crate::render_task_graph::RenderTaskId;
@@ -17,6 +17,7 @@ use std::i32;
 use crate::util::{TransformedRectKind, MatrixHelpers};
 use glyph_rasterizer::SubpixelDirection;
 use crate::util::{ScaleOffset, pack_as_float};
+
 
 // Contains type that must exactly match the same structures declared in GLSL.
 
@@ -112,6 +113,8 @@ pub struct BlurInstance {
     pub task_address: RenderTaskAddress,
     pub src_task_address: RenderTaskAddress,
     pub blur_direction: i32,
+    pub blur_std_deviation: f32,
+    pub blur_region: DeviceSize,
 }
 
 #[derive(Clone, Debug)]
@@ -121,6 +124,21 @@ pub struct BlurInstance {
 pub struct ScalingInstance {
     pub target_rect: DeviceRect,
     pub source_rect: DeviceRect,
+    source_rect_type: f32,
+}
+
+impl ScalingInstance {
+    pub fn new(target_rect: DeviceRect, source_rect: DeviceRect, source_rect_normalized: bool) -> Self {
+        let source_rect_type = match source_rect_normalized {
+            true => UV_TYPE_NORMALIZED,
+            false => UV_TYPE_UNNORMALIZED,
+        };
+        Self {
+            target_rect,
+            source_rect,
+            source_rect_type: pack_as_float(source_rect_type),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -237,9 +255,10 @@ pub struct PrimitiveInstanceData {
     data: [i32; 4],
 }
 
-/// Specifies that an RGB CompositeInstance's UV coordinates are normalized.
+// Keep these in sync with the correspondong #defines in shared.glsl
+/// Specifies that an RGB CompositeInstance or ScalingInstance's UV coordinates are normalized.
 const UV_TYPE_NORMALIZED: u32 = 0;
-/// Specifies that an RGB CompositeInstance's UV coordinates are not normalized.
+/// Specifies that an RGB CompositeInstance or ScalingInstance's UV coordinates are not normalized.
 const UV_TYPE_UNNORMALIZED: u32 = 1;
 
 /// A GPU-friendly representation of the `ScaleOffset` type
@@ -250,17 +269,6 @@ pub struct CompositorTransform {
     pub sy: f32,
     pub tx: f32,
     pub ty: f32,
-}
-
-impl CompositorTransform {
-    pub fn identity() -> Self {
-        CompositorTransform {
-            sx: 1.0,
-            sy: 1.0,
-            tx: 0.0,
-            ty: 0.0,
-        }
-    }
 }
 
 impl From<ScaleOffset> for CompositorTransform {
@@ -280,8 +288,8 @@ impl From<ScaleOffset> for CompositorTransform {
 #[derive(Clone, Debug)]
 #[repr(C)]
 pub struct CompositeInstance {
-    // Picture space destination rectangle of surface
-    rect: PictureRect,
+    // Device space destination rectangle of surface
+    rect: DeviceRect,
     // Device space destination clip rect for this surface
     clip_rect: DeviceRect,
     // Color for solid color tiles, white otherwise
@@ -297,16 +305,16 @@ pub struct CompositeInstance {
     // UV rectangles (pixel space) for color / yuv texture planes
     uv_rects: [TexelRect; 3],
 
-    // A 2d scale + offset transform for the rect
-    transform: CompositorTransform,
+    // Whether to flip the x and y axis respectively, where 0.0 is no-flip and 1.0 is flip.
+    flip: (f32, f32),
 }
 
 impl CompositeInstance {
     pub fn new(
-        rect: PictureRect,
+        rect: DeviceRect,
         clip_rect: DeviceRect,
         color: PremultipliedColorF,
-        transform: CompositorTransform,
+        flip: (bool, bool),
     ) -> Self {
         let uv = TexelRect::new(0.0, 0.0, 1.0, 1.0);
         CompositeInstance {
@@ -318,38 +326,43 @@ impl CompositeInstance {
             yuv_format: 0.0,
             yuv_channel_bit_depth: 0.0,
             uv_rects: [uv, uv, uv],
-            transform,
+            flip: (flip.0.into(), flip.1.into()),
         }
     }
 
     pub fn new_rgb(
-        rect: PictureRect,
+        rect: DeviceRect,
         clip_rect: DeviceRect,
         color: PremultipliedColorF,
         uv_rect: TexelRect,
-        transform: CompositorTransform,
+        normalized_uvs: bool,
+        flip: (bool, bool),
     ) -> Self {
+        let uv_type = match normalized_uvs {
+            true => UV_TYPE_NORMALIZED,
+            false => UV_TYPE_UNNORMALIZED,
+        };
         CompositeInstance {
             rect,
             clip_rect,
             color,
             _padding: 0.0,
-            color_space_or_uv_type: pack_as_float(UV_TYPE_UNNORMALIZED),
+            color_space_or_uv_type: pack_as_float(uv_type),
             yuv_format: 0.0,
             yuv_channel_bit_depth: 0.0,
             uv_rects: [uv_rect, uv_rect, uv_rect],
-            transform,
+            flip: (flip.0.into(), flip.1.into()),
         }
     }
 
     pub fn new_yuv(
-        rect: PictureRect,
+        rect: DeviceRect,
         clip_rect: DeviceRect,
         yuv_color_space: YuvRangedColorSpace,
         yuv_format: YuvFormat,
         yuv_channel_bit_depth: u32,
         uv_rects: [TexelRect; 3],
-        transform: CompositorTransform,
+        flip: (bool, bool),
     ) -> Self {
         CompositeInstance {
             rect,
@@ -360,7 +373,7 @@ impl CompositeInstance {
             yuv_format: pack_as_float(yuv_format as u32),
             yuv_channel_bit_depth: pack_as_float(yuv_channel_bit_depth),
             uv_rects,
-            transform,
+            flip: (flip.0.into(), flip.1.into()),
         }
     }
 
@@ -404,16 +417,16 @@ pub struct PrimitiveHeaderIndex(pub i32);
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveHeaders {
     // The integer-type headers for a primitive.
-    pub headers_int: Vec<PrimitiveHeaderI>,
+    pub headers_int: FrameVec<PrimitiveHeaderI>,
     // The float-type headers for a primitive.
-    pub headers_float: Vec<PrimitiveHeaderF>,
+    pub headers_float: FrameVec<PrimitiveHeaderF>,
 }
 
 impl PrimitiveHeaders {
-    pub fn new() -> PrimitiveHeaders {
+    pub fn new(memory: &FrameMemory) -> PrimitiveHeaders {
         PrimitiveHeaders {
-            headers_int: Vec::new(),
-            headers_float: Vec::new(),
+            headers_int: memory.new_vec(),
+            headers_float: memory.new_vec(),
         }
     }
 
@@ -649,6 +662,8 @@ bitflags! {
         /// Whether to force the anti-aliasing when the primitive
         /// is axis-aligned.
         const FORCE_AA = 1024;
+        /// Specifies UV coordinates are normalized
+        const NORMALIZED_UVS = 2048;
     }
 }
 
@@ -789,7 +804,7 @@ struct RelativeTransformKey {
 //           specifying a coordinate system that the transform
 //           should be relative to.
 pub struct TransformPalette {
-    transforms: Vec<TransformData>,
+    transforms: FrameVec<TransformData>,
     metadata: Vec<TransformMetadata>,
     map: FastHashMap<RelativeTransformKey, usize>,
 }
@@ -797,10 +812,11 @@ pub struct TransformPalette {
 impl TransformPalette {
     pub fn new(
         count: usize,
+        memory: &FrameMemory,
     ) -> Self {
         let _ = VECS_PER_TRANSFORM;
 
-        let mut transforms = Vec::with_capacity(count);
+        let mut transforms = memory.new_vec_with_capacity(count);
         let mut metadata = Vec::with_capacity(count);
 
         transforms.push(TransformData::invalid());
@@ -813,7 +829,7 @@ impl TransformPalette {
         }
     }
 
-    pub fn finish(self) -> Vec<TransformData> {
+    pub fn finish(self) -> FrameVec<TransformData> {
         self.transforms
     }
 
@@ -958,7 +974,7 @@ impl ImageSource {
 // node in the transform palette.
 fn register_transform(
     metadatas: &mut Vec<TransformMetadata>,
-    transforms: &mut Vec<TransformData>,
+    transforms: &mut FrameVec<TransformData>,
     transform: LayoutToPictureTransform,
 ) -> usize {
     // TODO: refactor the calling code to not even try

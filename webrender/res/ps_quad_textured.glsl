@@ -7,7 +7,6 @@
 #include ps_quad,sample_color0
 
 #define v_flags_textured v_flags.x
-#define v_flags_sample_as_mask v_flags.y
 
 #ifdef WR_VERTEX_SHADER
 
@@ -17,18 +16,19 @@ void pattern_vertex(PrimitiveInfo info) {
     if (info.segment.uv_rect.p0 != info.segment.uv_rect.p1) {
         // Textured
         v_flags_textured = 1;
+        // TODO: Ideally we would unconditionally modulate the texture with the provided
+        // base color, however we are currently getting glitches on Adreno GPUs on Windows
+        // if the base color is set to white for composite primitives. While we figure this
+        // out, v_color is forced to white here in the textured case, which restores the
+        // behavior from before the patch that introduced the glitches.
+        // See comment in `add_composite_prim`.
+        v_color = vec4(1.0);
 
         vec2 f = (info.local_pos - info.segment.rect.p0) / rect_size(info.segment.rect);
         vs_init_sample_color0(f, info.segment.uv_rect);
     } else {
         // Solid color
         v_flags_textured = 0;
-    }
-
-    if ((info.quad_flags & QF_SAMPLE_AS_MASK) != 0) {
-        v_flags_sample_as_mask = 1;
-    } else {
-        v_flags_sample_as_mask = 0;
     }
 }
 
@@ -39,9 +39,6 @@ void pattern_vertex(PrimitiveInfo info) {
 vec4 pattern_fragment(vec4 color) {
     if (v_flags_textured != 0) {
         vec4 texel = fs_sample_color0();
-        if (v_flags_sample_as_mask != 0) {
-            texel = texel.rrrr;
-        }
         color *= texel;
     }
 
@@ -51,7 +48,7 @@ vec4 pattern_fragment(vec4 color) {
 #if defined(SWGL_DRAW_SPAN)
 void swgl_drawSpanRGBA8() {
     if (v_flags_textured != 0) {
-        if (v_flags_sample_as_mask != 0) {
+        if (v_flags_is_mask != 0) {
             // Fall back to fragment shader as we don't specialize for mask yet. Perhaps
             // we can use an existing swgl commit or add a new one though?
         } else {

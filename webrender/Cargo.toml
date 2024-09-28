@@ -23,14 +23,14 @@ sw_compositor = ["dep:swgl"]
 
 [build-dependencies]
 build-parallel = "0.1.2"
-glslopt = "0.1.10"
+glslopt = "0.1.11"
 webrender_build = { version = "0.0.4", path = "../webrender_build", package = "zng-webrender-build" }
 
 [dependencies]
 bincode = "1.0"
 bitflags = { version = "2", features = ["serde"] }
 byteorder = "1.0"
-euclid = { version = "0.22.0", features = ["serde"] }
+euclid = { version = "0.22.10", features = ["serde"] }
 fxhash = "0.2.1"
 gleam = "0.15.0"
 lazy_static = "1.4"
@@ -50,10 +50,13 @@ glyph_rasterizer = { version = "0.2.0", path = "../wr_glyph_rasterizer", package
 svg_fmt = "0.4"
 tracy-rs = "0.1.2"
 derive_more = { version = "0.99", default-features = false, features = ["add_assign"] }
-etagere = "0.2.6"
+peek-poke = { version = "0.3.2", path = "../peek-poke", package = "zng-peek-poke" }
+etagere = "0.2.13"
+glean = { workspace = true, optional = true }
+firefox-on-glean = { version = "0.1.0", optional = true }
 swgl = { path = "../swgl", optional = true, version = "0.2.0", package = "zng-swgl" }
 topological-sort = "0.1"
-peek-poke = { version = "0.3.2", path = "../peek-poke", package = "zng-peek-poke" }
+allocator-api2 = { version = "0.2.18", features = ["alloc", "serde"] }
 
 [dev-dependencies]
 mozangle = "0.3.3"

@@ -1168,6 +1168,8 @@ impl RenderApi {
         self.resources.set_debug_flags(flags);
         let cmd = DebugCommand::SetFlags(flags);
         self.api_sender.send(ApiMsg::DebugCommand(cmd)).unwrap();
+        self.scene_sender.send(SceneBuilderRequest ::SetFlags(flags)).unwrap();
+        self.low_priority_scene_sender.send(SceneBuilderRequest ::SetFlags(flags)).unwrap();
     }
 
     /// Stop RenderBackend's task until shut down
@@ -1397,7 +1399,6 @@ pub struct MemoryReport {
     pub clip_stores: usize,
     pub gpu_cache_metadata: usize,
     pub gpu_cache_cpu_mirror: usize,
-    pub render_tasks: usize,
     pub hit_testers: usize,
     pub fonts: usize,
     pub weak_fonts: usize,
@@ -1408,6 +1409,8 @@ pub struct MemoryReport {
     pub display_list: usize,
     pub upload_staging_memory: usize,
     pub swgl: usize,
+    pub frame_allocator: usize,
+    pub render_tasks: usize,
 
     //
     // GPU memory.
