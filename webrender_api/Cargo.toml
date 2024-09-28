@@ -1,6 +1,6 @@
 [package]
 name = "zng-webrender-api"
-version = "0.63.0"
+version = "0.64.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 repository = "https://github.com/zng-ui/zng-webrender"
