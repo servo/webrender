@@ -52,8 +52,6 @@ tracy-rs = "0.1.2"
 derive_more = { version = "0.99", default-features = false, features = ["add_assign"] }
 peek-poke = { version = "0.3.2", path = "../peek-poke", package = "zng-peek-poke" }
 etagere = "0.2.13"
-glean = { workspace = true, optional = true }
-firefox-on-glean = { version = "0.1.0", optional = true }
 swgl = { path = "../swgl", optional = true, version = "0.2.0", package = "zng-swgl" }
 topological-sort = "0.1"
 allocator-api2 = { version = "0.2.18", features = ["alloc", "serde"] }
