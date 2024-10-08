@@ -1155,6 +1155,7 @@ impl RenderBackend {
         RenderBackendStatus::Continue
     }
 
+    #[tracing::instrument(skip(self, msg))]
     fn process_scene_builder_result(
         &mut self,
         msg: SceneBuilderResult,

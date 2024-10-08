@@ -521,6 +521,7 @@ impl SceneBuilderThread {
     }
 
     /// Do the bulk of the work of the scene builder thread.
+    #[tracing::instrument(skip(self))]
     fn process_transaction(&mut self, mut txn: TransactionMsg) -> Box<BuiltTransaction> {
         profile_scope!("process_transaction");
 
