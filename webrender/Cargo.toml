@@ -57,6 +57,9 @@ firefox-on-glean = { version = "0.1.0", optional = true }
 swgl = { path = "../swgl", optional = true }
 topological-sort = "0.1"
 peek-poke = { version = "0.3", path = "../peek-poke" }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+tracing-perfetto = "0.1.1"
 
 [dev-dependencies]
 mozangle = "0.3.3"
