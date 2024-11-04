@@ -352,7 +352,19 @@ fn transpose_bitmap(bitmap: &[u8], width: usize, height: usize) -> Vec<u8> {
 
 fn flip_bitmap_x(bitmap: &mut [u8], width: usize, height: usize) {
     assert!(bitmap.len() == width * height * 4);
-    let pixels = unsafe { slice::from_raw_parts_mut(bitmap.as_mut_ptr() as *mut u32, width * height) };
+    
+    let mut aligned_pixels: Vec<u32> = vec![0; width * height];
+
+    unsafe {
+        ptr::copy_non_overlapping(
+            bitmap.as_ptr(),
+            aligned_pixels.as_mut_ptr() as *mut u8,
+            bitmap.len()
+        );
+    }
+
+    let pixels = aligned_pixels.as_mut_slice();
+    
     for row in pixels.chunks_mut(width) {
         row.reverse();
     }
@@ -360,7 +372,19 @@ fn flip_bitmap_x(bitmap: &mut [u8], width: usize, height: usize) {
 
 fn flip_bitmap_y(bitmap: &mut [u8], width: usize, height: usize) {
     assert!(bitmap.len() == width * height * 4);
-    let pixels = unsafe { slice::from_raw_parts_mut(bitmap.as_mut_ptr() as *mut u32, width * height) };
+    
+    let mut aligned_pixels: Vec<u32> = vec![0; width * height];
+
+    unsafe {
+        ptr::copy_non_overlapping(
+            bitmap.as_ptr(),
+            aligned_pixels.as_mut_ptr() as *mut u8,
+            bitmap.len()
+        );
+    }
+
+    let pixels = aligned_pixels.as_mut_slice();
+    
     for y in 0 .. height / 2 {
         let low_row = y * width;
         let high_row = (height - 1 - y) * width;
