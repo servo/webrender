@@ -2,17 +2,23 @@
 
 [![Version](https://img.shields.io/crates/v/webrender.svg)](https://crates.io/crates/webrender)
 
-WebRender is a GPU-based 2D rendering engine written in [Rust](https://www.rust-lang.org/). [Firefox](https://www.mozilla.org/firefox), the research web browser [Servo](https://github.com/servo/servo), and other GUI frameworks draw with it. It currently uses the OpenGL API internally.
+WebRender is a GPU-based 2D rendering engine written in
+[Rust](https://www.rust-lang.org/). [Firefox](https://www.mozilla.org/firefox),
+the research web browser [Servo](https://github.com/servo/servo), and other GUI
+frameworks draw with it. It currently uses the OpenGL API internally.
 
-Note that the canonical home for this code is in gfx/wr folder of the
-mozilla-central repository at https://hg.mozilla.org/mozilla-central. The
-Github repository at https://github.com/servo/webrender should be considered
+**Note that the upstream home for this code is in gfx/wr folder of the
+mozilla-central repository at https://hg.mozilla.org/mozilla-central.** The
+GitHub repository at https://github.com/servo/webrender should be considered
 a downstream mirror, although it contains additional metadata (such as Github
-wiki pages) that do not exist in mozilla-central. Pull requests against the
-Github repository are still being accepted, although once reviewed, they will
-be landed on mozilla-central first and then mirrored back. If you are familiar
-with the mozilla-central contribution workflow, filing bugs in
-[Bugzilla](https://bugzilla.mozilla.org/enter_bug.cgi?product=Core&component=Graphics%3A%20WebRender)
+wiki pages) that do not exist in mozilla-central.
+
+Generally speaking, improvements to WebRender should be submitted upstream
+in Gecko, but those relevant to the Servo project or those unsuitable for
+upstream may be accepted here.
+
+If you are familiar with the mozilla-central contribution workflow, filing bugs
+in [Bugzilla](https://bugzilla.mozilla.org/enter_bug.cgi?product=Core&component=Graphics%3A%20WebRender)
 and submitting patches there would be preferred.
 
 ## Update as a Dependency

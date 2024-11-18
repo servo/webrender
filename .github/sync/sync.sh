@@ -12,28 +12,17 @@
 #    repository with the filtered contents into a directory specified by the
 #    argument passed to this script. The filtered contents are determined
 #    by the configuration in `.github/sync/webrender.paths`.
-# 3. Cherry-pick the new commits into the repository in the current working
-#    directory. The commits applied from the filtered repository are determined
-#    by choosing every commit after the hash found in the file
-#    `.github/sync/UPSTREAM_COMMIT`
+# 3. Reset the `upstream` branch in the target repository to the new filtered
+#    version.
 #
 # Note that this script relies on the idea that filtering `gecko-dev` the same
-# way more than once will result in the same commit hashes.
-#
-# If at some point, `webrender.paths` is modified and the commit hashes change,
-# then a single manual filter will have to happen in order to translate the
-# hash in the original filtered repository to the new one. The procedure for this
-# is roughly:
-#
-# 1. Run `git-filter-repo` locally and note the new hash of the latest
-#    commit included from upstream.
-# 2. Replace the contents `UPSTREAM_COMMIT` with that hash and commit
-#    it together with your changes to `webrender.paths`.
+# way more than once will result in the same commit hashes, otherwise multiple
+# copies of the version control history will be included in the repository.
 #
 # [1]: <https://github.com/mozilla/gecko-dev/> mirrored from
 #      <https://hg.mozilla.org/mozilla-central>
 # [2]: <https://github.com/mozilla/gecko-dev/>
-set -eu
+set -eux
 
 root_dir=$(pwd)
 cache_dir=$root_dir/_cache
@@ -89,15 +78,9 @@ cd "$root_dir"
 git remote add filtered-upstream "$filtered"
 git fetch filtered-upstream
 
-hash_file=".github/sync/UPSTREAM_COMMIT"
-hash=`cat $hash_file`
-number_of_commits=`git log $hash..filtered-upstream/master --pretty=oneline | wc -l`
+step "Resetting 'upstream' branch to filtered repository HEAD"
+git switch -c upstream
+git reset --hard filtered-upstream/master
 
-if [ $number_of_commits != '0' ]; then
-    step "Applying $number_of_commits new commits"
-    git -c user.email="$git_email" -c user.name="$git_name" cherry-pick $hash..filtered-upstream/master
-    git rev-parse filtered-upstream/master > "$hash_file"
-    git -c user.email="$git_email" -c user.name="$git_name" commit "$hash_file" -m "Syncing to upstream (`cat $hash_file`)"
-else
-    step "No new commits. Doing nothing."
-fi
+step Pushing new 'upstream'
+git push -f origin upstream
