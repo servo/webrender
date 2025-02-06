@@ -19,7 +19,7 @@
 //! - A '|' token to start a new column.
 //! - A '_' token to start a new row.
 
-use api::{ColorF, ColorU};
+use api::{ColorF, ColorU, precise_time_ns};
 use glyph_rasterizer::profiler::GlyphRasterizeProfiler;
 use crate::renderer::DebugRenderer;
 use crate::device::query::GpuTimer;
@@ -32,7 +32,6 @@ use std::fmt::{Write, Debug};
 use std::f32;
 use std::ops::Range;
 use std::time::Duration;
-use time::precise_time_ns;
 
 macro_rules! set_text {
     ($dst:expr, $($arg:tt)*) => {

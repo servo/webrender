@@ -4,6 +4,7 @@
 
 #![deny(missing_docs)]
 
+use api::precise_time_ns;
 use std::cell::Cell;
 use std::fmt;
 use std::marker::PhantomData;
@@ -11,7 +12,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::u32;
 use api::{HitTestFlags, MinimapData, SnapshotImageKey};
-use time::precise_time_ns;
 use crate::api::channel::{Sender, single_msg_channel, unbounded_channel};
 use crate::api::{BuiltDisplayList, IdNamespace, ExternalScrollId, Parameter, BoolParameter};
 use crate::api::{FontKey, FontInstanceKey, NativeFontHandle};

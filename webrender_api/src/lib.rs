@@ -36,7 +36,6 @@ extern crate malloc_size_of_derive;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate time;
 
 extern crate malloc_size_of;
 extern crate peek_poke;
@@ -49,6 +48,7 @@ mod display_list;
 mod font;
 mod gradient_builder;
 mod image;
+mod precise_time_ns;
 mod tile_pool;
 pub mod units;
 
@@ -59,6 +59,7 @@ pub use crate::display_list::*;
 pub use crate::font::*;
 pub use crate::gradient_builder::*;
 pub use crate::image::*;
+pub use crate::precise_time_ns::precise_time_ns;
 pub use crate::tile_pool::*;
 
 use crate::units::*;
