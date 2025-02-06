@@ -16,12 +16,12 @@
 //! here relies on submitting draw calls via the renderer.
 
 
+use api::precise_time_ns;
 use std::mem;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 use euclid::{Transform3D, point2};
-use time::precise_time_ns;
 use malloc_size_of::MallocSizeOfOps;
 use api::units::*;
 use api::{ExternalImageSource, ImageBufferKind, ImageFormat};
