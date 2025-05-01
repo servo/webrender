@@ -445,8 +445,9 @@ impl HitTester {
         result
     }
 
-    fn get_pipeline_root(&self, pipeline_id: PipelineId) -> &HitTestSpatialNode {
-        &self.spatial_nodes[&self.pipeline_root_nodes[&pipeline_id]]
+    fn get_pipeline_root(&self, pipeline_id: PipelineId) -> Option<&HitTestSpatialNode> {
+        let root_node = &self.pipeline_root_nodes.get(&pipeline_id)?;
+        self.spatial_nodes.get(root_node)
     }
 
 }
@@ -481,7 +482,7 @@ impl HitTest {
         self.pipeline_id
             .and_then(|id|
                 hit_tester
-                    .get_pipeline_root(id)
+                    .get_pipeline_root(id)?
                     .world_viewport_transform
                     .transform_point2d(point)
             )
