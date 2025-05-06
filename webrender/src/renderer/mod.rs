@@ -1254,47 +1254,34 @@ impl Renderer {
     /// is active, otherwise 0 should be passed here.
     pub fn render(
         &mut self,
+        doc_id: DocumentId,
         device_size: DeviceIntSize,
         buffer_age: usize,
     ) -> Result<RenderResults, Vec<RendererError>> {
         self.device_size = Some(device_size);
 
-        // TODO(gw): We want to make the active document that is
-        //           being rendered configurable via the public
-        //           API in future. For now, just select the last
-        //           added document as the active one to render
-        //           (Gecko only ever creates a single document
-        //           per renderer right now).
-        let doc_id = self.active_documents.keys().last().cloned();
+        let result = {
+            // Remove the doc from the map to appease the borrow checker
+            let mut doc = self.active_documents
+                .remove(&doc_id)
+                .unwrap();
 
-        let result = match doc_id {
-            Some(doc_id) => {
-                // Remove the doc from the map to appease the borrow checker
-                let mut doc = self.active_documents
-                    .remove(&doc_id)
-                    .unwrap();
+            let size = if !device_size.is_empty() {
+                Some(device_size)
+            } else {
+                None
+            };
 
-                let size = if !device_size.is_empty() {
-                    Some(device_size)
-                } else {
-                    None
-                };
+            let result = self.render_impl(
+                doc_id,
+                &mut doc,
+                size,
+                buffer_age,
+            );
 
-                let result = self.render_impl(
-                    doc_id,
-                    &mut doc,
-                    size,
-                    buffer_age,
-                );
+            self.active_documents.insert(doc_id, doc);
 
-                self.active_documents.insert(doc_id, doc);
-
-                result
-            }
-            None => {
-                self.last_time = precise_time_ns();
-                Ok(RenderResults::default())
-            }
+            result
         };
 
         drain_filter(
