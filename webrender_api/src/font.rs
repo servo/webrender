@@ -5,8 +5,6 @@
 use peek_poke::PeekPoke;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
-use std::path::PathBuf;
 use std::sync::Arc;
 // local imports
 use crate::IdNamespace;
@@ -55,7 +53,7 @@ impl FontSize {
 #[cfg(not(any(target_os = "macos", target_os = "ios")))]
 #[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NativeFontHandle {
-    pub path: PathBuf,
+    pub path: std::path::PathBuf,
     pub index: u32,
 }
 
