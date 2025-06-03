@@ -10,6 +10,7 @@ edition = "2018"
 default = ["static_freetype"]
 dynamic_freetype = []
 static_freetype = ["freetype/freetype-sys"]
+fontations = ["vello_cpu", "skrifa", "memmap2", "api/fontations"]
 capture = ["api/serialize", "serde", "smallvec/serde"]
 replay = ["api/deserialize", "serde", "smallvec/serde"]
 gecko = ["firefox-on-glean", "glean"]
@@ -28,6 +29,9 @@ rustc-hash = "2.1.1"
 glean = { workspace = true, optional = true }
 firefox-on-glean = { version = "0.1.0", optional = true }
 serde = { optional = true, version = "1.0", features = ["serde_derive"] }
+vello_cpu = { version = "0.1.0", optional = true }
+skrifa = { version = "0.44", optional = true }
+memmap2 = { version = "0.9", optional = true }
 
 [dev-dependencies]
 env_logger = { version = "0.10", default-features = false }

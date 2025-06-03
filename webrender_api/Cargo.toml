@@ -13,6 +13,7 @@ serialize = []
 deserialize = []
 display_list_stats = []
 debugger = ["serialize", "deserialize"]
+fontations = []
 
 [dependencies]
 app_units = "0.7.3"

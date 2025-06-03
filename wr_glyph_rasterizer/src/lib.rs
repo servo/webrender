@@ -27,6 +27,7 @@ extern crate malloc_size_of_derive;
 extern crate tracy_rs;
 #[macro_use]
 extern crate log;
+#[allow(unused_imports)]
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
@@ -39,18 +40,26 @@ extern crate serde;
 extern crate malloc_size_of;
 
 pub mod platform {
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(all(any(target_os = "ios", target_os = "macos"), not(feature = "fontations")))]
     pub use crate::platform::macos::font;
-    #[cfg(any(target_os = "android", all(unix, not(any(target_os = "ios", target_os = "macos")))))]
+    #[cfg(any(target_os = "android", all(unix, not(any(target_os = "ios", target_os = "macos", feature = "fontations")))))]
     pub use crate::platform::unix::font;
     #[cfg(target_os = "windows")]
     pub use crate::platform::windows::font;
 
-    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    #[cfg(feature = "fontations")]
+    pub use crate::platform::fontations::font;
+
+    #[cfg(feature = "fontations")]
+    pub mod fontations {
+        pub mod font;
+    }
+
+    #[cfg(all(any(target_os = "ios", target_os = "macos"), not(feature = "fontations")))]
     pub mod macos {
         pub mod font;
     }
-    #[cfg(any(target_os = "android", all(unix, not(any(target_os = "macos", target_os = "ios")))))]
+    #[cfg(any(target_os = "android", all(unix, not(any(target_os = "macos", target_os = "ios", feature = "fontations")))))]
     pub mod unix {
         pub mod font;
     }
