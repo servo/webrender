@@ -5,6 +5,8 @@
 use peek_poke::PeekPoke;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+use std::path::PathBuf;
 use std::sync::Arc;
 // local imports
 use crate::IdNamespace;
@@ -50,19 +52,14 @@ impl FontSize {
     pub fn to_f64_px(&self) -> f64 { self.0 as f64 }
 }
 
-/// Using Rust crate swash and font-index over native fonts
-#[cfg(feature = "font_backend_swash")]
-#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct NativeFontHandle(pub u32);
-
-#[cfg(not(any(feature = "font_backend_swash", target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 #[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NativeFontHandle {
-    pub path: std::path::PathBuf,
+    pub path: PathBuf,
     pub index: u32,
 }
 
-#[cfg(all(not(feature = "font_backend_swash"), any(target_os = "macos", target_os = "ios")))]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 #[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NativeFontHandle {
     pub name: String,
