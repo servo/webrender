@@ -4,7 +4,6 @@
 
 use api::{ColorU, GlyphDimensions, FontKey, FontRenderMode, FontSize};
 use api::{FontInstanceFlags, NativeFontHandle};
-use font_index::{FontCache, FontId, Font};
 use zeno::Placement;
 use crate::rasterizer::{FontInstance, GlyphKey};
 use crate::rasterizer::{
@@ -21,6 +20,8 @@ use swash::scale::Source;
 use swash::scale::Render;
 use swash::GlyphId;
 use std::mem;
+use peniko::{Blob, Font as PenikoFont};
+use super::font_handle_compat::SimpleFontHandle;
 
 // We rely on Gecko to determine whether the font may have color glyphs to avoid
 // needing to load the font ahead of time to query its symbolic traits.
@@ -29,8 +30,7 @@ fn is_bitmap_font(font: &FontInstance) -> bool {
 }
 
 pub struct FontContext {
-    fonts: FastHashMap<FontKey, Font>,
-    font_cache: FontCache,
+    fonts: FastHashMap<FontKey, PenikoFont>,
     scale_context: ScaleContext,
     cache: FastHashMap<(FontInstance, GlyphKey), GlyphImage>,
 }
@@ -43,7 +43,6 @@ impl FontContext {
     pub fn new() -> FontContext {
         FontContext {
             fonts: FastHashMap::default(),
-            font_cache: FontCache::default(),
             cache: FastHashMap::default(),
             scale_context: ScaleContext::new(),
         }
@@ -53,18 +52,25 @@ impl FontContext {
         if self.fonts.contains_key(font_key) {
             return;
         }
-        if let Some(font) = Font::from_data(data.to_vec(), index as usize) {
-            self.fonts.insert(*font_key, font);
-        }
+
+        let font = PenikoFont {
+            data: Blob::new(data),
+            index,
+        };
+        self.fonts.insert(*font_key, font);
     }
 
-    pub fn add_native_font(&mut self, font_key: &FontKey, handle: NativeFontHandle) {
+    pub fn add_native_font(&mut self, font_key: &FontKey, native_font_handle: NativeFontHandle) {
         if self.fonts.contains_key(font_key) {
             return;
         }
-        if let Some(font) = self.font_cache.get(FontId(handle.0)) {
-            self.fonts.insert(*font_key, font);
-        }
+
+        let handle = SimpleFontHandle::from(native_font_handle);
+        let font = PenikoFont {
+            data: Blob::new(Arc::new(handle.data)),
+            index: handle.index,
+        };
+        self.fonts.insert(*font_key, font);
     }
 
     pub fn delete_font(&mut self, font_key: &FontKey) {
@@ -83,7 +89,9 @@ impl FontContext {
         match self.fonts.get(&font_key) {
             None => None,
             Some(font) => {
-                let index: u32 = font.charmap().map(ch).into();
+                let font_ref =
+                    swash::FontRef::from_index(font.data.as_ref(), font.index as usize).unwrap();
+                let index: u32 = font_ref.charmap().map(ch).into();
                 return Some(index);
             }
         }
@@ -107,8 +115,9 @@ impl FontContext {
         }) = self.get_or_create_cache(instance, key)
         {
             if let Some(font) = self.fonts.get(&instance.font_key) {
-                let advance = font
-                    .as_ref()
+                let font_ref =
+                    swash::FontRef::from_index(font.data.as_ref(), font.index as usize).unwrap();
+                let advance = font_ref
                     .glyph_metrics(&[])
                     .scale(size.to_f32_px())
                     .advance_width(key.index() as GlyphId);
@@ -156,8 +165,10 @@ impl FontContext {
             Entry::Occupied(entry) => Some(entry.get().clone()),
             Entry::Vacant(entry) => {
                 let font = self.fonts.get(&instance.font_key).unwrap();
+                let font_ref =
+                    swash::FontRef::from_index(font.data.as_ref(), font.index as usize).unwrap();
                 if let Some(glyph) =
-                    render_glyph(&mut self.scale_context, &font.as_ref(), instance, glyph_key)
+                    render_glyph(&mut self.scale_context, &font_ref, instance, glyph_key)
                 {
                     entry.insert(glyph.clone());
                     return Some(glyph);

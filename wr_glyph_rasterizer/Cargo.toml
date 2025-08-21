@@ -13,7 +13,7 @@ static_freetype = ["freetype/freetype-sys"]
 capture = ["api/serialize", "serde", "smallvec/serde"]
 replay = ["api/deserialize", "serde", "smallvec/serde"]
 gecko = ["firefox-on-glean", "glean"]
-backend_swash = ["swash", "zeno", "font-index", "api/font_backend_swash"]
+backend_swash = ["swash", "zeno", "api/font_backend_swash", "skrifa", "memmap2", "peniko"]
 backend_native = [
   "freetype", "libc",
   "dwrote",
@@ -35,14 +35,13 @@ firefox-on-glean = { version = "0.1.0", optional = true }
 serde = { optional = true, version = "1.0", features = ["serde_derive"] }
 parking_lot = { version = "0.12", optional = true }
 zeno = { version = "0.2.2", optional = true }
+skrifa = { version = "0.33", optional = true }
+memmap2 = { version = "0.9", optional = true }
+peniko = { version = "0.4", optional = true }
 
 [dependencies.swash]
 git = "https://github.com/declantsien/swash.git"
 branch = "webrender-fix"
-optional = true
-
-[dependencies.font-index]
-git = "https://github.com/declantsien/font-index.git"
 optional = true
 
 [dev-dependencies]

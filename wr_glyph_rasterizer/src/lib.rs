@@ -68,5 +68,6 @@ pub mod backend {
     #[cfg(feature = "backend_swash")]
     pub mod swash {
         pub mod font;
+        mod font_handle_compat;
     }
 }
