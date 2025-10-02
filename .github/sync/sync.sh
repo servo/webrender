@@ -19,9 +19,8 @@
 # way more than once will result in the same commit hashes, otherwise multiple
 # copies of the version control history will be included in the repository.
 #
-# [1]: <https://github.com/mozilla/gecko-dev/> mirrored from
-#      <https://hg.mozilla.org/mozilla-central>
-# [2]: <https://github.com/mozilla/gecko-dev/>
+# [1]: <https://github.com/mozilla-firefox/firefox/>.
+# [2]: <https://github.com/servo/webrender/>
 set -eux
 
 root_dir=$(pwd)
@@ -61,7 +60,7 @@ fi
 
 step "Cloning upstream if needed"
 if ! [ -e upstream ]; then
-    git clone --bare --single-branch --progress https://github.com/mozilla/gecko-dev.git upstream
+    git clone --bare --single-branch --progress https://github.com/mozilla-firefox/firefox.git upstream
 fi
 
 step "Updating upstream"
@@ -80,7 +79,7 @@ git fetch filtered-upstream
 
 step "Resetting 'upstream' branch to filtered repository HEAD"
 git switch -c upstream
-git reset --hard filtered-upstream/master
+git reset --hard filtered-upstream/main
 
 step Pushing new 'upstream'
 git push -f origin upstream
