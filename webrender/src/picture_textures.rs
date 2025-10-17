@@ -4,7 +4,7 @@
 
 use std::mem;
 use smallvec::SmallVec;
-use api::{ImageFormat, ImageBufferKind, DebugFlags};
+use api::{DebugFlags, DocumentId, ImageBufferKind, ImageFormat};
 use api::units::*;
 use crate::device::TextureFilter;
 use crate::internal_types::{
@@ -67,6 +67,7 @@ impl PictureCacheEntry {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PictureTexture {
+    document_id: DocumentId,
     texture_id: CacheTextureId,
     size: DeviceIntSize,
     is_allocated: bool,
@@ -176,9 +177,11 @@ impl PictureTextures {
         self.allocated_texture_count += 1;
 
         for texture in &mut self.textures {
+            //if texture.size == tile_size && !texture.is_allocated && self.now.document_id() == texture.document_id {
             if texture.size == tile_size && !texture.is_allocated {
                 // Found a target that's not currently in use which matches. Update
                 // the last_frame_used for GC purposes.
+                println!("reusing pic texture: {:?} at frame: {:?} doc: {:?}", texture.texture_id, self.now.frame_id(), self.now.document_id());
                 texture.is_allocated = true;
                 texture.last_frame_used = FrameId::INVALID;
                 texture_id = Some(texture.texture_id);
@@ -207,6 +210,7 @@ impl PictureTextures {
             pending_updates.push_alloc(texture_id, info);
 
             self.textures.push(PictureTexture {
+                document_id: self.now.document_id(),
                 texture_id,
                 is_allocated: true,
                 size: tile_size,
@@ -280,7 +284,7 @@ impl PictureTextures {
         let entry = self.cache_entries.get_opt(handle)
             .expect("BUG: was dropped from cache or not updated!");
 
-        debug_assert_eq!(entry.last_access, self.now);
+        assert_eq!(entry.last_access, self.now);
 
         TextureSource::TextureCache(entry.texture_id, Swizzle::default())
     }
@@ -299,12 +303,20 @@ impl PictureTextures {
                 // so we don't yet know which picture cache tiles will be
                 // requested this frame. Therefore only evict picture cache
                 // tiles which weren't requested in the *previous* frame.
-                entry.last_access.frame_id() < self.now.frame_id() - 1
+                // assert!(entry.last_access.document_id() == self.now.document_id(), "can't compare frames from diff docs");
+                let prev_doc = entry.last_access.document_id();
+                let current_doc = self.now.document_id();
+                (prev_doc == current_doc) && (entry.last_access.frame_id() < self.now.frame_id() - 1)
             };
 
             if evict {
                 let handle = self.cache_handles.swap_remove(i);
                 let entry = self.cache_entries.free(handle);
+                println!(
+                    "evicting pic texture: {:?} at frame: {:?}. last access {:?} doc: {:?}",
+                    entry.texture_id, self.now.frame_id(), entry.last_access.frame_id(),
+                    self.now.document_id()
+                );
                 self.free_tile(entry.texture_id, self.now.frame_id(), pending_updates);
             }
         }
@@ -313,6 +325,10 @@ impl PictureTextures {
     pub fn clear(&mut self, pending_updates: &mut TextureUpdateList) {
         for handle in mem::take(&mut self.cache_handles) {
             let entry = self.cache_entries.free(handle);
+            println!("clearing pic texture: {:?} at frame: {:?}. last access {:?} doc: {:?}",
+                entry.texture_id, self.now.frame_id(), entry.last_access.frame_id(),
+                self.now.document_id(),
+            );
             self.free_tile(entry.texture_id, self.now.frame_id(), pending_updates);
         }
 
@@ -345,16 +361,20 @@ impl PictureTextures {
             let mut allocated_targets = SmallVec::<[PictureTexture; 32]>::new();
             let mut retained_targets = SmallVec::<[PictureTexture; 32]>::new();
 
+            let doc = self.now.document_id();
             for target in self.textures.drain(..) {
                 if target.is_allocated {
                     // Allocated targets can't be collected
+                    println!("gc saw alloc for pic texture: {:?} doc: {doc:?}", target.texture_id);
                     allocated_targets.push(target);
                 } else if retained_targets.len() < allowed_retained_count {
+                    println!("gc retaining pic texture: {:?} doc: {doc:?}", target.texture_id);
                     // Retain the most recently used targets up to the allowed count
                     retained_targets.push(target);
                 } else {
                     // The rest of the targets get freed
                     assert_ne!(target.last_frame_used, FrameId::INVALID);
+                    println!("gc freeing pic texture: {:?} doc: {doc:?}", target.texture_id);
                     pending_updates.push_free(target.texture_id);
                 }
             }

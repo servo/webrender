@@ -132,6 +132,7 @@ impl CacheEntry {
         swizzle: Swizzle,
         size_in_bytes: usize,
     ) -> Self {
+        println!("New standalone cache entry: {texture_id:?}");
         CacheEntry {
             size: params.descriptor.size,
             user_data: params.user_data,
@@ -1351,6 +1352,7 @@ impl TextureCache {
         let allocated_size_in_bytes = (allocated_rect.area() * bpp) as usize;
         self.bytes_allocated[budget_type as usize] += allocated_size_in_bytes;
 
+        println!("New shared cache entry (alloc): {texture_id:?}");
         (CacheEntry {
             size: params.descriptor.size,
             user_data: params.user_data,
@@ -1413,6 +1415,7 @@ impl TextureCache {
         format: ImageFormat,
     ) -> CacheTextureId {
         let texture_id = self.next_id;
+        println!("new render_target entry {texture_id:?}");
         self.next_id.0 += 1;
 
         // Push a command to allocate device storage of the right size / format.

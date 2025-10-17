@@ -499,6 +499,7 @@ enum PartialPresentMode {
     },
 }
 
+#[derive(Debug)]
 struct CacheTexture {
     texture: Texture,
     category: TextureCacheCategory,
@@ -589,6 +590,7 @@ impl TextureResolver {
                 Swizzle::default()
             }
             TextureSource::TextureCache(index, swizzle) => {
+                println!("Binding texture cache at index {index:?} {sampler:?}");
                 let texture = &self.texture_cache_map[&index].texture;
                 device.bind_texture(sampler, texture, swizzle);
                 swizzle
@@ -1066,6 +1068,7 @@ impl Renderer {
                     mut doc,
                     resource_update_list,
                 ) => {
+                    println!("Got publish document {document_id:?}");
                     // Add a new document to the active set
 
                     // If the document we are replacing must be drawn (in order to
@@ -1078,6 +1081,7 @@ impl Renderer {
                         doc.profile.merge(&mut prev_doc.profile);
 
                         if prev_doc.frame.must_be_drawn() {
+                            println!("Rendering doc: {document_id:?} for TEXTURE_CACHE_FLUSH");
                             prev_doc.render_reasons |= RenderReasons::TEXTURE_CACHE_FLUSH;
                             self.render_impl(
                                 document_id,
@@ -1112,6 +1116,13 @@ impl Renderer {
 
                     //TODO: associate `document_id` with target window
                     self.pending_texture_cache_updates |= !resource_update_list.texture_updates.updates.is_empty();
+                    println!("existing texture cache updates");
+                    for (i, update) in self.pending_texture_updates.iter().enumerate() {
+                        println!("Exisiting update: {i}");
+                        update.print_cache_updates();
+                    }
+                    println!("queueing texture cache updates");
+                    resource_update_list.texture_updates.print_cache_updates();
                     self.pending_texture_updates.push(resource_update_list.texture_updates);
                     self.pending_native_surface_updates.extend(resource_update_list.native_surface_updates);
                     self.documents_seen.insert(document_id);
@@ -1595,6 +1606,7 @@ impl Renderer {
         buffer_age: usize,
     ) -> Result<RenderResults, Vec<RendererError>> {
         profile_scope!("render");
+        println!("rendering doc {doc_id:?}");
         let mut results = RenderResults::default();
         self.profile.end_time_if_started(profiler::FRAME_SEND_TIME);
         self.profile.start_time(profiler::RENDERER_TIME);
@@ -1958,6 +1970,7 @@ impl Renderer {
     }
 
     fn update_texture_cache(&mut self) {
+        println!("running update texture cache. remaining: {:?}", self.pending_texture_updates.len());
         profile_scope!("update_texture_cache");
 
         let _gm = self.gpu_profiler.start_marker("texture cache update");
@@ -2013,6 +2026,7 @@ impl Renderer {
             let mut pending_deletes = Vec::new();
             for allocation in &update_list.allocations {
                 let old = self.texture_resolver.texture_cache_map.remove(&allocation.id);
+                println!("Removed from texture_cache_map: {:?} {old:?}", allocation.id);
                 match allocation.kind {
                     TextureCacheAllocationKind::Alloc(_) => {
                         assert!(old.is_none(), "Renderer and backend disagree!");
@@ -2116,6 +2130,7 @@ impl Renderer {
 
                         create_cache_texture_time += zeitstempel::now() - create_cache_texture_start;
 
+                        println!("Inserting into texture_cache_map: {:?} {:?}", allocation.id, texture);
                         self.texture_resolver.texture_cache_map.insert(allocation.id, CacheTexture {
                             texture,
                             category: info.category,

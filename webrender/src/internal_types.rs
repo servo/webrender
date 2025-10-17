@@ -119,13 +119,14 @@ impl Eq for FrameStamp {}
 impl PartialEq for FrameStamp {
     fn eq(&self, other: &Self) -> bool {
         // We should not be checking equality unless the documents are the same
-        debug_assert_eq!(self.document_id, other.document_id);
+        assert!(self.document_id == other.document_id);
         self.id == other.id
     }
 }
 
 impl PartialOrd for FrameStamp {
     fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+        assert!(self.document_id == other.document_id);
         self.id.partial_cmp(&other.id)
     }
 }
@@ -1092,7 +1093,6 @@ pub struct RenderTargetInfo {
     pub has_depth: bool,
 }
 
-#[derive(Debug)]
 pub enum TextureUpdateSource {
     External {
         id: ExternalImageId,
@@ -1102,6 +1102,27 @@ pub enum TextureUpdateSource {
     /// Clears the target area, rather than uploading any pixels. Used when the
     /// texture cache debug display is active.
     DebugClear,
+}
+
+impl std::fmt::Debug for TextureUpdateSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TextureUpdateSource::External { id, channel_index } => {
+                f.debug_struct("TextureUpdateSource::External")
+                    .field("id", id)
+                    .field("ch_idx", channel_index)
+                    .finish()
+            }
+            TextureUpdateSource::Bytes { data } => {
+                f.debug_struct("TextureUpdateSource::Bytes")
+                    .field("data.len", &data.len())
+                    .finish()
+            }
+            TextureUpdateSource::DebugClear => {
+                f.debug_struct("TextureUpdateSource::DbgClr").finish()
+            }
+        }
+    }
 }
 
 /// Command to allocate, reallocate, or free a texture for the texture cache.
@@ -1195,6 +1216,15 @@ impl TextureUpdateList {
             updates: FastHashMap::default(),
             copies: FastHashMap::default(),
         }
+    }
+
+    pub fn print_cache_updates(&self) {
+        let allocs: Vec<String> = self.allocations.iter().map(|alloc| format!("{:?}", alloc)).collect();
+        let updates: Vec<String> = self.updates.iter().map(|alloc| format!("{:?}", alloc)).collect();
+        let copies: Vec<String> = self.copies.iter().map(|alloc| format!("{:?}", alloc)).collect();
+        println!("-- allocs: {allocs:?}");
+        println!("-- updates: {updates:?}");
+        println!("-- copies: {copies:?}");
     }
 
     /// Returns true if this is a no-op (no updates to be applied).
