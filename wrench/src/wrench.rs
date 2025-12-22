@@ -611,7 +611,7 @@ impl Wrench {
 
     pub fn render(&mut self) -> RenderResults {
         self.renderer.update();
-        let _ = self.renderer.flush_pipeline_info();
+        let _ = self.api.flush_pipeline_info();
         self.renderer
             .render(self.window_size, 0)
             .expect("errors encountered during render!")

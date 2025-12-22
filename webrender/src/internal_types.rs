@@ -9,7 +9,7 @@ use api::units::*;
 use crate::render_api::DebugCommand;
 use crate::composite::NativeSurfaceOperation;
 use crate::device::TextureFilter;
-use crate::renderer::{FullFrameStats, PipelineInfo};
+use crate::renderer::FullFrameStats;
 use crate::gpu_cache::GpuCacheUpdateList;
 use crate::gpu_types::BlurEdgeMode;
 use crate::frame_builder::Frame;
@@ -1366,7 +1366,6 @@ pub enum ResultMsg {
         resource_updates: ResourceUpdateList,
         memory_pressure: bool,
     },
-    PublishPipelineInfo(PipelineInfo),
     PublishDocument(
         FramePublishId,
         DocumentId,

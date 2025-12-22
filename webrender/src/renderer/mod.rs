@@ -44,7 +44,7 @@ use api::{PipelineId, ImageRendering, Checkpoint, NotificationRequest, ImageBuff
 use api::ExternalImage;
 use api::FramePublishId;
 use api::units::*;
-use api::channel::{Sender, Receiver};
+use api::channel::{Sender, single_msg_channel, Receiver};
 pub use api::DebugFlags;
 use core::time::Duration;
 
@@ -867,8 +867,6 @@ pub struct Renderer {
     gpu_cache_frame_id: FrameId,
     gpu_cache_overflow: bool,
 
-    pipeline_info: PipelineInfo,
-
     // Manages and resolves source textures IDs to real texture IDs.
     texture_resolver: TextureResolver,
 
@@ -1017,15 +1015,6 @@ impl Renderer {
         self.clear_color = color;
     }
 
-    pub fn flush_pipeline_info(&mut self) -> PipelineInfo {
-        mem::replace(&mut self.pipeline_info, PipelineInfo::default())
-    }
-
-    /// Returns the Epoch of the current frame in a pipeline.
-    pub fn current_epoch(&self, document_id: DocumentId, pipeline_id: PipelineId) -> Option<Epoch> {
-        self.pipeline_info.epochs.get(&(pipeline_id, document_id)).cloned()
-    }
-
     fn get_next_result_msg(&mut self) -> Option<ResultMsg> {
         if self.pending_result_msg.is_none() {
             if let Ok(msg) = self.result_rx.try_recv() {
@@ -1054,12 +1043,6 @@ impl Renderer {
         // Pull any pending results and return the most recent.
         while let Some(msg) = self.get_next_result_msg() {
             match msg {
-                ResultMsg::PublishPipelineInfo(mut pipeline_info) => {
-                    for ((pipeline_id, document_id), epoch) in pipeline_info.epochs {
-                        self.pipeline_info.epochs.insert((pipeline_id, document_id), epoch);
-                    }
-                    self.pipeline_info.removed_pipelines.extend(pipeline_info.removed_pipelines.drain(..));
-                }
                 ResultMsg::PublishDocument(
                     _,
                     document_id,
@@ -5894,7 +5877,12 @@ impl Renderer {
         let y0: f32 = 30.0;
         let mut y = y0;
         let mut text_width = 0.0;
-        for ((pipeline, document_id), epoch) in  &self.pipeline_info.epochs {
+
+        let (tx, rx) = single_msg_channel();
+        self.api_tx.send(ApiMsg::RequestPipelineInfo(tx)).unwrap();
+        let pipeline_info = rx.recv().unwrap();
+
+        for ((pipeline, document_id), epoch) in  pipeline_info.epochs {
             y += dy;
             let w = debug_renderer.add_text(
                 x0, y,
@@ -6270,10 +6258,10 @@ impl ExternalImageHandler for DummyExternalImageHandler {
     fn unlock(&mut self, _key: ExternalImageId, _channel_index: u8) {}
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct PipelineInfo {
     pub epochs: FastHashMap<(PipelineId, DocumentId), Epoch>,
-    pub removed_pipelines: Vec<(PipelineId, DocumentId)>,
+    pub removed_pipelines: FastHashSet<(PipelineId, DocumentId)>,
 }
 
 impl Renderer {

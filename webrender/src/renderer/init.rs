@@ -802,7 +802,6 @@ pub fn create_webrender_instance(
         vaos,
         vertex_data_textures,
         current_vertex_data_textures: 0,
-        pipeline_info: PipelineInfo::default(),
         dither_matrix_texture,
         external_image_handler: None,
         size_of_ops: make_size_of_ops(),
