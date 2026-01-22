@@ -17,7 +17,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Install freetype
-        run: sudo apt install libfreetype-dev
+        run: sudo apt update && sudo apt install -y libfreetype-dev
       - name: Build wrench
         run: |
           cd wrench
