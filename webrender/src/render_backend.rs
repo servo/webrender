@@ -1491,8 +1491,9 @@ impl RenderBackend {
                 .cloned()
                 .filter(|key| !document_already_present(*key))
                 .collect();
-            #[allow(unused_variables)]
+            #[cfg_attr(not(feature = "capture"), allow(unused_variables))]
             let mut built_frame = false;
+            #[cfg_attr(not(feature = "capture"), allow(unused_assignments))]
             for &document_id in &nop_documents {
                 built_frame |= self.update_document(
                     document_id,
