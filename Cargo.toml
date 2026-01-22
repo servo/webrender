@@ -18,7 +18,9 @@ api = { version = "0.68", path = "./webrender_api", package = "webrender_api" }
 webrender_build = { version = "0.68", path = "./webrender_build", package = "webrender_build" }
 glyph_rasterizer = { version = "0.68", path = "./wr_glyph_rasterizer", package = "wr_glyph_rasterizer" }
 malloc_size_of = { version = "0.68", path = "./wr_malloc_size_of", package = "wr_malloc_size_of" }
-peek-poke = { version = "0.3", path = "./peek-poke" }
+swgl = { version = "0.68", path = "./swgl", package = "swgl" }
+glsl-to-cxx = { version = "0.68", path = "./glsl-to-cxx", package = "glsl-to-cxx" }
+peek-poke = { version = "0.3", path = "./peek-poke", package = "peek-poke" }
 
 gleam = "0.15.1"
 glean = "=65.2.1"
