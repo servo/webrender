@@ -272,14 +272,14 @@ impl ScaleOffset {
         //           of a negative size). In future we could catch / assert / fix
         //           these invalid rects earlier, and assert here instead.
 
-        let w = rect.width().max(0.0);
-        let h = rect.height().max(0.0);
+        let w = rect.width().max(0.0) as f64;
+        let h = rect.height().max(0.0) as f64;
 
-        let mut x0 = rect.min.x * self.scale.x + self.offset.x;
-        let mut y0 = rect.min.y * self.scale.y + self.offset.y;
+        let mut x0 = rect.min.x as f64 * self.scale.x as f64 + self.offset.x as f64;
+        let mut y0 = rect.min.y as f64 * self.scale.y as f64 + self.offset.y as f64;
 
-        let mut sx = w * self.scale.x;
-        let mut sy = h * self.scale.y;
+        let mut sx = w * self.scale.x as f64;
+        let mut sy = h * self.scale.y as f64;
         // Handle negative scale. Previously, branchless float math was used to find the
         // min / max vertices and size. However, that sequence of operations was producind
         // additional floating point accuracy on android emulator builds, causing one test
@@ -296,8 +296,14 @@ impl ScaleOffset {
         }
 
         Box2D::from_origin_and_size(
-            Point2D::new(x0, y0),
-            Size2D::new(sx, sy),
+            Point2D::new(
+                x0.clamp((f32::MIN/2.0) as f64, (f32::MAX/2.0) as f64) as f32,
+                y0.clamp((f32::MIN/2.0) as f64, (f32::MAX/2.0) as f64) as f32,
+            ),
+            Size2D::new(
+                sx.min(f32::MAX as f64) as f32,
+                sy.min(f32::MAX as f64) as f32,
+            ),
         )
     }
 
@@ -310,14 +316,14 @@ impl ScaleOffset {
         //           of a negative size). In future we could catch / assert / fix
         //           these invalid rects earlier, and assert here instead.
 
-        let w = rect.width().max(0.0);
-        let h = rect.height().max(0.0);
+        let w = rect.width().max(0.0) as f64;
+        let h = rect.height().max(0.0) as f64;
 
-        let mut x0 = (rect.min.x - self.offset.x) / self.scale.x;
-        let mut y0 = (rect.min.y - self.offset.y) / self.scale.y;
+        let mut x0 = (rect.min.x - self.offset.x) as f64 / self.scale.x as f64;
+        let mut y0 = (rect.min.y - self.offset.y) as f64 / self.scale.y as f64;
 
-        let mut sx = w / self.scale.x;
-        let mut sy = h / self.scale.y;
+        let mut sx = w / self.scale.x as f64;
+        let mut sy = h / self.scale.y as f64;
 
         // Handle negative scale. Previously, branchless float math was used to find the
         // min / max vertices and size. However, that sequence of operations was producind
@@ -335,8 +341,14 @@ impl ScaleOffset {
         }
 
         Box2D::from_origin_and_size(
-            Point2D::new(x0, y0),
-            Size2D::new(sx, sy),
+            Point2D::new(
+                x0.clamp((f32::MIN/2.0) as f64, (f32::MAX/2.0) as f64) as f32,
+                y0.clamp((f32::MIN/2.0) as f64, (f32::MAX/2.0) as f64) as f32,
+            ),
+            Size2D::new(
+                sx.min(f32::MAX as f64) as f32,
+                sy.min(f32::MAX as f64) as f32,
+            ),
         )
     }
 
