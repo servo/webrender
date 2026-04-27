@@ -153,10 +153,10 @@ vec3 ClipColor(vec3 C) {
     float n = min(C.r, min(C.g, C.b));
     float x = max(C.r, max(C.g, C.b));
 
-    if (n < 0.0)
+    if (n < 0.0 && L != n)
         C = L + (((C - L) * L) / (L - n));
 
-    if (x > 1.0)
+    if (x > 1.0 && x != L)
         C = L + (((C - L) * (1.0 - L)) / (x - L));
 
     return C;
