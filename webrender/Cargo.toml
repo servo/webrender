@@ -24,7 +24,7 @@ debugger = ["hyper", "tokio", "serde_json", "url", "sha1", "base64", "api/debugg
 
 [build-dependencies]
 build-parallel = "0.1.2"
-glslopt = "0.1.13"
+glslopt = "0.1.14"
 webrender_build = { version = "0.0.2", path = "../webrender_build" }
 
 [dependencies]
