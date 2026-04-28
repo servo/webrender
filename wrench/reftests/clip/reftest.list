@@ -24,3 +24,4 @@ platform(linux,mac) == sc-mask-with-blur.yaml sc-mask-with-blur.png
 platform(linux,mac) == clip-between-picclip-and-lca.yaml clip-between-picclip-and-lca.png
 == negative-tiled-rounded-rect.yaml negative-tiled-rounded-rect-ref.yaml
 fuzzy(2,1300) == tiled-repeated.yaml tiled-repeated.png
+== extreme-scale-rounded-rect.yaml extreme-scale-rounded-rect.yaml

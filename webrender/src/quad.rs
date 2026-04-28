@@ -917,8 +917,7 @@ fn prepare_nine_patch(
         .select(device_clip_rect.round(), device_clip_rect)
         .intersection_unchecked(&device_prim_rect);
     let clipped_surface_rect = rounded_edges
-        .select(device_clip_rect, *clipped_surface_rect)
-        .to_i32();
+        .select(device_clip_rect, *clipped_surface_rect);
 
 
     let local_corner_0 = LayoutRect::new(
@@ -931,14 +930,12 @@ fn prepare_nine_patch(
         ninepatch_rect.max,
     );
 
-    let surface_rect_0: DeviceIntRect = local_to_device
+    let surface_rect_0: DeviceRect = local_to_device
         .map_rect(&local_corner_0)
-        .round_out()
-        .to_i32();
-    let surface_rect_1: DeviceIntRect = local_to_device
+        .round_out();
+    let surface_rect_1: DeviceRect = local_to_device
         .map_rect(&local_corner_1)
-        .round_out()
-        .to_i32();
+        .round_out();
 
     let p0 = surface_rect_0.min;
     let p1 = surface_rect_0.max;
@@ -1001,7 +998,7 @@ fn prepare_nine_patch(
                 continue;
             }
 
-            let segment = DeviceIntRect::new(point2(x0, y0), point2(x1, y1));
+            let segment = DeviceRect::new(point2(x0, y0), point2(x1, y1));
             let segment_device_rect = match segment.intersection(&clipped_surface_rect) {
                 Some(rect) => rect,
                 None => {
@@ -1010,11 +1007,12 @@ fn prepare_nine_patch(
             };
 
             if should_create_task(mode, x, y) {
+                let task_size = segment_device_rect.size().to_i32();
                 let task_id = add_render_task_with_mask(
                     pattern,
                     &local_rect,
-                    segment_device_rect.size(),
-                    segment_device_rect.min.to_f32(),
+                    task_size,
+                    segment_device_rect.min,
                     clips_range,
                     transform.prim_spatial_node_index(),
                     transform.raster_spatial_node_index(),

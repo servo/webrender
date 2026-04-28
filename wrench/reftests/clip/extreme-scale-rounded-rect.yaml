@@ -1,0 +1,27 @@
+# A rounded rectangle under a very large scale factor. This test aims to check
+# that we gracefully clip/handle coordinates in screen space that can't be
+# represented with 32 bits integers.
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 200, 200]
+      transform: scale(100000000000000000000000000, 1.0)
+      items:
+        # A second rect that is only there to prevent the clip from being
+        # moved to the compositor.
+        - type: rect
+          bounds: [0, 0, 300, 300]
+          color: blue
+        - type: clip
+          id: 1
+          complex:
+            - rect: [0, 0, 300, 300]
+              radius: [20, 20]
+        - type: clip-chain
+          id: 2
+          clips: [1]
+        - type: rect
+          bounds: [0, 0, 300, 300]
+          color: green
+          clip-chain: 2
