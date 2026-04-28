@@ -618,6 +618,18 @@ impl Renderer {
                 continue;
             }
 
+            let mut disable_external_composite = enable_screenshot;
+            if let CompositeTileSurface::ExternalSurface { .. } = tile.surface {
+                let transformed_rect = composite_state.get_device_rect(
+                    &tile.local_rect,
+                    tile.transform_index
+                );
+                if let None = transformed_rect.try_cast::<i16>() {
+                    // Disable external composite when rect is big.
+                    disable_external_composite = true;
+                }
+            }
+
             // Determine if the tile is an external surface or content
             let usage = match tile.surface {
                 CompositeTileSurface::Texture { .. } |
@@ -625,7 +637,7 @@ impl Renderer {
                     CompositorSurfaceUsage::Content
                 }
                 CompositeTileSurface::ExternalSurface { external_surface_index } => {
-                    match (self.current_compositor_kind, enable_screenshot) {
+                    match (self.current_compositor_kind, disable_external_composite) {
                         (CompositorKind::Native { .. }, _) | (CompositorKind::Draw { .. }, _) => {
                             CompositorSurfaceUsage::Content
                         }
