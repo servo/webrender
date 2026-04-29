@@ -729,7 +729,7 @@ pub struct NinePatchDescriptor {
 
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
-pub enum PrimitiveInstanceKind {
+pub enum PrimitiveKind {
     /// Direct reference to a Picture
     Picture {
         /// Handle to the common interned data for this primitive.
@@ -802,10 +802,10 @@ pub enum PrimitiveInstanceKind {
     },
 }
 
-impl PrimitiveInstanceKind {
+impl PrimitiveKind {
     pub fn as_pic(&self) -> PictureIndex {
         match self {
-            PrimitiveInstanceKind::Picture { pic_index, .. } => *pic_index,
+            PrimitiveKind::Picture { pic_index, .. } => *pic_index,
             _ => panic!("bug: as_pic called on a prim that is not a picture"),
         }
     }
@@ -823,7 +823,7 @@ pub struct PrimitiveInstance {
     /// instance is, and references to where
     /// the relevant information for the primitive
     /// can be found.
-    pub kind: PrimitiveInstanceKind,
+    pub kind: PrimitiveKind,
 
     /// All information and state related to clip(s) for this primitive
     pub clip_leaf_id: ClipLeafId,
@@ -839,7 +839,7 @@ pub struct PrimitiveInstance {
 
 impl PrimitiveInstance {
     pub fn new(
-        kind: PrimitiveInstanceKind,
+        kind: PrimitiveKind,
         clip_leaf_id: ClipLeafId,
         prim_origin: LayoutPoint,
     ) -> Self {
@@ -862,46 +862,46 @@ impl PrimitiveInstance {
 
     pub fn uid(&self) -> intern::ItemUid {
         match &self.kind {
-            PrimitiveInstanceKind::Rectangle { data_handle, .. } => {
+            PrimitiveKind::Rectangle { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveInstanceKind::Image { data_handle, .. } => {
+            PrimitiveKind::Image { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
+            PrimitiveKind::ImageBorder { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveInstanceKind::LineDecoration { data_handle, .. } => {
+            PrimitiveKind::LineDecoration { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveInstanceKind::LinearGradient { data_handle, .. } => {
+            PrimitiveKind::LinearGradient { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveInstanceKind::NormalBorder { data_handle, .. } => {
+            PrimitiveKind::NormalBorder { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveInstanceKind::Picture { data_handle, .. } => {
+            PrimitiveKind::Picture { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveInstanceKind::RadialGradient { data_handle, .. } => {
+            PrimitiveKind::RadialGradient { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveInstanceKind::ConicGradient { data_handle, .. } => {
+            PrimitiveKind::ConicGradient { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveInstanceKind::TextRun { data_handle, .. } => {
+            PrimitiveKind::TextRun { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveInstanceKind::YuvImage { data_handle, .. } => {
+            PrimitiveKind::YuvImage { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveInstanceKind::BackdropCapture { data_handle, .. } => {
+            PrimitiveKind::BackdropCapture { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveInstanceKind::BackdropRender { data_handle, .. } => {
+            PrimitiveKind::BackdropRender { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveInstanceKind::BoxShadow { data_handle, .. } => {
+            PrimitiveKind::BoxShadow { data_handle, .. } => {
                 data_handle.uid()
             }
 
@@ -1297,7 +1297,7 @@ pub trait InternablePrimitive: intern::Internable<InternData = ()> + Sized {
         key: Self::Key,
         data_handle: intern::Handle<Self>,
         prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind;
+    ) -> PrimitiveKind;
 }
 
 
@@ -1312,5 +1312,5 @@ fn test_struct_sizes() {
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<PrimitiveInstance>(), 96, "PrimitiveInstance size changed");
-    assert_eq!(mem::size_of::<PrimitiveInstanceKind>(), 24, "PrimitiveInstanceKind size changed");
+    assert_eq!(mem::size_of::<PrimitiveKind>(), 24, "PrimitiveKind size changed");
 }

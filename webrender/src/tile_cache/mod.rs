@@ -31,7 +31,7 @@ use crate::invalidation::compare::{OpacityBindingInfo, ColorBindingInfo};
 use crate::picture::{SurfaceTextureDescriptor, PictureCompositeMode, SurfaceIndex, clamp};
 use crate::picture::{get_relative_scale_offset, PicturePrimitive};
 use crate::picture::MAX_COMPOSITOR_SURFACES_SIZE;
-use crate::prim_store::{PrimitiveInstance, PrimitiveInstanceKind, PrimitiveScratchBuffer, PictureIndex};
+use crate::prim_store::{PrimitiveInstance, PrimitiveKind, PrimitiveScratchBuffer, PictureIndex};
 use crate::prim_store::{ColorBindingStorage, ColorBindingIndex};
 use crate::print_tree::{PrintTreePrinter, PrintTree};
 use crate::{profiler, render_backend::DataStores};
@@ -2236,7 +2236,7 @@ impl TileCacheInstance {
         // Compute once here so it's available for both prim_info and the tile loop.
         let prim_clamp_to_tile = matches!(
             prim_instance.kind,
-            PrimitiveInstanceKind::Rectangle { .. }
+            PrimitiveKind::Rectangle { .. }
         );
 
         let mut sub_slice_index = self.sub_slices.len() - 1;
@@ -2286,14 +2286,14 @@ impl TileCacheInstance {
         // TODO(gw): Get picture clips earlier (during the initial picture traversal
         //           pass) so that we can calculate these correctly.
         match prim_instance.kind {
-            PrimitiveInstanceKind::Picture { pic_index,.. } => {
+            PrimitiveKind::Picture { pic_index,.. } => {
                 // Pictures can depend on animated opacity bindings.
                 let pic = &pictures[pic_index.0];
                 if let Some(PictureCompositeMode::Filter(Filter::Opacity(binding, _))) = pic.composite_mode {
                     prim_info.opacity_bindings.push(binding.into());
                 }
             }
-            PrimitiveInstanceKind::Rectangle { data_handle, color_binding_index, .. } => {
+            PrimitiveKind::Rectangle { data_handle, color_binding_index, .. } => {
                 // Rectangles can only form a backdrop candidate if they are known opaque.
                 // TODO(gw): We could resolve the opacity binding here, but the common
                 //           case for background rects is that they don't have animated opacity.
@@ -2312,7 +2312,7 @@ impl TileCacheInstance {
                     prim_info.color_binding = Some(color_bindings[color_binding_index].into());
                 }
             }
-            PrimitiveInstanceKind::Image { data_handle, ref mut compositor_surface_kind, .. } => {
+            PrimitiveKind::Image { data_handle, ref mut compositor_surface_kind, .. } => {
                 let image_key = &data_stores.image[data_handle];
                 let image_data = &image_key.kind;
 
@@ -2420,7 +2420,7 @@ impl TileCacheInstance {
                     generation: resource_cache.get_image_generation(image_data.key),
                 });
             }
-            PrimitiveInstanceKind::YuvImage { data_handle, ref mut compositor_surface_kind, .. } => {
+            PrimitiveKind::YuvImage { data_handle, ref mut compositor_surface_kind, .. } => {
                 let prim_data = &data_stores.yuv_image[data_handle];
 
                 let mut promotion_result: Result<CompositorSurfaceKind, SurfacePromotionFailure> = Ok(CompositorSurfaceKind::Blit);
@@ -2548,14 +2548,14 @@ impl TileCacheInstance {
                     );
                 }
             }
-            PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
+            PrimitiveKind::ImageBorder { data_handle, .. } => {
                 let border_data = &data_stores.image_border[data_handle].kind;
                 prim_info.images.push(ImageDependency {
                     key: border_data.request.key,
                     generation: resource_cache.get_image_generation(border_data.request.key),
                 });
             }
-            PrimitiveInstanceKind::LinearGradient { data_handle, .. } => {
+            PrimitiveKind::LinearGradient { data_handle, .. } => {
                 let gradient_data = &data_stores.linear_grad[data_handle];
                 if gradient_data.stops_opacity.is_opaque
                     && gradient_data.tile_spacing == LayoutSize::zero()
@@ -2568,7 +2568,7 @@ impl TileCacheInstance {
                     });
                 }
             }
-            PrimitiveInstanceKind::ConicGradient { data_handle, .. } => {
+            PrimitiveKind::ConicGradient { data_handle, .. } => {
                 let gradient_data = &data_stores.conic_grad[data_handle];
                 if gradient_data.stops_opacity.is_opaque
                     && gradient_data.tile_spacing == LayoutSize::zero()
@@ -2581,7 +2581,7 @@ impl TileCacheInstance {
                     });
                 }
             }
-            PrimitiveInstanceKind::RadialGradient { data_handle, .. } => {
+            PrimitiveKind::RadialGradient { data_handle, .. } => {
                 let gradient_data = &data_stores.radial_grad[data_handle];
                 if gradient_data.stops_opacity.is_opaque
                     && gradient_data.tile_spacing == LayoutSize::zero()
@@ -2594,8 +2594,8 @@ impl TileCacheInstance {
                     });
                 }
             }
-            PrimitiveInstanceKind::BackdropCapture { .. } => {}
-            PrimitiveInstanceKind::BackdropRender { pic_index, .. } => {
+            PrimitiveKind::BackdropCapture { .. } => {}
+            PrimitiveKind::BackdropRender { pic_index, .. } => {
                 // If the area that the backdrop covers in the space of the surface it draws on
                 // is empty, skip any sub-graph processing. This is not just a performance win,
                 // it also ensures that we don't do a deferred dirty test that invalidates a tile
@@ -2632,10 +2632,10 @@ impl TileCacheInstance {
                     });
                 }
             }
-            PrimitiveInstanceKind::LineDecoration { .. } |
-            PrimitiveInstanceKind::NormalBorder { .. } |
-            PrimitiveInstanceKind::BoxShadow { .. } |
-            PrimitiveInstanceKind::TextRun { .. } => {
+            PrimitiveKind::LineDecoration { .. } |
+            PrimitiveKind::NormalBorder { .. } |
+            PrimitiveKind::BoxShadow { .. } |
+            PrimitiveKind::TextRun { .. } => {
                 // These don't contribute dependencies
             }
         };

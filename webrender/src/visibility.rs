@@ -21,7 +21,7 @@ use crate::picture::{PictureCompositeMode, ClusterFlags, SurfaceInfo};
 use crate::tile_cache::TileCacheInstance;
 use crate::picture::{SurfaceIndex, RasterConfig};
 use crate::tile_cache::SubSliceIndex;
-use crate::prim_store::{ClipTaskIndex, PictureIndex, PrimitiveInstanceKind};
+use crate::prim_store::{ClipTaskIndex, PictureIndex, PrimitiveKind};
 use crate::prim_store::{PrimitiveStore, PrimitiveInstance};
 use crate::render_backend::{DataStores, ScratchBuffer};
 use crate::render_task_graph::RenderTaskGraphBuilder;
@@ -251,7 +251,7 @@ pub fn update_prim_visibility(
         );
 
         for prim_instance_index in cluster.prim_range() {
-            if let PrimitiveInstanceKind::Picture { pic_index, .. } = frame_state.prim_instances[prim_instance_index].kind {
+            if let PrimitiveKind::Picture { pic_index, .. } = frame_state.prim_instances[prim_instance_index].kind {
                 if !store.pictures[pic_index.0].is_visible(frame_context.spatial_tree) {
                     continue;
                 }

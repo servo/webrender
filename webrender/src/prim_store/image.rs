@@ -21,7 +21,7 @@ use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureCont
 use crate::intern::{DataStore, Handle as InternHandle, InternDebug, Internable};
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
-    EdgeMask, InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveInstanceKind, PrimitiveOpacity, PrimitiveScratchBuffer, PrimitiveStore, SegmentInstanceIndex, SizeKey
+    EdgeMask, InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveKind, PrimitiveOpacity, PrimitiveScratchBuffer, PrimitiveStore, SegmentInstanceIndex, SizeKey
 };
 use crate::render_target::RenderTargetKind;
 use crate::render_task_graph::RenderTaskId;
@@ -590,7 +590,7 @@ impl InternablePrimitive for Image {
         _key: ImageKey,
         data_handle: ImageDataHandle,
         prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
+    ) -> PrimitiveKind {
         // TODO(gw): Refactor this to not need a separate image
         //           instance (see ImageInstance struct).
         let image_instance_index = prim_store.images.push(ImageInstance {
@@ -602,7 +602,7 @@ impl InternablePrimitive for Image {
             adjustment: AdjustedImageSource::new(),
         });
 
-        PrimitiveInstanceKind::Image {
+        PrimitiveKind::Image {
             data_handle,
             image_instance_index,
             compositor_surface_kind: CompositorSurfaceKind::Blit,
@@ -889,8 +889,8 @@ impl InternablePrimitive for YuvImage {
         _key: YuvImageKey,
         data_handle: YuvImageDataHandle,
         _prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::YuvImage {
+    ) -> PrimitiveKind {
+        PrimitiveKind::YuvImage {
             data_handle,
             segment_instance_index: SegmentInstanceIndex::INVALID,
             compositor_surface_kind: CompositorSurfaceKind::Blit,

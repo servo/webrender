@@ -7,7 +7,7 @@ use crate::border::{BorderRadiusAu};
 use crate::clip::{ClipItemEntry, ClipItemKey, ClipItemKeyKind, ClipNodeId};
 use crate::intern::{Handle as InternHandle, InternDebug, Internable};
 use crate::prim_store::{InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData};
-use crate::prim_store::{PrimitiveInstanceKind, PrimitiveStore, RectKey};
+use crate::prim_store::{PrimitiveKind, PrimitiveStore, RectKey};
 use crate::prim_store::rectangle::RectanglePrim;
 use crate::scene_building::{SceneBuilder, IsVisible};
 use crate::spatial_tree::SpatialNodeIndex;
@@ -65,8 +65,8 @@ impl InternablePrimitive for BoxShadow {
         _key: BoxShadowKey,
         data_handle: BoxShadowDataHandle,
         _prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::BoxShadow {
+    ) -> PrimitiveKind {
+        PrimitiveKind::BoxShadow {
             data_handle,
         }
     }

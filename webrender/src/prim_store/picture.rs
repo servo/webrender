@@ -8,7 +8,7 @@ use crate::intern::{Internable, InternDebug, Handle as InternHandle};
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::picture_composite_mode::PictureCompositeKey;
 use crate::prim_store::{
-    PrimitiveInstanceKind, PrimitiveStore,
+    PrimitiveKind, PrimitiveStore,
     InternablePrimitive,
 };
 
@@ -73,7 +73,7 @@ impl InternablePrimitive for Picture {
         _key: PictureKey,
         _: PictureDataHandle,
         _: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
+    ) -> PrimitiveKind {
         // Should never be hit as this method should not be
         // called for pictures.
         unreachable!();

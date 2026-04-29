@@ -19,7 +19,7 @@ use crate::intern::{Internable, InternDebug, Handle as InternHandle};
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::image_tiling::simplify_repeated_primitive;
 use crate::prim_store::BrushSegment;
-use crate::prim_store::{PrimitiveInstanceKind, PrimitiveOpacity};
+use crate::prim_store::{PrimitiveKind, PrimitiveOpacity};
 use crate::prim_store::{PrimKeyCommonData, PrimTemplateCommonData, PrimitiveStore};
 use crate::prim_store::{NinePatchDescriptor, PointKey, SizeKey, InternablePrimitive};
 use crate::segment::EdgeMask;
@@ -467,8 +467,8 @@ impl InternablePrimitive for LinearGradient {
         _key: LinearGradientKey,
         data_handle: LinearGradientDataHandle,
         _prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::LinearGradient {
+    ) -> PrimitiveKind {
+        PrimitiveKind::LinearGradient {
             data_handle,
         }
     }

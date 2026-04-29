@@ -5,7 +5,7 @@
 use crate::intern::{Internable, InternDebug, Handle as InternHandle};
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
-    InternablePrimitive, PrimitiveInstanceKind, PrimKey, PrimTemplate,
+    InternablePrimitive, PrimitiveKind, PrimKey, PrimTemplate,
     PrimTemplateCommonData, PrimitiveStore, PictureIndex,
 };
 use crate::scene_building::IsVisible;
@@ -132,8 +132,8 @@ impl InternablePrimitive for BackdropCapture {
         _key: BackdropCaptureKey,
         data_handle: BackdropCaptureDataHandle,
         _prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::BackdropCapture {
+    ) -> PrimitiveKind {
+        PrimitiveKind::BackdropCapture {
             data_handle,
         }
     }
@@ -151,8 +151,8 @@ impl InternablePrimitive for BackdropRender {
         _key: BackdropRenderKey,
         data_handle: BackdropRenderDataHandle,
         _prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::BackdropRender {
+    ) -> PrimitiveKind {
+        PrimitiveKind::BackdropRender {
             data_handle,
             pic_index: PictureIndex::INVALID,
         }

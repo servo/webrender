@@ -21,7 +21,7 @@ use crate::prim_store::{
     PrimKey, PrimTemplate, PrimTemplateCommonData,
     InternablePrimitive, PrimitiveStore,
 };
-use crate::prim_store::PrimitiveInstanceKind;
+use crate::prim_store::PrimitiveKind;
 use crate::prim_store::storage;
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::util::clamp_to_scale_factor;
@@ -236,8 +236,8 @@ impl InternablePrimitive for LineDecoration {
         _key: LineDecorationKey,
         data_handle: LineDecorationDataHandle,
         _: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::LineDecoration {
+    ) -> PrimitiveKind {
+        PrimitiveKind::LineDecoration {
             data_handle,
             scratch_handle: storage::Index::INVALID,
         }

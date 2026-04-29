@@ -7,7 +7,7 @@ use crate::scene_building::{CreateShadow, IsVisible};
 use crate::intern;
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
-    PrimKey, InternablePrimitive, PrimitiveStore, PrimitiveInstanceKind,
+    PrimKey, InternablePrimitive, PrimitiveStore, PrimitiveKind,
     ColorBindingIndex, SegmentInstanceIndex,
     PrimTemplate, PrimTemplateCommonData, PrimitiveOpacity,
 };
@@ -53,14 +53,14 @@ impl InternablePrimitive for RectanglePrim {
         key: RectangleKey,
         data_handle: RectangleDataHandle,
         prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
+    ) -> PrimitiveKind {
         let color_binding_index = match key.kind.color {
             PropertyBinding::Binding(..) => {
                 prim_store.color_bindings.push(key.kind.color)
             }
             PropertyBinding::Value(..) => ColorBindingIndex::INVALID,
         };
-        PrimitiveInstanceKind::Rectangle {
+        PrimitiveKind::Rectangle {
             data_handle,
             segment_instance_index: SegmentInstanceIndex::INVALID,
             color_binding_index,

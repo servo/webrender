@@ -16,7 +16,7 @@ use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuil
 use crate::scene_building::IsVisible;
 use crate::intern::{Internable, InternDebug, Handle as InternHandle};
 use crate::internal_types::LayoutPrimitiveInfo;
-use crate::prim_store::{PrimitiveInstanceKind, PrimitiveOpacity};
+use crate::prim_store::{PrimitiveKind, PrimitiveOpacity};
 use crate::prim_store::{PrimKeyCommonData, PrimTemplateCommonData, PrimitiveStore};
 use crate::prim_store::{NinePatchDescriptor, PointKey, SizeKey, InternablePrimitive};
 
@@ -257,8 +257,8 @@ impl InternablePrimitive for ConicGradient {
         _key: ConicGradientKey,
         data_handle: ConicGradientDataHandle,
         _prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::ConicGradient {
+    ) -> PrimitiveKind {
+        PrimitiveKind::ConicGradient {
             data_handle,
         }
     }

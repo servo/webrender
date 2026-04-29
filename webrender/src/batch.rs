@@ -19,7 +19,7 @@ use crate::gpu_types::{ImageBrushUserData, get_shader_opacity, MaskInstance};
 use crate::gpu_types::{ClipMaskInstanceCommon, ClipMaskInstanceRect};
 use crate::internal_types::{FastHashMap, Filter, FrameAllocator, FrameMemory, FrameVec, Swizzle, TextureSource};
 use crate::picture::{Picture3DContext, PictureCompositeMode, calculate_screen_uv};
-use crate::prim_store::{PrimitiveInstanceKind, ClipData};
+use crate::prim_store::{PrimitiveKind, ClipData};
 use crate::prim_store::{PrimitiveInstance, PrimitiveOpacity, SegmentInstanceIndex};
 use crate::prim_store::{BrushSegment, ClipMaskKind, ClipTaskIndex};
 use crate::prim_store::VECS_PER_SEGMENT;
@@ -981,7 +981,7 @@ impl BatchBuilder {
                 "The primitive's bounding box is specified in a different coordinate system from the current batch!");
         }
 
-        if let PrimitiveInstanceKind::Picture { pic_index, .. } = prim_instance.kind {
+        if let PrimitiveKind::Picture { pic_index, .. } = prim_instance.kind {
             let picture = &ctx.prim_store.pictures[pic_index.0];
             if let Some(snapshot) = picture.snapshot {
                 if snapshot.detached {
@@ -1587,8 +1587,8 @@ impl BatchBuilder {
         };
 
         let segment_instance_index = match prim_instance.kind {
-            PrimitiveInstanceKind::Rectangle { segment_instance_index, .. }
-            | PrimitiveInstanceKind::YuvImage { segment_instance_index, .. } => segment_instance_index,
+            PrimitiveKind::Rectangle { segment_instance_index, .. }
+            | PrimitiveKind::YuvImage { segment_instance_index, .. } => segment_instance_index,
             _ => SegmentInstanceIndex::UNUSED,
         };
 
@@ -1602,13 +1602,13 @@ impl BatchBuilder {
 
         // The following primitives lower to the image brush shader in the same way.
         let img_brush_data = match prim_instance.kind {
-            PrimitiveInstanceKind::RadialGradient { .. } => {
+            PrimitiveKind::RadialGradient { .. } => {
                 unreachable!("BUG: radial gradients should always use quad path");
             }
-            PrimitiveInstanceKind::ConicGradient { .. } => {
+            PrimitiveKind::ConicGradient { .. } => {
                 unreachable!("BUG: conic gradients should always use quad path");
             }
-            PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
+            PrimitiveKind::ImageBorder { data_handle, .. } => {
                 let prim_data = &ctx.data_stores.image_border[data_handle];
                 Some((prim_data.kind.src_color, prim_data.kind.brush_segments.as_slice()))
             }
@@ -1679,14 +1679,14 @@ impl BatchBuilder {
 
         match prim_instance.kind {
             // Handled above.
-            PrimitiveInstanceKind::Picture { .. } => {}
-            PrimitiveInstanceKind::RadialGradient { .. } => { }
-            PrimitiveInstanceKind::ConicGradient { .. } => { }
-            PrimitiveInstanceKind::ImageBorder { .. } => {}
-            PrimitiveInstanceKind::BoxShadow { .. } => {
+            PrimitiveKind::Picture { .. } => {}
+            PrimitiveKind::RadialGradient { .. } => { }
+            PrimitiveKind::ConicGradient { .. } => { }
+            PrimitiveKind::ImageBorder { .. } => {}
+            PrimitiveKind::BoxShadow { .. } => {
                 unreachable!("BUG: Should not hit box-shadow here as they are handled by quad infra");
             }
-            PrimitiveInstanceKind::NormalBorder { data_handle, scratch_handle, .. } => {
+            PrimitiveKind::NormalBorder { data_handle, scratch_handle, .. } => {
                 let prim_data = &ctx.data_stores.normal_border[data_handle];
                 let task_ids = &ctx.scratch.frame.border_task_ids[ctx.scratch.frame.normal_border[scratch_handle].task_ids];
                 let mut segment_data: SmallVec<[SegmentInstanceData; 8]> = SmallVec::new();
@@ -1744,7 +1744,7 @@ impl BatchBuilder {
                     render_tasks,
                 );
             }
-            PrimitiveInstanceKind::TextRun { data_handle, run_index, .. } => {
+            PrimitiveKind::TextRun { data_handle, run_index, .. } => {
                 let run = &ctx.prim_store.text_runs[run_index];
                 let subpx_dir = run.used_font.get_subpx_dir();
 
@@ -1968,7 +1968,7 @@ impl BatchBuilder {
                     },
                 );
             }
-            PrimitiveInstanceKind::LineDecoration { scratch_handle, .. } => {
+            PrimitiveKind::LineDecoration { scratch_handle, .. } => {
                 let render_task_id = ctx.scratch.frame.line_decoration[scratch_handle].task_id;
 
                 let (clip_task_address, clip_mask_texture_id) = ctx.get_prim_clip_task_and_texture(
@@ -2028,7 +2028,7 @@ impl BatchBuilder {
                     specific_resource_address,
                 );
             }
-            PrimitiveInstanceKind::Rectangle { .. } => {
+            PrimitiveKind::Rectangle { .. } => {
                 let batch_params = BrushBatchParameters::shared(
                     BrushBatchKind::Solid,
                     TextureSet::UNTEXTURED,
@@ -2060,7 +2060,7 @@ impl BatchBuilder {
                     render_tasks,
                 );
             }
-            PrimitiveInstanceKind::YuvImage { data_handle, segment_instance_index, compositor_surface_kind, .. } => {
+            PrimitiveKind::YuvImage { data_handle, segment_instance_index, compositor_surface_kind, .. } => {
                 if compositor_surface_kind.needs_cutout() {
                     self.add_compositor_surface_cutout(
                         prim_rect,
@@ -2154,7 +2154,7 @@ impl BatchBuilder {
                     render_tasks,
                 );
             }
-            PrimitiveInstanceKind::Image { data_handle, image_instance_index, compositor_surface_kind, .. } => {
+            PrimitiveKind::Image { data_handle, image_instance_index, compositor_surface_kind, .. } => {
                 if compositor_surface_kind.needs_cutout() {
                     self.add_compositor_surface_cutout(
                         prim_rect,
@@ -2329,11 +2329,11 @@ impl BatchBuilder {
                     }
                 }
             }
-            PrimitiveInstanceKind::LinearGradient { .. } => {
+            PrimitiveKind::LinearGradient { .. } => {
                 unreachable!("BUG: linear gradients should always use quad path");
             }
-            PrimitiveInstanceKind::BackdropCapture { .. } => {}
-            PrimitiveInstanceKind::BackdropRender { pic_index, .. } => {
+            PrimitiveKind::BackdropCapture { .. } => {}
+            PrimitiveKind::BackdropRender { pic_index, .. } => {
                 let blend_mode = BlendMode::PremultipliedAlpha;
                 let pic_task_id = ctx.prim_store.pictures[pic_index.0].primary_render_task_id;
 

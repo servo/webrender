@@ -14,7 +14,7 @@ use crate::frame_builder::{FrameBuildingContext, FrameBuildingState};
 use crate::intern;
 use crate::internal_types::{LayoutPrimitiveInfo, FrameId};
 use crate::prim_store::{
-    BorderSegmentInfo, BrushSegment, InternablePrimitive, NinePatchDescriptor, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceKind, PrimitiveOpacity, PrimitiveStore, VECS_PER_SEGMENT
+    BorderSegmentInfo, BrushSegment, InternablePrimitive, NinePatchDescriptor, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveKind, PrimitiveOpacity, PrimitiveStore, VECS_PER_SEGMENT
 };
 use crate::resource_cache::ImageRequest;
 use crate::render_task::{RenderTask, RenderTaskKind};
@@ -237,8 +237,8 @@ impl InternablePrimitive for NormalBorderPrim {
         _key: NormalBorderKey,
         data_handle: NormalBorderDataHandle,
         _: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::NormalBorder {
+    ) -> PrimitiveKind {
+        PrimitiveKind::NormalBorder {
             data_handle,
             scratch_handle: storage::Index::INVALID,
         }
@@ -417,8 +417,8 @@ impl InternablePrimitive for ImageBorder {
         _key: ImageBorderKey,
         data_handle: ImageBorderDataHandle,
         _: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::ImageBorder {
+    ) -> PrimitiveKind {
+        PrimitiveKind::ImageBorder {
             data_handle
         }
     }

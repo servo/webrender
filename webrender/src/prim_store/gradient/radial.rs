@@ -17,7 +17,7 @@ use crate::scene_building::IsVisible;
 use crate::intern::{Internable, InternDebug, Handle as InternHandle};
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{InternablePrimitive};
-use crate::prim_store::{PrimitiveInstanceKind, PrimitiveOpacity};
+use crate::prim_store::{PrimitiveKind, PrimitiveOpacity};
 use crate::prim_store::{PrimKeyCommonData, PrimTemplateCommonData, PrimitiveStore};
 use crate::prim_store::{NinePatchDescriptor, PointKey, SizeKey};
 use crate::segment::EdgeMask;
@@ -225,8 +225,8 @@ impl InternablePrimitive for RadialGradient {
         _key: RadialGradientKey,
         data_handle: RadialGradientDataHandle,
         _prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::RadialGradient {
+    ) -> PrimitiveKind {
+        PrimitiveKind::RadialGradient {
             data_handle,
         }
     }

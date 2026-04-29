@@ -110,7 +110,7 @@ use crate::internal_types::{FastHashMap, PlaneSplitter, Filter};
 use crate::internal_types::{PlaneSplitterIndex, PlaneSplitAnchor, TextureSource};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PictureContext};
 use plane_split::{Clipper, Polygon};
-use crate::prim_store::{PictureIndex, PrimitiveInstance, PrimitiveInstanceKind};
+use crate::prim_store::{PictureIndex, PrimitiveInstance, PrimitiveKind};
 use crate::prim_store::PrimitiveScratchBuffer;
 use crate::print_tree::PrintTreePrinter;
 use crate::render_backend::DataStores;
@@ -432,13 +432,13 @@ impl PrimitiveList {
         // Pictures are always put into a new cluster, to make it faster to
         // iterate all pictures in a given primitive list.
         match prim_instance.kind {
-            PrimitiveInstanceKind::Picture { pic_index, .. } => {
+            PrimitiveKind::Picture { pic_index, .. } => {
                 self.child_pictures.push(pic_index);
             }
-            PrimitiveInstanceKind::TextRun { .. } => {
+            PrimitiveKind::TextRun { .. } => {
                 self.needs_scissor_rect = true;
             }
-            PrimitiveInstanceKind::YuvImage { .. } => {
+            PrimitiveKind::YuvImage { .. } => {
                 // Any YUV image that requests a compositor surface is implicitly
                 // opaque. Though we might treat this prim as an underlay, which
                 // doesn't require an overlay surface, we add to the count anyway
@@ -449,7 +449,7 @@ impl PrimitiveList {
                     self.yuv_image_surface_count += 1;
                 }
             }
-            PrimitiveInstanceKind::Image { .. } => {
+            PrimitiveKind::Image { .. } => {
                 // For now, we assume that any image that wants a compositor surface
                 // is transparent, and uses the existing overlay compositor surface
                 // infrastructure. In future, we could detect opaque images, however

@@ -226,7 +226,7 @@ fn prepare_prim_for_render(
     // local space, which may force us to render this item on a larger
     // picture target, if being composited.
     let mut is_passthrough = false;
-    if let PrimitiveInstanceKind::Picture { pic_index, .. } = prim_instances[prim_instance_index].kind {
+    if let PrimitiveKind::Picture { pic_index, .. } = prim_instances[prim_instance_index].kind {
         if !prepare_picture(
             pic_index,
             store,
@@ -252,14 +252,14 @@ fn prepare_prim_for_render(
     let mut use_legacy_path = true;
     if !is_passthrough {
         match &prim_instance.kind {
-            PrimitiveInstanceKind::Rectangle { .. }
-            | PrimitiveInstanceKind::RadialGradient { .. }
-            | PrimitiveInstanceKind::ConicGradient { .. }
-            | PrimitiveInstanceKind::LinearGradient { .. }
+            PrimitiveKind::Rectangle { .. }
+            | PrimitiveKind::RadialGradient { .. }
+            | PrimitiveKind::ConicGradient { .. }
+            | PrimitiveKind::LinearGradient { .. }
             => {
                 use_legacy_path = false;
             }
-            PrimitiveInstanceKind::Image { data_handle, .. } => {
+            PrimitiveKind::Image { data_handle, .. } => {
                 use_legacy_path = !crate::prim_store::image::can_use_quad_shaders(
                     &data_stores.image[*data_handle].kind,
                     frame_state.resource_cache,
@@ -274,11 +274,11 @@ fn prepare_prim_for_render(
         // to skip the entry point to `update_clip_task` as that does old-style segmenting
         // and mask generation.
         let should_update_clip_task = match &mut prim_instance.kind {
-            PrimitiveInstanceKind::Rectangle { .. }
-            | PrimitiveInstanceKind::Image { .. }
-            | PrimitiveInstanceKind::RadialGradient { .. }
-            | PrimitiveInstanceKind::ConicGradient { .. }
-            | PrimitiveInstanceKind::LinearGradient { .. }
+            PrimitiveKind::Rectangle { .. }
+            | PrimitiveKind::Image { .. }
+            | PrimitiveKind::RadialGradient { .. }
+            | PrimitiveKind::ConicGradient { .. }
+            | PrimitiveKind::LinearGradient { .. }
             => {
                 use_legacy_path |= !can_use_clip_chain_for_quad_path(
                     &prim_instance.vis.clip_chain,
@@ -288,8 +288,8 @@ fn prepare_prim_for_render(
 
                 use_legacy_path
             }
-            PrimitiveInstanceKind::BoxShadow { .. } |
-            PrimitiveInstanceKind::Picture { .. } => false,
+            PrimitiveKind::BoxShadow { .. } |
+            PrimitiveKind::Picture { .. } => false,
             _ => true,
         };
 
@@ -360,7 +360,7 @@ fn prepare_interned_prim_for_render(
     let device_pixel_scale = frame_state.surfaces[pic_context.surface_index.0].device_pixel_scale;
 
     match &mut prim_instance.kind {
-        PrimitiveInstanceKind::BoxShadow { data_handle, .. } => {
+        PrimitiveKind::BoxShadow { data_handle, .. } => {
             profile_scope!("BoxShadow");
 
             let prim_data = &data_stores.box_shadow[*data_handle];
@@ -563,7 +563,7 @@ fn prepare_interned_prim_for_render(
 
             return;
         }
-        PrimitiveInstanceKind::LineDecoration { data_handle, ref mut scratch_handle } => {
+        PrimitiveKind::LineDecoration { data_handle, ref mut scratch_handle } => {
             profile_scope!("LineDecoration");
             let prim_data = &mut data_stores.line_decoration[*data_handle];
             let common_data = &mut prim_data.common;
@@ -578,7 +578,7 @@ fn prepare_interned_prim_for_render(
             );
             *scratch_handle = scratch.frame.line_decoration.push(LineDecorationScratch { task_id: render_task });
         }
-        PrimitiveInstanceKind::TextRun { run_index, data_handle, .. } => {
+        PrimitiveKind::TextRun { run_index, data_handle, .. } => {
             profile_scope!("TextRun");
             let prim_data = &mut data_stores.text_run[*data_handle];
             let run = &mut store.text_runs[*run_index];
@@ -643,7 +643,7 @@ fn prepare_interned_prim_for_render(
 
             prim_data.update(frame_state);
         }
-        PrimitiveInstanceKind::NormalBorder { data_handle, ref mut scratch_handle } => {
+        PrimitiveKind::NormalBorder { data_handle, ref mut scratch_handle } => {
             profile_scope!("NormalBorder");
             let prim_data = &mut data_stores.normal_border[*data_handle];
             let common_data = &mut prim_data.common;
@@ -668,7 +668,7 @@ fn prepare_interned_prim_for_render(
 
             *scratch_handle = handle;
         }
-        PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
+        PrimitiveKind::ImageBorder { data_handle, .. } => {
             profile_scope!("ImageBorder");
             let prim_data = &mut data_stores.image_border[*data_handle];
 
@@ -682,7 +682,7 @@ fn prepare_interned_prim_for_render(
                 frame_state
             );
         }
-        PrimitiveInstanceKind::Rectangle { data_handle, segment_instance_index, .. } => {
+        PrimitiveKind::Rectangle { data_handle, segment_instance_index, .. } => {
             profile_scope!("Rectangle");
 
             if use_legacy_path {
@@ -730,7 +730,7 @@ fn prepare_interned_prim_for_render(
                 return;
             }
         }
-        PrimitiveInstanceKind::YuvImage { data_handle, segment_instance_index, compositor_surface_kind, .. } => {
+        PrimitiveKind::YuvImage { data_handle, segment_instance_index, compositor_surface_kind, .. } => {
             profile_scope!("YuvImage");
             let prim_data = &mut data_stores.yuv_image[*data_handle];
             let common_data = &mut prim_data.common;
@@ -756,7 +756,7 @@ fn prepare_interned_prim_for_render(
                 }
             );
         }
-        PrimitiveInstanceKind::Image { data_handle, image_instance_index, .. } => {
+        PrimitiveKind::Image { data_handle, image_instance_index, .. } => {
             profile_scope!("Image");
 
             let prim_data = &mut data_stores.image[*data_handle];
@@ -810,7 +810,7 @@ fn prepare_interned_prim_for_render(
                 },
             );
         }
-        PrimitiveInstanceKind::LinearGradient { data_handle, .. } => {
+        PrimitiveKind::LinearGradient { data_handle, .. } => {
             profile_scope!("LinearGradient");
             let prim_data = &mut data_stores.linear_grad[*data_handle];
             let prim_rect = LayoutRect::from_origin_and_size(prim_instance.prim_origin, prim_data.common.prim_size);
@@ -886,7 +886,7 @@ fn prepare_interned_prim_for_render(
 
             return;
         }
-        PrimitiveInstanceKind::RadialGradient { data_handle, .. } => {
+        PrimitiveKind::RadialGradient { data_handle, .. } => {
             profile_scope!("RadialGradient");
             let prim_data = &mut data_stores.radial_grad[*data_handle];
             let local_rect = LayoutRect::from_origin_and_size(prim_instance.prim_origin, prim_data.common.prim_size);
@@ -932,7 +932,7 @@ fn prepare_interned_prim_for_render(
             );
             return;
         }
-        PrimitiveInstanceKind::ConicGradient { data_handle, .. } => {
+        PrimitiveKind::ConicGradient { data_handle, .. } => {
             profile_scope!("ConicGradient");
             let prim_data = &mut data_stores.conic_grad[*data_handle];
             let prim_rect = LayoutRect::from_origin_and_size(prim_instance.prim_origin, prim_data.common.prim_size);
@@ -1012,7 +1012,7 @@ fn prepare_interned_prim_for_render(
             );
             return;
         }
-        PrimitiveInstanceKind::Picture { pic_index, .. } => {
+        PrimitiveKind::Picture { pic_index, .. } => {
             profile_scope!("Picture");
             let pic = &mut store.pictures[pic_index.0];
 
@@ -1218,7 +1218,7 @@ fn prepare_interned_prim_for_render(
                 );
             }
         }
-        PrimitiveInstanceKind::BackdropCapture { .. } => {
+        PrimitiveKind::BackdropCapture { .. } => {
             // Register the owner picture of this backdrop primitive as the
             // target for resolve of the sub-graph
             frame_state.surface_builder.register_resolve_source();
@@ -1234,7 +1234,7 @@ fn prepare_interned_prim_for_render(
                 }
             }
         }
-        PrimitiveInstanceKind::BackdropRender { pic_index, .. } => {
+        PrimitiveKind::BackdropRender { pic_index, .. } => {
             match frame_state.surface_builder.sub_graph_output_map.get(pic_index).cloned() {
                 Some(sub_graph_output_id) => {
                     frame_state.surface_builder.add_child_render_task(
@@ -1309,17 +1309,17 @@ fn update_clip_task_for_brush(
     device_pixel_scale: DevicePixelScale,
 ) -> Option<ClipTaskIndex> {
     let segments = match instance.kind {
-        PrimitiveInstanceKind::BoxShadow { .. } => {
+        PrimitiveKind::BoxShadow { .. } => {
             unreachable!("BUG: box-shadows should not hit legacy brush clip path");
         }
-        PrimitiveInstanceKind::Picture { .. } |
-        PrimitiveInstanceKind::TextRun { .. } |
-        PrimitiveInstanceKind::LineDecoration { .. } |
-        PrimitiveInstanceKind::BackdropCapture { .. } |
-        PrimitiveInstanceKind::BackdropRender { .. } => {
+        PrimitiveKind::Picture { .. } |
+        PrimitiveKind::TextRun { .. } |
+        PrimitiveKind::LineDecoration { .. } |
+        PrimitiveKind::BackdropCapture { .. } |
+        PrimitiveKind::BackdropRender { .. } => {
             return None;
         }
-        PrimitiveInstanceKind::Image { image_instance_index, .. } => {
+        PrimitiveKind::Image { image_instance_index, .. } => {
             let segment_instance_index = prim_store
                 .images[image_instance_index]
                 .segment_instance_index;
@@ -1332,7 +1332,7 @@ fn update_clip_task_for_brush(
 
             &segments_store[segment_instance.segments_range]
         }
-        PrimitiveInstanceKind::YuvImage { segment_instance_index, .. } => {
+        PrimitiveKind::YuvImage { segment_instance_index, .. } => {
             debug_assert!(segment_instance_index != SegmentInstanceIndex::INVALID);
 
             if segment_instance_index == SegmentInstanceIndex::UNUSED {
@@ -1343,7 +1343,7 @@ fn update_clip_task_for_brush(
 
             &segments_store[segment_instance.segments_range]
         }
-        PrimitiveInstanceKind::Rectangle { segment_instance_index, .. } => {
+        PrimitiveKind::Rectangle { segment_instance_index, .. } => {
             debug_assert!(segment_instance_index != SegmentInstanceIndex::INVALID);
 
             if segment_instance_index == SegmentInstanceIndex::UNUSED {
@@ -1354,21 +1354,21 @@ fn update_clip_task_for_brush(
 
             &segments_store[segment_instance.segments_range]
         }
-        PrimitiveInstanceKind::ImageBorder { data_handle, .. } => {
+        PrimitiveKind::ImageBorder { data_handle, .. } => {
             let border_data = &data_stores.image_border[data_handle].kind;
 
             // TODO: This is quite messy - once we remove legacy primitives we
             //       can change this to be a tuple match on (instance, template)
             border_data.brush_segments.as_slice()
         }
-        PrimitiveInstanceKind::NormalBorder { data_handle, .. } => {
+        PrimitiveKind::NormalBorder { data_handle, .. } => {
             let border_data = &data_stores.normal_border[data_handle].kind;
 
             // TODO: This is quite messy - once we remove legacy primitives we
             //       can change this to be a tuple match on (instance, template)
             border_data.brush_segments.as_slice()
         }
-        PrimitiveInstanceKind::LinearGradient { data_handle, .. } => {
+        PrimitiveKind::LinearGradient { data_handle, .. } => {
             let prim_data = &data_stores.linear_grad[data_handle];
 
             // TODO: This is quite messy - once we remove legacy primitives we
@@ -1379,10 +1379,10 @@ fn update_clip_task_for_brush(
 
             prim_data.brush_segments.as_slice()
         }
-        PrimitiveInstanceKind::RadialGradient { .. } => {
+        PrimitiveKind::RadialGradient { .. } => {
             unreachable!("BUG: radial gradients should always use quad path");
         }
-        PrimitiveInstanceKind::ConicGradient { .. } => {
+        PrimitiveKind::ConicGradient { .. } => {
             unreachable!("BUG: conic gradients should always use quad path");
         }
     };
@@ -1680,10 +1680,10 @@ fn build_segments_if_needed(
     );
 
     let segment_instance_index = match instance.kind {
-        PrimitiveInstanceKind::Rectangle { ref mut segment_instance_index, .. } => {
+        PrimitiveKind::Rectangle { ref mut segment_instance_index, .. } => {
             segment_instance_index
         }
-        PrimitiveInstanceKind::YuvImage { ref mut segment_instance_index, compositor_surface_kind, .. } => {
+        PrimitiveKind::YuvImage { ref mut segment_instance_index, compositor_surface_kind, .. } => {
             // Only use segments for YUV images if not drawing as a compositor surface
             if !compositor_surface_kind.supports_segments() {
                 *segment_instance_index = SegmentInstanceIndex::UNUSED;
@@ -1692,7 +1692,7 @@ fn build_segments_if_needed(
 
             segment_instance_index
         }
-        PrimitiveInstanceKind::Image { data_handle, image_instance_index, compositor_surface_kind, .. } => {
+        PrimitiveKind::Image { data_handle, image_instance_index, compositor_surface_kind, .. } => {
             let image_data = &data_stores.image[data_handle].kind;
             let image_instance = &mut prim_store.images[image_instance_index];
 
@@ -1709,20 +1709,20 @@ fn build_segments_if_needed(
             }
             &mut image_instance.segment_instance_index
         }
-        PrimitiveInstanceKind::Picture { .. } |
-        PrimitiveInstanceKind::TextRun { .. } |
-        PrimitiveInstanceKind::NormalBorder { .. } |
-        PrimitiveInstanceKind::ImageBorder { .. } |
-        PrimitiveInstanceKind::LinearGradient { .. } |
-        PrimitiveInstanceKind::RadialGradient { .. } |
-        PrimitiveInstanceKind::ConicGradient { .. } |
-        PrimitiveInstanceKind::LineDecoration { .. } |
-        PrimitiveInstanceKind::BackdropCapture { .. } |
-        PrimitiveInstanceKind::BackdropRender { .. } => {
+        PrimitiveKind::Picture { .. } |
+        PrimitiveKind::TextRun { .. } |
+        PrimitiveKind::NormalBorder { .. } |
+        PrimitiveKind::ImageBorder { .. } |
+        PrimitiveKind::LinearGradient { .. } |
+        PrimitiveKind::RadialGradient { .. } |
+        PrimitiveKind::ConicGradient { .. } |
+        PrimitiveKind::LineDecoration { .. } |
+        PrimitiveKind::BackdropCapture { .. } |
+        PrimitiveKind::BackdropRender { .. } => {
             // These primitives don't support / need segments.
             return;
         }
-        PrimitiveInstanceKind::BoxShadow { .. } => {
+        PrimitiveKind::BoxShadow { .. } => {
             unreachable!("BUG: box-shadows should not hit legacy brush clip path");
         }
     };

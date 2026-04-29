@@ -16,7 +16,7 @@ use crate::prim_store::{PrimitiveStore, PrimKeyCommonData, PrimTemplateCommonDat
 use crate::renderer::{GpuBufferBuilderF, MAX_VERTEX_TEXTURE_WIDTH};
 use crate::resource_cache::ResourceCache;
 use crate::util::MatrixHelpers;
-use crate::prim_store::{InternablePrimitive, PrimitiveInstanceKind, LayoutPointAu};
+use crate::prim_store::{InternablePrimitive, PrimitiveKind, LayoutPointAu};
 use crate::spatial_tree::{SpatialTree, SpatialNodeIndex};
 use crate::space::SpaceSnapper;
 use std::ops;
@@ -195,7 +195,7 @@ impl InternablePrimitive for TextRun {
         key: TextRunKey,
         data_handle: TextRunDataHandle,
         prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
+    ) -> PrimitiveKind {
         let run_index = prim_store.text_runs.push(TextRunPrimitive {
             used_font: key.font.clone(),
             glyph_keys_range: storage::Range::empty(),
@@ -205,7 +205,7 @@ impl InternablePrimitive for TextRun {
             requested_raster_space: key.requested_raster_space,
         });
 
-        PrimitiveInstanceKind::TextRun{ data_handle, run_index }
+        PrimitiveKind::TextRun{ data_handle, run_index }
     }
 }
 
