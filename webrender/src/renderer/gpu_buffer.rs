@@ -488,7 +488,13 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
         // to the GPU.
         for block in self.deferred.drain(..) {
             let render_task = &render_tasks[block.task_id];
-            let target_rect = render_task.get_target_rect();
+            let mut target_rect = render_task.get_target_rect();
+            if block.task_id.has_sub_rect() {
+                let sub = &render_tasks.sub_rects[block.task_id.sub_rect_index as usize];
+                target_rect = sub.sub_rect
+                    .translate(target_rect.min.to_vector())
+                    .intersection_unchecked(&target_rect);
+            }
 
             let uv_rect = match render_task.uv_rect_kind() {
                 UvRectKind::Rect => {

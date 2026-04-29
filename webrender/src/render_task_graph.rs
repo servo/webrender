@@ -50,9 +50,7 @@ pub struct RenderTaskAllocation<'a> {
 impl<'l> RenderTaskAllocation<'l> {
     #[inline(always)]
     pub fn init(self, value: RenderTask) -> RenderTaskId {
-        RenderTaskId {
-            index: self.alloc.init(value) as u32,
-        }
+        RenderTaskId::from_index(self.alloc.init(value))
     }
 }
 
@@ -62,12 +60,28 @@ impl<'l> RenderTaskAllocation<'l> {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTaskId {
     pub index: u32,
+    pub sub_rect_index: u16,
 }
 
 impl RenderTaskId {
     pub const INVALID: RenderTaskId = RenderTaskId {
         index: u32::MAX,
+        sub_rect_index: u16::MAX,
     };
+
+    #[inline]
+    fn from_index(index: usize) -> Self {
+        RenderTaskId { index: index as u32, sub_rect_index: u16::MAX }
+    }
+
+    #[inline]
+    pub fn index(&self) -> usize {
+        self.index as usize
+    }
+
+    pub fn has_sub_rect(&self) -> bool {
+        self.sub_rect_index != u16::MAX
+    }
 }
 
 impl std::fmt::Debug for RenderTaskId {
@@ -217,6 +231,14 @@ pub struct Pass {
     pub textures_to_invalidate: FrameVec<CacheTextureId>,
 }
 
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct TaskSubRect {
+    pub sub_rect: DeviceIntRect,
+    source_task: RenderTaskId,
+    uv_address: GpuBufferAddress,
+}
+
 /// The RenderTaskGraph is the immutable representation of the render task graph. It is
 /// built by the RenderTaskGraphBuilder, and is constructed once per frame.
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -227,6 +249,8 @@ pub struct RenderTaskGraph {
     /// List of sub-tasks, executing after the regular tasks for a given
     /// pass.
     pub sub_tasks: FrameVec<SubTask>,
+
+    pub sub_rects: FrameVec<TaskSubRect>,
 
     /// The passes that were created, based on dependencies between tasks
     pub passes: FrameVec<Pass>,
@@ -253,6 +277,9 @@ pub struct RenderTaskGraphBuilder {
     tasks: Vec<RenderTask>,
     /// List of sub-tasks added to the builder
     sub_tasks: Vec<SubTask>,
+    /// render task ids can optionally refer to sub-rects of a render task
+    /// by indexing into this vector.
+    sub_rects: Vec<TaskSubRect>,
 
     /// List of task roots
     roots: FastHashSet<RenderTaskId>,
@@ -281,6 +308,7 @@ impl RenderTaskGraphBuilder {
         RenderTaskGraphBuilder {
             tasks: Vec::new(),
             sub_tasks: Vec::new(),
+            sub_rects: Vec::new(),
             roots: FastHashSet::default(),
             frame_id: FrameId::INVALID,
             textures_to_free: FastHashSet::default(),
@@ -323,7 +351,7 @@ impl RenderTaskGraphBuilder {
     pub fn add(&mut self) -> RenderTaskAllocation {
         // Assume every task is a root to start with
         self.roots.insert(
-            RenderTaskId { index: self.tasks.len() as u32 }
+            RenderTaskId::from_index(self.tasks.len()),
         );
 
         RenderTaskAllocation {
@@ -356,6 +384,25 @@ impl RenderTaskGraphBuilder {
         self.roots.remove(&input);
     }
 
+    pub fn add_sub_rect(&mut self, source_task: RenderTaskId, sub_rect: &DeviceIntRect) -> RenderTaskId {
+        assert!(self.sub_rects.len() < u16::MAX as usize);
+        if source_task == RenderTaskId::INVALID {
+            return RenderTaskId::INVALID;
+        }
+
+        let sub_rect_index = self.sub_rects.len() as u16;
+        self.sub_rects.push(TaskSubRect {
+            source_task,
+            sub_rect: *sub_rect,
+            uv_address: GpuBufferAddress::INVALID,
+        });
+
+        RenderTaskId {
+            index: source_task.index,
+            sub_rect_index,
+        }
+    }
+
     /// End the graph building phase and produce the immutable task graph for this frame
     pub fn end_frame(
         &mut self,
@@ -385,6 +432,7 @@ impl RenderTaskGraphBuilder {
         let mut graph = RenderTaskGraph {
             tasks,
             sub_tasks,
+            sub_rects: memory.new_vec(),
             passes: memory.new_vec(),
             task_data: memory.new_vec_with_capacity(task_count),
             frame_id: self.frame_id,
@@ -408,7 +456,7 @@ impl RenderTaskGraphBuilder {
 
         // Iterate the task list, and add all the dependencies to the topo sort
         for (parent_id, task) in graph.tasks.iter().enumerate() {
-            let parent_id = RenderTaskId { index: parent_id as u32 };
+            let parent_id = RenderTaskId::from_index(parent_id);
 
             for child_id in &task.children {
                 task_sorter.add_dependency(
@@ -469,7 +517,7 @@ impl RenderTaskGraphBuilder {
         // Assign tasks to each pass based on their `render_on` attribute
         for (index, task) in graph.tasks.iter().enumerate() {
             if task.kind.is_a_rendering_operation() {
-                let id = RenderTaskId { index: index as u32 };
+                let id = RenderTaskId::from_index(index);
                 graph.passes[task.render_on.0].task_ids.push(id);
             }
         }
@@ -780,6 +828,30 @@ impl RenderTaskGraphBuilder {
             );
         }
 
+        graph.sub_rects.reserve(self.sub_rects.len());
+        for item in &self.sub_rects {
+            let task = &graph.tasks[item.source_task.index()];
+            let task_rect = task.get_target_rect();
+            let rect = item.sub_rect
+                .translate(task_rect.min.to_vector())
+                .intersection_unchecked(&task_rect);
+
+            let image_source = ImageSource {
+                p0: rect.min.to_f32(),
+                p1: rect.max.to_f32(),
+                user_data: [0.0; 4],
+                uv_rect_kind: task.uv_rect_kind,
+            };
+
+            let uv_rect_handle = image_source.write_gpu_blocks(&mut gpu_buffers.f32);
+
+            graph.sub_rects.push(TaskSubRect {
+                source_task: item.source_task,
+                sub_rect: item.sub_rect,
+                uv_address: gpu_buffers.f32.resolve_handle(uv_rect_handle),
+            });
+        }
+
         graph
     }
 }
@@ -850,7 +922,12 @@ impl RenderTaskGraph {
             return None;
         }
 
-        let uv_address = task.get_texture_address();
+        let uv_address = if task_id.has_sub_rect() {
+            self.sub_rects[task_id.sub_rect_index as usize].uv_address
+        } else {
+            task.get_texture_address()
+        };
+
         assert!(uv_address.is_valid());
 
         Some((uv_address, texture_source))
@@ -883,6 +960,7 @@ impl RenderTaskGraph {
         RenderTaskGraph {
             tasks: allocator.clone().new_vec(),
             sub_tasks: allocator.clone().new_vec(),
+            sub_rects: allocator.clone().new_vec(),
             passes: allocator.clone().new_vec(),
             frame_id: FrameId::INVALID,
             task_data: allocator.clone().new_vec(),
