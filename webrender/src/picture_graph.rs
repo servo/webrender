@@ -5,7 +5,7 @@
 use crate::frame_builder::FrameBuildingContext;
 use crate::internal_types::FastHashMap;
 use crate::prim_store::PictureIndex;
-use crate::picture::{PicturePrimitive, SurfaceIndex, SurfaceInfo};
+use crate::picture::{PictureInstance, SurfaceIndex, SurfaceInfo};
 use crate::tile_cache::{TileCacheInstance, SliceId};
 use smallvec::SmallVec;
 
@@ -47,7 +47,7 @@ impl PictureGraph {
     /// Build a list of update passes based on the dependencies between pictures
     pub fn build_update_passes(
         &mut self,
-        pictures: &mut [PicturePrimitive],
+        pictures: &mut [PictureInstance],
         frame_context: &FrameBuildingContext
     ) {
         self.pic_info.clear();
@@ -91,7 +91,7 @@ impl PictureGraph {
     /// Assign surfaces and scale factors to each picture (root -> leaf ordered pass)
     pub fn assign_surfaces(
         &mut self,
-        pictures: &mut [PicturePrimitive],
+        pictures: &mut [PictureInstance],
         surfaces: &mut Vec<SurfaceInfo>,
         tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
         frame_context: &FrameBuildingContext,
@@ -128,7 +128,7 @@ impl PictureGraph {
     /// Propegate bounding rects from pictures to parents (leaf -> root ordered pass)
     pub fn propagate_bounding_rects(
         &mut self,
-        pictures: &mut [PicturePrimitive],
+        pictures: &mut [PictureInstance],
         surfaces: &mut [SurfaceInfo],
         frame_context: &FrameBuildingContext,
     ) {
@@ -163,7 +163,7 @@ fn assign_update_pass(
     pic_index: PictureIndex,
     parent_pic_index: Option<PictureIndex>,
     pass: usize,
-    pictures: &mut [PicturePrimitive],
+    pictures: &mut [PictureInstance],
     pic_info: &mut [PictureInfo],
     max_pass_index: &mut usize,
     frame_context: &FrameBuildingContext

@@ -26,7 +26,7 @@ use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureCont
 use crate::gpu_types::{BrushFlags, BlurEdgeMode};
 use crate::render_target::RenderTargetKind;
 use crate::internal_types::{FastHashMap, PlaneSplitAnchor, Filter};
-use crate::picture::{ClusterFlags, PictureCompositeMode, PicturePrimitive};
+use crate::picture::{ClusterFlags, PictureCompositeMode, PictureInstance};
 use crate::picture::{PrimitiveList, PrimitiveCluster, SurfaceIndex, SubpixelMode, Picture3DContext};
 use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::prim_store::*;
@@ -1206,7 +1206,7 @@ fn prepare_interned_prim_for_render(
                 let surface = &frame_state.surfaces[surface_index.0];
                 let local_prim_rect = surface.clipped_local_rect.cast_unit();
 
-                PicturePrimitive::add_split_plane(
+                PictureInstance::add_split_plane(
                     splitter,
                     frame_context.spatial_tree,
                     prim_spatial_node_index,
@@ -1768,7 +1768,7 @@ fn build_segments_if_needed(
         } else {
             let segments_range = segments_store.extend(segments);
 
-            let instance = SegmentedInstance {
+            let instance = BrushSegmentation {
                 segments_range,
                 gpu_data: GpuBufferAddress::INVALID,
             };

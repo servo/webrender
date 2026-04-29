@@ -7,7 +7,7 @@ use api::units::*;
 use crate::clip::{clamped_radius, ClipItemKeyKind, ClipNodeId, ClipTreeBuilder, intersect_rounded_rects};
 use crate::frame_builder::FrameBuilderConfig;
 use crate::internal_types::FastHashMap;
-use crate::picture::{PrimitiveList, PictureCompositeMode, PicturePrimitive, Picture3DContext, PictureFlags};
+use crate::picture::{PrimitiveList, PictureCompositeMode, PictureInstance, Picture3DContext, PictureFlags};
 use crate::tile_cache::{SliceId, TileCacheParams};
 use crate::prim_store::{PrimitiveInstance, PrimitiveStore, PictureIndex};
 use crate::scene_building::SliceFlags;
@@ -681,7 +681,7 @@ fn create_tile_cache(
         yuv_image_surface_count: prim_list.yuv_image_surface_count,
     });
 
-    let pic_index = prim_store.pictures.alloc().init(PicturePrimitive::new_image(
+    let pic_index = prim_store.pictures.alloc().init(PictureInstance::new_image(
         Some(PictureCompositeMode::TileCache { slice_id }),
         Picture3DContext::Out,
         PrimitiveFlags::IS_BACKFACE_VISIBLE,

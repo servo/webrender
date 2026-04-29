@@ -196,7 +196,7 @@ impl InternablePrimitive for TextRun {
         data_handle: TextRunDataHandle,
         prim_store: &mut PrimitiveStore,
     ) -> PrimitiveKind {
-        let run_index = prim_store.text_runs.push(TextRunPrimitive {
+        let run_index = prim_store.text_runs.push(TextRunInstance {
             used_font: key.font.clone(),
             glyph_keys_range: storage::Range::empty(),
             snapped_reference_frame_relative_offset: LayoutVector2D::zero(),
@@ -247,7 +247,7 @@ impl IsVisible for TextRun {
 
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
-pub struct TextRunPrimitive {
+pub struct TextRunInstance {
     pub used_font: FontInstance,
     pub glyph_keys_range: storage::Range<GlyphKey>,
     pub snapped_reference_frame_relative_offset: LayoutVector2D,
@@ -256,7 +256,7 @@ pub struct TextRunPrimitive {
     pub requested_raster_space: RasterSpace,
 }
 
-impl TextRunPrimitive {
+impl TextRunInstance {
     pub fn update_font_instance(
         &mut self,
         specified_font: &FontInstance,
@@ -514,5 +514,5 @@ fn test_struct_sizes() {
     assert_eq!(mem::size_of::<TextRun>(), 80, "TextRun size changed");
     assert_eq!(mem::size_of::<TextRunTemplate>(), 88, "TextRunTemplate size changed");
     assert_eq!(mem::size_of::<TextRunKey>(), 88, "TextRunKey size changed");
-    assert_eq!(mem::size_of::<TextRunPrimitive>(), 72, "TextRunPrimitive size changed");
+    assert_eq!(mem::size_of::<TextRunInstance>(), 72, "TextRunInstance size changed");
 }

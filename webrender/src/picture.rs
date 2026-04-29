@@ -242,7 +242,7 @@ impl PictureScratchBuffer {
 pub struct RasterConfig {
     /// How this picture should be composited into
     /// the parent surface.
-    // TODO(gw): We should remove this and just use what is in PicturePrimitive
+    // TODO(gw): We should remove this and just use what is in PictureInstance
     pub composite_mode: PictureCompositeMode,
     /// Index to the surface descriptor for this
     /// picture.
@@ -511,7 +511,7 @@ impl PrimitiveList {
 
 bitflags! {
     #[cfg_attr(feature = "capture", derive(Serialize))]
-    /// Flags describing properties for a given PicturePrimitive
+    /// Flags describing properties for a given PictureInstance
     #[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
     pub struct PictureFlags : u8 {
         /// This picture is a resolve target (doesn't actually render content itself,
@@ -526,7 +526,7 @@ bitflags! {
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
-pub struct PicturePrimitive {
+pub struct PictureInstance {
     /// List of primitives, and associated info for this picture.
     pub prim_list: PrimitiveList,
 
@@ -588,7 +588,7 @@ pub struct PicturePrimitive {
     pub snapshot: Option<SnapshotInfo>,
 }
 
-impl PicturePrimitive {
+impl PictureInstance {
     pub fn print<T: PrintTreePrinter>(
         &self,
         pictures: &[Self],
@@ -659,7 +659,7 @@ impl PicturePrimitive {
         flags: PictureFlags,
         snapshot: Option<SnapshotInfo>,
     ) -> Self {
-        PicturePrimitive {
+        PictureInstance {
             prim_list,
             primary_render_task_id: None,
             secondary_render_task_id: None,
@@ -902,7 +902,7 @@ impl PicturePrimitive {
             let splitter = &mut frame_state.plane_splitters[plane_splitter_index.0];
 
             // Resolve split planes via BSP
-            PicturePrimitive::resolve_split_planes(
+            PictureInstance::resolve_split_planes(
                 splitter,
                 list,
                 &mut frame_state.frame_gpu_data.f32,

@@ -217,7 +217,7 @@ impl SurfaceInfo {
         let raster_rect = if self.raster_spatial_node_index != self.surface_spatial_node_index {
             // Currently, the surface's spatial node can be different from its raster node only
             // for surfaces in the root coordinate system for snapping reasons.
-            // See `PicturePrimitive::assign_surface`.
+            // See `PictureInstance::assign_surface`.
             assert_eq!(self.device_pixel_scale.0, 1.0);
             assert_eq!(self.raster_spatial_node_index, spatial_tree.root_reference_frame_index());
 

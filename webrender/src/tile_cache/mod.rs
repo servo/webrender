@@ -29,7 +29,7 @@ use crate::invalidation::compare::{PrimitiveDependency, ImageDependency};
 use crate::invalidation::compare::PrimitiveComparisonKey;
 use crate::invalidation::compare::{OpacityBindingInfo, ColorBindingInfo};
 use crate::picture::{SurfaceTextureDescriptor, PictureCompositeMode, SurfaceIndex, clamp};
-use crate::picture::{get_relative_scale_offset, PicturePrimitive};
+use crate::picture::{get_relative_scale_offset, PictureInstance};
 use crate::picture::MAX_COMPOSITOR_SURFACES_SIZE;
 use crate::prim_store::{PrimitiveInstance, PrimitiveKind, PrimitiveScratchBuffer, PictureIndex};
 use crate::prim_store::{ColorBindingStorage, ColorBindingIndex};
@@ -2149,7 +2149,7 @@ impl TileCacheInstance {
         frame_context: &FrameVisibilityContext,
         data_stores: &DataStores,
         clip_store: &ClipStore,
-        pictures: &[PicturePrimitive],
+        pictures: &[PictureInstance],
         resource_cache: &mut ResourceCache,
         color_bindings: &ColorBindingStorage,
         surface_stack: &[(PictureIndex, SurfaceIndex)],

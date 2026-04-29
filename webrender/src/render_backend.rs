@@ -39,7 +39,7 @@ use crate::internal_types::{FastHashMap, FrameId, FrameStamp, RenderedDocument, 
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use crate::picture::{PictureScratchBuffer, SurfaceInfo, RasterConfig};
 use crate::tile_cache::{SliceId, TileCacheInstance, TileCacheParams};
-use crate::picture::PicturePrimitive;
+use crate::picture::PictureInstance;
 use crate::prim_store::{PrimitiveScratchBuffer, PrimitiveInstance};
 use crate::prim_store::{PrimitiveKind, PrimTemplateCommonData};
 use crate::prim_store::interned::*;
@@ -145,7 +145,7 @@ impl DataStores {
     pub fn get_local_prim_rect(
         &self,
         prim_instance: &PrimitiveInstance,
-        pictures: &[PicturePrimitive],
+        pictures: &[PictureInstance],
         surfaces: &[SurfaceInfo],
     ) -> LayoutRect {
         match prim_instance.kind {
@@ -176,7 +176,7 @@ impl DataStores {
     pub fn get_local_prim_coverage_rect(
         &self,
         prim_instance: &PrimitiveInstance,
-        pictures: &[PicturePrimitive],
+        pictures: &[PictureInstance],
         surfaces: &[SurfaceInfo],
     ) -> LayoutRect {
         match prim_instance.kind {

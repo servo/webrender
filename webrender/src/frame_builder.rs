@@ -18,7 +18,7 @@ use crate::gpu_types::QuadSegment;
 use crate::internal_types::{FastHashMap, PlaneSplitter, FrameStamp};
 use crate::invalidation::DirtyRegion;
 use crate::tile_cache::{SliceId, TileCacheInstance};
-use crate::picture::PicturePrimitive;
+use crate::picture::PictureInstance;
 use crate::picture::{SurfaceInfo, SurfaceIndex, ResolvedSurfaceTexture};
 use crate::picture::{SubpixelMode, RasterConfig, PictureCompositeMode};
 use crate::prepare::prepare_picture;
@@ -993,7 +993,7 @@ impl FrameBuilder {
     fn skip_occluded_pictures_with_clips(
         &self,
         tile_cache_pictures: &Vec<PictureIndex>,
-        pictures: &mut [PicturePrimitive],
+        pictures: &mut [PictureInstance],
         tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
         frame_context: &FrameBuildingContext,
         composite_state: &mut CompositeState,

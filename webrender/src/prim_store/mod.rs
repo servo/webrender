@@ -20,7 +20,7 @@ use crate::debug_colors;
 use glyph_rasterizer::GlyphKey;
 use crate::gpu_types::{BrushFlags, BrushSegmentGpuData, QuadSegment};
 use crate::intern;
-use crate::picture::PicturePrimitive;
+use crate::picture::PictureInstance;
 use crate::render_task_graph::RenderTaskId;
 use crate::resource_cache::ImageProperties;
 use std::{hash, u32, usize};
@@ -47,7 +47,7 @@ use image::{ImageDataHandle, ImageInstance, YuvImageDataHandle};
 use line_dec::{LineDecorationDataHandle, LineDecorationScratch};
 use picture::PictureDataHandle;
 use rectangle::RectangleDataHandle;
-use text_run::{TextRunDataHandle, TextRunPrimitive};
+use text_run::{TextRunDataHandle, TextRunInstance};
 use crate::box_shadow::BoxShadowDataHandle;
 
 pub const VECS_PER_SEGMENT: usize = 2;
@@ -911,20 +911,20 @@ impl PrimitiveInstance {
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[derive(Debug)]
-pub struct SegmentedInstance {
+pub struct BrushSegmentation {
     pub gpu_data: GpuBufferAddress,
     pub segments_range: SegmentsRange,
 }
 
 pub type GlyphKeyStorage = storage::Storage<GlyphKey>;
-pub type TextRunIndex = storage::Index<TextRunPrimitive>;
-pub type TextRunStorage = storage::Storage<TextRunPrimitive>;
+pub type TextRunIndex = storage::Index<TextRunInstance>;
+pub type TextRunStorage = storage::Storage<TextRunInstance>;
 pub type ColorBindingIndex = storage::Index<PropertyBinding<ColorU>>;
 pub type ColorBindingStorage = storage::Storage<PropertyBinding<ColorU>>;
 pub type SegmentStorage = storage::Storage<BrushSegment>;
 pub type SegmentsRange = storage::Range<BrushSegment>;
-pub type SegmentInstanceStorage = storage::Storage<SegmentedInstance>;
-pub type SegmentInstanceIndex = storage::Index<SegmentedInstance>;
+pub type SegmentInstanceStorage = storage::Storage<BrushSegmentation>;
+pub type SegmentInstanceIndex = storage::Index<BrushSegmentation>;
 pub type ImageInstanceStorage = storage::Storage<ImageInstance>;
 pub type ImageInstanceIndex = storage::Index<ImageInstance>;
 
@@ -1233,7 +1233,7 @@ impl PrimitiveStoreStats {
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveStore {
-    pub pictures: Vec<PicturePrimitive>,
+    pub pictures: Vec<PictureInstance>,
     pub text_runs: TextRunStorage,
     /// A list of image instances. These are stored separately as
     /// storing them inline in the instance makes the structure bigger
