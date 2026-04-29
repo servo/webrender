@@ -2604,7 +2604,7 @@ impl TileCacheInstance {
                 if !pic_coverage_rect.is_empty() {
                     // Mark that we need the sub-graph this render depends on so that
                     // we don't skip it during the prepare pass
-                    scratch.required_sub_graphs.insert(pic_index);
+                    scratch.frame.required_sub_graphs.insert(pic_index);
 
                     // If this is a sub-graph, register the bounds on any affected tiles
                     // so we know how much to expand the content tile by.

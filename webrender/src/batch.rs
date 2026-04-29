@@ -1595,8 +1595,8 @@ impl BatchBuilder {
         let (prim_cache_address, segments) = if segment_instance_index == SegmentInstanceIndex::UNUSED {
             (common_data.gpu_buffer_address, None)
         } else {
-            let segment_instance = &ctx.scratch.segment_instances[segment_instance_index];
-            let segments = Some(&ctx.scratch.segments[segment_instance.segments_range]);
+            let segment_instance = &ctx.scratch.scene.segment_instances[segment_instance_index];
+            let segments = Some(&ctx.scratch.scene.segments[segment_instance.segments_range]);
             (segment_instance.gpu_data, segments)
         };
 
@@ -1688,7 +1688,7 @@ impl BatchBuilder {
             }
             PrimitiveInstanceKind::NormalBorder { data_handle, scratch_handle, .. } => {
                 let prim_data = &ctx.data_stores.normal_border[data_handle];
-                let task_ids = &ctx.scratch.border_task_ids[ctx.scratch.normal_border[scratch_handle].task_ids];
+                let task_ids = &ctx.scratch.frame.border_task_ids[ctx.scratch.frame.normal_border[scratch_handle].task_ids];
                 let mut segment_data: SmallVec<[SegmentInstanceData; 8]> = SmallVec::new();
 
                 // Collect the segment instance data from each render
@@ -1762,7 +1762,7 @@ impl BatchBuilder {
                 // with the unsnapped and snapped offsets respectively. This has
                 // the added bonus of avoiding quantization effects when storing
                 // floats in the extra header integers.
-                let glyph_keys = &ctx.scratch.glyph_keys[run.glyph_keys_range];
+                let glyph_keys = &ctx.scratch.scene.glyph_keys[run.glyph_keys_range];
                 let prim_header = PrimitiveHeader {
                     local_rect: LayoutRect {
                         min: prim_rect.min,
@@ -1969,7 +1969,7 @@ impl BatchBuilder {
                 );
             }
             PrimitiveInstanceKind::LineDecoration { scratch_handle, .. } => {
-                let render_task_id = ctx.scratch.line_decoration[scratch_handle].task_id;
+                let render_task_id = ctx.scratch.frame.line_decoration[scratch_handle].task_id;
 
                 let (clip_task_address, clip_mask_texture_id) = ctx.get_prim_clip_task_and_texture(
                     prim_info.clip_task_index,
@@ -2217,8 +2217,8 @@ impl BatchBuilder {
                     let (prim_cache_address, segments) = if image_instance.segment_instance_index == SegmentInstanceIndex::UNUSED {
                         (prim_cache_address, None)
                     } else {
-                        let segment_instance = &ctx.scratch.segment_instances[image_instance.segment_instance_index];
-                        let segments = Some(&ctx.scratch.segments[segment_instance.segments_range]);
+                        let segment_instance = &ctx.scratch.scene.segment_instances[image_instance.segment_instance_index];
+                        let segments = Some(&ctx.scratch.scene.segments[segment_instance.segments_range]);
                         (segment_instance.gpu_data, segments)
                     };
 
@@ -3072,7 +3072,7 @@ impl<'a, 'rc> RenderTargetContext<'a, 'rc> {
         offset: i32,
         render_tasks: &RenderTaskGraph,
     ) -> Option<(RenderTaskAddress, TextureSource)> {
-        match self.scratch.clip_mask_instances[clip_task_index.0 as usize + offset as usize] {
+        match self.scratch.frame.clip_mask_instances[clip_task_index.0 as usize + offset as usize] {
             ClipMaskKind::Mask(task_id) => {
                 Some((
                     task_id.into(),

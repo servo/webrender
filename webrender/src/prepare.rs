@@ -576,7 +576,7 @@ fn prepare_interned_prim_for_render(
                 frame_context,
                 frame_state,
             );
-            *scratch_handle = scratch.line_decoration.push(LineDecorationScratch { task_id: render_task });
+            *scratch_handle = scratch.frame.line_decoration.push(LineDecorationScratch { task_id: render_task });
         }
         PrimitiveInstanceKind::TextRun { run_index, data_handle, .. } => {
             profile_scope!("TextRun");
@@ -652,10 +652,10 @@ fn prepare_interned_prim_for_render(
             border_data.write_brush_gpu_blocks(common_data, frame_state);
 
             let segment_count = border_data.border_segments.len();
-            let task_ids = scratch.border_task_ids.extend(
+            let task_ids = scratch.frame.border_task_ids.extend(
                 std::iter::repeat(RenderTaskId::INVALID).take(segment_count),
             );
-            let handle = scratch.normal_border.push(NormalBorderScratch { task_ids });
+            let handle = scratch.frame.normal_border.push(NormalBorderScratch { task_ids });
 
             border_data.update(
                 common_data,
@@ -663,7 +663,7 @@ fn prepare_interned_prim_for_render(
                 device_pixel_scale,
                 frame_context,
                 frame_state,
-                &mut scratch.border_task_ids[task_ids],
+                &mut scratch.frame.border_task_ids[task_ids],
             );
 
             *scratch_handle = handle;
@@ -699,8 +699,8 @@ fn prepare_interned_prim_for_render(
                 write_segment(
                     *segment_instance_index,
                     frame_state,
-                    &mut scratch.segments,
-                    &mut scratch.segment_instances,
+                    &mut scratch.scene.segments,
+                    &mut scratch.scene.segment_instances,
                     |request| {
                         request.push_one(frame_context.scene_properties.resolve_color(&prim_data.kind.color).premultiplied());
                     }
@@ -749,8 +749,8 @@ fn prepare_interned_prim_for_render(
             write_segment(
                 *segment_instance_index,
                 frame_state,
-                &mut scratch.segments,
-                &mut scratch.segment_instances,
+                &mut scratch.scene.segments,
+                &mut scratch.scene.segment_instances,
                 |writer| {
                     yuv_image_data.write_prim_gpu_blocks(writer);
                 }
@@ -803,8 +803,8 @@ fn prepare_interned_prim_for_render(
             write_segment(
                 image_instance.segment_instance_index,
                 frame_state,
-                &mut scratch.segments,
-                &mut scratch.segment_instances,
+                &mut scratch.scene.segments,
+                &mut scratch.scene.segment_instances,
                 |request| {
                     image_data.write_prim_gpu_blocks(&image_instance.adjustment, request);
                 },
@@ -1183,8 +1183,8 @@ fn prepare_interned_prim_for_render(
                         frame_state.transforms,
                     );
 
-                    let clip_task_index = ClipTaskIndex(scratch.clip_mask_instances.len() as _);
-                    scratch.clip_mask_instances.push(ClipMaskKind::Mask(clip_task_id));
+                    let clip_task_index = ClipTaskIndex(scratch.frame.clip_mask_instances.len() as _);
+                    scratch.frame.clip_mask_instances.push(ClipMaskKind::Mask(clip_task_id));
                     prim_instance.vis.clip_task_index = clip_task_index;
                     frame_state.surface_builder.add_child_render_task(
                         clip_task_id,
@@ -1479,8 +1479,8 @@ pub fn update_clip_task(
         frame_state,
         prim_store,
         data_stores,
-        &mut scratch.segments,
-        &mut scratch.segment_instances,
+        &mut scratch.scene.segments,
+        &mut scratch.scene.segment_instances,
     );
 
     // First try to  render this primitive's mask using optimized brush rendering.
@@ -1496,9 +1496,9 @@ pub fn update_clip_task(
         frame_state,
         prim_store,
         data_stores,
-        &mut scratch.segments,
-        &mut scratch.segment_instances,
-        &mut scratch.clip_mask_instances,
+        &mut scratch.scene.segments,
+        &mut scratch.scene.segment_instances,
+        &mut scratch.frame.clip_mask_instances,
         device_pixel_scale,
     ) {
         clip_task_index
@@ -1533,8 +1533,8 @@ pub fn update_clip_task(
             frame_context.fb_config,
         );
         // Set the global clip mask instance for this primitive.
-        let clip_task_index = ClipTaskIndex(scratch.clip_mask_instances.len() as _);
-        scratch.clip_mask_instances.push(ClipMaskKind::Mask(clip_task_id));
+        let clip_task_index = ClipTaskIndex(scratch.frame.clip_mask_instances.len() as _);
+        scratch.frame.clip_mask_instances.push(ClipMaskKind::Mask(clip_task_id));
         instance.vis.clip_task_index = clip_task_index;
         frame_state.surface_builder.add_child_render_task(
             clip_task_id,

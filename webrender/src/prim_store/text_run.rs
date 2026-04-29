@@ -484,7 +484,7 @@ impl TextRunPrimitive {
                 RasterSpace::Screen => self.used_font.transform.scale(dps),
             };
 
-            self.glyph_keys_range = scratch.glyph_keys.extend(
+            self.glyph_keys_range = scratch.scene.glyph_keys.extend(
                 glyphs.iter().map(|src| {
                     let src_point = src.point + prim_offset;
                     let device_offset = transform.transform(&src_point);
@@ -494,7 +494,7 @@ impl TextRunPrimitive {
 
         resource_cache.request_glyphs(
             self.used_font.clone(),
-            &scratch.glyph_keys[self.glyph_keys_range],
+            &scratch.scene.glyph_keys[self.glyph_keys_range],
             gpu_buffer,
         );
     }

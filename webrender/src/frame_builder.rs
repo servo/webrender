@@ -840,7 +840,7 @@ impl FrameBuilder {
             has_been_rendered: false,
             has_texture_cache_tasks,
             prim_headers,
-            debug_items: mem::replace(&mut scratch.primitive.debug_items, Vec::new()),
+            debug_items: mem::replace(&mut scratch.primitive.frame.debug_items, Vec::new()),
             composite_state,
             gpu_buffer_f,
             gpu_buffer_i,
@@ -884,7 +884,7 @@ impl FrameBuilder {
 
       // This is the main walk over the spatial tree. For every scroll frame node which
       // has minimap data, compute the rects we want to render for that minimap in world
-      // coordinates and add them to `scratch.debug_items`.
+      // coordinates and add them to `scratch.frame.debug_items`.
       spatial_tree.visit_nodes(|index, node| {
         if let SpatialNodeType::ScrollFrame(ref scroll_frame_info) = node.node_type {
           if let Some(minimap_data) = minimap_data_store.get(&scroll_frame_info.external_id) {
@@ -959,7 +959,7 @@ impl FrameBuilder {
 
               scratch.push_debug_rect_with_stroke_width(world_rect, border, STROKE_WIDTH);
 
-              // Add world coordinate rects to scratch.debug_items
+              // Add world coordinate rects to scratch.frame.debug_items
               if let Some(fill_color) = fill {
                 let interior_world_rect = WorldRect::new(
                     world_rect.min + WorldVector2D::new(STROKE_WIDTH, STROKE_WIDTH),

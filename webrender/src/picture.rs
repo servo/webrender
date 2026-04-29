@@ -802,7 +802,7 @@ impl PicturePrimitive {
                 };
 
                 if let PictureCompositeMode::IntermediateSurface = raster_config.composite_mode {
-                    if !scratch.required_sub_graphs.contains(&pic_index) {
+                    if !scratch.frame.required_sub_graphs.contains(&pic_index) {
                         return None;
                     }
                 }

@@ -948,8 +948,8 @@ fn prepare_nine_patch(
     x_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
     y_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-    scratch.quad_direct_segments.clear();
-    scratch.quad_indirect_segments.clear();
+    scratch.frame.quad_direct_segments.clear();
+    scratch.frame.quad_indirect_segments.clear();
 
     // TODO: re-land clip-out mode.
     let mode = ClipMode::Clip;
@@ -1027,12 +1027,12 @@ fn prepare_nine_patch(
                     interned_clips,
                     frame_state,
                 );
-                scratch.quad_indirect_segments.push(QuadSegment {
+                scratch.frame.quad_indirect_segments.push(QuadSegment {
                     rect: segment_device_rect.to_f32().cast_unit(),
                     task_id,
                 });
             } else {
-                scratch.quad_direct_segments.push(QuadSegment {
+                scratch.frame.quad_direct_segments.push(QuadSegment {
                     rect: segment_device_rect.to_f32().cast_unit(),
                     task_id: pattern.texture_input.task_id,
                 });
@@ -1040,7 +1040,7 @@ fn prepare_nine_patch(
         }
     }
 
-    if !scratch.quad_direct_segments.is_empty() {
+    if !scratch.frame.quad_direct_segments.is_empty() {
         add_pattern_prim(
             pattern,
             local_to_device.inverse(),
@@ -1050,18 +1050,18 @@ fn prepare_nine_patch(
             pattern.is_opaque,
             frame_state,
             targets,
-            &scratch.quad_direct_segments,
+            &scratch.frame.quad_direct_segments,
         );
     }
 
-    if !scratch.quad_indirect_segments.is_empty() {
+    if !scratch.frame.quad_indirect_segments.is_empty() {
         add_composite_prim(
             pattern.base_color,
             prim_instance_index,
             &device_clip_rect,
             frame_state,
             targets,
-            &scratch.quad_indirect_segments,
+            &scratch.frame.quad_indirect_segments,
         );
     }
 }
@@ -1100,7 +1100,7 @@ fn prepare_tiles(
 
     let force_masks = !transform.is_2d_scale_offset();
     // Set up the tile classifier for the params of this quad
-    scratch.quad_tile_classifier.reset(
+    scratch.retained.quad_tile_classifier.reset(
         unclipped_surface_rect,
         force_masks,
     );
@@ -1124,7 +1124,7 @@ fn prepare_tiles(
                 // is affected by the clip, for now.
                 // TODO: If we take this path, it means that we would have been better-off using
                 // the indirect rendering strategy.
-                scratch.quad_tile_classifier.add_mask_region(unclipped_surface_rect);
+                scratch.retained.quad_tile_classifier.add_mask_region(unclipped_surface_rect);
                 continue;
             }
         };
@@ -1133,7 +1133,7 @@ fn prepare_tiles(
         match clip_node.item.kind {
             ClipItemKind::Rectangle { mode } => {
                 let rect = transform.map_rect(&clip_instance.clip_rect);
-                scratch.quad_tile_classifier.add_clip_rect(rect, mode);
+                scratch.retained.quad_tile_classifier.add_clip_rect(rect, mode);
             }
             ClipItemKind::RoundedRectangle { mode: ClipMode::Clip, ref radius } => {
                 // For rounded-rects with Clip mode, we need a mask for each corner,
@@ -1177,11 +1177,11 @@ fn prepare_tiles(
                     r_bl,
                 );
 
-                scratch.quad_tile_classifier.add_clip_rect(clip_device_rect, ClipMode::Clip);
-                scratch.quad_tile_classifier.add_mask_region(c_tl);
-                scratch.quad_tile_classifier.add_mask_region(c_tr);
-                scratch.quad_tile_classifier.add_mask_region(c_br);
-                scratch.quad_tile_classifier.add_mask_region(c_bl);
+                scratch.retained.quad_tile_classifier.add_clip_rect(clip_device_rect, ClipMode::Clip);
+                scratch.retained.quad_tile_classifier.add_mask_region(c_tl);
+                scratch.retained.quad_tile_classifier.add_mask_region(c_tr);
+                scratch.retained.quad_tile_classifier.add_mask_region(c_br);
+                scratch.retained.quad_tile_classifier.add_mask_region(c_bl);
             }
             ClipItemKind::RoundedRectangle { mode: ClipMode::ClipOut, ref radius } => {
                 let radius = clamped_radius(radius, clip_instance.clip_rect.size());
@@ -1190,11 +1190,11 @@ fn prepare_tiles(
                 match extract_inner_rect_k(&clip_instance.clip_rect, &radius, 0.5) {
                     Some(ref inner_rect) => {
                         let rect = transform.map_rect(inner_rect);
-                        scratch.quad_tile_classifier.add_clip_rect(rect, ClipMode::ClipOut);
+                        scratch.retained.quad_tile_classifier.add_clip_rect(rect, ClipMode::ClipOut);
                     }
                     None => {
                         let clip_device_rect = transform.map_rect(&clip_instance.clip_rect);
-                        scratch.quad_tile_classifier.add_mask_region(clip_device_rect);
+                        scratch.retained.quad_tile_classifier.add_mask_region(clip_device_rect);
                     }
                 }
             }
@@ -1215,10 +1215,10 @@ fn prepare_tiles(
     );
 
     // Classify each tile within the quad to be Pattern / Mask / Clipped
-    scratch.quad_direct_segments.clear();
-    scratch.quad_indirect_segments.clear();
+    scratch.frame.quad_direct_segments.clear();
+    scratch.frame.quad_indirect_segments.clear();
 
-    let tiles = scratch.quad_tile_classifier.classify();
+    let tiles = scratch.retained.quad_tile_classifier.classify();
     for tile in tiles {
         // Check whether this tile requires a mask
         let is_direct = match tile.kind {
@@ -1240,7 +1240,7 @@ fn prepare_tiles(
         }
 
         if is_direct {
-            scratch.quad_direct_segments.push(QuadSegment {
+            scratch.frame.quad_direct_segments.push(QuadSegment {
                 rect: tile.rect.cast_unit(),
                 task_id: RenderTaskId::INVALID
             });
@@ -1270,21 +1270,21 @@ fn prepare_tiles(
                 frame_state,
             );
 
-            scratch.quad_indirect_segments.push(QuadSegment {
+            scratch.frame.quad_indirect_segments.push(QuadSegment {
                 rect: tile.rect.cast_unit(),
                 task_id,
             });
         }
     }
 
-    if !scratch.quad_direct_segments.is_empty() {
+    if !scratch.frame.quad_direct_segments.is_empty() {
         // Nine-patch segments are only allowed for axis-aligned primitives.
         let local_to_device = transform.as_2d_scale_offset().unwrap();
 
         let device_prim_rect: DeviceRect = local_to_device.map_rect(&local_rect);
 
         if pattern.texture_input.task_id != RenderTaskId::INVALID {
-            for segment in &mut scratch.quad_direct_segments {
+            for segment in &mut scratch.frame.quad_direct_segments {
                 segment.task_id = pattern.texture_input.task_id;
             }
         }
@@ -1298,18 +1298,18 @@ fn prepare_tiles(
             pattern.is_opaque,
             frame_state,
             targets,
-            &scratch.quad_direct_segments,
+            &scratch.frame.quad_direct_segments,
         );
     }
 
-    if !scratch.quad_indirect_segments.is_empty() {
+    if !scratch.frame.quad_indirect_segments.is_empty() {
         add_composite_prim(
             pattern.base_color,
             prim_instance_index,
             device_clip_rect,
             frame_state,
             targets,
-            &scratch.quad_indirect_segments,
+            &scratch.frame.quad_indirect_segments,
         );
     }
 }
