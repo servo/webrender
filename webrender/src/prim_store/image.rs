@@ -30,7 +30,7 @@ use crate::render_task_cache::{
     RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent
 };
 use crate::resource_cache::{ImageRequest, ImageProperties, ResourceCache};
-use crate::visibility::{PrimitiveVisibility, compute_conservative_visible_rect};
+use crate::visibility::{PrimitiveDrawHeader, compute_conservative_visible_rect};
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::{image_tiling, quad};
 
@@ -142,7 +142,7 @@ impl ImageData {
         prim_spatial_node_index: SpatialNodeIndex,
         frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
-        visibility: &mut PrimitiveVisibility,
+        visibility: &mut PrimitiveDrawHeader,
         prim_origin: LayoutPoint,
     ) {
 

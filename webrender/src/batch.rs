@@ -32,7 +32,7 @@ use crate::renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use crate::resource_cache::{GlyphFetchResult, ImageProperties};
 use crate::space::SpaceMapper;
 use crate::transform::{GpuTransformId, TransformPalette, TransformMetadata};
-use crate::visibility::{PrimitiveVisibilityFlags, VisibilityState};
+use crate::visibility::{PrimitiveVisibilityFlags, DrawState};
 use smallvec::SmallVec;
 use std::{f32, i32, usize};
 use crate::util::{project_rect, MaxRect, ScaleOffset};
@@ -842,7 +842,7 @@ impl BatchBuilder {
             }
             PrimitiveCommand::Quad { pattern, pattern_input, prim_instance_index, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_id } => {
                 let prim_instance = &prim_instances[prim_instance_index.0 as usize];
-                let prim_info = &prim_instance.vis;
+                let prim_info = &prim_instance.draw;
                 let bounding_rect = &prim_info.clip_chain.pic_coverage_rect;
                 let render_task_address = self.batcher.render_task_address;
 
@@ -918,15 +918,15 @@ impl BatchBuilder {
             BrushFlags::empty()
         };
 
-        let vis_flags = match prim_instance.vis.state {
-            VisibilityState::Culled => {
+        let vis_flags = match prim_instance.draw.state {
+            DrawState::Culled => {
                 return;
             }
-            VisibilityState::PassThrough |
-            VisibilityState::Unset => {
+            DrawState::PassThrough |
+            DrawState::Unset => {
                 panic!("bug: invalid visibility state");
             }
-            VisibilityState::Visible { vis_flags, .. } => {
+            DrawState::Visible { vis_flags, .. } => {
                 vis_flags
             }
         };
@@ -951,7 +951,7 @@ impl BatchBuilder {
         //           wasteful. We should probably cache this in
         //           the scroll node...
         let transform_metadata = transform_id.metadata();
-        let prim_info = &prim_instance.vis;
+        let prim_info = &prim_instance.draw;
         let bounding_rect = &prim_info.clip_chain.pic_coverage_rect;
 
         let mut z_id = z_generator.next();

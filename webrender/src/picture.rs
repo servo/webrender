@@ -915,7 +915,7 @@ impl PicturePrimitive {
                 let child_prim_instance = &prim_instances[child.anchor.instance_index.0 as usize];
 
                 if frame_state.surface_builder.get_cmd_buffer_targets_for_prim(
-                    &child_prim_instance.vis,
+                    &child_prim_instance.draw,
                     &mut cmd_buffer_targets,
                 ) {
                     let prim_cmd = PrimitiveCommand::complex(

@@ -38,7 +38,7 @@ use crate::render_task_cache::RenderTaskCacheKeyKind;
 use crate::render_task_cache::{RenderTaskCacheKey, to_cache_size, RenderTaskParent};
 use crate::render_task::{EmptyTask, RenderTask, RenderTaskKind, MAX_BLUR_STD_DEVIATION};
 use crate::segment::SegmentBuilder;
-use crate::visibility::VisibilityState;
+use crate::visibility::DrawState;
 
 
 const MAX_MASK_SIZE: i32 = 4096;
@@ -141,7 +141,7 @@ fn prepare_primitives(
 
         for prim_instance_index in cluster.prim_range() {
             if frame_state.surface_builder.get_cmd_buffer_targets_for_prim(
-                &prim_instances[prim_instance_index].vis,
+                &prim_instances[prim_instance_index].draw,
                 &mut cmd_buffer_targets,
             ) {
                 let plane_split_anchor = PlaneSplitAnchor::new(
@@ -281,7 +281,7 @@ fn prepare_prim_for_render(
             | PrimitiveKind::LinearGradient { .. }
             => {
                 use_legacy_path |= !can_use_clip_chain_for_quad_path(
-                    &prim_instance.vis.clip_chain,
+                    &prim_instance.draw.clip_chain,
                     frame_state.clip_store,
                     data_stores,
                 );
@@ -551,7 +551,7 @@ fn prepare_interned_prim_for_render(
                 prim_data.common.transformed_aa_edges,
                 prim_instance_index,
                 &None,
-                &prim_instance.vis.clip_chain,
+                &prim_instance.draw.clip_chain,
                 quad_transform,
                 frame_context,
                 pic_context,
@@ -600,13 +600,13 @@ fn prepare_interned_prim_for_render(
             // If subpixel AA is disabled due to the backing surface the glyphs
             // are being drawn onto, disable it (unless we are using the
             // specifial subpixel mode that estimates background color).
-            let allow_subpixel = match prim_instance.vis.state {
-                VisibilityState::Culled |
-                VisibilityState::Unset |
-                VisibilityState::PassThrough => {
+            let allow_subpixel = match prim_instance.draw.state {
+                DrawState::Culled |
+                DrawState::Unset |
+                DrawState::PassThrough => {
                     panic!("bug: invalid visibility state");
                 }
-                VisibilityState::Visible { sub_slice_index, .. } => {
+                DrawState::Visible { sub_slice_index, .. } => {
                     // For now, we only allow subpixel AA on primary sub-slices. In future we
                     // may support other sub-slices if we find content that does this.
                     if sub_slice_index.is_primary() {
@@ -616,8 +616,8 @@ fn prepare_interned_prim_for_render(
                             SubpixelMode::Conditional { allowed_rect, prohibited_rect } => {
                                 // Conditional mode allows subpixel AA to be enabled for this
                                 // text run, so long as it's inside the allowed rect.
-                                allowed_rect.contains_box(&prim_instance.vis.clip_chain.pic_coverage_rect) &&
-                                !prohibited_rect.intersects(&prim_instance.vis.clip_chain.pic_coverage_rect)
+                                allowed_rect.contains_box(&prim_instance.draw.clip_chain.pic_coverage_rect) &&
+                                !prohibited_rect.intersects(&prim_instance.draw.clip_chain.pic_coverage_rect)
                             }
                         }
                     } else {
@@ -717,7 +717,7 @@ fn prepare_interned_prim_for_render(
                     prim_data.common.transformed_aa_edges,
                     prim_instance_index,
                     &None,
-                    &prim_instance.vis.clip_chain,
+                    &prim_instance.draw.clip_chain,
                     quad_transform,
                     frame_context,
                     pic_context,
@@ -774,7 +774,7 @@ fn prepare_interned_prim_for_render(
                     &prim_rect,
                     common_data,
                     image_data,
-                    &prim_instance.vis.clip_chain,
+                    &prim_instance.draw.clip_chain,
                     prim_instance_index,
                     quad_transform,
                     frame_context,
@@ -796,7 +796,7 @@ fn prepare_interned_prim_for_render(
                 prim_spatial_node_index,
                 frame_state,
                 frame_context,
-                &mut prim_instance.vis,
+                &mut prim_instance.draw,
                 prim_instance.prim_origin,
             );
 
@@ -824,7 +824,7 @@ fn prepare_interned_prim_for_render(
                     prim_data.common.aligned_aa_edges,
                     prim_data.common.transformed_aa_edges,
                     prim_instance_index,
-                    &prim_instance.vis.clip_chain,
+                    &prim_instance.draw.clip_chain,
                     quad_transform,
                     frame_context,
                     pic_context,
@@ -842,7 +842,7 @@ fn prepare_interned_prim_for_render(
             if should_cache {
                 let surface = &frame_state.surfaces[pic_context.surface_index.0];
                 let clipped_surface_rect = surface.get_surface_rect(
-                    &prim_instance.vis.clip_chain.pic_coverage_rect,
+                    &prim_instance.draw.clip_chain.pic_coverage_rect,
                     frame_context.spatial_tree,
                 );
 
@@ -857,7 +857,7 @@ fn prepare_interned_prim_for_render(
                 quad::cache_key(
                     data_handle.uid(),
                     quad_transform,
-                    &prim_instance.vis.clip_chain,
+                    &prim_instance.draw.clip_chain,
                     frame_state.clip_store,
                 )
             } else {
@@ -874,7 +874,7 @@ fn prepare_interned_prim_for_render(
                 prim_data.common.transformed_aa_edges,
                 prim_instance_index,
                 &cache_key,
-                &prim_instance.vis.clip_chain,
+                &prim_instance.draw.clip_chain,
                 quad_transform,
                 frame_context,
                 pic_context,
@@ -900,7 +900,7 @@ fn prepare_interned_prim_for_render(
                     prim_data.common.aligned_aa_edges,
                     prim_data.common.transformed_aa_edges,
                     prim_instance_index,
-                    &prim_instance.vis.clip_chain,
+                    &prim_instance.draw.clip_chain,
                     quad_transform,
                     frame_context,
                     pic_context,
@@ -921,7 +921,7 @@ fn prepare_interned_prim_for_render(
                 prim_data.common.transformed_aa_edges,
                 prim_instance_index,
                 &None,
-                &prim_instance.vis.clip_chain,
+                &prim_instance.draw.clip_chain,
                 quad_transform,
                 frame_context,
                 pic_context,
@@ -946,7 +946,7 @@ fn prepare_interned_prim_for_render(
                     prim_data.common.aligned_aa_edges,
                     prim_data.common.transformed_aa_edges,
                     prim_instance_index,
-                    &prim_instance.vis.clip_chain,
+                    &prim_instance.draw.clip_chain,
                     quad_transform,
                     frame_context,
                     pic_context,
@@ -969,7 +969,7 @@ fn prepare_interned_prim_for_render(
             if should_cache {
                 let surface = &frame_state.surfaces[pic_context.surface_index.0];
                 let clipped_surface_rect = surface.get_surface_rect(
-                    &prim_instance.vis.clip_chain.pic_coverage_rect,
+                    &prim_instance.draw.clip_chain.pic_coverage_rect,
                     frame_context.spatial_tree,
                 );
 
@@ -984,7 +984,7 @@ fn prepare_interned_prim_for_render(
                 quad::cache_key(
                     data_handle.uid(),
                     quad_transform,
-                    &prim_instance.vis.clip_chain,
+                    &prim_instance.draw.clip_chain,
                     frame_state.clip_store,
                 )
             } else {
@@ -1001,7 +1001,7 @@ fn prepare_interned_prim_for_render(
                 prim_data.common.transformed_aa_edges,
                 prim_instance_index,
                 &cache_key,
-                &prim_instance.vis.clip_chain,
+                &prim_instance.draw.clip_chain,
                 quad_transform,
                 frame_context,
                 pic_context,
@@ -1016,7 +1016,7 @@ fn prepare_interned_prim_for_render(
             profile_scope!("Picture");
             let pic = &mut store.pictures[pic_index.0];
 
-            if prim_instance.vis.clip_chain.needs_mask {
+            if prim_instance.draw.clip_chain.needs_mask {
                 // TODO(gw): Much of the code in this branch could be moved in to a common
                 //           function as we move more primitives to the new clip-mask paths.
 
@@ -1044,8 +1044,8 @@ fn prepare_interned_prim_for_render(
                 };
 
                 // Work out which clips get drawn in to the source / target mask
-                for i in 0 .. prim_instance.vis.clip_chain.clips_range.count {
-                    let clip_instance = frame_state.clip_store.get_instance_from_range(&prim_instance.vis.clip_chain.clips_range, i);
+                for i in 0 .. prim_instance.draw.clip_chain.clips_range.count {
+                    let clip_instance = frame_state.clip_store.get_instance_from_range(&prim_instance.draw.clip_chain.clips_range, i);
 
                     if !force_target_mask && clip_instance.flags.contains(ClipNodeFlags::SAME_COORD_SYSTEM) {
                         source_masks.push(i);
@@ -1069,7 +1069,7 @@ fn prepare_interned_prim_for_render(
 
                     // Construct a new clip node range, also add image-mask dependencies as needed
                     for instance in source_masks {
-                        let clip_instance = frame_state.clip_store.get_instance_from_range(&prim_instance.vis.clip_chain.clips_range, instance);
+                        let clip_instance = frame_state.clip_store.get_instance_from_range(&prim_instance.draw.clip_chain.clips_range, instance);
 
                         for tile in frame_state.clip_store.visible_mask_tiles(clip_instance) {
                             frame_state.rg_builder.add_dependency(
@@ -1118,7 +1118,7 @@ fn prepare_interned_prim_for_render(
                 // Masks in parent space when non-axis-aligned to source space
                 if !target_masks.is_empty() {
                     let surface = &frame_state.surfaces[pic_context.surface_index.0];
-                    let coverage_rect = prim_instance.vis.clip_chain.pic_coverage_rect;
+                    let coverage_rect = prim_instance.draw.clip_chain.pic_coverage_rect;
 
                     let device_pixel_scale = surface.device_pixel_scale;
                     let raster_spatial_node_index = surface.raster_spatial_node_index;
@@ -1148,7 +1148,7 @@ fn prepare_interned_prim_for_render(
                     // Construct a new clip node range, also add image-mask dependencies as needed
                     let first_clip_node_index = frame_state.clip_store.clip_node_instances.len() as u32;
                     for instance in target_masks {
-                        let clip_instance = frame_state.clip_store.get_instance_from_range(&prim_instance.vis.clip_chain.clips_range, instance);
+                        let clip_instance = frame_state.clip_store.get_instance_from_range(&prim_instance.draw.clip_chain.clips_range, instance);
 
                         for tile in frame_state.clip_store.visible_mask_tiles(clip_instance) {
                             frame_state.rg_builder.add_dependency(
@@ -1185,7 +1185,7 @@ fn prepare_interned_prim_for_render(
 
                     let clip_task_index = ClipTaskIndex(scratch.frame.clip_mask_instances.len() as _);
                     scratch.frame.clip_mask_instances.push(ClipMaskKind::Mask(clip_task_id));
-                    prim_instance.vis.clip_task_index = clip_task_index;
+                    prim_instance.draw.clip_task_index = clip_task_index;
                     frame_state.surface_builder.add_child_render_task(
                         clip_task_id,
                         frame_state.rg_builder,
@@ -1212,7 +1212,7 @@ fn prepare_interned_prim_for_render(
                     prim_spatial_node_index,
                     visibility_node,
                     local_prim_rect,
-                    &prim_instance.vis.clip_chain.local_clip_rect,
+                    &prim_instance.draw.clip_chain.local_clip_rect,
                     dirty_rect,
                     plane_split_anchor,
                 );
@@ -1224,7 +1224,7 @@ fn prepare_interned_prim_for_render(
             frame_state.surface_builder.register_resolve_source();
 
             if frame_context.debug_flags.contains(DebugFlags::HIGHLIGHT_BACKDROP_FILTERS) {
-                if let Some(world_rect) = pic_state.map_pic_to_vis.map(&prim_instance.vis.clip_chain.pic_coverage_rect) {
+                if let Some(world_rect) = pic_state.map_pic_to_vis.map(&prim_instance.draw.clip_chain.pic_coverage_rect) {
                     scratch.push_debug_rect(
                         world_rect.cast_unit(),
                         2,
@@ -1251,18 +1251,18 @@ fn prepare_interned_prim_for_render(
         }
     }
 
-    match prim_instance.vis.state {
-        VisibilityState::Unset => {
+    match prim_instance.draw.state {
+        DrawState::Unset => {
             panic!("bug: invalid vis state");
         }
-        VisibilityState::Visible { .. } => {
+        DrawState::Visible { .. } => {
             frame_state.push_prim(
                 &PrimitiveCommand::simple(prim_instance_index),
                 prim_spatial_node_index,
                 targets,
             );
         }
-        VisibilityState::PassThrough | VisibilityState::Culled => {}
+        DrawState::PassThrough | DrawState::Culled => {}
     }
 }
 
@@ -1405,7 +1405,7 @@ fn update_clip_task_for_brush(
     if segments.len() == 1 {
         let clip_mask_kind = update_brush_segment_clip_task(
             &segments[0],
-            Some(&instance.vis.clip_chain),
+            Some(&instance.draw.clip_chain),
             root_spatial_node_index,
             pic_context.surface_index,
             frame_context,
@@ -1421,7 +1421,7 @@ fn update_clip_task_for_brush(
             // often manage to eliminate most/all clips, and sometimes
             // clip the segment completely.
             frame_state.clip_store.set_active_clips_from_clip_chain(
-                &instance.vis.clip_chain,
+                &instance.draw.clip_chain,
                 prim_spatial_node_index,
                 visibility_spatial_node_index,
                 &frame_context.spatial_tree,
@@ -1484,7 +1484,7 @@ pub fn update_clip_task(
     );
 
     // First try to  render this primitive's mask using optimized brush rendering.
-    instance.vis.clip_task_index = if let Some(clip_task_index) = update_clip_task_for_brush(
+    instance.draw.clip_task_index = if let Some(clip_task_index) = update_clip_task_for_brush(
         instance,
         prim_origin,
         prim_spatial_node_index,
@@ -1502,12 +1502,12 @@ pub fn update_clip_task(
         device_pixel_scale,
     ) {
         clip_task_index
-    } else if instance.vis.clip_chain.needs_mask {
+    } else if instance.draw.clip_chain.needs_mask {
         // Get a minimal device space rect, clipped to the screen that we
         // need to allocate for the clip mask, as well as interpolated
         // snap offsets.
         let unadjusted_device_rect = match frame_state.surfaces[pic_context.surface_index.0].get_surface_rect(
-            &instance.vis.clip_chain.pic_coverage_rect,
+            &instance.draw.clip_chain.pic_coverage_rect,
             frame_context.spatial_tree,
         ) {
             Some(rect) => rect,
@@ -1526,7 +1526,7 @@ pub fn update_clip_task(
 
         let clip_task_id = RenderTaskKind::new_mask(
             device_rect,
-            instance.vis.clip_chain.clips_range,
+            instance.draw.clip_chain.clips_range,
             root_spatial_node_index,
             frame_state.rg_builder,
             device_pixel_scale,
@@ -1535,7 +1535,7 @@ pub fn update_clip_task(
         // Set the global clip mask instance for this primitive.
         let clip_task_index = ClipTaskIndex(scratch.frame.clip_mask_instances.len() as _);
         scratch.frame.clip_mask_instances.push(ClipMaskKind::Mask(clip_task_id));
-        instance.vis.clip_task_index = clip_task_index;
+        instance.draw.clip_task_index = clip_task_index;
         frame_state.surface_builder.add_child_render_task(
             clip_task_id,
             frame_state.rg_builder,
@@ -1669,7 +1669,7 @@ fn build_segments_if_needed(
     segments_store: &mut SegmentStorage,
     segment_instances_store: &mut SegmentInstanceStorage,
 ) {
-    let prim_clip_chain = &instance.vis.clip_chain;
+    let prim_clip_chain = &instance.draw.clip_chain;
 
     // Usually, the primitive rect can be found from information
     // in the instance and primitive template.

@@ -19,7 +19,7 @@ use crate::render_task::{RenderTask, RenderTaskKind, RenderTaskLocation};
 use crate::space::SpaceMapper;
 use crate::spatial_tree::{SpatialTree, SpatialNodeIndex};
 use crate::util::MaxRect;
-use crate::visibility::{VisibilityState, PrimitiveVisibility, FrameVisibilityContext};
+use crate::visibility::{DrawState, PrimitiveDrawHeader, FrameVisibilityContext};
 pub use crate::picture_composite_mode::get_surface_rects;
 
 
@@ -560,26 +560,26 @@ impl SurfaceBuilder {
     // to for a given current visbility / dirty state
     pub fn get_cmd_buffer_targets_for_prim(
         &mut self,
-        vis: &PrimitiveVisibility,
+        vis: &PrimitiveDrawHeader,
         targets: &mut Vec<CommandBufferIndex>,
     ) -> bool {
         targets.clear();
 
         match vis.state {
-            VisibilityState::Unset => {
+            DrawState::Unset => {
                 panic!("bug: invalid vis state");
             }
-            VisibilityState::Culled => {
+            DrawState::Culled => {
                 false
             }
-            VisibilityState::Visible { sub_slice_index, .. } => {
+            DrawState::Visible { sub_slice_index, .. } => {
                 self.current_cmd_buffers.get_cmd_buffer_targets_for_rect(
                     &vis.clip_chain.pic_coverage_rect,
                     sub_slice_index,
                     targets,
                 )
             }
-            VisibilityState::PassThrough => {
+            DrawState::PassThrough => {
                 true
             }
         }

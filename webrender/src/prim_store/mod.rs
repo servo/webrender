@@ -26,7 +26,7 @@ use crate::resource_cache::ImageProperties;
 use std::{hash, u32, usize};
 use crate::util::Recycler;
 use crate::internal_types::{FastHashSet, LayoutPrimitiveInfo};
-use crate::visibility::PrimitiveVisibility;
+use crate::visibility::PrimitiveDrawHeader;
 
 pub mod backdrop;
 pub mod borders;
@@ -831,10 +831,10 @@ pub struct PrimitiveInstance {
     /// Position of the primitive in local space
     pub prim_origin: LayoutPoint,
 
-    /// Information related to the current visibility state of this
-    /// primitive.
-    // TODO(gw): Currently built each frame, but can be retained.
-    pub vis: PrimitiveVisibility,
+    /// Per-frame draw header for this primitive (visibility, clip chain,
+    /// clip task index). Built fresh each frame; will move off the
+    /// retained instance entirely in Stage 3.
+    pub draw: PrimitiveDrawHeader,
 }
 
 impl PrimitiveInstance {
@@ -845,7 +845,7 @@ impl PrimitiveInstance {
     ) -> Self {
         PrimitiveInstance {
             kind,
-            vis: PrimitiveVisibility::new(),
+            draw: PrimitiveDrawHeader::new(),
             clip_leaf_id,
             prim_origin,
         }
@@ -853,11 +853,11 @@ impl PrimitiveInstance {
 
     // Reset any pre-frame state for this primitive.
     pub fn reset(&mut self) {
-        self.vis.reset();
+        self.draw.reset();
     }
 
     pub fn clear_visibility(&mut self) {
-        self.vis.reset();
+        self.draw.reset();
     }
 
     pub fn uid(&self) -> intern::ItemUid {

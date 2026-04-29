@@ -90,7 +90,7 @@ bitflags! {
 /// Contains the current state of the primitive's visibility.
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
-pub enum VisibilityState {
+pub enum DrawState {
     /// Uninitialized - this should never be encountered after prim reset
     Unset,
     /// Culled for being off-screen, or not possible to render (e.g. missing image resource)
@@ -113,14 +113,14 @@ pub enum VisibilityState {
 /// rect and associated clip information.
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
-pub struct PrimitiveVisibility {
+pub struct PrimitiveDrawHeader {
     /// The clip chain instance that was built for this primitive.
     pub clip_chain: ClipChainInstance,
 
     /// Current visibility state of the primitive.
     // TODO(gw): Move more of the fields from this struct into
     //           the state enum.
-    pub state: VisibilityState,
+    pub state: DrawState,
 
     /// An index into the clip task instances array in the primitive
     /// store. If this is ClipTaskIndex::INVALID, then the primitive
@@ -130,17 +130,17 @@ pub struct PrimitiveVisibility {
     pub clip_task_index: ClipTaskIndex,
 }
 
-impl PrimitiveVisibility {
+impl PrimitiveDrawHeader {
     pub fn new() -> Self {
-        PrimitiveVisibility {
-            state: VisibilityState::Unset,
+        PrimitiveDrawHeader {
+            state: DrawState::Unset,
             clip_chain: ClipChainInstance::empty(),
             clip_task_index: ClipTaskIndex::INVALID,
         }
     }
 
     pub fn reset(&mut self) {
-        self.state = VisibilityState::Culled;
+        self.state = DrawState::Culled;
         self.clip_task_index = ClipTaskIndex::INVALID;
     }
 }
@@ -289,7 +289,7 @@ pub fn update_prim_visibility(
 
                 if is_passthrough {
                     // Pass through pictures are always considered visible in all dirty tiles.
-                    frame_state.prim_instances[prim_instance_index].vis.state = VisibilityState::PassThrough;
+                    frame_state.prim_instances[prim_instance_index].draw.state = DrawState::PassThrough;
 
                     continue;
                 } else {
@@ -330,7 +330,7 @@ pub fn update_prim_visibility(
                     true,
                 );
 
-            prim_instance.vis.clip_chain = match clip_chain {
+            prim_instance.draw.clip_chain = match clip_chain {
                 Some(clip_chain) => clip_chain,
                 None => {
                     continue;
@@ -339,14 +339,14 @@ pub fn update_prim_visibility(
 
             {
                 let prim_surface_index = frame_state.surface_stack.last().unwrap().1;
-                let prim_clip_chain = &prim_instance.vis.clip_chain;
+                let prim_clip_chain = &prim_instance.draw.clip_chain;
 
                 // Accumulate the exact (clipped) local rect into the parent surface.
                 let surface = &mut frame_state.surfaces[prim_surface_index.0];
                 surface.clipped_local_rect = surface.clipped_local_rect.union(&prim_clip_chain.pic_coverage_rect);
             }
 
-            prim_instance.vis.state = match tile_cache {
+            prim_instance.draw.state = match tile_cache {
                 Some(tile_cache) => {
                     tile_cache.update_prim_dependencies(
                         prim_instance,
@@ -371,7 +371,7 @@ pub fn update_prim_visibility(
                     )
                 }
                 None => {
-                    VisibilityState::Visible {
+                    DrawState::Visible {
                         vis_flags: PrimitiveVisibilityFlags::empty(),
                         sub_slice_index: SubSliceIndex::DEFAULT,
                     }
