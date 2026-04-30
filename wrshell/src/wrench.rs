@@ -330,7 +330,7 @@ impl YamlWriter {
         let pipeline = &scene.pipelines[&pipeline_id];
 
         self.build_spatial_tree(
-            &pipeline.display_list.display_list,
+            &pipeline.display_list,
             pipeline_id,
         );
 
