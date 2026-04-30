@@ -894,9 +894,9 @@ impl PictureInstance {
         pic_index: PictureIndex,
         prim_list: PrimitiveList,
         context: PictureContext,
-        prim_instances: &[PrimitiveInstance],
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
+        scratch: &PrimitiveScratchBuffer,
     ) {
         // Pop any dirty regions this picture set
         for _ in 0 .. context.dirty_region_count {
@@ -925,10 +925,8 @@ impl PictureInstance {
             // Add the child prims to the relevant command buffers
             let mut cmd_buffer_targets = Vec::new();
             for child in list {
-                let child_prim_instance = &prim_instances[child.anchor.instance_index.0 as usize];
-
                 if frame_state.surface_builder.get_cmd_buffer_targets_for_prim(
-                    &child_prim_instance.draw,
+                    &scratch.frame.draws[child.anchor.instance_index.0 as usize],
                     &mut cmd_buffer_targets,
                 ) {
                     let prim_cmd = PrimitiveCommand::complex(

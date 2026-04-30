@@ -826,6 +826,10 @@ impl PrimitiveKind {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveInstanceIndex(pub u32);
 
+impl PrimitiveInstanceIndex {
+    pub const INVALID: PrimitiveInstanceIndex = PrimitiveInstanceIndex(!0);
+}
+
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveInstance {
@@ -840,11 +844,6 @@ pub struct PrimitiveInstance {
 
     /// Position of the primitive in local space
     pub prim_origin: LayoutPoint,
-
-    /// Per-frame draw header for this primitive (visibility, clip chain,
-    /// clip task index). Built fresh each frame; will move off the
-    /// retained instance entirely in Stage 3.
-    pub draw: PrimitiveDrawHeader,
 }
 
 impl PrimitiveInstance {
@@ -855,19 +854,9 @@ impl PrimitiveInstance {
     ) -> Self {
         PrimitiveInstance {
             kind,
-            draw: PrimitiveDrawHeader::new(),
             clip_leaf_id,
             prim_origin,
         }
-    }
-
-    // Reset any pre-frame state for this primitive.
-    pub fn reset(&mut self) {
-        self.draw.reset();
-    }
-
-    pub fn clear_visibility(&mut self) {
-        self.draw.reset();
     }
 
     pub fn uid(&self) -> intern::ItemUid {
@@ -942,6 +931,14 @@ pub type ImageInstanceIndex = storage::Index<ImageInstance>;
 /// `begin_frame`. Anything written here lives only for the current frame.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveFrameScratch {
+    /// Per-frame draw headers, one entry per `PrimitiveInstance`.
+    /// Resized to `prim_instances.len()` at frame start and identity-
+    /// indexed by `PrimitiveInstanceIndex.0` (a follow-up will switch
+    /// this to push-per-draw with `Index<PrimitiveDrawHeader>`). Holds
+    /// visibility state, clip chain and clip-task index for each
+    /// visible primitive.
+    pub draws: Vec<PrimitiveDrawHeader>,
+
     /// Per-frame scratch for LineDecoration primitives.
     pub line_decoration: storage::Storage<LineDecorationScratch>,
 
@@ -1004,6 +1001,7 @@ pub struct PrimitiveFrameScratch {
 impl Default for PrimitiveFrameScratch {
     fn default() -> Self {
         PrimitiveFrameScratch {
+            draws: Vec::new(),
             line_decoration: storage::Storage::new(0),
             normal_border: storage::Storage::new(0),
             backdrop_render: storage::Storage::new(0),
@@ -1024,6 +1022,7 @@ impl Default for PrimitiveFrameScratch {
 
 impl PrimitiveFrameScratch {
     pub fn recycle(&mut self, recycler: &mut Recycler) {
+        recycler.recycle_vec(&mut self.draws);
         self.line_decoration.recycle(recycler);
         self.normal_border.recycle(recycler);
         self.backdrop_render.recycle(recycler);
@@ -1365,6 +1364,6 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<PrimitiveInstance>(), 96, "PrimitiveInstance size changed");
+    assert_eq!(mem::size_of::<PrimitiveInstance>(), 40, "PrimitiveInstance size changed");
     assert_eq!(mem::size_of::<PrimitiveKind>(), 24, "PrimitiveKind size changed");
 }

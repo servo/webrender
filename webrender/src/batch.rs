@@ -841,8 +841,7 @@ impl BatchBuilder {
                 (prim_instance_index, Some(gpu_buffer_address.as_int()))
             }
             PrimitiveCommand::Quad { pattern, pattern_input, prim_instance_index, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_id } => {
-                let prim_instance = &prim_instances[prim_instance_index.0 as usize];
-                let prim_info = &prim_instance.draw;
+                let prim_info = &ctx.scratch.frame.draws[prim_instance_index.0 as usize];
                 let bounding_rect = &prim_info.clip_chain.pic_coverage_rect;
                 let render_task_address = self.batcher.render_task_address;
 
@@ -918,7 +917,7 @@ impl BatchBuilder {
             BrushFlags::empty()
         };
 
-        let vis_flags = match prim_instance.draw.state {
+        let vis_flags = match ctx.scratch.frame.draws[prim_instance_index.0 as usize].state {
             DrawState::Culled => {
                 return;
             }
@@ -951,7 +950,7 @@ impl BatchBuilder {
         //           wasteful. We should probably cache this in
         //           the scroll node...
         let transform_metadata = transform_id.metadata();
-        let prim_info = &prim_instance.draw;
+        let prim_info = &ctx.scratch.frame.draws[prim_instance_index.0 as usize];
         let bounding_rect = &prim_info.clip_chain.pic_coverage_rect;
 
         let mut z_id = z_generator.next();

@@ -2175,7 +2175,7 @@ impl TileCacheInstance {
         // This primitive exists on the last element on the current surface stack.
         profile_scope!("update_prim_dependencies");
         let prim_surface_index = surface_stack.last().unwrap().1;
-        let prim_clip_chain = &prim_instance.draw.clip_chain;
+        let prim_clip_chain = &scratch.frame.draws[prim_instance_index.0 as usize].clip_chain;
 
         // If the primitive is directly drawn onto this picture cache surface, then
         // the pic_coverage_rect is in the same space. If not, we need to map it from

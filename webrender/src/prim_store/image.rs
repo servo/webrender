@@ -31,7 +31,7 @@ use crate::render_task_cache::{
     RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent
 };
 use crate::resource_cache::{ImageRequest, ImageProperties, ResourceCache};
-use crate::visibility::{PrimitiveDrawHeader, compute_conservative_visible_rect};
+use crate::visibility::compute_conservative_visible_rect;
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::{image_tiling, quad};
 
@@ -158,10 +158,10 @@ impl ImageData {
         &mut self,
         common: &mut PrimTemplateCommonData,
         image_instance: &mut ImageInstance,
+        prim_instance_index: PrimitiveInstanceIndex,
         prim_spatial_node_index: SpatialNodeIndex,
         frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
-        visibility: &mut PrimitiveDrawHeader,
         prim_origin: LayoutPoint,
         scratch: &mut PrimitiveScratchBuffer,
     ) -> storage::Index<ImageScratch> {
@@ -200,7 +200,7 @@ impl ImageData {
         // tiled/repeated images, for example when rendering a snapshot image
         // where the snapshot area is tighter than the rasterized area.
         let prim_rect = LayoutRect::from_origin_and_size(prim_origin, common.prim_size);
-        let tight_clip_rect = visibility
+        let tight_clip_rect = scratch.frame.draws[prim_instance_index.0 as usize]
             .clip_chain
             .local_clip_rect
             .intersection(&prim_rect).unwrap();
@@ -339,7 +339,7 @@ impl ImageData {
                 let active_rect = visible_rect;
 
                 let visible_rect = compute_conservative_visible_rect(
-                    &visibility.clip_chain,
+                    &scratch.frame.draws[prim_instance_index.0 as usize].clip_chain,
                     frame_state.current_dirty_region().combined,
                     frame_state.current_dirty_region().visibility_spatial_node,
                     prim_spatial_node_index,
@@ -400,7 +400,7 @@ impl ImageData {
 
                 if image_scratch.visible_tiles.is_empty() {
                     // Mark as invisible
-                    visibility.reset();
+                    scratch.frame.draws[prim_instance_index.0 as usize].reset();
                 }
             }
             None => {

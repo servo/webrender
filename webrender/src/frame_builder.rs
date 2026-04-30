@@ -370,6 +370,15 @@ impl FrameBuilder {
             visited_pictures.push(false);
         }
 
+        // Resize the per-frame draw header storage to hold one entry per
+        // prim instance. Identity-indexed by `PrimitiveInstanceIndex.0`;
+        // a follow-up will switch this to push-per-draw.
+        scratch.primitive.frame.draws.clear();
+        scratch.primitive.frame.draws.resize_with(
+            scene.prim_instances.len(),
+            crate::visibility::PrimitiveDrawHeader::new,
+        );
+
         {
             profile_scope!("UpdateVisibility");
             profile_marker!("UpdateVisibility");
