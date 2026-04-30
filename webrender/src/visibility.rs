@@ -22,6 +22,7 @@ use crate::tile_cache::TileCacheInstance;
 use crate::picture::{SurfaceIndex, RasterConfig};
 use crate::tile_cache::SubSliceIndex;
 use crate::prim_store::{ClipTaskIndex, PictureIndex, PrimitiveKind};
+use crate::prim_store::PrimitiveInstanceIndex;
 use crate::prim_store::{PrimitiveStore, PrimitiveInstance};
 use crate::render_backend::{DataStores, ScratchBuffer};
 use crate::render_task_graph::RenderTaskGraphBuilder;
@@ -349,6 +350,7 @@ pub fn update_prim_visibility(
             prim_instance.draw.state = match tile_cache {
                 Some(tile_cache) => {
                     tile_cache.update_prim_dependencies(
+                        PrimitiveInstanceIndex(prim_instance_index as u32),
                         prim_instance,
                         cluster.spatial_node_index,
                         // It's OK to pass the local_coverage_rect here as it's only

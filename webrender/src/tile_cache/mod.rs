@@ -33,6 +33,7 @@ use crate::picture::{get_relative_scale_offset, PictureInstance};
 use crate::picture::MAX_COMPOSITOR_SURFACES_SIZE;
 use crate::prim_store::{PrimitiveInstance, PrimitiveKind, PrimitiveScratchBuffer, PictureIndex};
 use crate::prim_store::{ColorBindingStorage, ColorBindingIndex};
+use crate::prim_store::PrimitiveInstanceIndex;
 use crate::print_tree::{PrintTreePrinter, PrintTree};
 use crate::{profiler, render_backend::DataStores};
 use crate::profiler::TransactionProfile;
@@ -1642,8 +1643,10 @@ impl TileCacheInstance {
             return result;
         }
 
-        if self.slice_flags.contains(SliceFlags::IS_ATOMIC) {
-            return Err(SliceAtomic);
+        if surface_kind != CompositorSurfaceKind::Underlay {
+            if self.slice_flags.contains(SliceFlags::IS_ATOMIC) {
+                return Err(SliceAtomic);
+            }
         }
 
         Ok(surface_kind)
@@ -1651,6 +1654,7 @@ impl TileCacheInstance {
 
     fn setup_compositor_surfaces_yuv(
         &mut self,
+        prim_instance_index: PrimitiveInstanceIndex,
         sub_slice_index: usize,
         prim_info: &mut PrimitiveDependencyInfo,
         flags: PrimitiveFlags,
@@ -1686,6 +1690,7 @@ impl TileCacheInstance {
         }
 
         self.setup_compositor_surfaces_impl(
+            prim_instance_index,
             sub_slice_index,
             prim_info,
             flags,
@@ -1713,6 +1718,7 @@ impl TileCacheInstance {
 
     fn setup_compositor_surfaces_rgb(
         &mut self,
+        prim_instance_index: PrimitiveInstanceIndex,
         sub_slice_index: usize,
         prim_info: &mut PrimitiveDependencyInfo,
         flags: PrimitiveFlags,
@@ -1750,6 +1756,7 @@ impl TileCacheInstance {
         );
 
         self.setup_compositor_surfaces_impl(
+            prim_instance_index,
             sub_slice_index,
             prim_info,
             flags,
@@ -1776,6 +1783,7 @@ impl TileCacheInstance {
     // and the non-compositor path should be used to draw it instead.
     fn setup_compositor_surfaces_impl(
         &mut self,
+        prim_instance_index: PrimitiveInstanceIndex,
         sub_slice_index: usize,
         prim_info: &mut PrimitiveDependencyInfo,
         flags: PrimitiveFlags,
@@ -2045,6 +2053,7 @@ impl TileCacheInstance {
             native_surface_id,
             update_params,
             external_image_id,
+            prim_instance_index,
         };
 
         // If the surface is opaque, we can draw it an an underlay (which avoids
@@ -2143,6 +2152,7 @@ impl TileCacheInstance {
     /// Update the dependencies for each tile for a given primitive instance.
     pub fn update_prim_dependencies(
         &mut self,
+        prim_instance_index: PrimitiveInstanceIndex,
         prim_instance: &mut PrimitiveInstance,
         prim_spatial_node_index: SpatialNodeIndex,
         local_prim_rect: LayoutRect,
@@ -2371,6 +2381,7 @@ impl TileCacheInstance {
 
                     if let Ok(kind) = promotion_result {
                         promotion_result = self.setup_compositor_surfaces_rgb(
+                            prim_instance_index,
                             sub_slice_index,
                             &mut prim_info,
                             image_key.common.flags,
@@ -2493,6 +2504,7 @@ impl TileCacheInstance {
                         }
 
                         promotion_result = self.setup_compositor_surfaces_yuv(
+                            prim_instance_index,
                             sub_slice_index,
                             &mut prim_info,
                             prim_data.common.flags,
@@ -2537,7 +2549,11 @@ impl TileCacheInstance {
                     }
                 }
 
-                if *compositor_surface_kind == CompositorSurfaceKind::Blit {
+                // Underlay with SliceFlags::IS_ATOMIC adds extra invalidation.
+                // It is for handling cases where underlay is disabled later.
+                if *compositor_surface_kind == CompositorSurfaceKind::Blit ||
+                    *compositor_surface_kind == CompositorSurfaceKind::Underlay &&
+                    self.slice_flags.contains(SliceFlags::IS_ATOMIC) {
                     prim_info.images.extend(
                         prim_data.kind.yuv_key.iter().map(|key| {
                             ImageDependency {
@@ -2929,6 +2945,7 @@ impl TileCacheInstance {
     pub fn post_update(
         &mut self,
         frame_context: &FrameVisibilityContext,
+        prim_instances: &mut [PrimitiveInstance],
         composite_state: &mut CompositeState,
         resource_cache: &mut ResourceCache,
     ) {
@@ -2967,6 +2984,38 @@ impl TileCacheInstance {
 
             surface.used_this_frame
         });
+
+        if !self.underlays.is_empty() && !self.deferred_dirty_tests.is_empty() {
+            // Cancel underlay if underlay intersects with backdrop filter.
+            let (underlays, cancel_underlays): (Vec<_>, Vec<_>) = self.underlays
+                .iter()
+                .partition(|desc| self.deferred_dirty_tests
+                    .iter()
+                    .any(|dirty_test| !desc.local_rect.intersects(&dirty_test.prim_rect)));
+
+            if !cancel_underlays.is_empty() {
+                for desc in cancel_underlays {
+                    // Change underlay to blit.
+                    let prim_instance = &mut prim_instances[desc.prim_instance_index.0 as usize];
+                    match prim_instance.kind {
+                        PrimitiveKind::YuvImage { ref mut compositor_surface_kind, .. } => {
+                            *compositor_surface_kind = CompositorSurfaceKind::Blit;
+                        }
+                        _ => {
+                            unreachable!();
+                        }
+                    };
+                }
+
+                let mut underlays: Vec<ExternalSurfaceDescriptor> = underlays
+                    .iter()
+                    .cloned()
+                    .cloned()
+                    .collect();
+
+                mem::swap(&mut self.underlays, &mut underlays);
+            }
+        }
 
         let pic_to_world_mapper = SpaceMapper::new_with_target(
             frame_context.root_spatial_node_index,

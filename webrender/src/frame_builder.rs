@@ -485,6 +485,7 @@ impl FrameBuilder {
                         // Build the dirty region(s) for this tile cache.
                         tile_cache.post_update(
                             &visibility_context,
+                            &mut visibility_state.prim_instances,
                             &mut visibility_state.composite_state,
                             &mut visibility_state.resource_cache,
                         );
