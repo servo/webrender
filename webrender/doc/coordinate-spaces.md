@@ -47,7 +47,7 @@ WebRender does a lot of transformations from a coordinate space to another there
 The spatial tree is defined during scene building, but the value of the transforms can change between frame without having to re-build the scene.
 # Coordinate types
 
-Juggling between coordinate spaces can be quite error-prone. To facilitate catching mistakes, WebRender leverages Rust's type system using the tagged types from the [euclid](docs.rs/euclid/latest/euclid/) linear algebra crate. In practice what we have is generic types such as `euclid::Point2D<Scalar, Space>` which we use via [a number of aliases](https://searchfox.org/mozilla-central/source/gfx/wr/webrender_api/src/units.rs#1) such as
+Juggling between coordinate spaces can be quite error-prone. To facilitate catching mistakes, WebRender leverages Rust's type system using the tagged types from the [euclid](docs.rs/euclid/latest/euclid/) linear algebra crate. In practice what we have is generic types such as `euclid::Point2D<Scalar, Space>` which we use via [a number of aliases](https://searchfox.org/firefox-main/source/gfx/wr/webrender_api/src/units.rs#1) such as
 
 ```rust
 pub type LayoutPoint = euclid::Point2D<f32, LayoutPixel>;
