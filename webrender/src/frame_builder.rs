@@ -20,10 +20,11 @@ use crate::invalidation::DirtyRegion;
 use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::picture::PictureInstance;
 use crate::picture::{SurfaceInfo, SurfaceIndex, ResolvedSurfaceTexture};
-use crate::picture::{SubpixelMode, RasterConfig, PictureCompositeMode};
+use crate::picture::{SubpixelMode, RasterConfig, PictureCompositeMode, PictureScratch};
 use crate::prepare::prepare_picture;
 use crate::prim_store::{PictureIndex, PrimitiveScratchBuffer};
 use crate::prim_store::{DeferredResolve, PrimitiveInstance};
+use crate::prim_store::storage;
 use crate::profiler::{self, TransactionProfile};
 use crate::render_backend::{DataStores, ScratchBuffer};
 use crate::renderer::{GpuBufferAddress, GpuBufferBuilder, GpuBufferBuilderF, GpuBufferBuilderI, GpuBufferF, GpuBufferI, GpuBufferDataF};
@@ -176,7 +177,14 @@ pub struct FrameBuildingState<'a> {
     /// traversed before the image that displays it (in other words, the
     /// picture must appear before the image in the display list).
     pub image_dependencies: FastHashMap<ImageKey, RenderTaskId>,
-    pub visited_pictures: &'a mut [bool],
+    /// Per-picture scratch-index slot used by the prepare pass. `None`
+    /// means "not yet visited this frame"; `Some(handle)` means the
+    /// picture was visited and `handle` indexes into
+    /// `PrimitiveFrameScratch.pictures` (or is `INVALID` if take_context
+    /// failed). Replaces the prepare pass's earlier `visited_pictures`
+    /// bool slice — visibility keeps its own bool slice on
+    /// `FrameVisibilityState`.
+    pub picture_scratch_handles: &'a mut [Option<storage::Index<PictureScratch>>],
 }
 
 impl<'a> FrameBuildingState<'a> {
@@ -512,10 +520,9 @@ impl FrameBuilder {
 
         profile.start_time(profiler::FRAME_PREPARE_TIME);
 
-        // Reset the visited pictures for the prepare pass.
-        visited_pictures.clear();
+        let mut picture_scratch_handles = frame_memory.new_vec_with_capacity(n_pics);
         for _ in 0..n_pics {
-            visited_pictures.push(false);
+            picture_scratch_handles.push(None);
         }
         let mut frame_state = FrameBuildingState {
             rg_builder,
@@ -533,7 +540,7 @@ impl FrameBuilder {
             clip_tree: &mut scene.clip_tree,
             frame_gpu_data,
             image_dependencies: FastHashMap::default(),
-            visited_pictures: &mut visited_pictures,
+            picture_scratch_handles: &mut picture_scratch_handles,
         };
 
 

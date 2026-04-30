@@ -20,7 +20,7 @@ use crate::debug_colors;
 use glyph_rasterizer::GlyphKey;
 use crate::gpu_types::{BrushFlags, BrushSegmentGpuData, QuadSegment};
 use crate::intern;
-use crate::picture::PictureInstance;
+use crate::picture::{PictureInstance, PictureScratch};
 use crate::render_task_graph::RenderTaskId;
 use crate::resource_cache::ImageProperties;
 use std::{hash, u32, usize};
@@ -40,14 +40,14 @@ pub mod interned;
 
 pub mod storage;
 
-use backdrop::{BackdropCaptureDataHandle, BackdropRenderDataHandle};
+use backdrop::{BackdropCaptureDataHandle, BackdropRenderDataHandle, BackdropRenderScratch};
 use borders::{ImageBorderDataHandle, NormalBorderDataHandle, NormalBorderScratch};
 use gradient::{LinearGradientDataHandle, RadialGradientDataHandle, ConicGradientDataHandle};
-use image::{ImageDataHandle, ImageInstance, YuvImageDataHandle};
+use image::{ImageDataHandle, ImageInstance, ImageScratch, VisibleImageTile, YuvImageDataHandle};
 use line_dec::{LineDecorationDataHandle, LineDecorationScratch};
 use picture::PictureDataHandle;
 use rectangle::RectangleDataHandle;
-use text_run::{TextRunDataHandle, TextRunInstance};
+use text_run::{TextRunDataHandle, TextRunInstance, TextRunScratch};
 use crate::box_shadow::BoxShadowDataHandle;
 
 pub const VECS_PER_SEGMENT: usize = 2;
@@ -735,6 +735,11 @@ pub enum PrimitiveKind {
         /// Handle to the common interned data for this primitive.
         data_handle: PictureDataHandle,
         pic_index: PictureIndex,
+        /// Per-frame index into PrimitiveFrameScratch.pictures for this
+        /// picture's render-task ids and extra GPU data. Set in
+        /// `prepare_picture` after the picture has been visited; INVALID
+        /// at scene build and on revisits that hit the failure path.
+        scratch_handle: storage::Index<PictureScratch>,
     },
     /// A run of glyphs, with associated font parameters.
     TextRun {
@@ -742,6 +747,9 @@ pub enum PrimitiveKind {
         data_handle: TextRunDataHandle,
         /// Index to the per instance scratch data for this primitive.
         run_index: TextRunIndex,
+        /// Per-frame scratch for this text run (font snapshot, glyph
+        /// keys range, snapping offset, raster scale).
+        scratch_handle: storage::Index<TextRunScratch>,
     },
     /// A line decoration. cache_handle refers to a cached render
     /// task handle, if this line decoration is not a simple solid.
@@ -776,6 +784,7 @@ pub enum PrimitiveKind {
         data_handle: ImageDataHandle,
         image_instance_index: ImageInstanceIndex,
         compositor_surface_kind: CompositorSurfaceKind,
+        scratch_handle: storage::Index<ImageScratch>,
     },
     LinearGradient {
         /// Handle to the common interned data for this primitive.
@@ -796,6 +805,7 @@ pub enum PrimitiveKind {
     BackdropRender {
         data_handle: BackdropRenderDataHandle,
         pic_index: PictureIndex,
+        scratch_handle: storage::Index<BackdropRenderScratch>,
     },
     BoxShadow {
         data_handle: BoxShadowDataHandle,
@@ -938,6 +948,38 @@ pub struct PrimitiveFrameScratch {
     /// Per-frame scratch for NormalBorder primitives.
     pub normal_border: storage::Storage<NormalBorderScratch>,
 
+    /// Per-frame scratch for BackdropRender primitives. Captures the
+    /// source sub-graph render task id at prepare time so batch reads
+    /// don't reach into the source Picture's per-frame state.
+    pub backdrop_render: storage::Storage<BackdropRenderScratch>,
+
+    /// Per-frame scratch for Picture primitives. Holds the picture's
+    /// primary/secondary render task ids and any per-composite-mode
+    /// extra GPU buffer addresses. Indexed by `scratch_handle` on
+    /// `PrimitiveKind::Picture`.
+    pub pictures: storage::Storage<PictureScratch>,
+
+    /// Per-frame scratch for Image primitives. Holds the source render
+    /// task (or a Range of per-tile tasks for tiled images), normalized-
+    /// uvs flag, and image adjustment.
+    pub images: storage::Storage<ImageScratch>,
+
+    /// Per-tile entries for tiled Image primitives. Each `ImageScratch`
+    /// holds a `Range` into this storage.
+    pub visible_image_tiles: storage::Storage<VisibleImageTile>,
+
+    /// Per-frame scratch for TextRun primitives. Holds the per-frame
+    /// font snapshot, glyph-key range, snapping offset, and raster
+    /// scale for each visible text run.
+    pub text_runs: storage::Storage<TextRunScratch>,
+
+    /// Per-frame storage for glyph keys allocated by visible text
+    /// runs. Each `TextRunScratch` holds a `Range` into this storage.
+    /// Used to be on `PrimitiveSceneCache` (memoized across frames);
+    /// graduated to per-frame here so the scene buffer cannot grow
+    /// unbounded between scene rebuilds.
+    pub glyph_keys: GlyphKeyStorage,
+
     /// Trailing-array store for per-segment cached render-task ids
     /// referenced by NormalBorderScratch entries.
     pub border_task_ids: storage::Storage<RenderTaskId>,
@@ -964,6 +1006,12 @@ impl Default for PrimitiveFrameScratch {
         PrimitiveFrameScratch {
             line_decoration: storage::Storage::new(0),
             normal_border: storage::Storage::new(0),
+            backdrop_render: storage::Storage::new(0),
+            pictures: storage::Storage::new(0),
+            images: storage::Storage::new(0),
+            visible_image_tiles: storage::Storage::new(0),
+            text_runs: storage::Storage::new(0),
+            glyph_keys: GlyphKeyStorage::new(0),
             border_task_ids: storage::Storage::new(0),
             clip_mask_instances: Vec::new(),
             debug_items: Vec::new(),
@@ -978,6 +1026,12 @@ impl PrimitiveFrameScratch {
     pub fn recycle(&mut self, recycler: &mut Recycler) {
         self.line_decoration.recycle(recycler);
         self.normal_border.recycle(recycler);
+        self.backdrop_render.recycle(recycler);
+        self.pictures.recycle(recycler);
+        self.images.recycle(recycler);
+        self.visible_image_tiles.recycle(recycler);
+        self.text_runs.recycle(recycler);
+        self.glyph_keys.recycle(recycler);
         self.border_task_ids.recycle(recycler);
         recycler.recycle_vec(&mut self.clip_mask_instances);
         recycler.recycle_vec(&mut self.debug_items);
@@ -988,6 +1042,12 @@ impl PrimitiveFrameScratch {
     pub fn begin_frame(&mut self) {
         self.line_decoration.clear();
         self.normal_border.clear();
+        self.backdrop_render.clear();
+        self.pictures.clear();
+        self.images.clear();
+        self.visible_image_tiles.clear();
+        self.text_runs.clear();
+        self.glyph_keys.clear();
         self.border_task_ids.clear();
 
         // Clear the clip mask tasks for the beginning of the frame. Append
@@ -1010,10 +1070,6 @@ impl PrimitiveFrameScratch {
 /// to per-frame lifetime; this struct may shrink or dissolve then.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveSceneCache {
-    /// List of glyphs keys that are allocated by each
-    /// text run instance.
-    pub glyph_keys: GlyphKeyStorage,
-
     /// A list of brush segments that have been built for this scene.
     pub segments: SegmentStorage,
 
@@ -1026,7 +1082,6 @@ pub struct PrimitiveSceneCache {
 impl Default for PrimitiveSceneCache {
     fn default() -> Self {
         PrimitiveSceneCache {
-            glyph_keys: GlyphKeyStorage::new(0),
             segments: SegmentStorage::new(0),
             segment_instances: SegmentInstanceStorage::new(0),
         }
@@ -1035,7 +1090,6 @@ impl Default for PrimitiveSceneCache {
 
 impl PrimitiveSceneCache {
     pub fn recycle(&mut self, recycler: &mut Recycler) {
-        self.glyph_keys.recycle(recycler);
         self.segments.recycle(recycler);
         self.segment_instances.recycle(recycler);
     }

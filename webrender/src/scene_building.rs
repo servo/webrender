@@ -69,6 +69,7 @@ use crate::prim_store::{PrimitiveInstance, PrimitiveStoreStats};
 use crate::prim_store::{PrimitiveKind, NinePatchDescriptor, PrimitiveStore};
 use crate::prim_store::{InternablePrimitive, PictureIndex};
 use crate::prim_store::PolygonKey;
+use crate::prim_store::storage;
 use crate::prim_store::rectangle::RectanglePrim;
 use crate::prim_store::backdrop::{BackdropCapture, BackdropRender};
 use crate::prim_store::borders::{ImageBorder, NormalBorderPrim};
@@ -3186,6 +3187,7 @@ impl<'a> SceneBuilder<'a> {
                             PrimitiveKind::Picture {
                                 data_handle: shadow_prim_data_handle,
                                 pic_index: shadow_pic_index,
+                                scratch_handle: storage::Index::INVALID,
                             },
                             self.clip_tree_builder.build_for_picture(clip_node_id),
                             LayoutPoint::zero(),
@@ -4740,6 +4742,7 @@ fn create_prim_instance(
         PrimitiveKind::Picture {
             data_handle,
             pic_index,
+            scratch_handle: storage::Index::INVALID,
         },
         clip_tree_builder.build_for_picture(
             clip_node_id,
