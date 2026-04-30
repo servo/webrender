@@ -39,7 +39,7 @@ use crate::render_task_cache::RenderTaskCacheKeyKind;
 use crate::render_task_cache::{RenderTaskCacheKey, to_cache_size, RenderTaskParent};
 use crate::render_task::{EmptyTask, RenderTask, RenderTaskKind, MAX_BLUR_STD_DEVIATION};
 use crate::segment::SegmentBuilder;
-use crate::visibility::DrawState;
+use crate::visibility::{DrawState, KindScratchHandle};
 
 
 const MAX_MASK_SIZE: i32 = 4096;
@@ -247,10 +247,8 @@ fn prepare_prim_for_render(
             return;
         };
 
-        match &mut prim_instances[prim_instance_index].kind {
-            PrimitiveKind::Picture { scratch_handle: sh, .. } => *sh = scratch_handle,
-            _ => unreachable!(),
-        }
+        scratch.frame.draws[prim_instance_index].kind_scratch =
+            KindScratchHandle::Picture(scratch_handle);
 
         is_passthrough = store
             .pictures[pic_index.0]
@@ -579,7 +577,7 @@ fn prepare_interned_prim_for_render(
 
             return;
         }
-        PrimitiveKind::LineDecoration { data_handle, ref mut scratch_handle } => {
+        PrimitiveKind::LineDecoration { data_handle } => {
             profile_scope!("LineDecoration");
             let prim_data = &mut data_stores.line_decoration[*data_handle];
             let common_data = &mut prim_data.common;
@@ -592,9 +590,11 @@ fn prepare_interned_prim_for_render(
                 frame_context,
                 frame_state,
             );
-            *scratch_handle = scratch.frame.line_decoration.push(LineDecorationScratch { task_id: render_task });
+            let line_dec_handle = scratch.frame.line_decoration.push(LineDecorationScratch { task_id: render_task });
+            scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
+                KindScratchHandle::LineDecoration(line_dec_handle);
         }
-        PrimitiveKind::TextRun { run_index, data_handle, scratch_handle: text_run_scratch_handle } => {
+        PrimitiveKind::TextRun { run_index, data_handle } => {
             profile_scope!("TextRun");
             let prim_data = &mut data_stores.text_run[*data_handle];
             let run = &store.text_runs[*run_index];
@@ -642,7 +642,7 @@ fn prepare_interned_prim_for_render(
                 }
             };
 
-            *text_run_scratch_handle = run.request_resources(
+            let text_run_handle = run.request_resources(
                 prim_offset,
                 &prim_data.font,
                 &prim_data.glyphs,
@@ -656,10 +656,12 @@ fn prepare_interned_prim_for_render(
                 frame_context.spatial_tree,
                 scratch,
             );
+            scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
+                KindScratchHandle::TextRun(text_run_handle);
 
             prim_data.update(frame_state);
         }
-        PrimitiveKind::NormalBorder { data_handle, ref mut scratch_handle } => {
+        PrimitiveKind::NormalBorder { data_handle } => {
             profile_scope!("NormalBorder");
             let prim_data = &mut data_stores.normal_border[*data_handle];
             let common_data = &mut prim_data.common;
@@ -682,7 +684,8 @@ fn prepare_interned_prim_for_render(
                 &mut scratch.frame.border_task_ids[task_ids],
             );
 
-            *scratch_handle = handle;
+            scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
+                KindScratchHandle::NormalBorder(handle);
         }
         PrimitiveKind::ImageBorder { data_handle, .. } => {
             profile_scope!("ImageBorder");
@@ -772,7 +775,7 @@ fn prepare_interned_prim_for_render(
                 }
             );
         }
-        PrimitiveKind::Image { data_handle, image_instance_index, scratch_handle: img_scratch_handle, .. } => {
+        PrimitiveKind::Image { data_handle, image_instance_index, .. } => {
             profile_scope!("Image");
 
             let prim_data = &mut data_stores.image[*data_handle];
@@ -806,7 +809,7 @@ fn prepare_interned_prim_for_render(
 
             // Update the template this instance references, which may refresh the GPU
             // cache with any shared template data.
-            *img_scratch_handle = image_data.update(
+            let img_scratch_handle = image_data.update(
                 common_data,
                 image_instance,
                 prim_instance_index,
@@ -816,7 +819,9 @@ fn prepare_interned_prim_for_render(
                 prim_instance.prim_origin,
                 scratch,
             );
-            let image_adjustment = scratch.frame.images[*img_scratch_handle].adjustment;
+            scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
+                KindScratchHandle::Image(img_scratch_handle);
+            let image_adjustment = scratch.frame.images[img_scratch_handle].adjustment;
 
             write_segment(
                 image_instance.segment_instance_index,
@@ -1030,10 +1035,10 @@ fn prepare_interned_prim_for_render(
             );
             return;
         }
-        PrimitiveKind::Picture { pic_index, scratch_handle, .. } => {
+        PrimitiveKind::Picture { pic_index, .. } => {
             profile_scope!("Picture");
+            let pic_scratch_handle = prim_info.kind_scratch.unwrap_picture();
             let pic = &mut store.pictures[pic_index.0];
-            let pic_scratch_handle = *scratch_handle;
 
             if prim_info.clip_chain.needs_mask {
                 // TODO(gw): Much of the code in this branch could be moved in to a common
@@ -1254,16 +1259,18 @@ fn prepare_interned_prim_for_render(
                 }
             }
         }
-        PrimitiveKind::BackdropRender { pic_index, ref mut scratch_handle, .. } => {
+        PrimitiveKind::BackdropRender { pic_index, .. } => {
             match frame_state.surface_builder.sub_graph_output_map.get(pic_index).cloned() {
                 Some(sub_graph_output_id) => {
                     frame_state.surface_builder.add_child_render_task(
                         sub_graph_output_id,
                         frame_state.rg_builder,
                     );
-                    *scratch_handle = scratch.frame.backdrop_render.push(BackdropRenderScratch {
+                    let backdrop_handle = scratch.frame.backdrop_render.push(BackdropRenderScratch {
                         src_task_id: sub_graph_output_id,
                     });
+                    scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
+                        KindScratchHandle::BackdropRender(backdrop_handle);
                 }
                 None => {
                     // Backdrop capture was found not visible, didn't produce a sub-graph
@@ -1280,7 +1287,7 @@ fn prepare_interned_prim_for_render(
         }
         DrawState::Visible { .. } => {
             frame_state.push_prim(
-                &PrimitiveCommand::simple(prim_instance_index),
+                &PrimitiveCommand::simple(storage::Index::from_u32(prim_instance_index.0)),
                 prim_spatial_node_index,
                 targets,
             );

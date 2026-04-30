@@ -930,7 +930,7 @@ impl PictureInstance {
                     &mut cmd_buffer_targets,
                 ) {
                     let prim_cmd = PrimitiveCommand::complex(
-                        child.anchor.instance_index,
+                        storage::Index::from_u32(child.anchor.instance_index.0),
                         child.gpu_address
                     );
 

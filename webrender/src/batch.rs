@@ -830,18 +830,18 @@ impl BatchBuilder {
         gpu_buffer_builder: &mut GpuBufferBuilder,
         segments: &[RenderTaskId],
     ) {
-        let (prim_instance_index, extra_prim_gpu_address) = match cmd {
-            PrimitiveCommand::Simple { prim_instance_index } => {
-                (prim_instance_index, None)
+        let (draw_index, extra_prim_gpu_address) = match cmd {
+            PrimitiveCommand::Simple { draw_index } => {
+                (draw_index, None)
             }
-            PrimitiveCommand::Complex { prim_instance_index, gpu_address } => {
-                (prim_instance_index, Some(gpu_address.as_int()))
+            PrimitiveCommand::Complex { draw_index, gpu_address } => {
+                (draw_index, Some(gpu_address.as_int()))
             }
-            PrimitiveCommand::Instance { prim_instance_index, gpu_buffer_address } => {
-                (prim_instance_index, Some(gpu_buffer_address.as_int()))
+            PrimitiveCommand::Instance { draw_index, gpu_buffer_address } => {
+                (draw_index, Some(gpu_buffer_address.as_int()))
             }
-            PrimitiveCommand::Quad { pattern, pattern_input, prim_instance_index, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_id } => {
-                let prim_info = &ctx.scratch.frame.draws[prim_instance_index.0 as usize];
+            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_id } => {
+                let prim_info = &ctx.scratch.frame.draws[draw_index.0 as usize];
                 let bounding_rect = &prim_info.clip_chain.pic_coverage_rect;
                 let render_task_address = self.batcher.render_task_address;
 
@@ -908,7 +908,7 @@ impl BatchBuilder {
             }
         };
 
-        let prim_instance = &prim_instances[prim_instance_index.0 as usize];
+        let prim_instance = &prim_instances[draw_index.0 as usize];
         let is_anti_aliased = ctx.data_stores.prim_has_anti_aliasing(prim_instance);
 
         let brush_flags = if is_anti_aliased {
@@ -917,7 +917,7 @@ impl BatchBuilder {
             BrushFlags::empty()
         };
 
-        let vis_flags = match ctx.scratch.frame.draws[prim_instance_index.0 as usize].state {
+        let vis_flags = match ctx.scratch.frame.draws[draw_index.0 as usize].state {
             DrawState::Culled => {
                 return;
             }
@@ -950,7 +950,7 @@ impl BatchBuilder {
         //           wasteful. We should probably cache this in
         //           the scroll node...
         let transform_metadata = transform_id.metadata();
-        let prim_info = &ctx.scratch.frame.draws[prim_instance_index.0 as usize];
+        let prim_info = &ctx.scratch.frame.draws[draw_index.0 as usize];
         let bounding_rect = &prim_info.clip_chain.pic_coverage_rect;
 
         let mut z_id = z_generator.next();
@@ -980,9 +980,10 @@ impl BatchBuilder {
                 "The primitive's bounding box is specified in a different coordinate system from the current batch!");
         }
 
-        if let PrimitiveKind::Picture { pic_index, scratch_handle, .. } = prim_instance.kind {
+        if let PrimitiveKind::Picture { pic_index, .. } = prim_instance.kind {
+            let pic_scratch_handle = ctx.scratch.frame.draws[draw_index.0 as usize].kind_scratch.unwrap_picture();
             let picture = &ctx.prim_store.pictures[pic_index.0];
-            let picture_scratch = &ctx.scratch.frame.pictures[scratch_handle];
+            let picture_scratch = &ctx.scratch.frame.pictures[pic_scratch_handle];
             if let Some(snapshot) = picture.snapshot {
                 if snapshot.detached {
                     return;
@@ -1686,7 +1687,8 @@ impl BatchBuilder {
             PrimitiveKind::BoxShadow { .. } => {
                 unreachable!("BUG: Should not hit box-shadow here as they are handled by quad infra");
             }
-            PrimitiveKind::NormalBorder { data_handle, scratch_handle, .. } => {
+            PrimitiveKind::NormalBorder { data_handle, .. } => {
+                let scratch_handle = prim_info.kind_scratch.unwrap_normal_border();
                 let prim_data = &ctx.data_stores.normal_border[data_handle];
                 let task_ids = &ctx.scratch.frame.border_task_ids[ctx.scratch.frame.normal_border[scratch_handle].task_ids];
                 let mut segment_data: SmallVec<[SegmentInstanceData; 8]> = SmallVec::new();
@@ -1744,7 +1746,8 @@ impl BatchBuilder {
                     render_tasks,
                 );
             }
-            PrimitiveKind::TextRun { data_handle, run_index, scratch_handle: text_run_scratch_handle } => {
+            PrimitiveKind::TextRun { data_handle, run_index, .. } => {
+                let text_run_scratch_handle = prim_info.kind_scratch.unwrap_text_run();
                 let run = &ctx.prim_store.text_runs[run_index];
                 let run_scratch = &ctx.scratch.frame.text_runs[text_run_scratch_handle];
                 let subpx_dir = run_scratch.used_font.get_subpx_dir();
@@ -1969,7 +1972,8 @@ impl BatchBuilder {
                     },
                 );
             }
-            PrimitiveKind::LineDecoration { scratch_handle, .. } => {
+            PrimitiveKind::LineDecoration { .. } => {
+                let scratch_handle = prim_info.kind_scratch.unwrap_line_decoration();
                 let render_task_id = ctx.scratch.frame.line_decoration[scratch_handle].task_id;
 
                 let (clip_task_address, clip_mask_texture_id) = ctx.get_prim_clip_task_and_texture(
@@ -2155,7 +2159,8 @@ impl BatchBuilder {
                     render_tasks,
                 );
             }
-            PrimitiveKind::Image { data_handle, image_instance_index, compositor_surface_kind, scratch_handle: img_scratch_handle, .. } => {
+            PrimitiveKind::Image { data_handle, image_instance_index, compositor_surface_kind, .. } => {
+                let img_scratch_handle = prim_info.kind_scratch.unwrap_image();
                 if compositor_surface_kind.needs_cutout() {
                     self.add_compositor_surface_cutout(
                         prim_rect,
@@ -2336,7 +2341,8 @@ impl BatchBuilder {
                 unreachable!("BUG: linear gradients should always use quad path");
             }
             PrimitiveKind::BackdropCapture { .. } => {}
-            PrimitiveKind::BackdropRender { scratch_handle, .. } => {
+            PrimitiveKind::BackdropRender { .. } => {
+                let scratch_handle = prim_info.kind_scratch.unwrap_backdrop_render();
                 let blend_mode = BlendMode::PremultipliedAlpha;
                 let pic_task_id = Some(ctx.scratch.frame.backdrop_render[scratch_handle].src_task_id);
 

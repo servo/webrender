@@ -19,10 +19,16 @@ use crate::clip::{ClipChainInstance, ClipTree};
 use crate::frame_builder::FrameBuilderConfig;
 use crate::picture::{PictureCompositeMode, ClusterFlags, SurfaceInfo};
 use crate::tile_cache::TileCacheInstance;
-use crate::picture::{SurfaceIndex, RasterConfig};
+use crate::picture::{PictureScratch, SurfaceIndex, RasterConfig};
 use crate::tile_cache::SubSliceIndex;
 use crate::prim_store::{ClipTaskIndex, PictureIndex, PrimitiveKind};
 use crate::prim_store::{PrimitiveStore, PrimitiveInstance, PrimitiveInstanceIndex};
+use crate::prim_store::backdrop::BackdropRenderScratch;
+use crate::prim_store::borders::NormalBorderScratch;
+use crate::prim_store::image::ImageScratch;
+use crate::prim_store::line_dec::LineDecorationScratch;
+use crate::prim_store::storage;
+use crate::prim_store::text_run::TextRunScratch;
 use crate::render_backend::{DataStores, ScratchBuffer};
 use crate::render_task_graph::RenderTaskGraphBuilder;
 use crate::resource_cache::ResourceCache;
@@ -109,6 +115,64 @@ pub enum DrawState {
     },
 }
 
+/// Per-draw, per-kind scratch handle. Reaches the appropriate
+/// per-frame scratch entry for the drawn primitive's kind. The variant
+/// matches the prim's PrimitiveKind. None for kinds without per-frame
+/// scratch.
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+pub enum KindScratchHandle {
+    None,
+    LineDecoration(storage::Index<LineDecorationScratch>),
+    NormalBorder(storage::Index<NormalBorderScratch>),
+    Image(storage::Index<ImageScratch>),
+    TextRun(storage::Index<TextRunScratch>),
+    Picture(storage::Index<PictureScratch>),
+    BackdropRender(storage::Index<BackdropRenderScratch>),
+}
+
+impl KindScratchHandle {
+    /// Extract the LineDecoration scratch index. Panics if the variant
+    /// doesn't match — readers in the LineDecoration arm of the
+    /// PrimitiveKind match know the variant by construction.
+    pub fn unwrap_line_decoration(&self) -> storage::Index<LineDecorationScratch> {
+        match *self {
+            KindScratchHandle::LineDecoration(h) => h,
+            _ => panic!("kind_scratch mismatch: expected LineDecoration, got {:?}", self),
+        }
+    }
+    pub fn unwrap_normal_border(&self) -> storage::Index<NormalBorderScratch> {
+        match *self {
+            KindScratchHandle::NormalBorder(h) => h,
+            _ => panic!("kind_scratch mismatch: expected NormalBorder, got {:?}", self),
+        }
+    }
+    pub fn unwrap_image(&self) -> storage::Index<ImageScratch> {
+        match *self {
+            KindScratchHandle::Image(h) => h,
+            _ => panic!("kind_scratch mismatch: expected Image, got {:?}", self),
+        }
+    }
+    pub fn unwrap_text_run(&self) -> storage::Index<TextRunScratch> {
+        match *self {
+            KindScratchHandle::TextRun(h) => h,
+            _ => panic!("kind_scratch mismatch: expected TextRun, got {:?}", self),
+        }
+    }
+    pub fn unwrap_picture(&self) -> storage::Index<PictureScratch> {
+        match *self {
+            KindScratchHandle::Picture(h) => h,
+            _ => panic!("kind_scratch mismatch: expected Picture, got {:?}", self),
+        }
+    }
+    pub fn unwrap_backdrop_render(&self) -> storage::Index<BackdropRenderScratch> {
+        match *self {
+            KindScratchHandle::BackdropRender(h) => h,
+            _ => panic!("kind_scratch mismatch: expected BackdropRender, got {:?}", self),
+        }
+    }
+}
+
 /// Information stored for a visible primitive about the visible
 /// rect and associated clip information.
 #[derive(Debug, Copy, Clone)]
@@ -136,6 +200,12 @@ pub struct PrimitiveDrawHeader {
     /// global clip mask task for this primitive, or the first of
     /// a list of clip task ids (one per segment).
     pub clip_task_index: ClipTaskIndex,
+
+    /// Per-kind scratch handle for this draw. Variant matches the
+    /// drawn prim's `PrimitiveKind`; `None` for kinds without per-
+    /// frame scratch (e.g. ImageBorder, gradients, BackdropCapture,
+    /// BoxShadow, Rectangle/YuvImage at this stage).
+    pub kind_scratch: KindScratchHandle,
 }
 
 impl PrimitiveDrawHeader {
@@ -145,12 +215,14 @@ impl PrimitiveDrawHeader {
             state: DrawState::Unset,
             clip_chain: ClipChainInstance::empty(),
             clip_task_index: ClipTaskIndex::INVALID,
+            kind_scratch: KindScratchHandle::None,
         }
     }
 
     pub fn reset(&mut self) {
         self.state = DrawState::Culled;
         self.clip_task_index = ClipTaskIndex::INVALID;
+        self.kind_scratch = KindScratchHandle::None;
     }
 }
 

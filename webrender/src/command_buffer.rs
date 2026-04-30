@@ -4,10 +4,12 @@
 
 use api::units::PictureRect;
 use crate::pattern::{PatternKind, PatternShaderInput};
-use crate::{spatial_tree::SpatialNodeIndex, render_task_graph::RenderTaskId, surface::SurfaceTileDescriptor, tile_cache::TileKey, renderer::GpuBufferAddress, FastHashMap, prim_store::PrimitiveInstanceIndex};
+use crate::{spatial_tree::SpatialNodeIndex, render_task_graph::RenderTaskId, surface::SurfaceTileDescriptor, tile_cache::TileKey, renderer::GpuBufferAddress, FastHashMap};
 use crate::gpu_types::QuadSegment;
+use crate::prim_store::storage;
 use crate::segment::EdgeMask;
 use crate::transform::GpuTransformId;
+use crate::visibility::PrimitiveDrawHeader;
 
 /// A tightly packed command stored in a command buffer
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -35,8 +37,8 @@ impl Command {
     const PARAM_MASK: u32 = 0x0fffffff;
 
     /// Encode drawing a simple primitive.
-    fn draw_simple_prim(prim_instance_index: PrimitiveInstanceIndex) -> Self {
-        Command(Command::CMD_DRAW_SIMPLE_PRIM | prim_instance_index.0)
+    fn draw_simple_prim(draw_index: storage::Index<PrimitiveDrawHeader>) -> Self {
+        Command(Command::CMD_DRAW_SIMPLE_PRIM | draw_index.0)
     }
 
     /// Encode changing spatial node.
@@ -50,12 +52,12 @@ impl Command {
     }
 
     /// Encode drawing a complex prim.
-    fn draw_complex_prim(prim_instance_index: PrimitiveInstanceIndex) -> Self {
-        Command(Command::CMD_DRAW_COMPLEX_PRIM | prim_instance_index.0)
+    fn draw_complex_prim(draw_index: storage::Index<PrimitiveDrawHeader>) -> Self {
+        Command(Command::CMD_DRAW_COMPLEX_PRIM | draw_index.0)
     }
 
-    fn draw_instance(prim_instance_index: PrimitiveInstanceIndex) -> Self {
-        Command(Command::CMD_DRAW_INSTANCE | prim_instance_index.0)
+    fn draw_instance(draw_index: storage::Index<PrimitiveDrawHeader>) -> Self {
+        Command(Command::CMD_DRAW_INSTANCE | draw_index.0)
     }
 
     /// Encode arbitrary data word.
@@ -63,8 +65,8 @@ impl Command {
         Command(data)
     }
 
-    fn draw_quad(prim_instance_index: PrimitiveInstanceIndex) -> Self {
-        Command(Command::CMD_DRAW_QUAD | prim_instance_index.0)
+    fn draw_quad(draw_index: storage::Index<PrimitiveDrawHeader>) -> Self {
+        Command(Command::CMD_DRAW_QUAD | draw_index.0)
     }
 }
 
@@ -103,17 +105,23 @@ bitflags! {
 }
 
 /// The unpacked equivalent to a `Command`.
+///
+/// Each variant carries an `Index<PrimitiveDrawHeader>` identifying which
+/// per-frame draw header to use. While `scratch.frame.draws` is identity-
+/// indexed by `PrimitiveInstanceIndex.0`, the numerical value of the draw
+/// index equals the prim instance index; a follow-up will make them
+/// physically distinct when draws becomes push-per-draw.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub enum PrimitiveCommand {
     Simple {
-        prim_instance_index: PrimitiveInstanceIndex,
+        draw_index: storage::Index<PrimitiveDrawHeader>,
     },
     Complex {
-        prim_instance_index: PrimitiveInstanceIndex,
+        draw_index: storage::Index<PrimitiveDrawHeader>,
         gpu_address: GpuBufferAddress,
     },
     Instance {
-        prim_instance_index: PrimitiveInstanceIndex,
+        draw_index: storage::Index<PrimitiveDrawHeader>,
         gpu_buffer_address: GpuBufferAddress,
     },
     Quad {
@@ -121,7 +129,7 @@ pub enum PrimitiveCommand {
         pattern_input: PatternShaderInput,
         src_color_task_id: RenderTaskId,
         // TODO(gw): Used for bounding rect only, could possibly remove
-        prim_instance_index: PrimitiveInstanceIndex,
+        draw_index: storage::Index<PrimitiveDrawHeader>,
         gpu_buffer_address: GpuBufferAddress,
         transform_id: GpuTransformId,
         quad_flags: QuadFlags,
@@ -131,19 +139,19 @@ pub enum PrimitiveCommand {
 
 impl PrimitiveCommand {
     pub fn simple(
-        prim_instance_index: PrimitiveInstanceIndex,
+        draw_index: storage::Index<PrimitiveDrawHeader>,
     ) -> Self {
         PrimitiveCommand::Simple {
-            prim_instance_index,
+            draw_index,
         }
     }
 
     pub fn complex(
-        prim_instance_index: PrimitiveInstanceIndex,
+        draw_index: storage::Index<PrimitiveDrawHeader>,
         gpu_address: GpuBufferAddress,
     ) -> Self {
         PrimitiveCommand::Complex {
-            prim_instance_index,
+            draw_index,
             gpu_address,
         }
     }
@@ -152,7 +160,7 @@ impl PrimitiveCommand {
         pattern: PatternKind,
         pattern_input: PatternShaderInput,
         src_color_task_id: RenderTaskId,
-        prim_instance_index: PrimitiveInstanceIndex,
+        draw_index: storage::Index<PrimitiveDrawHeader>,
         gpu_buffer_address: GpuBufferAddress,
         transform_id: GpuTransformId,
         quad_flags: QuadFlags,
@@ -162,7 +170,7 @@ impl PrimitiveCommand {
             pattern,
             pattern_input,
             src_color_task_id,
-            prim_instance_index,
+            draw_index,
             gpu_buffer_address,
             transform_id,
             quad_flags,
@@ -171,11 +179,11 @@ impl PrimitiveCommand {
     }
 
     pub fn instance(
-        prim_instance_index: PrimitiveInstanceIndex,
+        draw_index: storage::Index<PrimitiveDrawHeader>,
         gpu_buffer_address: GpuBufferAddress,
     ) -> Self {
         PrimitiveCommand::Instance {
-            prim_instance_index,
+            draw_index,
             gpu_buffer_address,
         }
     }
@@ -232,19 +240,19 @@ impl CommandBuffer {
         prim_cmd: &PrimitiveCommand,
     ) {
         match *prim_cmd {
-            PrimitiveCommand::Simple { prim_instance_index } => {
-                self.commands.push(Command::draw_simple_prim(prim_instance_index));
+            PrimitiveCommand::Simple { draw_index } => {
+                self.commands.push(Command::draw_simple_prim(draw_index));
             }
-            PrimitiveCommand::Complex { prim_instance_index, gpu_address } => {
-                self.commands.push(Command::draw_complex_prim(prim_instance_index));
+            PrimitiveCommand::Complex { draw_index, gpu_address } => {
+                self.commands.push(Command::draw_complex_prim(draw_index));
                 self.commands.push(Command::data(gpu_address.as_u32()));
             }
-            PrimitiveCommand::Instance { prim_instance_index, gpu_buffer_address } => {
-                self.commands.push(Command::draw_instance(prim_instance_index));
+            PrimitiveCommand::Instance { draw_index, gpu_buffer_address } => {
+                self.commands.push(Command::draw_instance(draw_index));
                 self.commands.push(Command::data(gpu_buffer_address.as_u32()));
             }
-            PrimitiveCommand::Quad { pattern, pattern_input, prim_instance_index, gpu_buffer_address, transform_id, quad_flags, edge_flags, src_color_task_id } => {
-                self.commands.push(Command::draw_quad(prim_instance_index));
+            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, transform_id, quad_flags, edge_flags, src_color_task_id } => {
+                self.commands.push(Command::draw_quad(draw_index));
                 self.commands.push(Command::data(pattern as u32));
                 self.commands.push(Command::data(pattern_input.0 as u32));
                 self.commands.push(Command::data(pattern_input.1 as u32));
@@ -272,25 +280,25 @@ impl CommandBuffer {
 
             match command {
                 Command::CMD_DRAW_SIMPLE_PRIM => {
-                    let prim_instance_index = PrimitiveInstanceIndex(param);
-                    let cmd = PrimitiveCommand::simple(prim_instance_index);
+                    let draw_index = storage::Index::from_u32(param);
+                    let cmd = PrimitiveCommand::simple(draw_index);
                     f(&cmd, current_spatial_node_index, &[]);
                 }
                 Command::CMD_SET_SPATIAL_NODE => {
                     current_spatial_node_index = SpatialNodeIndex(param);
                 }
                 Command::CMD_DRAW_COMPLEX_PRIM => {
-                    let prim_instance_index = PrimitiveInstanceIndex(param);
+                    let draw_index = storage::Index::from_u32(param);
                     let data = cmd_iter.next().unwrap();
                     let gpu_address = GpuBufferAddress::from_u32(data.0);
                     let cmd = PrimitiveCommand::complex(
-                        prim_instance_index,
+                        draw_index,
                         gpu_address,
                     );
                     f(&cmd, current_spatial_node_index, &[]);
                 }
                 Command::CMD_DRAW_QUAD => {
-                    let prim_instance_index = PrimitiveInstanceIndex(param);
+                    let draw_index = storage::Index::from_u32(param);
                     let pattern = PatternKind::from_u32(cmd_iter.next().unwrap().0);
                     let pattern_input = PatternShaderInput(
                         cmd_iter.next().unwrap().0 as i32,
@@ -307,7 +315,7 @@ impl CommandBuffer {
                         pattern,
                         pattern_input,
                         src_color_task_id,
-                        prim_instance_index,
+                        draw_index,
                         gpu_buffer_address,
                         transform_id,
                         quad_flags,
@@ -317,11 +325,11 @@ impl CommandBuffer {
                     segments.clear()
                 }
                 Command::CMD_DRAW_INSTANCE => {
-                    let prim_instance_index = PrimitiveInstanceIndex(param);
+                    let draw_index = storage::Index::from_u32(param);
                     let data = cmd_iter.next().unwrap();
                     let gpu_buffer_address = GpuBufferAddress::from_u32(data.0);
                     let cmd = PrimitiveCommand::instance(
-                        prim_instance_index,
+                        draw_index,
                         gpu_buffer_address,
                     );
                     f(&cmd, current_spatial_node_index, &[]);

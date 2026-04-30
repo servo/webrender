@@ -240,7 +240,6 @@ impl InternablePrimitive for NormalBorderPrim {
     ) -> PrimitiveKind {
         PrimitiveKind::NormalBorder {
             data_handle,
-            scratch_handle: storage::Index::INVALID,
         }
     }
 }

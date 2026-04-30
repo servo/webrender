@@ -8,7 +8,15 @@ use crate::util::Recycler;
 #[derive(Debug, Hash)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct Index<T>(u32, PhantomData<T>);
+pub struct Index<T>(pub u32, PhantomData<T>);
+
+impl<T> Index<T> {
+    /// Construct an Index from a raw u32. Caller is responsible for the
+    /// value matching the underlying storage.
+    pub fn from_u32(idx: u32) -> Self {
+        Index(idx, PhantomData)
+    }
+}
 
 // We explicitly implement Copy + Clone instead of using #[derive(Copy, Clone)]
 // because we don't want to require that T implements Clone + Copy.

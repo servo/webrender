@@ -735,11 +735,6 @@ pub enum PrimitiveKind {
         /// Handle to the common interned data for this primitive.
         data_handle: PictureDataHandle,
         pic_index: PictureIndex,
-        /// Per-frame index into PrimitiveFrameScratch.pictures for this
-        /// picture's render-task ids and extra GPU data. Set in
-        /// `prepare_picture` after the picture has been visited; INVALID
-        /// at scene build and on revisits that hit the failure path.
-        scratch_handle: storage::Index<PictureScratch>,
     },
     /// A run of glyphs, with associated font parameters.
     TextRun {
@@ -747,21 +742,16 @@ pub enum PrimitiveKind {
         data_handle: TextRunDataHandle,
         /// Index to the per instance scratch data for this primitive.
         run_index: TextRunIndex,
-        /// Per-frame scratch for this text run (font snapshot, glyph
-        /// keys range, snapping offset, raster scale).
-        scratch_handle: storage::Index<TextRunScratch>,
     },
     /// A line decoration. cache_handle refers to a cached render
     /// task handle, if this line decoration is not a simple solid.
     LineDecoration {
         /// Handle to the common interned data for this primitive.
         data_handle: LineDecorationDataHandle,
-        scratch_handle: storage::Index<LineDecorationScratch>,
     },
     NormalBorder {
         /// Handle to the common interned data for this primitive.
         data_handle: NormalBorderDataHandle,
-        scratch_handle: storage::Index<NormalBorderScratch>,
     },
     ImageBorder {
         /// Handle to the common interned data for this primitive.
@@ -784,7 +774,6 @@ pub enum PrimitiveKind {
         data_handle: ImageDataHandle,
         image_instance_index: ImageInstanceIndex,
         compositor_surface_kind: CompositorSurfaceKind,
-        scratch_handle: storage::Index<ImageScratch>,
     },
     LinearGradient {
         /// Handle to the common interned data for this primitive.
@@ -805,7 +794,6 @@ pub enum PrimitiveKind {
     BackdropRender {
         data_handle: BackdropRenderDataHandle,
         pic_index: PictureIndex,
-        scratch_handle: storage::Index<BackdropRenderScratch>,
     },
     BoxShadow {
         data_handle: BoxShadowDataHandle,

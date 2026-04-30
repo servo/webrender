@@ -22,7 +22,6 @@ use crate::prim_store::{
     InternablePrimitive, PrimitiveStore,
 };
 use crate::prim_store::PrimitiveKind;
-use crate::prim_store::storage;
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::util::clamp_to_scale_factor;
 
@@ -239,7 +238,6 @@ impl InternablePrimitive for LineDecoration {
     ) -> PrimitiveKind {
         PrimitiveKind::LineDecoration {
             data_handle,
-            scratch_handle: storage::Index::INVALID,
         }
     }
 }

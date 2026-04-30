@@ -8,7 +8,6 @@ use crate::prim_store::{
     InternablePrimitive, PrimitiveKind, PrimKey, PrimTemplate,
     PrimTemplateCommonData, PrimitiveStore, PictureIndex,
 };
-use crate::prim_store::storage;
 use crate::render_task_graph::RenderTaskId;
 use crate::scene_building::IsVisible;
 
@@ -167,7 +166,6 @@ impl InternablePrimitive for BackdropRender {
         PrimitiveKind::BackdropRender {
             data_handle,
             pic_index: PictureIndex::INVALID,
-            scratch_handle: storage::Index::INVALID,
         }
     }
 }
