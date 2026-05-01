@@ -12,8 +12,8 @@
 // Existing tile cache slice builder (was previously tile_cache.rs)
 pub mod slice_builder;
 
-use api::{AlphaType, BorderRadius, ClipMode, ColorF, ColorDepth, DebugFlags, ImageKey, ImageRendering};
-use api::{PropertyBindingId, PrimitiveFlags, YuvFormat, YuvRangedColorSpace};
+use api::{AlphaType, BorderRadius, ClipMode, ColorF, ColorU, ColorDepth, DebugFlags, ImageKey, ImageRendering};
+use api::{PropertyBinding, PropertyBindingId, PrimitiveFlags, YuvFormat, YuvRangedColorSpace};
 use api::units::*;
 use crate::clip::{clamped_radius, ClipNodeId, ClipLeafId, ClipItemKind, ClipSpaceConversion, ClipChainInstance, ClipStore, intersect_rounded_rects};
 use crate::composite::{CompositorKind, CompositeState, CompositorSurfaceKind, ExternalSurfaceDescriptor};
@@ -32,7 +32,6 @@ use crate::picture::{SurfaceTextureDescriptor, PictureCompositeMode, SurfaceInde
 use crate::picture::{get_relative_scale_offset, PictureInstance};
 use crate::picture::MAX_COMPOSITOR_SURFACES_SIZE;
 use crate::prim_store::{PrimitiveInstance, PrimitiveKind, PrimitiveScratchBuffer, PictureIndex};
-use crate::prim_store::{ColorBindingStorage, ColorBindingIndex};
 use crate::prim_store::PrimitiveInstanceIndex;
 use crate::print_tree::{PrintTreePrinter, PrintTree};
 use crate::{profiler, render_backend::DataStores};
@@ -2161,7 +2160,6 @@ impl TileCacheInstance {
         clip_store: &ClipStore,
         pictures: &[PictureInstance],
         resource_cache: &mut ResourceCache,
-        color_bindings: &ColorBindingStorage,
         surface_stack: &[(PictureIndex, SurfaceIndex)],
         composite_state: &mut CompositeState,
         gpu_buffer: &mut GpuBufferBuilderF,
@@ -2303,23 +2301,24 @@ impl TileCacheInstance {
                     prim_info.opacity_bindings.push(binding.into());
                 }
             }
-            PrimitiveKind::Rectangle { data_handle, color_binding_index, .. } => {
+            PrimitiveKind::Rectangle { data_handle, .. } => {
                 // Rectangles can only form a backdrop candidate if they are known opaque.
                 // TODO(gw): We could resolve the opacity binding here, but the common
                 //           case for background rects is that they don't have animated opacity.
-                let color = data_stores.prim[data_handle].kind.color;
-                let color = frame_context.scene_properties.resolve_color(&color);
-                if color.a >= 1.0 {
+                let prim_color = data_stores.prim[data_handle].kind.color;
+                let resolved = frame_context.scene_properties.resolve_color(&prim_color);
+                if resolved.a >= 1.0 {
                     backdrop_candidate = Some(BackdropInfo {
                         opaque_rect: pic_coverage_rect,
                         spanning_opaque_color: None,
-                        kind: Some(BackdropKind::Color { color }),
+                        kind: Some(BackdropKind::Color { color: resolved }),
                         backdrop_rect: pic_coverage_rect,
                     });
                 }
 
-                if color_binding_index != ColorBindingIndex::INVALID {
-                    prim_info.color_binding = Some(color_bindings[color_binding_index].into());
+                if matches!(prim_color, PropertyBinding::Binding(..)) {
+                    let color_u: PropertyBinding<ColorU> = prim_color.into();
+                    prim_info.color_binding = Some(color_u.into());
                 }
             }
             PrimitiveKind::Image { data_handle, ref mut compositor_surface_kind, .. } => {

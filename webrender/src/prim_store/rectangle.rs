@@ -8,7 +8,6 @@ use crate::intern;
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
     PrimKey, InternablePrimitive, PrimitiveStore, PrimitiveKind,
-    ColorBindingIndex,
     PrimTemplate, PrimTemplateCommonData, PrimitiveOpacity,
 };
 use crate::frame_builder::FrameBuildingState;
@@ -50,19 +49,12 @@ impl InternablePrimitive for RectanglePrim {
     }
 
     fn make_instance_kind(
-        key: RectangleKey,
+        _key: RectangleKey,
         data_handle: RectangleDataHandle,
-        prim_store: &mut PrimitiveStore,
+        _prim_store: &mut PrimitiveStore,
     ) -> PrimitiveKind {
-        let color_binding_index = match key.kind.color {
-            PropertyBinding::Binding(..) => {
-                prim_store.color_bindings.push(key.kind.color)
-            }
-            PropertyBinding::Value(..) => ColorBindingIndex::INVALID,
-        };
         PrimitiveKind::Rectangle {
             data_handle,
-            color_binding_index,
         }
     }
 }

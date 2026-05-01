@@ -2,9 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadius, ClipMode, ColorF, ColorU};
+use api::{BorderRadius, ClipMode, ColorF};
 use api::{ImageRendering, RepeatMode, PrimitiveFlags};
-use api::{PropertyBinding};
 use api::{FillRule, POLYGON_CLIP_VERTEX_MAX};
 use api::units::*;
 use euclid::{SideOffsets2D, Size2D};
@@ -758,7 +757,6 @@ pub enum PrimitiveKind {
     Rectangle {
         /// Handle to the common interned data for this primitive.
         data_handle: RectangleDataHandle,
-        color_binding_index: ColorBindingIndex,
     },
     YuvImage {
         /// Handle to the common interned data for this primitive.
@@ -899,8 +897,6 @@ pub struct BrushSegmentation {
 }
 
 pub type GlyphKeyStorage = storage::Storage<GlyphKey>;
-pub type ColorBindingIndex = storage::Index<PropertyBinding<ColorU>>;
-pub type ColorBindingStorage = storage::Storage<PropertyBinding<ColorU>>;
 pub type SegmentStorage = storage::Storage<BrushSegment>;
 pub type SegmentsRange = storage::Range<BrushSegment>;
 pub type SegmentInstanceStorage = storage::Storage<BrushSegmentation>;
@@ -1246,14 +1242,12 @@ impl PrimitiveScratchBuffer {
 #[derive(Clone, Debug)]
 pub struct PrimitiveStoreStats {
     picture_count: usize,
-    color_binding_count: usize,
 }
 
 impl PrimitiveStoreStats {
     pub fn empty() -> Self {
         PrimitiveStoreStats {
             picture_count: 0,
-            color_binding_count: 0,
         }
     }
 }
@@ -1261,28 +1255,22 @@ impl PrimitiveStoreStats {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveStore {
     pub pictures: Vec<PictureInstance>,
-
-    /// animated color bindings for this primitive.
-    pub color_bindings: ColorBindingStorage,
 }
 
 impl PrimitiveStore {
     pub fn new(stats: &PrimitiveStoreStats) -> PrimitiveStore {
         PrimitiveStore {
             pictures: Vec::with_capacity(stats.picture_count),
-            color_bindings: ColorBindingStorage::new(stats.color_binding_count),
         }
     }
 
     pub fn reset(&mut self) {
         self.pictures.clear();
-        self.color_bindings.clear();
     }
 
     pub fn get_stats(&self) -> PrimitiveStoreStats {
         PrimitiveStoreStats {
             picture_count: self.pictures.len(),
-            color_binding_count: self.color_bindings.len(),
         }
     }
 

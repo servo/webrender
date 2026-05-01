@@ -453,7 +453,6 @@ pub fn update_prim_visibility(
                         frame_state.clip_store,
                         &store.pictures,
                         frame_state.resource_cache,
-                        &store.color_bindings,
                         &frame_state.surface_stack,
                         &mut frame_state.composite_state,
                         &mut frame_state.frame_gpu_data.f32,
