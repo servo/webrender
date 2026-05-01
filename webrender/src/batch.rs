@@ -1687,10 +1687,10 @@ impl BatchBuilder {
             PrimitiveKind::BoxShadow { .. } => {
                 unreachable!("BUG: Should not hit box-shadow here as they are handled by quad infra");
             }
-            PrimitiveKind::NormalBorder { data_handle, .. } => {
+            PrimitiveKind::NormalBorder { .. } => {
                 let scratch_handle = prim_info.kind_scratch.unwrap_normal_border();
-                let prim_data = &ctx.data_stores.normal_border[data_handle];
-                let task_ids = &ctx.scratch.frame.border_task_ids[ctx.scratch.frame.normal_border[scratch_handle].task_ids];
+                let nb_scratch = ctx.scratch.frame.normal_border[scratch_handle];
+                let task_ids = &ctx.scratch.frame.border_task_ids[nb_scratch.task_ids];
                 let mut segment_data: SmallVec<[SegmentInstanceData; 8]> = SmallVec::new();
 
                 // Collect the segment instance data from each render
@@ -1728,9 +1728,9 @@ impl BatchBuilder {
                 };
                 let prim_header_index = prim_headers.push(&prim_header);
 
-                let border_data = &prim_data.kind;
+                let brush_segments = &ctx.scratch.frame.segments[nb_scratch.brush_segments_range];
                 self.add_segmented_prim_to_batch(
-                    Some(border_data.brush_segments.as_slice()),
+                    Some(brush_segments),
                     common_data.opacity,
                     &batch_params,
                     blend_mode,

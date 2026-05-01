@@ -81,12 +81,20 @@ impl<T> Range<T> {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct Storage<T> {
     data: Vec<T>,
+    /// Debug-only count of currently open ranges. Incremented by
+    /// `open_range`, decremented by `close_range`. `clear`/`recycle`
+    /// assert this is zero so a forgotten `close_range` is caught at
+    /// frame reset rather than silently producing wrong ranges later.
+    #[cfg(debug_assertions)]
+    open_count: u32,
 }
 
 impl<T> Storage<T> {
     pub fn new(initial_capacity: usize) -> Self {
         Storage {
             data: Vec::with_capacity(initial_capacity),
+            #[cfg(debug_assertions)]
+            open_count: 0,
         }
     }
 
@@ -95,6 +103,12 @@ impl<T> Storage<T> {
     }
 
     pub fn clear(&mut self) {
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            self.open_count, 0,
+            "Storage::clear with {} open range(s) — open_range without close_range",
+            self.open_count,
+        );
         self.data.clear();
     }
 
@@ -109,6 +123,12 @@ impl<T> Storage<T> {
     }
 
     pub fn recycle(&mut self, recycler: &mut Recycler) {
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            self.open_count, 0,
+            "Storage::recycle with {} open range(s) — open_range without close_range",
+            self.open_count,
+        );
         recycler.recycle_vec(&mut self.data);
     }
 
@@ -119,13 +139,35 @@ impl<T> Storage<T> {
         self.close_range(range)
     }
 
-    pub fn open_range(&self) -> OpenRange<T> {
+    /// Direct `&mut Vec<T>` access to the backing storage, for builders
+    /// that push into multiple arenas in interleaved fashion and need to
+    /// hold split borrows on the underlying `Vec`s simultaneously.
+    /// Callers must only append; mutating or removing existing entries
+    /// invalidates previously-issued `Index`/`Range` handles. Pair with
+    /// `open_range`/`close_range` to capture the appended span.
+    pub fn data_mut(&mut self) -> &mut Vec<T> {
+        &mut self.data
+    }
+
+    pub fn open_range(&mut self) -> OpenRange<T> {
+        #[cfg(debug_assertions)]
+        {
+            self.open_count += 1;
+        }
         OpenRange {
             start: Index::new(self.data.len())
         }
     }
 
-    pub fn close_range(&self, range: OpenRange<T>) -> Range<T> {
+    pub fn close_range(&mut self, range: OpenRange<T>) -> Range<T> {
+        #[cfg(debug_assertions)]
+        {
+            debug_assert!(
+                self.open_count > 0,
+                "Storage::close_range with no matching open_range",
+            );
+            self.open_count -= 1;
+        }
         Range {
             start: range.start,
             end: Index::new(self.data.len()),

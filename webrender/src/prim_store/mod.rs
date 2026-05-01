@@ -964,6 +964,11 @@ pub struct PrimitiveFrameScratch {
     /// referenced by NormalBorderScratch entries.
     pub border_task_ids: storage::Storage<RenderTaskId>,
 
+    /// Per-frame BorderSegmentInfo arena. NormalBorder builds its
+    /// edge/corner segment list each frame against the prim's size and
+    /// stores the resulting range on `NormalBorderScratch`.
+    pub border_segments: storage::Storage<BorderSegmentInfo>,
+
     /// Contains a list of clip mask instance parameters
     /// per segment generated.
     pub clip_mask_instances: Vec<ClipMaskKind>,
@@ -996,6 +1001,7 @@ impl Default for PrimitiveFrameScratch {
             segments: SegmentStorage::new(0),
             segment_instances: SegmentInstanceStorage::new(0),
             border_task_ids: storage::Storage::new(0),
+            border_segments: storage::Storage::new(0),
             clip_mask_instances: Vec::new(),
             debug_items: Vec::new(),
             required_sub_graphs: FastHashSet::default(),
@@ -1019,6 +1025,7 @@ impl PrimitiveFrameScratch {
         self.segments.recycle(recycler);
         self.segment_instances.recycle(recycler);
         self.border_task_ids.recycle(recycler);
+        self.border_segments.recycle(recycler);
         recycler.recycle_vec(&mut self.clip_mask_instances);
         recycler.recycle_vec(&mut self.debug_items);
         recycler.recycle_vec(&mut self.quad_direct_segments);
@@ -1037,6 +1044,7 @@ impl PrimitiveFrameScratch {
         self.segments.clear();
         self.segment_instances.clear();
         self.border_task_ids.clear();
+        self.border_segments.clear();
 
         // Clear the clip mask tasks for the beginning of the frame. Append
         // a single kind representing no clip mask, at the ClipTaskIndex::INVALID

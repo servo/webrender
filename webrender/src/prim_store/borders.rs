@@ -4,9 +4,10 @@
 
 use api::{BorderStyle, NormalBorder, PremultipliedColorF, RasterSpace, Shadow};
 use api::units::*;
-use crate::border::{build_border_instances, create_border_segments, get_max_scale_for_border};
+use crate::border::{self, build_border_instances, get_max_scale_for_border};
 use crate::border::NormalBorderAu;
 use crate::gpu_types::ImageBrushPrimitiveData;
+use crate::render_backend::DataStores;
 use crate::render_task_cache::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent, to_cache_size};
 use crate::renderer::GpuBufferWriterF;
 use crate::scene_building::{CreateShadow, IsVisible};
@@ -14,13 +15,14 @@ use crate::frame_builder::{FrameBuildingContext, FrameBuildingState};
 use crate::intern;
 use crate::internal_types::{LayoutPrimitiveInfo, FrameId};
 use crate::prim_store::{
-    BorderSegmentInfo, BrushSegment, InternablePrimitive, NinePatchDescriptor, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveKind, PrimitiveOpacity, PrimitiveStore, VECS_PER_SEGMENT
+    BorderSegmentInfo, BrushSegment, InternablePrimitive, NinePatchDescriptor, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveKind, PrimitiveOpacity, PrimitiveScratchBuffer, PrimitiveStore, VECS_PER_SEGMENT
 };
 use crate::resource_cache::ImageRequest;
 use crate::render_task::{RenderTask, RenderTaskKind};
 use crate::render_task_graph::RenderTaskId;
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::util::clamp_to_scale_factor;
+use crate::visibility::KindScratchHandle;
 
 use crate::prim_store::storage;
 
@@ -31,6 +33,66 @@ pub struct NormalBorderScratch {
     /// Range into `PrimitiveScratchBuffer::border_task_ids` holding the
     /// cached render-task ids for this border's segments.
     pub task_ids: storage::Range<RenderTaskId>,
+    /// Range into `PrimitiveFrameScratch::segments` holding the per-
+    /// frame brush segments for this border. Built fresh each frame
+    /// against the prim's current size in `prepare_prim_for_render`,
+    /// so the segmentation matches the rendered rect.
+    pub brush_segments_range: storage::Range<BrushSegment>,
+    /// Range into `PrimitiveFrameScratch::border_segments` holding the
+    /// per-frame edge/corner cache-key + task-size records for this
+    /// border. Parallel to `brush_segments_range` and built alongside.
+    pub border_segments_range: storage::Range<BorderSegmentInfo>,
+}
+
+impl NormalBorderScratch {
+    /// Build the per-frame brush + border segments and the parallel
+    /// task-id slot for a NormalBorder prim, push the resulting
+    /// `NormalBorderScratch` entry, and wire it up to the prim's
+    /// `PrimitiveDrawHeader.kind_scratch`.
+    ///
+    /// Called from the prep-pass before `update_clip_task` runs, since
+    /// `update_clip_task_for_brush` reads the brush segments via the
+    /// `NormalBorderScratch` allocated here. The segment list is built
+    /// against `common.prim_size`, with the two arenas
+    /// (`scratch.frame.segments` and `scratch.frame.border_segments`)
+    /// receiving direct pushes through `data_mut` to avoid intermediate
+    /// `Vec` allocations.
+    pub fn build_for_prim(
+        data_handle: NormalBorderDataHandle,
+        prim_instance_index: PrimitiveInstanceIndex,
+        data_stores: &DataStores,
+        scratch: &mut PrimitiveScratchBuffer,
+    ) {
+        let prim_data = &data_stores.normal_border[data_handle];
+        let prim_size = prim_data.common.prim_size;
+        let border = &prim_data.kind.border;
+        let widths = &prim_data.kind.widths;
+
+        let brush_open = scratch.frame.segments.open_range();
+        let border_open = scratch.frame.border_segments.open_range();
+        border::create_border_segments(
+            prim_size,
+            border,
+            widths,
+            scratch.frame.border_segments.data_mut(),
+            scratch.frame.segments.data_mut(),
+        );
+        let brush_segments_range = scratch.frame.segments.close_range(brush_open);
+        let border_segments_range = scratch.frame.border_segments.close_range(border_open);
+
+        let segment_count = border_segments_range.end.0
+            .saturating_sub(border_segments_range.start.0) as usize;
+        let task_ids = scratch.frame.border_task_ids.extend(
+            std::iter::repeat(RenderTaskId::INVALID).take(segment_count),
+        );
+        let handle = scratch.frame.normal_border.push(NormalBorderScratch {
+            task_ids,
+            brush_segments_range,
+            border_segments_range,
+        });
+        scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
+            KindScratchHandle::NormalBorder(handle);
+    }
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -61,8 +123,6 @@ impl intern::InternDebug for NormalBorderKey {}
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(MallocSizeOf)]
 pub struct NormalBorderData {
-    pub brush_segments: Vec<BrushSegment>,
-    pub border_segments: Vec<BorderSegmentInfo>,
     pub border: NormalBorder,
     pub widths: LayoutSideOffsets,
 }
@@ -75,9 +135,10 @@ impl NormalBorderData {
     pub fn write_brush_gpu_blocks(
         &mut self,
         common: &mut PrimTemplateCommonData,
+        brush_segments: &[BrushSegment],
         frame_state: &mut FrameBuildingState,
     ) {
-        let mut writer = frame_state.frame_gpu_data.f32.write_blocks(3 + self.brush_segments.len() * VECS_PER_SEGMENT);
+        let mut writer = frame_state.frame_gpu_data.f32.write_blocks(3 + brush_segments.len() * VECS_PER_SEGMENT);
 
         // Border primitives currently used for
         // image borders, and run through the
@@ -88,7 +149,7 @@ impl NormalBorderData {
             stretch_size: common.prim_size,
         });
 
-        for segment in &self.brush_segments {
+        for segment in brush_segments {
             segment.write_gpu_blocks(&mut writer);
         }
 
@@ -99,6 +160,7 @@ impl NormalBorderData {
     pub fn update(
         &mut self,
         common_data: &mut PrimTemplateCommonData,
+        border_segments: &[BorderSegmentInfo],
         prim_spatial_node_index: SpatialNodeIndex,
         device_pixel_scale: DevicePixelScale,
         frame_context: &FrameBuildingContext,
@@ -133,7 +195,7 @@ impl NormalBorderData {
         // Pick the maximum dimension as scale
         let world_scale = LayoutToWorldScale::new(scale_width.max(scale_height));
         let mut scale = world_scale * device_pixel_scale;
-        let max_scale = get_max_scale_for_border(self);
+        let max_scale = get_max_scale_for_border(border_segments);
         scale.0 = scale.0.min(max_scale.0);
 
         // For each edge and corner, request the render task by content key
@@ -142,7 +204,7 @@ impl NormalBorderData {
         // TODO: this does not ensure that segments will be in the same cache
         // texture, though? The brush code path relies on that.
 
-        for (i, segment) in self.border_segments.iter().enumerate() {
+        for (i, segment) in border_segments.iter().enumerate() {
             // Update the cache key device size based on requested scale.
             let cache_size = to_cache_size(segment.local_task_size, &mut scale);
             let cache_key = RenderTaskCacheKey {
@@ -190,22 +252,9 @@ impl From<NormalBorderKey> for NormalBorderTemplate {
         // FIXME(emilio): Is this the best place to do this?
         border.normalize(&widths);
 
-        let mut brush_segments = Vec::new();
-        let mut border_segments = Vec::new();
-
-        create_border_segments(
-            common.prim_size,
-            &border,
-            &widths,
-            &mut border_segments,
-            &mut brush_segments,
-        );
-
         NormalBorderTemplate {
             common,
             kind: NormalBorderData {
-                brush_segments,
-                border_segments,
                 border,
                 widths,
             }
@@ -440,7 +489,7 @@ fn test_struct_sizes() {
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<NormalBorderPrim>(), 84, "NormalBorderPrim size changed");
-    assert_eq!(mem::size_of::<NormalBorderTemplate>(), 208, "NormalBorderTemplate size changed");
+    assert_eq!(mem::size_of::<NormalBorderTemplate>(), 152, "NormalBorderTemplate size changed");
     assert_eq!(mem::size_of::<NormalBorderKey>(), 96, "NormalBorderKey size changed");
     assert_eq!(mem::size_of::<ImageBorder>(), 68, "ImageBorder size changed");
     assert_eq!(mem::size_of::<ImageBorderTemplate>(), 96, "ImageBorderTemplate size changed");
