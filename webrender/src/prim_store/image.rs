@@ -57,8 +57,9 @@ pub struct ImageCacheKey {
 
 /// Per-frame scratch data for an Image primitive. Captures the per-frame
 /// outputs of `ImageData::update`: the source render task (or a Range of
-/// per-tile tasks for tiled images), normalized-uvs flag, and any image
-/// adjustment from snapshots. Pushed during prepare and read by batch.
+/// per-tile tasks for tiled images), normalized-uvs flag, image
+/// adjustment from snapshots, and a tight local clip rect derived from
+/// the prim's clip chain. Pushed during prepare and read by batch.
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct ImageScratch {
@@ -73,6 +74,12 @@ pub struct ImageScratch {
     /// Adjustment applied when sampling from a wider source (e.g.
     /// snapshot images).
     pub adjustment: AdjustedImageSource,
+    /// Tight local clip rect derived from the prim's clip chain. We
+    /// rely on having this in cases where decomposing repeated images
+    /// can produce primitives that partially cover the original image
+    /// rect, and for snapshot images where the snapshot area is
+    /// tighter than the rasterized area.
+    pub tight_local_clip_rect: LayoutRect,
 }
 
 impl ImageScratch {
@@ -82,18 +89,9 @@ impl ImageScratch {
             src_color: None,
             normalized_uvs: false,
             adjustment: AdjustedImageSource::new(),
+            tight_local_clip_rect: LayoutRect::zero(),
         }
     }
-}
-
-/// Scene-retained state for an Image primitive that can't be expressed
-/// in the interned template (per-instance, identifies a specific image
-/// reference). Per-frame fields have moved to `ImageScratch`. The
-/// segment_instance_index lives on PrimitiveDrawHeader.
-#[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-pub struct ImageInstance {
-    pub tight_local_clip_rect: LayoutRect,
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -157,7 +155,6 @@ impl ImageData {
     pub fn update(
         &mut self,
         common: &mut PrimTemplateCommonData,
-        image_instance: &mut ImageInstance,
         prim_instance_index: PrimitiveInstanceIndex,
         prim_spatial_node_index: SpatialNodeIndex,
         frame_state: &mut FrameBuildingState,
@@ -204,9 +201,9 @@ impl ImageData {
             .clip_chain
             .local_clip_rect
             .intersection(&prim_rect).unwrap();
-        image_instance.tight_local_clip_rect = tight_clip_rect;
 
         let mut image_scratch = ImageScratch::empty();
+        image_scratch.tight_local_clip_rect = tight_clip_rect;
 
         match image_properties {
             // Non-tiled (most common) path.
@@ -612,17 +609,10 @@ impl InternablePrimitive for Image {
     fn make_instance_kind(
         _key: ImageKey,
         data_handle: ImageDataHandle,
-        prim_store: &mut PrimitiveStore,
+        _prim_store: &mut PrimitiveStore,
     ) -> PrimitiveKind {
-        // TODO(gw): Refactor this to not need a separate image
-        //           instance (see ImageInstance struct).
-        let image_instance_index = prim_store.images.push(ImageInstance {
-            tight_local_clip_rect: LayoutRect::zero(),
-        });
-
         PrimitiveKind::Image {
             data_handle,
-            image_instance_index,
             compositor_surface_kind: CompositorSurfaceKind::Blit,
         }
     }

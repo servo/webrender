@@ -775,13 +775,12 @@ fn prepare_interned_prim_for_render(
                 }
             );
         }
-        PrimitiveKind::Image { data_handle, image_instance_index, .. } => {
+        PrimitiveKind::Image { data_handle, .. } => {
             profile_scope!("Image");
 
             let prim_data = &mut data_stores.image[*data_handle];
             let common_data = &mut prim_data.common;
             let image_data = &mut prim_data.kind;
-            let image_instance = &mut store.images[*image_instance_index];
 
             if !use_legacy_path {
                 let prim_rect = LayoutRect::from_origin_and_size(
@@ -811,7 +810,6 @@ fn prepare_interned_prim_for_render(
             // cache with any shared template data.
             let img_scratch_handle = image_data.update(
                 common_data,
-                image_instance,
                 prim_instance_index,
                 prim_spatial_node_index,
                 frame_state,

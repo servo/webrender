@@ -43,7 +43,7 @@ pub mod storage;
 use backdrop::{BackdropCaptureDataHandle, BackdropRenderDataHandle, BackdropRenderScratch};
 use borders::{ImageBorderDataHandle, NormalBorderDataHandle, NormalBorderScratch};
 use gradient::{LinearGradientDataHandle, RadialGradientDataHandle, ConicGradientDataHandle};
-use image::{ImageDataHandle, ImageInstance, ImageScratch, VisibleImageTile, YuvImageDataHandle};
+use image::{ImageDataHandle, ImageScratch, VisibleImageTile, YuvImageDataHandle};
 use line_dec::{LineDecorationDataHandle, LineDecorationScratch};
 use picture::PictureDataHandle;
 use rectangle::RectangleDataHandle;
@@ -770,7 +770,6 @@ pub enum PrimitiveKind {
     Image {
         /// Handle to the common interned data for this primitive.
         data_handle: ImageDataHandle,
-        image_instance_index: ImageInstanceIndex,
         compositor_surface_kind: CompositorSurfaceKind,
     },
     LinearGradient {
@@ -910,9 +909,6 @@ pub type SegmentStorage = storage::Storage<BrushSegment>;
 pub type SegmentsRange = storage::Range<BrushSegment>;
 pub type SegmentInstanceStorage = storage::Storage<BrushSegmentation>;
 pub type SegmentInstanceIndex = storage::Index<BrushSegmentation>;
-pub type ImageInstanceStorage = storage::Storage<ImageInstance>;
-pub type ImageInstanceIndex = storage::Index<ImageInstance>;
-
 /// Per-frame scratch storage. All fields are cleared every frame in
 /// `begin_frame`. Anything written here lives only for the current frame.
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -1255,7 +1251,6 @@ impl PrimitiveScratchBuffer {
 pub struct PrimitiveStoreStats {
     picture_count: usize,
     text_run_count: usize,
-    image_count: usize,
     color_binding_count: usize,
 }
 
@@ -1264,7 +1259,6 @@ impl PrimitiveStoreStats {
         PrimitiveStoreStats {
             picture_count: 0,
             text_run_count: 0,
-            image_count: 0,
             color_binding_count: 0,
         }
     }
@@ -1274,10 +1268,6 @@ impl PrimitiveStoreStats {
 pub struct PrimitiveStore {
     pub pictures: Vec<PictureInstance>,
     pub text_runs: TextRunStorage,
-    /// A list of image instances. These are stored separately as
-    /// storing them inline in the instance makes the structure bigger
-    /// for other types.
-    pub images: ImageInstanceStorage,
 
     /// animated color bindings for this primitive.
     pub color_bindings: ColorBindingStorage,
@@ -1288,7 +1278,6 @@ impl PrimitiveStore {
         PrimitiveStore {
             pictures: Vec::with_capacity(stats.picture_count),
             text_runs: TextRunStorage::new(stats.text_run_count),
-            images: ImageInstanceStorage::new(stats.image_count),
             color_bindings: ColorBindingStorage::new(stats.color_binding_count),
         }
     }
@@ -1296,7 +1285,6 @@ impl PrimitiveStore {
     pub fn reset(&mut self) {
         self.pictures.clear();
         self.text_runs.clear();
-        self.images.clear();
         self.color_bindings.clear();
     }
 
@@ -1304,7 +1292,6 @@ impl PrimitiveStore {
         PrimitiveStoreStats {
             picture_count: self.pictures.len(),
             text_run_count: self.text_runs.len(),
-            image_count: self.images.len(),
             color_binding_count: self.color_bindings.len(),
         }
     }

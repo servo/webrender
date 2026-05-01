@@ -2160,7 +2160,7 @@ impl BatchBuilder {
                     render_tasks,
                 );
             }
-            PrimitiveKind::Image { data_handle, image_instance_index, compositor_surface_kind, .. } => {
+            PrimitiveKind::Image { data_handle, compositor_surface_kind, .. } => {
                 let img_scratch_handle = prim_info.kind_scratch.unwrap_image();
                 if compositor_surface_kind.needs_cutout() {
                     self.add_compositor_surface_cutout(
@@ -2179,7 +2179,6 @@ impl BatchBuilder {
                 }
 
                 let image_data = &ctx.data_stores.image[data_handle].kind;
-                let image_instance = &ctx.prim_store.images[image_instance_index];
                 let image_scratch = &ctx.scratch.frame.images[img_scratch_handle];
                 let visible_tiles = &ctx.scratch.frame.visible_image_tiles[image_scratch.visible_tiles];
                 let prim_user_data = ImageBrushUserData {
@@ -2231,7 +2230,7 @@ impl BatchBuilder {
                     };
 
                     let local_rect = image_scratch.adjustment.map_local_rect(&prim_rect);
-                    let local_clip_rect = image_instance.tight_local_clip_rect
+                    let local_clip_rect = image_scratch.tight_local_clip_rect
                         .intersection_unchecked(&local_rect);
 
                     let prim_header = PrimitiveHeader {
@@ -2295,7 +2294,7 @@ impl BatchBuilder {
                         let specific_prim_address = writer.finish();
 
                         let prim_header = PrimitiveHeader {
-                            local_clip_rect: image_instance.tight_local_clip_rect,
+                            local_clip_rect: image_scratch.tight_local_clip_rect,
                             specific_prim_address: specific_prim_address.as_int(),
                             user_data: prim_user_data,
                             ..base_prim_header
