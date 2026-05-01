@@ -1611,7 +1611,11 @@ impl BatchBuilder {
             }
             PrimitiveKind::ImageBorder { data_handle, .. } => {
                 let prim_data = &ctx.data_stores.image_border[data_handle];
-                Some((prim_data.kind.src_color, prim_data.kind.brush_segments.as_slice()))
+                let ib_handle = prim_info.kind_scratch.unwrap_image_border();
+                let brush_segments_range =
+                    ctx.scratch.frame.image_border[ib_handle].brush_segments_range;
+                let brush_segments = &ctx.scratch.frame.segments[brush_segments_range];
+                Some((prim_data.kind.src_color, brush_segments))
             }
             _ => None,
         };

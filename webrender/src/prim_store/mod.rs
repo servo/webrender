@@ -39,7 +39,7 @@ pub mod interned;
 pub mod storage;
 
 use backdrop::{BackdropCaptureDataHandle, BackdropRenderDataHandle, BackdropRenderScratch};
-use borders::{ImageBorderDataHandle, NormalBorderDataHandle, NormalBorderScratch};
+use borders::{ImageBorderDataHandle, ImageBorderScratch, NormalBorderDataHandle, NormalBorderScratch};
 use gradient::{LinearGradientDataHandle, RadialGradientDataHandle, ConicGradientDataHandle};
 use image::{ImageDataHandle, ImageScratch, VisibleImageTile, YuvImageDataHandle};
 use line_dec::{LineDecorationDataHandle, LineDecorationScratch};
@@ -969,6 +969,11 @@ pub struct PrimitiveFrameScratch {
     /// stores the resulting range on `NormalBorderScratch`.
     pub border_segments: storage::Storage<BorderSegmentInfo>,
 
+    /// Per-frame scratch for ImageBorder primitives. Holds the range
+    /// into `segments` for the nine-patch brush segments built each
+    /// frame against the prim's size.
+    pub image_border: storage::Storage<ImageBorderScratch>,
+
     /// Contains a list of clip mask instance parameters
     /// per segment generated.
     pub clip_mask_instances: Vec<ClipMaskKind>,
@@ -1002,6 +1007,7 @@ impl Default for PrimitiveFrameScratch {
             segment_instances: SegmentInstanceStorage::new(0),
             border_task_ids: storage::Storage::new(0),
             border_segments: storage::Storage::new(0),
+            image_border: storage::Storage::new(0),
             clip_mask_instances: Vec::new(),
             debug_items: Vec::new(),
             required_sub_graphs: FastHashSet::default(),
@@ -1026,6 +1032,7 @@ impl PrimitiveFrameScratch {
         self.segment_instances.recycle(recycler);
         self.border_task_ids.recycle(recycler);
         self.border_segments.recycle(recycler);
+        self.image_border.recycle(recycler);
         recycler.recycle_vec(&mut self.clip_mask_instances);
         recycler.recycle_vec(&mut self.debug_items);
         recycler.recycle_vec(&mut self.quad_direct_segments);
@@ -1045,6 +1052,7 @@ impl PrimitiveFrameScratch {
         self.segment_instances.clear();
         self.border_task_ids.clear();
         self.border_segments.clear();
+        self.image_border.clear();
 
         // Clear the clip mask tasks for the beginning of the frame. Append
         // a single kind representing no clip mask, at the ClipTaskIndex::INVALID

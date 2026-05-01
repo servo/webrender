@@ -25,7 +25,7 @@ use crate::tile_cache::SubSliceIndex;
 use crate::prim_store::{ClipTaskIndex, PictureIndex, PrimitiveKind, SegmentInstanceIndex};
 use crate::prim_store::{PrimitiveStore, PrimitiveInstance, PrimitiveInstanceIndex};
 use crate::prim_store::backdrop::BackdropRenderScratch;
-use crate::prim_store::borders::NormalBorderScratch;
+use crate::prim_store::borders::{ImageBorderScratch, NormalBorderScratch};
 use crate::prim_store::image::ImageScratch;
 use crate::prim_store::line_dec::LineDecorationScratch;
 use crate::prim_store::storage;
@@ -126,6 +126,7 @@ pub enum KindScratchHandle {
     None,
     LineDecoration(storage::Index<LineDecorationScratch>),
     NormalBorder(storage::Index<NormalBorderScratch>),
+    ImageBorder(storage::Index<ImageBorderScratch>),
     Image(storage::Index<ImageScratch>),
     TextRun(storage::Index<TextRunScratch>),
     Picture(storage::Index<PictureScratch>),
@@ -146,6 +147,12 @@ impl KindScratchHandle {
         match *self {
             KindScratchHandle::NormalBorder(h) => h,
             _ => panic!("kind_scratch mismatch: expected NormalBorder, got {:?}", self),
+        }
+    }
+    pub fn unwrap_image_border(&self) -> storage::Index<ImageBorderScratch> {
+        match *self {
+            KindScratchHandle::ImageBorder(h) => h,
+            _ => panic!("kind_scratch mismatch: expected ImageBorder, got {:?}", self),
         }
     }
     pub fn unwrap_image(&self) -> storage::Index<ImageScratch> {

@@ -342,13 +342,56 @@ impl ImageBorderKey {
 impl intern::InternDebug for ImageBorderKey {}
 
 
+/// Per-frame scratch data for an ImageBorder primitive.
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+pub struct ImageBorderScratch {
+    /// Range into `PrimitiveFrameScratch::segments` holding the per-
+    /// frame nine-patch brush segments for this border. Built fresh
+    /// each frame against the prim's current size in
+    /// `prepare_prim_for_render`.
+    pub brush_segments_range: storage::Range<BrushSegment>,
+}
+
+impl ImageBorderScratch {
+    /// Build the per-frame nine-patch brush segments for an ImageBorder
+    /// prim, push the resulting `ImageBorderScratch` entry, and wire it
+    /// up to the prim's `PrimitiveDrawHeader.kind_scratch`.
+    ///
+    /// Called from the prep early pass before `update_clip_task` runs,
+    /// since `update_clip_task_for_brush` reads the brush segments via
+    /// the scratch entry allocated here.
+    pub fn build_for_prim(
+        data_handle: ImageBorderDataHandle,
+        prim_instance_index: PrimitiveInstanceIndex,
+        data_stores: &DataStores,
+        scratch: &mut PrimitiveScratchBuffer,
+    ) {
+        let prim_data = &data_stores.image_border[data_handle];
+        let prim_size = prim_data.common.prim_size;
+        let nine_patch = &prim_data.kind.nine_patch;
+
+        let brush_open = scratch.frame.segments.open_range();
+        scratch.frame.segments.data_mut().extend(
+            nine_patch.create_brush_segments(prim_size),
+        );
+        let brush_segments_range = scratch.frame.segments.close_range(brush_open);
+
+        let handle = scratch.frame.image_border.push(ImageBorderScratch {
+            brush_segments_range,
+        });
+        scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
+            KindScratchHandle::ImageBorder(handle);
+    }
+}
+
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(MallocSizeOf)]
 pub struct ImageBorderData {
     #[ignore_malloc_size_of = "Arc"]
     pub request: ImageRequest,
-    pub brush_segments: Vec<BrushSegment>,
+    pub nine_patch: NinePatchDescriptor,
     pub src_color: Option<RenderTaskId>,
     pub frame_id: FrameId,
     pub is_opaque: bool,
@@ -362,11 +405,12 @@ impl ImageBorderData {
     pub fn update(
         &mut self,
         common: &mut PrimTemplateCommonData,
+        brush_segments: &[BrushSegment],
         frame_state: &mut FrameBuildingState,
     ) {
-        let mut writer = frame_state.frame_gpu_data.f32.write_blocks(3 + self.brush_segments.len() * VECS_PER_SEGMENT);
+        let mut writer = frame_state.frame_gpu_data.f32.write_blocks(3 + brush_segments.len() * VECS_PER_SEGMENT);
         self.write_prim_gpu_blocks(&mut writer, &common.prim_size);
-        self.write_segment_gpu_blocks(&mut writer);
+        Self::write_segment_gpu_blocks(&mut writer, brush_segments);
         common.gpu_buffer_address = writer.finish();
 
         let frame_id = frame_state.rg_builder.frame_id();
@@ -412,10 +456,10 @@ impl ImageBorderData {
     }
 
     fn write_segment_gpu_blocks(
-        &self,
         writer: &mut GpuBufferWriterF,
+        brush_segments: &[BrushSegment],
     ) {
-        for segment in &self.brush_segments {
+        for segment in brush_segments {
             segment.write_gpu_blocks(writer);
         }
     }
@@ -427,12 +471,11 @@ impl From<ImageBorderKey> for ImageBorderTemplate {
     fn from(key: ImageBorderKey) -> Self {
         let common = PrimTemplateCommonData::with_key_common(key.common);
 
-        let brush_segments = key.kind.nine_patch.create_brush_segments(common.prim_size);
         ImageBorderTemplate {
             common,
             kind: ImageBorderData {
                 request: key.kind.request,
-                brush_segments,
+                nine_patch: key.kind.nine_patch,
                 src_color: None,
                 frame_id: FrameId::INVALID,
                 is_opaque: false,
@@ -492,6 +535,6 @@ fn test_struct_sizes() {
     assert_eq!(mem::size_of::<NormalBorderTemplate>(), 152, "NormalBorderTemplate size changed");
     assert_eq!(mem::size_of::<NormalBorderKey>(), 96, "NormalBorderKey size changed");
     assert_eq!(mem::size_of::<ImageBorder>(), 68, "ImageBorder size changed");
-    assert_eq!(mem::size_of::<ImageBorderTemplate>(), 96, "ImageBorderTemplate size changed");
+    assert_eq!(mem::size_of::<ImageBorderTemplate>(), 112, "ImageBorderTemplate size changed");
     assert_eq!(mem::size_of::<ImageBorderKey>(), 80, "ImageBorderKey size changed");
 }

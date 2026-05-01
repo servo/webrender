@@ -30,7 +30,7 @@ use crate::picture::{PrimitiveList, PrimitiveCluster, SurfaceIndex, SubpixelMode
 use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::prim_store::*;
 use crate::prim_store::backdrop::BackdropRenderScratch;
-use crate::prim_store::borders::NormalBorderScratch;
+use crate::prim_store::borders::{ImageBorderScratch, NormalBorderScratch};
 use crate::prim_store::line_dec::LineDecorationScratch;
 use crate::quad::{self, QuadTransformState};
 use crate::render_backend::DataStores;
@@ -302,12 +302,19 @@ fn prepare_prim_for_render(
 
         // Per-frame, per-kind segment construction that has to run
         // before update_clip_task (which reads the segments via
-        // update_clip_task_for_brush). Other prim kinds with retained
-        // template-time segments will be migrated here following the
-        // same pattern (ImageBorder, LinearGradient nine-patch).
+        // update_clip_task_for_brush). LinearGradient nine-patch will
+        // follow the same pattern in a later patch.
         match prim_instance.kind {
             PrimitiveKind::NormalBorder { data_handle } => {
                 NormalBorderScratch::build_for_prim(
+                    data_handle,
+                    PrimitiveInstanceIndex(prim_instance_index as u32),
+                    data_stores,
+                    scratch,
+                );
+            }
+            PrimitiveKind::ImageBorder { data_handle } => {
+                ImageBorderScratch::build_for_prim(
                     data_handle,
                     PrimitiveInstanceIndex(prim_instance_index as u32),
                     data_stores,
@@ -714,14 +721,23 @@ fn prepare_interned_prim_for_render(
             profile_scope!("ImageBorder");
             let prim_data = &mut data_stores.image_border[*data_handle];
 
-            // TODO: get access to the ninepatch and to check whether we need support
-            // for repetitions in the shader.
+            // The per-frame brush segments were allocated in
+            // prepare_prim_for_render before update_clip_task; the
+            // kind_scratch handle on this prim's PrimitiveDrawHeader
+            // points to the ImageBorderScratch.
+            let ib_handle = scratch.frame.draws[prim_instance_index.0 as usize]
+                .kind_scratch
+                .unwrap_image_border();
+            let brush_segments_range =
+                scratch.frame.image_border[ib_handle].brush_segments_range;
+            let brush_segments = &scratch.frame.segments[brush_segments_range];
 
             // Update the template this instance references, which may refresh the GPU
             // cache with any shared template data.
             prim_data.kind.update(
                 &mut prim_data.common,
-                frame_state
+                brush_segments,
+                frame_state,
             );
         }
         PrimitiveKind::Rectangle { data_handle, .. } => {
@@ -1345,7 +1361,7 @@ fn write_segment<F>(
 fn update_clip_task_for_brush(
     instance: &PrimitiveInstance,
     prim_segment_instance_index: SegmentInstanceIndex,
-    prim_normal_border_brush_segments_range: storage::Range<BrushSegment>,
+    prim_brush_segments_range: storage::Range<BrushSegment>,
     prim_clip_chain: &ClipChainInstance,
     prim_origin: &LayoutPoint,
     prim_spatial_node_index: SpatialNodeIndex,
@@ -1383,22 +1399,16 @@ fn update_clip_task_for_brush(
 
             &segments_store[segment_instance.segments_range]
         }
-        PrimitiveKind::ImageBorder { data_handle, .. } => {
-            let border_data = &data_stores.image_border[data_handle].kind;
-
-            // TODO: This is quite messy - once we remove legacy primitives we
-            //       can change this to be a tuple match on (instance, template)
-            border_data.brush_segments.as_slice()
-        }
-        PrimitiveKind::NormalBorder { .. } => {
+        PrimitiveKind::NormalBorder { .. } |
+        PrimitiveKind::ImageBorder { .. } => {
             // Per-frame brush segments live in scratch.frame.segments;
             // the range was captured in prepare_prim_for_render and is
-            // stored on this prim's NormalBorderScratch. The caller
+            // stored on the prim's per-kind scratch. The caller
             // resolves the range from there and passes it through.
-            if prim_normal_border_brush_segments_range.is_empty() {
+            if prim_brush_segments_range.is_empty() {
                 return None;
             }
-            &segments_store[prim_normal_border_brush_segments_range]
+            &segments_store[prim_brush_segments_range]
         }
         PrimitiveKind::LinearGradient { data_handle, .. } => {
             let prim_data = &data_stores.linear_grad[data_handle];
@@ -1520,22 +1530,29 @@ pub fn update_clip_task(
 
     // First try to  render this primitive's mask using optimized brush rendering.
     let prim_segment_instance_index = scratch.frame.draws[prim_instance_index.0 as usize].segment_instance_index;
-    // For NormalBorder, resolve the per-frame brush-segments range from
-    // the prim's NormalBorderScratch (allocated in prepare_prim_for_render
-    // before this point). Empty range for any other kind.
-    let prim_normal_border_brush_segments_range = match instance.kind {
+    // For border kinds with per-frame brush segments, resolve the
+    // range from the prim's per-kind scratch (allocated in
+    // prepare_prim_for_render before this point). Empty range for any
+    // other kind.
+    let prim_brush_segments_range = match instance.kind {
         PrimitiveKind::NormalBorder { .. } => {
             let nb_handle = scratch.frame.draws[prim_instance_index.0 as usize]
                 .kind_scratch
                 .unwrap_normal_border();
             scratch.frame.normal_border[nb_handle].brush_segments_range
         }
+        PrimitiveKind::ImageBorder { .. } => {
+            let ib_handle = scratch.frame.draws[prim_instance_index.0 as usize]
+                .kind_scratch
+                .unwrap_image_border();
+            scratch.frame.image_border[ib_handle].brush_segments_range
+        }
         _ => storage::Range::empty(),
     };
     let new_clip_task_index = if let Some(clip_task_index) = update_clip_task_for_brush(
         instance,
         prim_segment_instance_index,
-        prim_normal_border_brush_segments_range,
+        prim_brush_segments_range,
         &clip_chain_snapshot,
         prim_origin,
         prim_spatial_node_index,
