@@ -8,7 +8,7 @@ use crate::intern;
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
     PrimKey, InternablePrimitive, PrimitiveStore, PrimitiveKind,
-    ColorBindingIndex, SegmentInstanceIndex,
+    ColorBindingIndex,
     PrimTemplate, PrimTemplateCommonData, PrimitiveOpacity,
 };
 use crate::frame_builder::FrameBuildingState;
@@ -62,7 +62,6 @@ impl InternablePrimitive for RectanglePrim {
         };
         PrimitiveKind::Rectangle {
             data_handle,
-            segment_instance_index: SegmentInstanceIndex::INVALID,
             color_binding_index,
         }
     }

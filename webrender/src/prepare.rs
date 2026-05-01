@@ -701,7 +701,7 @@ fn prepare_interned_prim_for_render(
                 frame_state
             );
         }
-        PrimitiveKind::Rectangle { data_handle, segment_instance_index, .. } => {
+        PrimitiveKind::Rectangle { data_handle, .. } => {
             profile_scope!("Rectangle");
 
             if use_legacy_path {
@@ -716,10 +716,10 @@ fn prepare_interned_prim_for_render(
                 );
 
                 write_segment(
-                    *segment_instance_index,
+                    prim_info.segment_instance_index,
                     frame_state,
-                    &mut scratch.scene.segments,
-                    &mut scratch.scene.segment_instances,
+                    &mut scratch.frame.segments,
+                    &mut scratch.frame.segment_instances,
                     |request| {
                         request.push_one(frame_context.scene_properties.resolve_color(&prim_data.kind.color).premultiplied());
                     }
@@ -749,7 +749,7 @@ fn prepare_interned_prim_for_render(
                 return;
             }
         }
-        PrimitiveKind::YuvImage { data_handle, segment_instance_index, compositor_surface_kind, .. } => {
+        PrimitiveKind::YuvImage { data_handle, compositor_surface_kind, .. } => {
             profile_scope!("YuvImage");
             let prim_data = &mut data_stores.yuv_image[*data_handle];
             let common_data = &mut prim_data.common;
@@ -766,10 +766,10 @@ fn prepare_interned_prim_for_render(
             );
 
             write_segment(
-                *segment_instance_index,
+                prim_info.segment_instance_index,
                 frame_state,
-                &mut scratch.scene.segments,
-                &mut scratch.scene.segment_instances,
+                &mut scratch.frame.segments,
+                &mut scratch.frame.segment_instances,
                 |writer| {
                     yuv_image_data.write_prim_gpu_blocks(writer);
                 }
@@ -824,10 +824,10 @@ fn prepare_interned_prim_for_render(
             let image_adjustment = scratch.frame.images[img_scratch_handle].adjustment;
 
             write_segment(
-                image_instance.segment_instance_index,
+                prim_info.segment_instance_index,
                 frame_state,
-                &mut scratch.scene.segments,
-                &mut scratch.scene.segment_instances,
+                &mut scratch.frame.segments,
+                &mut scratch.frame.segment_instances,
                 |request| {
                     image_data.write_prim_gpu_blocks(&image_adjustment, request);
                 },
@@ -1323,6 +1323,7 @@ fn write_segment<F>(
 
 fn update_clip_task_for_brush(
     instance: &PrimitiveInstance,
+    prim_segment_instance_index: SegmentInstanceIndex,
     prim_clip_chain: &ClipChainInstance,
     prim_origin: &LayoutPoint,
     prim_spatial_node_index: SpatialNodeIndex,
@@ -1332,7 +1333,6 @@ fn update_clip_task_for_brush(
     pic_state: &mut PictureState,
     frame_context: &FrameBuildingContext,
     frame_state: &mut FrameBuildingState,
-    prim_store: &PrimitiveStore,
     data_stores: &mut DataStores,
     segments_store: &mut SegmentStorage,
     segment_instances_store: &mut SegmentInstanceStorage,
@@ -1350,38 +1350,14 @@ fn update_clip_task_for_brush(
         PrimitiveKind::BackdropRender { .. } => {
             return None;
         }
-        PrimitiveKind::Image { image_instance_index, .. } => {
-            let segment_instance_index = prim_store
-                .images[image_instance_index]
-                .segment_instance_index;
-
-            if segment_instance_index == SegmentInstanceIndex::UNUSED {
+        PrimitiveKind::Image { .. } |
+        PrimitiveKind::YuvImage { .. } |
+        PrimitiveKind::Rectangle { .. } => {
+            if prim_segment_instance_index == SegmentInstanceIndex::UNUSED {
                 return None;
             }
 
-            let segment_instance = &segment_instances_store[segment_instance_index];
-
-            &segments_store[segment_instance.segments_range]
-        }
-        PrimitiveKind::YuvImage { segment_instance_index, .. } => {
-            debug_assert!(segment_instance_index != SegmentInstanceIndex::INVALID);
-
-            if segment_instance_index == SegmentInstanceIndex::UNUSED {
-                return None;
-            }
-
-            let segment_instance = &segment_instances_store[segment_instance_index];
-
-            &segments_store[segment_instance.segments_range]
-        }
-        PrimitiveKind::Rectangle { segment_instance_index, .. } => {
-            debug_assert!(segment_instance_index != SegmentInstanceIndex::INVALID);
-
-            if segment_instance_index == SegmentInstanceIndex::UNUSED {
-                return None;
-            }
-
-            let segment_instance = &segment_instances_store[segment_instance_index];
+            let segment_instance = &segment_instances_store[prim_segment_instance_index];
 
             &segments_store[segment_instance.segments_range]
         }
@@ -1506,20 +1482,23 @@ pub fn update_clip_task(
 ) -> bool {
     let device_pixel_scale = frame_state.surfaces[pic_context.surface_index.0].device_pixel_scale;
 
+    let clip_chain_snapshot = scratch.frame.draws[prim_instance_index.0 as usize].clip_chain;
     build_segments_if_needed(
         instance,
-        &scratch.frame.draws[prim_instance_index.0 as usize].clip_chain,
+        prim_instance_index,
+        &clip_chain_snapshot,
         frame_state,
         prim_store,
         data_stores,
-        &mut scratch.scene.segments,
-        &mut scratch.scene.segment_instances,
+        scratch,
     );
 
     // First try to  render this primitive's mask using optimized brush rendering.
+    let prim_segment_instance_index = scratch.frame.draws[prim_instance_index.0 as usize].segment_instance_index;
     let new_clip_task_index = if let Some(clip_task_index) = update_clip_task_for_brush(
         instance,
-        &scratch.frame.draws[prim_instance_index.0 as usize].clip_chain,
+        prim_segment_instance_index,
+        &clip_chain_snapshot,
         prim_origin,
         prim_spatial_node_index,
         root_spatial_node_index,
@@ -1528,10 +1507,9 @@ pub fn update_clip_task(
         pic_state,
         frame_context,
         frame_state,
-        prim_store,
         data_stores,
-        &mut scratch.scene.segments,
-        &mut scratch.scene.segment_instances,
+        &mut scratch.frame.segments,
+        &mut scratch.frame.segment_instances,
         &mut scratch.frame.clip_mask_instances,
         device_pixel_scale,
     ) {
@@ -1697,12 +1675,12 @@ fn write_brush_segment_description(
 
 fn build_segments_if_needed(
     instance: &mut PrimitiveInstance,
+    prim_instance_index: PrimitiveInstanceIndex,
     prim_clip_chain: &ClipChainInstance,
     frame_state: &mut FrameBuildingState,
     prim_store: &mut PrimitiveStore,
     data_stores: &DataStores,
-    segments_store: &mut SegmentStorage,
-    segment_instances_store: &mut SegmentInstanceStorage,
+    scratch: &mut PrimitiveScratchBuffer,
 ) {
 
     // Usually, the primitive rect can be found from information
@@ -1713,22 +1691,21 @@ fn build_segments_if_needed(
         frame_state.surfaces,
     );
 
-    let segment_instance_index = match instance.kind {
-        PrimitiveKind::Rectangle { ref mut segment_instance_index, .. } => {
-            segment_instance_index
+    // Decide whether this kind opts in to segmentation this frame. If
+    // not, leave the per-draw segment_instance_index as its initialized
+    // UNUSED value and bail.
+    match instance.kind {
+        PrimitiveKind::Rectangle { .. } => {
+            // Always opts in.
         }
-        PrimitiveKind::YuvImage { ref mut segment_instance_index, compositor_surface_kind, .. } => {
+        PrimitiveKind::YuvImage { compositor_surface_kind, .. } => {
             // Only use segments for YUV images if not drawing as a compositor surface
             if !compositor_surface_kind.supports_segments() {
-                *segment_instance_index = SegmentInstanceIndex::UNUSED;
                 return;
             }
-
-            segment_instance_index
         }
-        PrimitiveKind::Image { data_handle, image_instance_index, compositor_surface_kind, .. } => {
+        PrimitiveKind::Image { data_handle, compositor_surface_kind, .. } => {
             let image_data = &data_stores.image[data_handle].kind;
-            let image_instance = &mut prim_store.images[image_instance_index];
 
             //Note: tiled images don't support automatic segmentation,
             // they strictly produce one segment per visible tile instead.
@@ -1738,10 +1715,8 @@ fn build_segments_if_needed(
                     .and_then(|properties| properties.tiling)
                     .is_some()
             {
-                image_instance.segment_instance_index = SegmentInstanceIndex::UNUSED;
                 return;
             }
-            &mut image_instance.segment_instance_index
         }
         PrimitiveKind::Picture { .. } |
         PrimitiveKind::TextRun { .. } |
@@ -1761,55 +1736,56 @@ fn build_segments_if_needed(
         }
     };
 
-    if *segment_instance_index == SegmentInstanceIndex::INVALID {
-        let mut segments: SmallVec<[BrushSegment; 8]> = SmallVec::new();
-        let clip_leaf = frame_state.clip_tree.get_leaf(instance.clip_leaf_id);
+    // Per-frame, unconditional segment build. The previous
+    // INVALID-sentinel skip is gone — segments + segment_instances are
+    // per-frame now, so they start empty each frame and we always
+    // rebuild for every visible segmented prim.
+    let mut segments: SmallVec<[BrushSegment; 8]> = SmallVec::new();
+    let clip_leaf = frame_state.clip_tree.get_leaf(instance.clip_leaf_id);
 
-        if write_brush_segment_description(
-            prim_local_rect,
-            clip_leaf.local_clip_rect,
-            prim_clip_chain,
-            &mut frame_state.segment_builder,
-            frame_state.clip_store,
-            data_stores,
-        ) {
-            frame_state.segment_builder.build(|segment| {
-                segments.push(
-                    BrushSegment::new(
-                        segment.rect.translate(-prim_local_rect.min.to_vector()),
-                        segment.has_mask,
-                        segment.edge_flags,
-                        [0.0; 4],
-                        BrushFlags::PERSPECTIVE_INTERPOLATION,
-                    ),
-                );
-            });
-        }
-
-        // If only a single segment is produced, there is no benefit to writing
-        // a segment instance array. Instead, just use the main primitive rect
-        // written into the GPU cache.
-        // TODO(gw): This is (sortof) a bandaid - due to a limitation in the current
-        //           brush encoding, we can only support a total of up to 2^16 segments.
-        //           This should be (more than) enough for any real world case, so for
-        //           now we can handle this by skipping cases where we were generating
-        //           segments where there is no benefit. The long term / robust fix
-        //           for this is to move the segment building to be done as a more
-        //           limited nine-patch system during scene building, removing arbitrary
-        //           segmentation during frame-building (see bug #1617491).
-        if segments.len() <= 1 {
-            *segment_instance_index = SegmentInstanceIndex::UNUSED;
-        } else {
-            let segments_range = segments_store.extend(segments);
-
-            let instance = BrushSegmentation {
-                segments_range,
-                gpu_data: GpuBufferAddress::INVALID,
-            };
-
-            *segment_instance_index = segment_instances_store.push(instance);
-        };
+    if write_brush_segment_description(
+        prim_local_rect,
+        clip_leaf.local_clip_rect,
+        prim_clip_chain,
+        &mut frame_state.segment_builder,
+        frame_state.clip_store,
+        data_stores,
+    ) {
+        frame_state.segment_builder.build(|segment| {
+            segments.push(
+                BrushSegment::new(
+                    segment.rect.translate(-prim_local_rect.min.to_vector()),
+                    segment.has_mask,
+                    segment.edge_flags,
+                    [0.0; 4],
+                    BrushFlags::PERSPECTIVE_INTERPOLATION,
+                ),
+            );
+        });
     }
+
+    // If only a single segment is produced, there is no benefit to writing
+    // a segment instance array. Instead, just use the main primitive rect
+    // written into the GPU cache.
+    // TODO(gw): This is (sortof) a bandaid - due to a limitation in the current
+    //           brush encoding, we can only support a total of up to 2^16 segments.
+    //           This should be (more than) enough for any real world case, so for
+    //           now we can handle this by skipping cases where we were generating
+    //           segments where there is no benefit. The long term / robust fix
+    //           for this is to move the segment building to be done as a more
+    //           limited nine-patch system during scene building, removing arbitrary
+    //           segmentation during frame-building (see bug #1617491).
+    if segments.len() <= 1 {
+        // Leave the per-draw index as its initialized UNUSED value.
+        return;
+    }
+
+    let segments_range = scratch.frame.segments.extend(segments);
+    let new_index = scratch.frame.segment_instances.push(BrushSegmentation {
+        segments_range,
+        gpu_data: GpuBufferAddress::INVALID,
+    });
+    scratch.frame.draws[prim_instance_index.0 as usize].segment_instance_index = new_index;
 }
 
 // Ensures that the size of mask render tasks are within MAX_MASK_SIZE.

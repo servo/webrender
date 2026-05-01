@@ -1588,16 +1588,16 @@ impl BatchBuilder {
         };
 
         let segment_instance_index = match prim_instance.kind {
-            PrimitiveKind::Rectangle { segment_instance_index, .. }
-            | PrimitiveKind::YuvImage { segment_instance_index, .. } => segment_instance_index,
+            PrimitiveKind::Rectangle { .. }
+            | PrimitiveKind::YuvImage { .. } => prim_info.segment_instance_index,
             _ => SegmentInstanceIndex::UNUSED,
         };
 
         let (prim_cache_address, segments) = if segment_instance_index == SegmentInstanceIndex::UNUSED {
             (common_data.gpu_buffer_address, None)
         } else {
-            let segment_instance = &ctx.scratch.scene.segment_instances[segment_instance_index];
-            let segments = Some(&ctx.scratch.scene.segments[segment_instance.segments_range]);
+            let segment_instance = &ctx.scratch.frame.segment_instances[segment_instance_index];
+            let segments = Some(&ctx.scratch.frame.segments[segment_instance.segments_range]);
             (segment_instance.gpu_data, segments)
         };
 
@@ -2065,7 +2065,8 @@ impl BatchBuilder {
                     render_tasks,
                 );
             }
-            PrimitiveKind::YuvImage { data_handle, segment_instance_index, compositor_surface_kind, .. } => {
+            PrimitiveKind::YuvImage { data_handle, compositor_surface_kind, .. } => {
+                let segment_instance_index = prim_info.segment_instance_index;
                 if compositor_surface_kind.needs_cutout() {
                     self.add_compositor_surface_cutout(
                         prim_rect,
@@ -2221,12 +2222,11 @@ impl BatchBuilder {
                         uv_rect_address.as_int(),
                     );
 
-                    debug_assert_ne!(image_instance.segment_instance_index, SegmentInstanceIndex::INVALID);
-                    let (prim_cache_address, segments) = if image_instance.segment_instance_index == SegmentInstanceIndex::UNUSED {
+                    let (prim_cache_address, segments) = if prim_info.segment_instance_index == SegmentInstanceIndex::UNUSED {
                         (prim_cache_address, None)
                     } else {
-                        let segment_instance = &ctx.scratch.scene.segment_instances[image_instance.segment_instance_index];
-                        let segments = Some(&ctx.scratch.scene.segments[segment_instance.segments_range]);
+                        let segment_instance = &ctx.scratch.frame.segment_instances[prim_info.segment_instance_index];
+                        let segments = Some(&ctx.scratch.frame.segments[segment_instance.segments_range]);
                         (segment_instance.gpu_data, segments)
                     };
 

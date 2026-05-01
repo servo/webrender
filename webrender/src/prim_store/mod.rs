@@ -760,13 +760,11 @@ pub enum PrimitiveKind {
     Rectangle {
         /// Handle to the common interned data for this primitive.
         data_handle: RectangleDataHandle,
-        segment_instance_index: SegmentInstanceIndex,
         color_binding_index: ColorBindingIndex,
     },
     YuvImage {
         /// Handle to the common interned data for this primitive.
         data_handle: YuvImageDataHandle,
-        segment_instance_index: SegmentInstanceIndex,
         compositor_surface_kind: CompositorSurfaceKind,
     },
     Image {
@@ -965,6 +963,18 @@ pub struct PrimitiveFrameScratch {
     /// unbounded between scene rebuilds.
     pub glyph_keys: GlyphKeyStorage,
 
+    /// A list of brush segments built each frame for the segmented
+    /// brush primitives (Rectangle, YuvImage, non-tiled Image). The
+    /// segment builder runs every frame for every visible segmented
+    /// prim.
+    pub segments: SegmentStorage,
+
+    /// A list of per-prim brush segmentation records (segments range
+    /// + GPU buffer address). Each PrimitiveDrawHeader.segment_instance_index
+    /// holds an index into this storage, or UNUSED for non-segmented
+    /// prims.
+    pub segment_instances: SegmentInstanceStorage,
+
     /// Trailing-array store for per-segment cached render-task ids
     /// referenced by NormalBorderScratch entries.
     pub border_task_ids: storage::Storage<RenderTaskId>,
@@ -998,6 +1008,8 @@ impl Default for PrimitiveFrameScratch {
             visible_image_tiles: storage::Storage::new(0),
             text_runs: storage::Storage::new(0),
             glyph_keys: GlyphKeyStorage::new(0),
+            segments: SegmentStorage::new(0),
+            segment_instances: SegmentInstanceStorage::new(0),
             border_task_ids: storage::Storage::new(0),
             clip_mask_instances: Vec::new(),
             debug_items: Vec::new(),
@@ -1019,6 +1031,8 @@ impl PrimitiveFrameScratch {
         self.visible_image_tiles.recycle(recycler);
         self.text_runs.recycle(recycler);
         self.glyph_keys.recycle(recycler);
+        self.segments.recycle(recycler);
+        self.segment_instances.recycle(recycler);
         self.border_task_ids.recycle(recycler);
         recycler.recycle_vec(&mut self.clip_mask_instances);
         recycler.recycle_vec(&mut self.debug_items);
@@ -1035,6 +1049,8 @@ impl PrimitiveFrameScratch {
         self.visible_image_tiles.clear();
         self.text_runs.clear();
         self.glyph_keys.clear();
+        self.segments.clear();
+        self.segment_instances.clear();
         self.border_task_ids.clear();
 
         // Clear the clip mask tasks for the beginning of the frame. Append
@@ -1051,35 +1067,17 @@ impl PrimitiveFrameScratch {
     }
 }
 
-/// Per-scene cache. Fields here are populated lazily and retained across
-/// frames. They are recycled (capacity-shrunk) on scene rebuild via
-/// `recycle`, but not cleared each frame. A follow-up will migrate these
-/// to per-frame lifetime; this struct may shrink or dissolve then.
+/// Per-scene cache. Now empty — the originally memoized fields have
+/// migrated to per-frame storage. Kept as a placeholder for any future
+/// scene-stable state and so the lifetime invariant on
+/// PrimitiveScratchBuffer (frame / scene / retained) remains visible
+/// at the type level; a follow-up may drop it entirely.
 #[cfg_attr(feature = "capture", derive(Serialize))]
-pub struct PrimitiveSceneCache {
-    /// A list of brush segments that have been built for this scene.
-    pub segments: SegmentStorage,
-
-    /// A list of segment ranges and GPU cache handles for prim instances
-    /// that have opted into segment building. In future, this should be
-    /// removed in favor of segment building during primitive interning.
-    pub segment_instances: SegmentInstanceStorage,
-}
-
-impl Default for PrimitiveSceneCache {
-    fn default() -> Self {
-        PrimitiveSceneCache {
-            segments: SegmentStorage::new(0),
-            segment_instances: SegmentInstanceStorage::new(0),
-        }
-    }
-}
+#[derive(Default)]
+pub struct PrimitiveSceneCache {}
 
 impl PrimitiveSceneCache {
-    pub fn recycle(&mut self, recycler: &mut Recycler) {
-        self.segments.recycle(recycler);
-        self.segment_instances.recycle(recycler);
-    }
+    pub fn recycle(&mut self, _recycler: &mut Recycler) {}
 }
 
 /// State that lives strictly longer than a single frame *and* is not tied

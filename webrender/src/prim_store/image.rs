@@ -21,7 +21,7 @@ use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureCont
 use crate::intern::{DataStore, Handle as InternHandle, InternDebug, Internable};
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
-    EdgeMask, InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveKind, PrimitiveOpacity, PrimitiveScratchBuffer, PrimitiveStore, SegmentInstanceIndex, SizeKey
+    EdgeMask, InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveKind, PrimitiveOpacity, PrimitiveScratchBuffer, PrimitiveStore, SizeKey
 };
 use crate::prim_store::storage;
 use crate::render_target::RenderTargetKind;
@@ -88,11 +88,11 @@ impl ImageScratch {
 
 /// Scene-retained state for an Image primitive that can't be expressed
 /// in the interned template (per-instance, identifies a specific image
-/// reference). Per-frame fields have moved to `ImageScratch`.
+/// reference). Per-frame fields have moved to `ImageScratch`. The
+/// segment_instance_index lives on PrimitiveDrawHeader.
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct ImageInstance {
-    pub segment_instance_index: SegmentInstanceIndex,
     pub tight_local_clip_rect: LayoutRect,
 }
 
@@ -617,7 +617,6 @@ impl InternablePrimitive for Image {
         // TODO(gw): Refactor this to not need a separate image
         //           instance (see ImageInstance struct).
         let image_instance_index = prim_store.images.push(ImageInstance {
-            segment_instance_index: SegmentInstanceIndex::INVALID,
             tight_local_clip_rect: LayoutRect::zero(),
         });
 
@@ -911,7 +910,6 @@ impl InternablePrimitive for YuvImage {
     ) -> PrimitiveKind {
         PrimitiveKind::YuvImage {
             data_handle,
-            segment_instance_index: SegmentInstanceIndex::INVALID,
             compositor_surface_kind: CompositorSurfaceKind::Blit,
         }
     }
