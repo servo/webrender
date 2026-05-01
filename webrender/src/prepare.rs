@@ -746,7 +746,7 @@ fn prepare_interned_prim_for_render(
                 return;
             }
         }
-        PrimitiveKind::YuvImage { data_handle, compositor_surface_kind, .. } => {
+        PrimitiveKind::YuvImage { data_handle, .. } => {
             profile_scope!("YuvImage");
             let prim_data = &mut data_stores.yuv_image[*data_handle];
             let common_data = &mut prim_data.common;
@@ -758,7 +758,7 @@ fn prepare_interned_prim_for_render(
             // cache with any shared template data.
             yuv_image_data.update(
                 common_data,
-                compositor_surface_kind.is_composited(),
+                prim_info.compositor_surface_kind.is_composited(),
                 frame_state,
             );
 
@@ -1693,18 +1693,20 @@ fn build_segments_if_needed(
         PrimitiveKind::Rectangle { .. } => {
             // Always opts in.
         }
-        PrimitiveKind::YuvImage { compositor_surface_kind, .. } => {
+        PrimitiveKind::YuvImage { .. } => {
             // Only use segments for YUV images if not drawing as a compositor surface
-            if !compositor_surface_kind.supports_segments() {
+            let csk = scratch.frame.draws[prim_instance_index.0 as usize].compositor_surface_kind;
+            if !csk.supports_segments() {
                 return;
             }
         }
-        PrimitiveKind::Image { data_handle, compositor_surface_kind, .. } => {
+        PrimitiveKind::Image { data_handle, .. } => {
             let image_data = &data_stores.image[data_handle].kind;
+            let csk = scratch.frame.draws[prim_instance_index.0 as usize].compositor_surface_kind;
 
             //Note: tiled images don't support automatic segmentation,
             // they strictly produce one segment per visible tile instead.
-            if !compositor_surface_kind.supports_segments() ||
+            if !csk.supports_segments() ||
                 frame_state.resource_cache
                     .get_image_properties(image_data.key)
                     .and_then(|properties| properties.tiling)

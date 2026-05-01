@@ -16,6 +16,7 @@ use crate::profiler::TransactionProfile;
 use crate::renderer::GpuBufferBuilder;
 use crate::spatial_tree::{SpatialTree, SpatialNodeIndex};
 use crate::clip::{ClipChainInstance, ClipTree};
+use crate::composite::CompositorSurfaceKind;
 use crate::frame_builder::FrameBuilderConfig;
 use crate::picture::{PictureCompositeMode, ClusterFlags, SurfaceInfo};
 use crate::tile_cache::TileCacheInstance;
@@ -213,6 +214,12 @@ pub struct PrimitiveDrawHeader {
     /// the trivial single-segment case. Built fresh each frame in
     /// build_segments_if_needed.
     pub segment_instance_index: SegmentInstanceIndex,
+
+    /// Per-frame compositing decision for Image / YuvImage primitives.
+    /// Set during the visibility pass by tile-cache promotion logic;
+    /// `Blit` for kinds that aren't candidates for compositor surfaces
+    /// or for draws that didn't get promoted this frame.
+    pub compositor_surface_kind: CompositorSurfaceKind,
 }
 
 impl PrimitiveDrawHeader {
@@ -224,6 +231,7 @@ impl PrimitiveDrawHeader {
             clip_task_index: ClipTaskIndex::INVALID,
             kind_scratch: KindScratchHandle::None,
             segment_instance_index: SegmentInstanceIndex::UNUSED,
+            compositor_surface_kind: CompositorSurfaceKind::Blit,
         }
     }
 
@@ -232,6 +240,7 @@ impl PrimitiveDrawHeader {
         self.clip_task_index = ClipTaskIndex::INVALID;
         self.kind_scratch = KindScratchHandle::None;
         self.segment_instance_index = SegmentInstanceIndex::UNUSED;
+        self.compositor_surface_kind = CompositorSurfaceKind::Blit;
     }
 }
 

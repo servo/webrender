@@ -11,7 +11,6 @@ use api::units::*;
 use euclid::point2;
 use crate::clip::{ClipChainInstance, ClipIntern};
 use crate::command_buffer::CommandBufferIndex;
-use crate::composite::CompositorSurfaceKind;
 use crate::gpu_types::{ImageBrushPrimitiveData, YuvPrimitive};
 use crate::pattern::image::ImagePattern;
 use crate::quad::QuadTransformState;
@@ -613,7 +612,6 @@ impl InternablePrimitive for Image {
     ) -> PrimitiveKind {
         PrimitiveKind::Image {
             data_handle,
-            compositor_surface_kind: CompositorSurfaceKind::Blit,
         }
     }
 }
@@ -900,7 +898,6 @@ impl InternablePrimitive for YuvImage {
     ) -> PrimitiveKind {
         PrimitiveKind::YuvImage {
             data_handle,
-            compositor_surface_kind: CompositorSurfaceKind::Blit,
         }
     }
 }

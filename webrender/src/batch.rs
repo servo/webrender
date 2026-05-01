@@ -2064,9 +2064,9 @@ impl BatchBuilder {
                     render_tasks,
                 );
             }
-            PrimitiveKind::YuvImage { data_handle, compositor_surface_kind, .. } => {
+            PrimitiveKind::YuvImage { data_handle, .. } => {
                 let segment_instance_index = prim_info.segment_instance_index;
-                if compositor_surface_kind.needs_cutout() {
+                if prim_info.compositor_surface_kind.needs_cutout() {
                     self.add_compositor_surface_cutout(
                         prim_rect,
                         prim_info.clip_chain.local_clip_rect,
@@ -2159,9 +2159,9 @@ impl BatchBuilder {
                     render_tasks,
                 );
             }
-            PrimitiveKind::Image { data_handle, compositor_surface_kind, .. } => {
+            PrimitiveKind::Image { data_handle, .. } => {
                 let img_scratch_handle = prim_info.kind_scratch.unwrap_image();
-                if compositor_surface_kind.needs_cutout() {
+                if prim_info.compositor_surface_kind.needs_cutout() {
                     self.add_compositor_surface_cutout(
                         prim_rect,
                         prim_info.clip_chain.local_clip_rect,

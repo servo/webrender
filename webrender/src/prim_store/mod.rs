@@ -8,7 +8,6 @@ use api::{FillRule, POLYGON_CLIP_VERTEX_MAX};
 use api::units::*;
 use euclid::{SideOffsets2D, Size2D};
 use malloc_size_of::MallocSizeOf;
-use crate::composite::CompositorSurfaceKind;
 use crate::clip::ClipLeafId;
 use crate::quad::QuadTileClassifier;
 use crate::renderer::{GpuBufferAddress, GpuBufferHandle, GpuBufferWriterF};
@@ -761,12 +760,10 @@ pub enum PrimitiveKind {
     YuvImage {
         /// Handle to the common interned data for this primitive.
         data_handle: YuvImageDataHandle,
-        compositor_surface_kind: CompositorSurfaceKind,
     },
     Image {
         /// Handle to the common interned data for this primitive.
         data_handle: ImageDataHandle,
-        compositor_surface_kind: CompositorSurfaceKind,
     },
     LinearGradient {
         /// Handle to the common interned data for this primitive.

@@ -505,6 +505,7 @@ impl FrameBuilder {
                             &mut visibility_state.prim_instances,
                             &mut visibility_state.composite_state,
                             &mut visibility_state.resource_cache,
+                            &mut visibility_state.scratch.primitive,
                         );
 
                         visibility_state.clip_tree.pop_clip_root();
