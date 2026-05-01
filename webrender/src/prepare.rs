@@ -594,10 +594,9 @@ fn prepare_interned_prim_for_render(
             scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
                 KindScratchHandle::LineDecoration(line_dec_handle);
         }
-        PrimitiveKind::TextRun { run_index, data_handle } => {
+        PrimitiveKind::TextRun { data_handle } => {
             profile_scope!("TextRun");
             let prim_data = &mut data_stores.text_run[*data_handle];
-            let run = &store.text_runs[*run_index];
 
             prim_data.common.may_need_repetition = false;
 
@@ -642,10 +641,8 @@ fn prepare_interned_prim_for_render(
                 }
             };
 
-            let text_run_handle = run.request_resources(
+            let text_run_handle = prim_data.request_resources(
                 prim_offset,
-                &prim_data.font,
-                &prim_data.glyphs,
                 &transform.to_transform().with_destination::<_>(),
                 surface,
                 prim_spatial_node_index,

@@ -1746,9 +1746,8 @@ impl BatchBuilder {
                     render_tasks,
                 );
             }
-            PrimitiveKind::TextRun { data_handle, run_index, .. } => {
+            PrimitiveKind::TextRun { data_handle, .. } => {
                 let text_run_scratch_handle = prim_info.kind_scratch.unwrap_text_run();
-                let run = &ctx.prim_store.text_runs[run_index];
                 let run_scratch = &ctx.scratch.frame.text_runs[text_run_scratch_handle];
                 let subpx_dir = run_scratch.used_font.get_subpx_dir();
 
@@ -1833,7 +1832,7 @@ impl BatchBuilder {
                             GlyphFormat::ColorBitmap => {
                                 (
                                     BlendMode::PremultipliedAlpha,
-                                    if run.shadow {
+                                    if prim_data.shadow {
                                         // Ignore color and only sample alpha when shadowing.
                                         ShaderColorMode::BitmapShadow
                                     } else {

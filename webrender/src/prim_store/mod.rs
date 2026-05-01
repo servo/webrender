@@ -47,7 +47,7 @@ use image::{ImageDataHandle, ImageScratch, VisibleImageTile, YuvImageDataHandle}
 use line_dec::{LineDecorationDataHandle, LineDecorationScratch};
 use picture::PictureDataHandle;
 use rectangle::RectangleDataHandle;
-use text_run::{TextRunDataHandle, TextRunInstance, TextRunScratch};
+use text_run::{TextRunDataHandle, TextRunScratch};
 use crate::box_shadow::BoxShadowDataHandle;
 
 pub const VECS_PER_SEGMENT: usize = 2;
@@ -740,8 +740,6 @@ pub enum PrimitiveKind {
     TextRun {
         /// Handle to the common interned data for this primitive.
         data_handle: TextRunDataHandle,
-        /// Index to the per instance scratch data for this primitive.
-        run_index: TextRunIndex,
     },
     /// A line decoration. cache_handle refers to a cached render
     /// task handle, if this line decoration is not a simple solid.
@@ -901,8 +899,6 @@ pub struct BrushSegmentation {
 }
 
 pub type GlyphKeyStorage = storage::Storage<GlyphKey>;
-pub type TextRunIndex = storage::Index<TextRunInstance>;
-pub type TextRunStorage = storage::Storage<TextRunInstance>;
 pub type ColorBindingIndex = storage::Index<PropertyBinding<ColorU>>;
 pub type ColorBindingStorage = storage::Storage<PropertyBinding<ColorU>>;
 pub type SegmentStorage = storage::Storage<BrushSegment>;
@@ -1250,7 +1246,6 @@ impl PrimitiveScratchBuffer {
 #[derive(Clone, Debug)]
 pub struct PrimitiveStoreStats {
     picture_count: usize,
-    text_run_count: usize,
     color_binding_count: usize,
 }
 
@@ -1258,7 +1253,6 @@ impl PrimitiveStoreStats {
     pub fn empty() -> Self {
         PrimitiveStoreStats {
             picture_count: 0,
-            text_run_count: 0,
             color_binding_count: 0,
         }
     }
@@ -1267,7 +1261,6 @@ impl PrimitiveStoreStats {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveStore {
     pub pictures: Vec<PictureInstance>,
-    pub text_runs: TextRunStorage,
 
     /// animated color bindings for this primitive.
     pub color_bindings: ColorBindingStorage,
@@ -1277,21 +1270,18 @@ impl PrimitiveStore {
     pub fn new(stats: &PrimitiveStoreStats) -> PrimitiveStore {
         PrimitiveStore {
             pictures: Vec::with_capacity(stats.picture_count),
-            text_runs: TextRunStorage::new(stats.text_run_count),
             color_bindings: ColorBindingStorage::new(stats.color_binding_count),
         }
     }
 
     pub fn reset(&mut self) {
         self.pictures.clear();
-        self.text_runs.clear();
         self.color_bindings.clear();
     }
 
     pub fn get_stats(&self) -> PrimitiveStoreStats {
         PrimitiveStoreStats {
             picture_count: self.pictures.len(),
-            text_run_count: self.text_runs.len(),
             color_binding_count: self.color_bindings.len(),
         }
     }

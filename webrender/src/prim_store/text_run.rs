@@ -78,6 +78,8 @@ pub struct TextRunTemplate {
     pub common: PrimTemplateCommonData,
     pub font: FontInstance,
     pub glyphs: Vec<GlyphInstance>,
+    pub shadow: bool,
+    pub requested_raster_space: RasterSpace,
 }
 
 impl ops::Deref for TextRunTemplate {
@@ -111,6 +113,8 @@ impl From<TextRunKey> for TextRunTemplate {
             common,
             font: item.font,
             glyphs,
+            shadow: item.shadow,
+            requested_raster_space: item.requested_raster_space,
         }
     }
 }
@@ -192,18 +196,12 @@ impl InternablePrimitive for TextRun {
     }
 
     fn make_instance_kind(
-        key: TextRunKey,
+        _key: TextRunKey,
         data_handle: TextRunDataHandle,
-        prim_store: &mut PrimitiveStore,
+        _prim_store: &mut PrimitiveStore,
     ) -> PrimitiveKind {
-        let run_index = prim_store.text_runs.push(TextRunInstance {
-            shadow: key.shadow,
-            requested_raster_space: key.requested_raster_space,
-        });
-
         PrimitiveKind::TextRun {
             data_handle,
-            run_index,
         }
     }
 }
@@ -263,17 +261,10 @@ pub struct TextRunScratch {
     pub raster_scale: f32,
 }
 
-#[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-pub struct TextRunInstance {
-    pub shadow: bool,
-    pub requested_raster_space: RasterSpace,
-}
-
-impl TextRunInstance {
+impl TextRunTemplate {
     /// Build a per-frame `(used_font, raster_scale, snapped_offset)`
     /// triple for this text run. The result is fresh per frame; nothing
-    /// persists on TextRunInstance.
+    /// persists on the template.
     fn compute_font_instance(
         specified_font: &FontInstance,
         surface: &SurfaceInfo,
@@ -451,8 +442,6 @@ impl TextRunInstance {
     pub fn request_resources(
         &self,
         prim_offset: LayoutVector2D,
-        specified_font: &FontInstance,
-        glyphs: &[GlyphInstance],
         transform: &LayoutToWorldTransform,
         surface: &SurfaceInfo,
         spatial_node_index: SpatialNodeIndex,
@@ -471,7 +460,7 @@ impl TextRunInstance {
         );
 
         let (used_font, raster_scale, snapped_offset) = Self::compute_font_instance(
-            specified_font,
+            &self.font,
             surface,
             spatial_node_index,
             transform,
@@ -491,7 +480,7 @@ impl TextRunInstance {
         };
 
         let glyph_keys_range = scratch.frame.glyph_keys.extend(
-            glyphs.iter().map(|src| {
+            self.glyphs.iter().map(|src| {
                 let src_point = src.point + prim_offset;
                 let device_offset = glyph_transform.transform(&src_point);
                 GlyphKey::new(src.index, device_offset, subpx_dir)
@@ -524,7 +513,6 @@ fn test_struct_sizes() {
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<TextRun>(), 80, "TextRun size changed");
-    assert_eq!(mem::size_of::<TextRunTemplate>(), 88, "TextRunTemplate size changed");
+    assert_eq!(mem::size_of::<TextRunTemplate>(), 96, "TextRunTemplate size changed");
     assert_eq!(mem::size_of::<TextRunKey>(), 88, "TextRunKey size changed");
-    assert_eq!(mem::size_of::<TextRunInstance>(), 12, "TextRunInstance size changed");
 }
