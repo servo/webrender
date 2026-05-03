@@ -31,7 +31,6 @@ use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::prim_store::*;
 use crate::prim_store::backdrop::BackdropRenderScratch;
 use crate::prim_store::borders::{ImageBorderScratch, NormalBorderScratch};
-use crate::prim_store::gradient::LinearGradientScratch;
 use crate::prim_store::line_dec::LineDecorationScratch;
 use crate::quad::{self, QuadTransformState};
 use crate::render_backend::DataStores;
@@ -315,14 +314,6 @@ fn prepare_prim_for_render(
             }
             PrimitiveKind::ImageBorder { data_handle } => {
                 ImageBorderScratch::build_for_prim(
-                    data_handle,
-                    PrimitiveInstanceIndex(prim_instance_index as u32),
-                    data_stores,
-                    scratch,
-                );
-            }
-            PrimitiveKind::LinearGradient { data_handle } => {
-                LinearGradientScratch::build_for_prim(
                     data_handle,
                     PrimitiveInstanceIndex(prim_instance_index as u32),
                     data_stores,
@@ -1437,19 +1428,18 @@ fn update_clip_task_for_brush(
             &segments_store[segment_instance.segments_range]
         }
         PrimitiveKind::NormalBorder { .. } |
-        PrimitiveKind::ImageBorder { .. } |
-        PrimitiveKind::LinearGradient { .. } => {
+        PrimitiveKind::ImageBorder { .. } => {
             // Per-frame brush segments live in scratch.frame.segments;
             // the range was captured in prepare_prim_for_render and is
             // stored on the prim's per-kind scratch. The caller
             // resolves the range from there and passes it through.
-            // For LinearGradient, only nine-patch gradients have a
-            // non-empty range; non-nine-patch gradients short-circuit
-            // here.
             if prim_brush_segments_range.is_empty() {
                 return None;
             }
             &segments_store[prim_brush_segments_range]
+        }
+        PrimitiveKind::LinearGradient { .. } => {
+            unreachable!("BUG: linear gradients should always use quad path");
         }
         PrimitiveKind::RadialGradient { .. } => {
             unreachable!("BUG: radial gradients should always use quad path");
@@ -1563,8 +1553,7 @@ pub fn update_clip_task(
     // For prim kinds with per-frame brush segments, resolve the range
     // from the prim's per-kind scratch (allocated in
     // prepare_prim_for_render before this point). Empty range for any
-    // other kind, or for LinearGradient without a nine_patch (where
-    // build_for_prim doesn't push a scratch entry at all).
+    // other kind.
     let prim_brush_segments_range = match instance.kind {
         PrimitiveKind::NormalBorder { .. } => {
             let nb_handle = scratch.frame.draws[prim_instance_index.0 as usize]
@@ -1577,13 +1566,6 @@ pub fn update_clip_task(
                 .kind_scratch
                 .unwrap_image_border();
             scratch.frame.image_border[ib_handle].brush_segments_range
-        }
-        PrimitiveKind::LinearGradient { .. } => {
-            match scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch {
-                KindScratchHandle::LinearGradient(h) =>
-                    scratch.frame.linear_gradient[h].brush_segments_range,
-                _ => storage::Range::empty(),
-            }
         }
         _ => storage::Range::empty(),
     };

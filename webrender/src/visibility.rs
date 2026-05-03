@@ -26,7 +26,6 @@ use crate::prim_store::{ClipTaskIndex, PictureIndex, PrimitiveKind, SegmentInsta
 use crate::prim_store::{PrimitiveStore, PrimitiveInstance, PrimitiveInstanceIndex};
 use crate::prim_store::backdrop::BackdropRenderScratch;
 use crate::prim_store::borders::{ImageBorderScratch, NormalBorderScratch};
-use crate::prim_store::gradient::LinearGradientScratch;
 use crate::prim_store::image::ImageScratch;
 use crate::prim_store::line_dec::LineDecorationScratch;
 use crate::prim_store::storage;
@@ -128,7 +127,6 @@ pub enum KindScratchHandle {
     LineDecoration(storage::Index<LineDecorationScratch>),
     NormalBorder(storage::Index<NormalBorderScratch>),
     ImageBorder(storage::Index<ImageBorderScratch>),
-    LinearGradient(storage::Index<LinearGradientScratch>),
     Image(storage::Index<ImageScratch>),
     TextRun(storage::Index<TextRunScratch>),
     Picture(storage::Index<PictureScratch>),
