@@ -14,15 +14,18 @@ use api::{ExtendMode, GradientStop};
 use api::units::*;
 use crate::pattern::gradient::linear_gradient_pattern;
 use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState};
+use crate::render_backend::DataStores;
 use crate::scene_building::IsVisible;
 use crate::intern::{Internable, InternDebug, Handle as InternHandle};
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::image_tiling::simplify_repeated_primitive;
 use crate::prim_store::BrushSegment;
-use crate::prim_store::{PrimitiveKind, PrimitiveOpacity};
+use crate::prim_store::{PrimitiveInstanceIndex, PrimitiveKind, PrimitiveOpacity, PrimitiveScratchBuffer};
 use crate::prim_store::{PrimKeyCommonData, PrimTemplateCommonData, PrimitiveStore};
 use crate::prim_store::{NinePatchDescriptor, PointKey, SizeKey, InternablePrimitive};
+use crate::prim_store::storage;
 use crate::segment::EdgeMask;
+use crate::visibility::KindScratchHandle;
 use super::{stops_and_min_alpha, GradientStopKey, apply_gradient_local_clip};
 use std::ops::{Deref, DerefMut};
 use std::mem::swap;
@@ -82,9 +85,57 @@ pub struct LinearGradientTemplate {
     pub tile_spacing: LayoutSize,
     pub stops_opacity: PrimitiveOpacity,
     pub stops: Vec<GradientStop>,
-    pub brush_segments: Vec<BrushSegment>,
     pub border_nine_patch: Option<Box<NinePatchDescriptor>>,
     pub reverse_stops: bool,
+}
+
+/// Per-frame scratch data for a LinearGradient primitive whose
+/// template has a `border_nine_patch`. Non-nine-patch gradients have
+/// no per-frame brush segments and skip the scratch entry entirely.
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+pub struct LinearGradientScratch {
+    /// Range into `PrimitiveFrameScratch::segments` holding the per-
+    /// frame nine-patch brush segments for this gradient. Built fresh
+    /// each frame against the prim's current size in
+    /// `prepare_prim_for_render`.
+    pub brush_segments_range: storage::Range<BrushSegment>,
+}
+
+impl LinearGradientScratch {
+    /// Build the per-frame nine-patch brush segments for a
+    /// LinearGradient prim that has a `border_nine_patch`. No-op for
+    /// gradients without a nine_patch (no segments are built and no
+    /// scratch entry is pushed).
+    ///
+    /// Called from the prep early pass before `update_clip_task` runs,
+    /// since `update_clip_task_for_brush` reads the brush segments via
+    /// the scratch entry allocated here.
+    pub fn build_for_prim(
+        data_handle: LinearGradientDataHandle,
+        prim_instance_index: PrimitiveInstanceIndex,
+        data_stores: &DataStores,
+        scratch: &mut PrimitiveScratchBuffer,
+    ) {
+        let prim_data = &data_stores.linear_grad[data_handle];
+        let nine_patch = match prim_data.border_nine_patch.as_deref() {
+            Some(np) => np,
+            None => return,
+        };
+        let prim_size = prim_data.common.prim_size;
+
+        let brush_open = scratch.frame.segments.open_range();
+        scratch.frame.segments.data_mut().extend(
+            nine_patch.create_brush_segments(prim_size),
+        );
+        let brush_segments_range = scratch.frame.segments.close_range(brush_open);
+
+        let handle = scratch.frame.linear_gradient.push(LinearGradientScratch {
+            brush_segments_range,
+        });
+        scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
+            KindScratchHandle::LinearGradient(handle);
+    }
 }
 
 impl PatternBuilder for LinearGradientTemplate {
@@ -364,12 +415,6 @@ impl From<LinearGradientKey> for LinearGradientTemplate {
 
         let (stops, min_alpha) = stops_and_min_alpha(&item.stops);
 
-        let mut brush_segments = Vec::new();
-
-        if let Some(ref nine_patch) = item.nine_patch {
-            brush_segments = nine_patch.create_brush_segments(common.prim_size);
-        }
-
         // Save opacity of the stops for use in
         // selecting which pass this gradient
         // should be drawn in.
@@ -423,7 +468,6 @@ impl From<LinearGradientKey> for LinearGradientTemplate {
             tile_spacing,
             stops_opacity,
             stops,
-            brush_segments,
             border_nine_patch: item.nine_patch,
             reverse_stops: item.reverse_stops,
         }
