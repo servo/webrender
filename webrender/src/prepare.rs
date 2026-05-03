@@ -6,7 +6,7 @@
 //!
 //! TODO: document this!
 
-use api::{ColorF, DebugFlags};
+use api::{BoxShadowClipMode, ColorF, DebugFlags};
 use api::ClipMode;
 use crate::util::clamp_to_scale_factor;
 use crate::box_shadow::{BoxShadowCacheKey, BLUR_SAMPLE_SCALE};
@@ -412,7 +412,42 @@ fn prepare_interned_prim_for_render(
             let shadow_data = &prim_data.kind;
             let blur_radius = shadow_data.blur_radius;
 
-            let shadow_rect_size = shadow_data.inner_shadow_rect.size();
+            // Derive inner/outer/element rects per-frame from the prim's
+            // current rect, the box-shadow offset, and the (signed) spread
+            // amount stored on the template.
+            //
+            // For Outset, the prim was registered with `info.rect = dest_rect`,
+            // so prim_rect == outer; inner = outer.deflate(blur_offset);
+            // element = inner.deflate(spread).translate(-box_offset).
+            //
+            // For Inset, the prim was registered with `info.rect = element_rect`,
+            // so prim_rect == element; inner = element.translate(box_offset)
+            // .inflate(spread_amount); outer = inner.inflate(blur_offset).
+            let prim_rect = LayoutRect::from_origin_and_size(
+                prim_instance.prim_origin,
+                prim_data.common.prim_size,
+            );
+            let blur_offset = (BLUR_SAMPLE_SCALE * blur_radius).ceil();
+            let (inner_shadow_rect, outer_shadow_rect, element_rect) = match shadow_data.clip_mode {
+                BoxShadowClipMode::Outset => {
+                    let outer = prim_rect;
+                    let inner = outer.inflate(-blur_offset, -blur_offset);
+                    let element = inner
+                        .inflate(-shadow_data.spread_amount, -shadow_data.spread_amount)
+                        .translate(-shadow_data.box_offset);
+                    (inner, outer, element)
+                }
+                BoxShadowClipMode::Inset => {
+                    let element = prim_rect;
+                    let inner = element
+                        .translate(shadow_data.box_offset)
+                        .inflate(shadow_data.spread_amount, shadow_data.spread_amount);
+                    let outer = inner.inflate(blur_offset, blur_offset);
+                    (inner, outer, element)
+                }
+            };
+
+            let shadow_rect_size = inner_shadow_rect.size();
             let mut shadow_radius = shadow_data.shadow_radius;
             border::ensure_no_corner_overlap(&mut shadow_radius, shadow_rect_size);
 
@@ -554,22 +589,16 @@ fn prepare_interned_prim_for_render(
                 }
             );
 
-            let prim_rect = LayoutRect::from_origin_and_size(
-                prim_instance.prim_origin,
-                prim_data.common.prim_size,
-            );
-
             // For outset, prim_rect == dest_rect so offset is zero.
             // For inset, prim_rect is the element rect; dest_rect (outer_shadow_rect)
             // may be offset and smaller, so we pass its size and offset separately.
-            let dest_rect: LayoutRect = shadow_data.outer_shadow_rect.into();
+            let dest_rect = outer_shadow_rect;
             let dest_rect_offset = LayoutVector2D::new(
                 dest_rect.min.x - prim_rect.min.x,
                 dest_rect.min.y - prim_rect.min.y,
             );
             let dest_rect_size = dest_rect.size();
 
-            let element_rect: LayoutRect = shadow_data.element_rect.into();
             let mut element_radius = shadow_data.element_radius;
             border::ensure_no_corner_overlap(&mut element_radius, element_rect.size());
             let element_offset_rel_prim = LayoutVector2D::new(

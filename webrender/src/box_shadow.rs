@@ -7,7 +7,7 @@ use crate::border::{BorderRadiusAu};
 use crate::clip::{ClipItemEntry, ClipItemKey, ClipItemKeyKind, ClipNodeId};
 use crate::intern::{Handle as InternHandle, InternDebug, Internable};
 use crate::prim_store::{InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData};
-use crate::prim_store::{PrimitiveKind, PrimitiveStore, RectKey};
+use crate::prim_store::{PrimitiveKind, PrimitiveStore, VectorKey};
 use crate::prim_store::rectangle::RectanglePrim;
 use crate::scene_building::{SceneBuilder, IsVisible};
 use crate::spatial_tree::SpatialNodeIndex;
@@ -36,13 +36,14 @@ pub struct BoxShadow {
     pub color: ColorU,
     pub blur_radius: Au,
     pub clip_mode: BoxShadowClipMode,
-    pub inner_shadow_rect: RectKey,
-    pub outer_shadow_rect: RectKey,
     pub shadow_radius: BorderRadiusAu,
-    /// The element rect (prim_info.rect) in local space. Used to clip the
-    /// element analytically in the shader (clip-out for outset, clip-in for inset).
-    pub element_rect: RectKey,
     pub element_radius: BorderRadiusAu,
+    /// `box-shadow` offset of the shadow relative to the element, in
+    /// local space.
+    pub box_offset: VectorKey,
+    /// Signed spread radius. Positive for Outset, negative for Inset
+    /// (matches the convention in `add_box_shadow`).
+    pub spread_amount: Au,
 }
 
 impl IsVisible for BoxShadow {
@@ -79,11 +80,10 @@ pub struct BoxShadowData {
     pub color: ColorF,
     pub blur_radius: f32,
     pub clip_mode: BoxShadowClipMode,
-    pub inner_shadow_rect: LayoutRect,
-    pub outer_shadow_rect: LayoutRect,
     pub shadow_radius: BorderRadius,
-    pub element_rect: LayoutRect,
     pub element_radius: BorderRadius,
+    pub box_offset: LayoutVector2D,
+    pub spread_amount: f32,
 }
 
 impl From<BoxShadow> for BoxShadowData {
@@ -92,11 +92,10 @@ impl From<BoxShadow> for BoxShadowData {
             color: shadow.color.into(),
             blur_radius: shadow.blur_radius.to_f32_px(),
             clip_mode: shadow.clip_mode,
-            inner_shadow_rect: shadow.inner_shadow_rect.into(),
-            outer_shadow_rect: shadow.outer_shadow_rect.into(),
             shadow_radius: shadow.shadow_radius.into(),
-            element_rect: shadow.element_rect.into(),
             element_radius: shadow.element_radius.into(),
+            box_offset: shadow.box_offset.into(),
+            spread_amount: shadow.spread_amount.to_f32_px(),
         }
     }
 }
@@ -274,11 +273,10 @@ impl<'a> SceneBuilder<'a> {
                             color: color.into(),
                             blur_radius: Au::from_f32_px(blur_radius),
                             clip_mode,
-                            inner_shadow_rect: shadow_rect.into(),
-                            outer_shadow_rect: dest_rect.into(),
                             shadow_radius: shadow_radius.into(),
-                            element_rect: prim_info.rect.into(),
                             element_radius: border_radius.into(),
+                            box_offset: (*box_offset).into(),
+                            spread_amount: Au::from_f32_px(spread_amount),
                         },
                     );
                 }
@@ -302,11 +300,10 @@ impl<'a> SceneBuilder<'a> {
                             color: color.into(),
                             blur_radius: Au::from_f32_px(blur_radius),
                             clip_mode,
-                            inner_shadow_rect: shadow_rect.into(),
-                            outer_shadow_rect: dest_rect.into(),
                             shadow_radius: shadow_radius.into(),
-                            element_rect: prim_info.rect.into(),
                             element_radius: border_radius.into(),
+                            box_offset: (*box_offset).into(),
+                            spread_amount: Au::from_f32_px(spread_amount),
                         },
                     );
                 }
