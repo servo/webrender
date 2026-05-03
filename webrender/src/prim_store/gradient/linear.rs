@@ -9,7 +9,7 @@
 //! Linear gradients are rendered via cached render tasks and composited with the image brush.
 
 use euclid::approxeq::ApproxEq;
-use euclid::{point2, vec2};
+use euclid::point2;
 use api::{ExtendMode, GradientStop};
 use api::units::*;
 use crate::pattern::gradient::linear_gradient_pattern;
@@ -29,8 +29,6 @@ use crate::visibility::KindScratchHandle;
 use super::{stops_and_min_alpha, GradientStopKey, apply_gradient_local_clip};
 use std::ops::{Deref, DerefMut};
 use std::mem::swap;
-
-pub const MAX_CACHED_SIZE: f32 = 1024.0;
 
 /// Identifying key for a linear gradient.
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -79,8 +77,6 @@ pub struct LinearGradientTemplate {
     pub extend_mode: ExtendMode,
     pub start_point: LayoutPoint,
     pub end_point: LayoutPoint,
-    pub task_size: DeviceIntSize,
-    pub scale: DeviceVector2D,
     pub stretch_size: LayoutSize,
     pub tile_spacing: LayoutSize,
     pub stops_opacity: PrimitiveOpacity,
@@ -424,46 +420,12 @@ impl From<LinearGradientKey> for LinearGradientTemplate {
         let end_point = LayoutPoint::new(item.end_point.x, item.end_point.y);
         let tile_spacing: LayoutSize = item.tile_spacing.into();
         let stretch_size: LayoutSize = item.stretch_size.into();
-        let mut task_size: DeviceSize = stretch_size.cast_unit();
-
-        let horizontal = !item.enable_dithering &&
-            start_point.y.approx_eq(&end_point.y);
-        let vertical = !item.enable_dithering &&
-            start_point.x.approx_eq(&end_point.x);
-
-        if horizontal {
-            // Completely horizontal, we can stretch the gradient vertically.
-            task_size.height = 1.0;
-        }
-
-        if vertical {
-            // Completely vertical, we can stretch the gradient horizontally.
-            task_size.width = 1.0;
-        }
-
-        // Avoid rendering enormous gradients. Linear gradients are mostly made of soft transitions,
-        // so it is unlikely that rendering at a higher resolution than 1024 would produce noticeable
-        // differences, especially with 8 bits per channel.
-
-        let mut scale = vec2(1.0, 1.0);
-
-        if task_size.width > MAX_CACHED_SIZE {
-            scale.x = task_size.width / MAX_CACHED_SIZE;
-            task_size.width = MAX_CACHED_SIZE;
-        }
-
-        if task_size.height > MAX_CACHED_SIZE {
-            scale.y = task_size.height / MAX_CACHED_SIZE;
-            task_size.height = MAX_CACHED_SIZE;
-        }
 
         LinearGradientTemplate {
             common,
             extend_mode: item.extend_mode,
             start_point,
             end_point,
-            task_size: task_size.ceil().to_i32(),
-            scale,
             stretch_size,
             tile_spacing,
             stops_opacity,
