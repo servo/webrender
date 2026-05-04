@@ -35,7 +35,9 @@ pub struct LinearGradientKey {
     pub extend_mode: ExtendMode,
     pub start_point: PointKey,
     pub end_point: PointKey,
-    pub stretch_size: SizeKey,
+    /// Per-axis tile size encoded as a fraction of `common.prim_size`. The
+    /// runtime `stretch_size` is `stretch_ratio * common.prim_size`.
+    pub stretch_ratio: SizeKey,
     pub tile_spacing: SizeKey,
     pub stops: Vec<GradientStopKey>,
     pub reverse_stops: bool,
@@ -53,7 +55,7 @@ impl LinearGradientKey {
             extend_mode: linear_grad.extend_mode,
             start_point: linear_grad.start_point,
             end_point: linear_grad.end_point,
-            stretch_size: linear_grad.stretch_size,
+            stretch_ratio: linear_grad.stretch_ratio,
             tile_spacing: linear_grad.tile_spacing,
             stops: linear_grad.stops,
             reverse_stops: linear_grad.reverse_stops,
@@ -73,7 +75,10 @@ pub struct LinearGradientTemplate {
     pub extend_mode: ExtendMode,
     pub start_point: LayoutPoint,
     pub end_point: LayoutPoint,
-    pub stretch_size: LayoutSize,
+    /// Per-axis fraction of `common.prim_size` covered by one tile of the
+    /// gradient pattern. Multiply by `common.prim_size` at use to recover the
+    /// absolute stretch_size.
+    pub stretch_ratio: LayoutSize,
     pub tile_spacing: LayoutSize,
     pub stops_opacity: PrimitiveOpacity,
     pub stops: Vec<GradientStop>,
@@ -366,14 +371,14 @@ impl From<LinearGradientKey> for LinearGradientTemplate {
         let start_point = LayoutPoint::new(item.start_point.x, item.start_point.y);
         let end_point = LayoutPoint::new(item.end_point.x, item.end_point.y);
         let tile_spacing: LayoutSize = item.tile_spacing.into();
-        let stretch_size: LayoutSize = item.stretch_size.into();
+        let stretch_ratio: LayoutSize = item.stretch_ratio.into();
 
         LinearGradientTemplate {
             common,
             extend_mode: item.extend_mode,
             start_point,
             end_point,
-            stretch_size,
+            stretch_ratio,
             tile_spacing,
             stops_opacity,
             stops,
@@ -392,7 +397,9 @@ pub struct LinearGradient {
     pub extend_mode: ExtendMode,
     pub start_point: PointKey,
     pub end_point: PointKey,
-    pub stretch_size: SizeKey,
+    /// Per-axis tile size encoded as a fraction of the prim's size. See
+    /// [`LinearGradientKey::stretch_ratio`].
+    pub stretch_ratio: SizeKey,
     pub tile_spacing: SizeKey,
     pub stops: Vec<GradientStopKey>,
     pub reverse_stops: bool,

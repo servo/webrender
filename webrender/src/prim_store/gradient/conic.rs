@@ -51,7 +51,9 @@ pub struct ConicGradientKey {
     pub extend_mode: ExtendMode,
     pub center: PointKey,
     pub params: ConicGradientParams,
-    pub stretch_size: SizeKey,
+    /// Per-axis tile size encoded as a fraction of `common.prim_size`. The
+    /// runtime `stretch_size` is `stretch_ratio * common.prim_size`.
+    pub stretch_ratio: SizeKey,
     pub stops: Vec<GradientStopKey>,
     pub tile_spacing: SizeKey,
     pub nine_patch: Option<Box<NinePatchDescriptor>>,
@@ -67,7 +69,7 @@ impl ConicGradientKey {
             extend_mode: conic_grad.extend_mode,
             center: conic_grad.center,
             params: conic_grad.params,
-            stretch_size: conic_grad.stretch_size,
+            stretch_ratio: conic_grad.stretch_ratio,
             stops: conic_grad.stops,
             tile_spacing: conic_grad.tile_spacing,
             nine_patch: conic_grad.nine_patch,
@@ -85,7 +87,10 @@ pub struct ConicGradientTemplate {
     pub extend_mode: ExtendMode,
     pub center: LayoutPoint,
     pub params: ConicGradientParams,
-    pub stretch_size: LayoutSize,
+    /// Per-axis fraction of `common.prim_size` covered by one tile of the
+    /// gradient pattern. Multiply by `common.prim_size` at use to recover the
+    /// absolute stretch_size.
+    pub stretch_ratio: LayoutSize,
     pub tile_spacing: LayoutSize,
     pub border_nine_patch: Option<Box<NinePatchDescriptor>>,
     pub stops_opacity: PrimitiveOpacity,
@@ -146,16 +151,12 @@ impl From<ConicGradientKey> for ConicGradientTemplate {
         // should be drawn in.
         let stops_opacity = PrimitiveOpacity::from_alpha(min_alpha);
 
-        let mut stretch_size: LayoutSize = item.stretch_size.into();
-        stretch_size.width = stretch_size.width.min(common.prim_size.width);
-        stretch_size.height = stretch_size.height.min(common.prim_size.height);
-
         ConicGradientTemplate {
             common,
             center: item.center.into(),
             extend_mode: item.extend_mode,
             params: item.params,
-            stretch_size,
+            stretch_ratio: item.stretch_ratio.into(),
             tile_spacing: item.tile_spacing.into(),
             border_nine_patch: item.nine_patch,
             stops_opacity,
@@ -173,7 +174,9 @@ pub struct ConicGradient {
     pub extend_mode: ExtendMode,
     pub center: PointKey,
     pub params: ConicGradientParams,
-    pub stretch_size: SizeKey,
+    /// Per-axis tile size encoded as a fraction of the prim's size. See
+    /// [`ConicGradientKey::stretch_ratio`].
+    pub stretch_ratio: SizeKey,
     pub stops: Vec<GradientStopKey>,
     pub tile_spacing: SizeKey,
     pub nine_patch: Option<Box<NinePatchDescriptor>>,

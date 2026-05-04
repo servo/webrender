@@ -902,13 +902,17 @@ fn prepare_interned_prim_for_render(
             profile_scope!("LinearGradient");
             let prim_data = &mut data_stores.linear_grad[*data_handle];
             let prim_rect = LayoutRect::from_origin_and_size(prim_instance.prim_origin, prim_data.common.prim_size);
+            let stretch_size = LayoutSize::new(
+                prim_data.stretch_ratio.width * prim_data.common.prim_size.width,
+                prim_data.stretch_ratio.height * prim_data.common.prim_size.height,
+            );
 
             if let Some(nine_patch) = &prim_data.border_nine_patch {
                 quad::prepare_border_image_nine_patch(
                     &*nine_patch,
                     prim_data,
                     &prim_rect,
-                    prim_data.stretch_size,
+                    stretch_size,
                     prim_data.common.aligned_aa_edges,
                     prim_data.common.transformed_aa_edges,
                     prim_instance_index,
@@ -956,7 +960,7 @@ fn prepare_interned_prim_for_render(
             quad::prepare_repeatable_quad(
                 prim_data,
                 &local_rect,
-                prim_data.stretch_size,
+                stretch_size,
                 prim_data.tile_spacing,
                 prim_data.common.aligned_aa_edges,
                 prim_data.common.transformed_aa_edges,
@@ -978,13 +982,17 @@ fn prepare_interned_prim_for_render(
             profile_scope!("RadialGradient");
             let prim_data = &mut data_stores.radial_grad[*data_handle];
             let local_rect = LayoutRect::from_origin_and_size(prim_instance.prim_origin, prim_data.common.prim_size);
+            let stretch_size = LayoutSize::new(
+                prim_data.stretch_ratio.width * prim_data.common.prim_size.width,
+                prim_data.stretch_ratio.height * prim_data.common.prim_size.height,
+            );
 
             if let Some(nine_patch) = &prim_data.border_nine_patch {
                 quad::prepare_border_image_nine_patch(
                     &*nine_patch,
                     prim_data,
                     &local_rect,
-                    prim_data.stretch_size,
+                    stretch_size,
                     prim_data.common.aligned_aa_edges,
                     prim_data.common.transformed_aa_edges,
                     prim_instance_index,
@@ -1003,7 +1011,7 @@ fn prepare_interned_prim_for_render(
             quad::prepare_repeatable_quad(
                 prim_data,
                 &local_rect,
-                prim_data.stretch_size,
+                stretch_size,
                 prim_data.tile_spacing,
                 prim_data.common.aligned_aa_edges,
                 prim_data.common.transformed_aa_edges,
@@ -1024,13 +1032,17 @@ fn prepare_interned_prim_for_render(
             profile_scope!("ConicGradient");
             let prim_data = &mut data_stores.conic_grad[*data_handle];
             let prim_rect = LayoutRect::from_origin_and_size(prim_instance.prim_origin, prim_data.common.prim_size);
+            let stretch_size = LayoutSize::new(
+                prim_data.stretch_ratio.width * prim_data.common.prim_size.width,
+                prim_data.stretch_ratio.height * prim_data.common.prim_size.height,
+            );
 
             if let Some(nine_patch) = &prim_data.border_nine_patch {
                 quad::prepare_border_image_nine_patch(
                     &*nine_patch,
                     prim_data,
                     &prim_rect,
-                    prim_data.stretch_size,
+                    stretch_size,
                     prim_data.common.aligned_aa_edges,
                     prim_data.common.transformed_aa_edges,
                     prim_instance_index,
@@ -1083,7 +1095,7 @@ fn prepare_interned_prim_for_render(
             quad::prepare_repeatable_quad(
                 prim_data,
                 &local_rect,
-                prim_data.stretch_size,
+                stretch_size,
                 prim_data.tile_spacing,
                 prim_data.common.aligned_aa_edges,
                 prim_data.common.transformed_aa_edges,

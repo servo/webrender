@@ -57,7 +57,9 @@ pub struct RadialGradientKey {
     pub extend_mode: ExtendMode,
     pub center: PointKey,
     pub params: RadialGradientParams,
-    pub stretch_size: SizeKey,
+    /// Per-axis tile size encoded as a fraction of `common.prim_size`. The
+    /// runtime `stretch_size` is `stretch_ratio * common.prim_size`.
+    pub stretch_ratio: SizeKey,
     pub stops: Vec<GradientStopKey>,
     pub tile_spacing: SizeKey,
     pub nine_patch: Option<Box<NinePatchDescriptor>>,
@@ -73,7 +75,7 @@ impl RadialGradientKey {
             extend_mode: radial_grad.extend_mode,
             center: radial_grad.center,
             params: radial_grad.params,
-            stretch_size: radial_grad.stretch_size,
+            stretch_ratio: radial_grad.stretch_ratio,
             stops: radial_grad.stops,
             tile_spacing: radial_grad.tile_spacing,
             nine_patch: radial_grad.nine_patch,
@@ -92,7 +94,10 @@ pub struct RadialGradientTemplate {
     pub extend_mode: ExtendMode,
     pub params: RadialGradientParams,
     pub center: LayoutPoint,
-    pub stretch_size: LayoutSize,
+    /// Per-axis fraction of `common.prim_size` covered by one tile of the
+    /// gradient pattern. Multiply by `common.prim_size` at use to recover the
+    /// absolute stretch_size.
+    pub stretch_ratio: LayoutSize,
     pub tile_spacing: LayoutSize,
     pub border_nine_patch: Option<Box<NinePatchDescriptor>>,
     pub stops_opacity: PrimitiveOpacity,
@@ -154,16 +159,12 @@ impl From<RadialGradientKey> for RadialGradientTemplate {
         // should be drawn in.
         let stops_opacity = PrimitiveOpacity::from_alpha(min_alpha);
 
-        let mut stretch_size: LayoutSize = item.stretch_size.into();
-        stretch_size.width = stretch_size.width.min(common.prim_size.width);
-        stretch_size.height = stretch_size.height.min(common.prim_size.height);
-
         RadialGradientTemplate {
             common,
             center: item.center.into(),
             extend_mode: item.extend_mode,
             params: item.params,
-            stretch_size,
+            stretch_ratio: item.stretch_ratio.into(),
             tile_spacing: item.tile_spacing.into(),
             border_nine_patch: item.nine_patch,
             stops_opacity,
@@ -181,7 +182,9 @@ pub struct RadialGradient {
     pub extend_mode: ExtendMode,
     pub center: PointKey,
     pub params: RadialGradientParams,
-    pub stretch_size: SizeKey,
+    /// Per-axis tile size encoded as a fraction of the prim's size. See
+    /// [`RadialGradientKey::stretch_ratio`].
+    pub stretch_ratio: SizeKey,
     pub stops: Vec<GradientStopKey>,
     pub tile_spacing: SizeKey,
     pub nine_patch: Option<Box<NinePatchDescriptor>>,
