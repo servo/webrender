@@ -2001,7 +2001,9 @@ impl BatchBuilder {
             }
             PrimitiveKind::LineDecoration { .. } => {
                 let scratch_handle = prim_info.kind_scratch.unwrap_line_decoration();
-                let render_task_id = ctx.scratch.frame.line_decoration[scratch_handle].task_id;
+                let line_dec_scratch = ctx.scratch.frame.line_decoration[scratch_handle];
+                let render_task_id = line_dec_scratch.task_id;
+                let prim_cache_address = line_dec_scratch.gpu_address;
 
                 let (clip_task_address, clip_mask_texture_id) = ctx.get_prim_clip_task_and_texture(
                     prim_info.clip_task_index,

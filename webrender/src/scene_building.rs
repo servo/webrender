@@ -78,7 +78,7 @@ use crate::prim_store::gradient::{
     optimize_linear_gradient,
 };
 use crate::prim_store::image::{Image, YuvImage};
-use crate::prim_store::line_dec::{LineDecoration, LineDecorationCacheKey, get_line_decoration_size};
+use crate::prim_store::line_dec::LineDecoration;
 use crate::prim_store::picture::{Picture, PictureKey};
 use crate::picture_composite_mode::PictureCompositeKey;
 use crate::prim_store::text_run::TextRun;
@@ -3311,32 +3311,15 @@ impl<'a> SceneBuilder<'a> {
         color: ColorF,
         style: LineStyle,
     ) {
-        // For line decorations, we can construct the render task cache key
-        // here during scene building, since it doesn't depend on device
-        // pixel ratio or transform.
-        let size = get_line_decoration_size(
-            &info.rect.size(),
-            orientation,
-            style,
-            wavy_line_thickness,
-        );
-
-        let cache_key = size.map(|size| {
-            LineDecorationCacheKey {
-                style,
-                orientation,
-                wavy_line_thickness: Au::from_f32_px(wavy_line_thickness),
-                size: size.to_au(),
-            }
-        });
-
         self.add_primitive(
             spatial_node_index,
             clip_node_id,
             &info,
             Vec::new(),
             LineDecoration {
-                cache_key,
+                style,
+                orientation,
+                wavy_line_thickness: Au::from_f32_px(wavy_line_thickness),
                 color: color.into(),
             },
         );

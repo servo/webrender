@@ -630,18 +630,20 @@ fn prepare_interned_prim_for_render(
         }
         PrimitiveKind::LineDecoration { data_handle } => {
             profile_scope!("LineDecoration");
-            let prim_data = &mut data_stores.line_decoration[*data_handle];
-            let common_data = &mut prim_data.common;
-            let line_dec_data = &mut prim_data.kind;
+            let prim_data = &data_stores.line_decoration[*data_handle];
+            let prim_size = prim_data.common.prim_size;
 
-            line_dec_data.update(common_data, frame_state);
-
-            let render_task = line_dec_data.prepare_render_task(
+            let (task_id, gpu_address) = prim_data.kind.prepare(
+                prim_size,
                 prim_spatial_node_index,
                 frame_context,
                 frame_state,
             );
-            let line_dec_handle = scratch.frame.line_decoration.push(LineDecorationScratch { task_id: render_task });
+
+            let line_dec_handle = scratch.frame.line_decoration.push(LineDecorationScratch {
+                task_id,
+                gpu_address,
+            });
             scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
                 KindScratchHandle::LineDecoration(line_dec_handle);
         }
