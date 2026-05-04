@@ -725,7 +725,9 @@ fn prepare_interned_prim_for_render(
             let nb_scratch = scratch.frame.normal_border[nb_handle];
 
             let brush_segments = &scratch.frame.segments[nb_scratch.brush_segments_range];
-            border_data.write_brush_gpu_blocks(common_data, brush_segments, frame_state);
+            let gpu_address =
+                border_data.write_brush_gpu_blocks(common_data, brush_segments, frame_state);
+            scratch.frame.normal_border[nb_handle].gpu_address = gpu_address;
 
             // Hold split borrows on distinct fields of scratch.frame so
             // we can pass the border_segments slice and the task_ids
@@ -761,11 +763,12 @@ fn prepare_interned_prim_for_render(
 
             // Update the template this instance references, which may refresh the GPU
             // cache with any shared template data.
-            prim_data.kind.update(
+            let gpu_address = prim_data.kind.update(
                 &mut prim_data.common,
                 brush_segments,
                 frame_state,
             );
+            scratch.frame.image_border[ib_handle].gpu_address = gpu_address;
         }
         PrimitiveKind::Rectangle { data_handle, .. } => {
             profile_scope!("Rectangle");

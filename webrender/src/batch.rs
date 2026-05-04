@@ -1626,6 +1626,10 @@ impl BatchBuilder {
         };
 
         // The following primitives lower to the image brush shader in the same way.
+        // For ImageBorder, the GPU block lives on per-instance scratch
+        // (`ImageBorderScratch.gpu_address`), so override
+        // `prim_cache_address` here.
+        let mut prim_cache_address = prim_cache_address;
         let img_brush_data = match prim_instance.kind {
             PrimitiveKind::RadialGradient { .. } => {
                 unreachable!("BUG: radial gradients should always use quad path");
@@ -1636,9 +1640,9 @@ impl BatchBuilder {
             PrimitiveKind::ImageBorder { data_handle, .. } => {
                 let prim_data = &ctx.data_stores.image_border[data_handle];
                 let ib_handle = prim_info.kind_scratch.unwrap_image_border();
-                let brush_segments_range =
-                    ctx.scratch.frame.image_border[ib_handle].brush_segments_range;
-                let brush_segments = &ctx.scratch.frame.segments[brush_segments_range];
+                let ib_scratch = ctx.scratch.frame.image_border[ib_handle];
+                prim_cache_address = ib_scratch.gpu_address;
+                let brush_segments = &ctx.scratch.frame.segments[ib_scratch.brush_segments_range];
                 Some((prim_data.kind.src_color, brush_segments))
             }
             _ => None,
@@ -1664,7 +1668,7 @@ impl BatchBuilder {
             }.encode();
 
             let prim_header = PrimitiveHeader {
-                specific_prim_address: common_data.gpu_buffer_address.as_int(),
+                specific_prim_address: prim_cache_address.as_int(),
                 user_data: prim_user_data,
                 ..base_prim_header
             };
@@ -1718,6 +1722,7 @@ impl BatchBuilder {
             PrimitiveKind::NormalBorder { .. } => {
                 let scratch_handle = prim_info.kind_scratch.unwrap_normal_border();
                 let nb_scratch = ctx.scratch.frame.normal_border[scratch_handle];
+                let prim_cache_address = nb_scratch.gpu_address;
                 let task_ids = &ctx.scratch.frame.border_task_ids[nb_scratch.task_ids];
                 let mut segment_data: SmallVec<[SegmentInstanceData; 8]> = SmallVec::new();
 

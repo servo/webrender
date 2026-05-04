@@ -9,7 +9,7 @@ use crate::border::NormalBorderAu;
 use crate::gpu_types::ImageBrushPrimitiveData;
 use crate::render_backend::DataStores;
 use crate::render_task_cache::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent, to_cache_size};
-use crate::renderer::GpuBufferWriterF;
+use crate::renderer::{GpuBufferAddress, GpuBufferWriterF};
 use crate::scene_building::{CreateShadow, IsVisible};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState};
 use crate::intern;
@@ -42,6 +42,11 @@ pub struct NormalBorderScratch {
     /// per-frame edge/corner cache-key + task-size records for this
     /// border. Parallel to `brush_segments_range` and built alongside.
     pub border_segments_range: storage::Range<BorderSegmentInfo>,
+    /// Per-instance GPU buffer address for the brush + segment blocks
+    /// written by `NormalBorderData::write_brush_gpu_blocks`. Per-
+    /// instance because the block contents (stretch_size and segments)
+    /// depend on the prim's per-instance size.
+    pub gpu_address: GpuBufferAddress,
     /// True if any side uses a Dotted or Dashed style. Read by batch
     /// to set `BatchFeatures::REPETITION` so the cached dot/dash tile
     /// repeats across the rendered segment via brush_image.
@@ -99,6 +104,7 @@ impl NormalBorderScratch {
             task_ids,
             brush_segments_range,
             border_segments_range,
+            gpu_address: GpuBufferAddress::INVALID,
             may_need_repetition,
         });
         scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
@@ -148,7 +154,7 @@ impl NormalBorderData {
         common: &mut PrimTemplateCommonData,
         brush_segments: &[BrushSegment],
         frame_state: &mut FrameBuildingState,
-    ) {
+    ) -> GpuBufferAddress {
         let mut writer = frame_state.frame_gpu_data.f32.write_blocks(3 + brush_segments.len() * VECS_PER_SEGMENT);
 
         // Border primitives currently used for
@@ -164,8 +170,9 @@ impl NormalBorderData {
             segment.write_gpu_blocks(&mut writer);
         }
 
-        common.gpu_buffer_address = writer.finish();
+        let gpu_address = writer.finish();
         common.opacity = PrimitiveOpacity::translucent();
+        gpu_address
     }
 
     pub fn update(
@@ -355,6 +362,11 @@ pub struct ImageBorderScratch {
     /// each frame against the prim's current size in
     /// `prepare_prim_for_render`.
     pub brush_segments_range: storage::Range<BrushSegment>,
+    /// Per-instance GPU buffer address for the brush + segment blocks
+    /// written by `ImageBorderData::update`. Per-instance because the
+    /// block contents (stretch_size and segments) depend on the prim's
+    /// per-instance size.
+    pub gpu_address: GpuBufferAddress,
 }
 
 impl ImageBorderScratch {
@@ -383,6 +395,7 @@ impl ImageBorderScratch {
 
         let handle = scratch.frame.image_border.push(ImageBorderScratch {
             brush_segments_range,
+            gpu_address: GpuBufferAddress::INVALID,
         });
         scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
             KindScratchHandle::ImageBorder(handle);
@@ -411,11 +424,11 @@ impl ImageBorderData {
         common: &mut PrimTemplateCommonData,
         brush_segments: &[BrushSegment],
         frame_state: &mut FrameBuildingState,
-    ) {
+    ) -> GpuBufferAddress {
         let mut writer = frame_state.frame_gpu_data.f32.write_blocks(3 + brush_segments.len() * VECS_PER_SEGMENT);
         self.write_prim_gpu_blocks(&mut writer, &common.prim_size);
         Self::write_segment_gpu_blocks(&mut writer, brush_segments);
-        common.gpu_buffer_address = writer.finish();
+        let gpu_address = writer.finish();
 
         let frame_id = frame_state.rg_builder.frame_id();
         if self.frame_id != frame_id {
@@ -442,6 +455,7 @@ impl ImageBorderData {
         }
 
         common.opacity = PrimitiveOpacity { is_opaque: self.is_opaque };
+        gpu_address
     }
 
     fn write_prim_gpu_blocks(
