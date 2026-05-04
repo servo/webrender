@@ -42,6 +42,10 @@ pub struct NormalBorderScratch {
     /// per-frame edge/corner cache-key + task-size records for this
     /// border. Parallel to `brush_segments_range` and built alongside.
     pub border_segments_range: storage::Range<BorderSegmentInfo>,
+    /// True if any side uses a Dotted or Dashed style. Read by batch
+    /// to set `BatchFeatures::REPETITION` so the cached dot/dash tile
+    /// repeats across the rendered segment via brush_image.
+    pub may_need_repetition: bool,
 }
 
 impl NormalBorderScratch {
@@ -80,6 +84,12 @@ impl NormalBorderScratch {
         let brush_segments_range = scratch.frame.segments.close_range(brush_open);
         let border_segments_range = scratch.frame.border_segments.close_range(border_open);
 
+        let may_need_repetition =
+            matches!(border.top.style, BorderStyle::Dotted | BorderStyle::Dashed)
+                || matches!(border.right.style, BorderStyle::Dotted | BorderStyle::Dashed)
+                || matches!(border.bottom.style, BorderStyle::Dotted | BorderStyle::Dashed)
+                || matches!(border.left.style, BorderStyle::Dotted | BorderStyle::Dashed);
+
         let segment_count = border_segments_range.end.0
             .saturating_sub(border_segments_range.start.0) as usize;
         let task_ids = scratch.frame.border_task_ids.extend(
@@ -89,6 +99,7 @@ impl NormalBorderScratch {
             task_ids,
             brush_segments_range,
             border_segments_range,
+            may_need_repetition,
         });
         scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
             KindScratchHandle::NormalBorder(handle);
@@ -159,7 +170,6 @@ impl NormalBorderData {
 
     pub fn update(
         &mut self,
-        common_data: &mut PrimTemplateCommonData,
         border_segments: &[BorderSegmentInfo],
         prim_spatial_node_index: SpatialNodeIndex,
         device_pixel_scale: DevicePixelScale,
@@ -167,12 +177,6 @@ impl NormalBorderData {
         frame_state: &mut FrameBuildingState,
         task_ids: &mut [RenderTaskId],
     ) {
-        common_data.may_need_repetition =
-            matches!(self.border.top.style, BorderStyle::Dotted | BorderStyle::Dashed) ||
-            matches!(self.border.right.style, BorderStyle::Dotted | BorderStyle::Dashed) ||
-            matches!(self.border.bottom.style, BorderStyle::Dotted | BorderStyle::Dashed) ||
-            matches!(self.border.left.style, BorderStyle::Dotted | BorderStyle::Dashed);
-
         // TODO(gw): For now, the scale factors to rasterize borders at are
         //           based on the true world transform of the primitive. When
         //           raster roots with local scale are supported in future,
@@ -532,9 +536,9 @@ fn test_struct_sizes() {
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<NormalBorderPrim>(), 84, "NormalBorderPrim size changed");
-    assert_eq!(mem::size_of::<NormalBorderTemplate>(), 152, "NormalBorderTemplate size changed");
+    assert_eq!(mem::size_of::<NormalBorderTemplate>(), 148, "NormalBorderTemplate size changed");
     assert_eq!(mem::size_of::<NormalBorderKey>(), 96, "NormalBorderKey size changed");
     assert_eq!(mem::size_of::<ImageBorder>(), 68, "ImageBorder size changed");
-    assert_eq!(mem::size_of::<ImageBorderTemplate>(), 112, "ImageBorderTemplate size changed");
+    assert_eq!(mem::size_of::<ImageBorderTemplate>(), 104, "ImageBorderTemplate size changed");
     assert_eq!(mem::size_of::<ImageBorderKey>(), 80, "ImageBorderKey size changed");
 }

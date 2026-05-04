@@ -443,7 +443,6 @@ pub struct PrimKey<T: MallocSizeOf> {
 #[derive(Debug)]
 pub struct PrimTemplateCommonData {
     pub flags: PrimitiveFlags,
-    pub may_need_repetition: bool,
     pub prim_size: LayoutSize,
     pub opacity: PrimitiveOpacity,
     /// Address of the per-primitive data in the GPU cache.
@@ -460,7 +459,6 @@ impl PrimTemplateCommonData {
     pub fn with_key_common(common: PrimKeyCommonData) -> Self {
         PrimTemplateCommonData {
             flags: common.flags,
-            may_need_repetition: true,
             prim_size: common.prim_size.into(),
             gpu_buffer_address: GpuBufferAddress::INVALID,
             opacity: PrimitiveOpacity::translucent(),

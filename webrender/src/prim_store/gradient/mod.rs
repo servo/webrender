@@ -130,10 +130,10 @@ fn test_struct_sizes() {
     assert_eq!(mem::size_of::<LinearGradientKey>(), 80, "LinearGradientKey size changed");
 
     assert_eq!(mem::size_of::<RadialGradient>(), 72, "RadialGradient size changed");
-    assert_eq!(mem::size_of::<RadialGradientTemplate>(), 96, "RadialGradientTemplate size changed");
+    assert_eq!(mem::size_of::<RadialGradientTemplate>(), 88, "RadialGradientTemplate size changed");
     assert_eq!(mem::size_of::<RadialGradientKey>(), 88, "RadialGradientKey size changed");
 
     assert_eq!(mem::size_of::<ConicGradient>(), 72, "ConicGradient size changed");
-    assert_eq!(mem::size_of::<ConicGradientTemplate>(), 96, "ConicGradientTemplate size changed");
+    assert_eq!(mem::size_of::<ConicGradientTemplate>(), 88, "ConicGradientTemplate size changed");
     assert_eq!(mem::size_of::<ConicGradientKey>(), 88, "ConicGradientKey size changed");
 }

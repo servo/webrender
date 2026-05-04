@@ -201,23 +201,6 @@ impl DataStores {
         }
     }
 
-    /// Returns true if this primitive might need repition.
-    // TODO(gw): This seems like the wrong place for this - maybe this flag should
-    //           not be in the common prim template data?
-    pub fn prim_may_need_repetition(
-        &self,
-        prim_instance: &PrimitiveInstance,
-    ) -> bool {
-        match prim_instance.kind {
-            PrimitiveKind::Picture { .. } => {
-                false
-            }
-            _ => {
-                self.as_common_data(prim_instance).may_need_repetition
-            }
-        }
-    }
-
     /// Returns true if this primitive has anti-aliasing enabled.
     pub fn prim_has_anti_aliasing(
         &self,

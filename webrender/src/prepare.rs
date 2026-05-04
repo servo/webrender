@@ -649,8 +649,6 @@ fn prepare_interned_prim_for_render(
             profile_scope!("TextRun");
             let prim_data = &mut data_stores.text_run[*data_handle];
 
-            prim_data.common.may_need_repetition = false;
-
             // The glyph transform has to match `glyph_transform` in "ps_text_run" shader.
             // It's relative to the rasterizing space of a glyph.
             let transform = frame_context.spatial_tree
@@ -736,7 +734,6 @@ fn prepare_interned_prim_for_render(
                 ..
             } = scratch.frame;
             border_data.update(
-                common_data,
                 &border_segments[nb_scratch.border_segments_range],
                 prim_spatial_node_index,
                 device_pixel_scale,
@@ -773,7 +770,6 @@ fn prepare_interned_prim_for_render(
 
             if use_legacy_path {
                 let prim_data = &mut data_stores.prim[*data_handle];
-                prim_data.common.may_need_repetition = false;
 
                 // Update the template this instane references, which may refresh the GPU
                 // cache with any shared template data.
@@ -821,8 +817,6 @@ fn prepare_interned_prim_for_render(
             let prim_data = &mut data_stores.yuv_image[*data_handle];
             let common_data = &mut prim_data.common;
             let yuv_image_data = &mut prim_data.kind;
-
-            common_data.may_need_repetition = false;
 
             // Update the template this instane references, which may refresh the GPU
             // cache with any shared template data.

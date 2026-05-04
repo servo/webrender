@@ -962,7 +962,31 @@ impl BatchBuilder {
         );
 
         let mut batch_features = BatchFeatures::empty();
-        if ctx.data_stores.prim_may_need_repetition(prim_instance) {
+        let may_need_repetition = match prim_instance.kind {
+            PrimitiveKind::Image { .. } => {
+                let idx = prim_info.kind_scratch.unwrap_image();
+                ctx.scratch.frame.images[idx].may_need_repetition
+            }
+            PrimitiveKind::NormalBorder { .. } => {
+                let idx = prim_info.kind_scratch.unwrap_normal_border();
+                ctx.scratch.frame.normal_border[idx].may_need_repetition
+            }
+            // Image borders always go through brush_image and may tile
+            // their mid sections, so request the repetition-capable
+            // shader.
+            PrimitiveKind::ImageBorder { .. } => true,
+            // Patterned line decorations (Dashed / Dotted / Wavy) batch
+            // as `BrushBatchKind::Image` over a cached pattern tile and
+            // rely on shader-level repetition to span the segment.
+            // Solid lines batch as `BrushBatchKind::Solid`, where the
+            // REPETITION flag is harmless.
+            PrimitiveKind::LineDecoration { .. } => true,
+            // Other prim kinds don't reach the brush_image consumer of
+            // BatchFeatures::REPETITION; the flag is dead state for
+            // them.
+            _ => false,
+        };
+        if may_need_repetition {
             batch_features |= BatchFeatures::REPETITION;
         }
 
