@@ -1,0 +1,40 @@
+---
+# Bug 2035734 - box-shadow trailing-edge artifact under quad-box-shadow path.
+# Left:  original repro coords from the JSFiddle (200x200, blur 7, spread 2).
+# Right: same primitive scaled by 1.25 (250x250, blur 8.75, spread 2.5)
+#        to produce the fractional sub-pixel geometry that 125% display
+#        scaling triggers in the gecko bug.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 700, 360]
+      items:
+        # White background so the soft shadow and any seam are visible.
+        - type: rect
+          bounds: [0, 0, 700, 360]
+          color: [255, 255, 255]
+
+        # Left: integer coords (no artifact expected).
+        - type: rect
+          bounds: [50, 50, 200, 200]
+          color: [103, 150, 29]
+        - type: box-shadow
+          bounds: [50, 50, 200, 200]
+          color: [0, 0, 0, 0.47]
+          clip-mode: outset
+          offset: [0, 0]
+          blur-radius: 7
+          spread-radius: 2
+
+        # Right: 1.25x-scaled coords (fractional spread/blur, expected to
+        # show the trailing-edge seam on the right and bottom edges).
+        - type: rect
+          bounds: [350, 50, 250, 250]
+          color: [103, 150, 29]
+        - type: box-shadow
+          bounds: [350, 50, 250, 250]
+          color: [0, 0, 0, 0.47]
+          clip-mode: outset
+          offset: [0, 0]
+          blur-radius: 8.75
+          spread-radius: 2.5

@@ -1,0 +1,42 @@
+---
+# Bug 2035734 - Gecko-style reproduction.
+# Integer layout coords inside a 1.25x stacking-context transform produce
+# fractional device-space prim_rect, which `create_quad_primitive` rounds in
+# device space. The shader inverse-maps the rounded p0 back to layout, giving
+# a non-integer `local_prim_rect.p0`. Element offsets must be computed
+# against this round-tripped p0 to keep the analytical clip aligned.
+#
+# At 1.25x the trailing-edge seam from the unfixed quad path lands at the
+# device pixel just outside each box's right/bottom edge — same mechanism as
+# the original Bugzilla report at 125% display scaling.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 1000, 600]
+      transform: scale(1.25)
+      items:
+        - type: rect
+          bounds: [0, 0, 800, 480]
+          color: [255, 255, 255]
+
+        - type: rect
+          bounds: [50, 50, 200, 200]
+          color: [103, 150, 29]
+        - type: box-shadow
+          bounds: [50, 50, 200, 200]
+          color: [0, 0, 0, 0.47]
+          clip-mode: outset
+          offset: [0, 0]
+          blur-radius: 7
+          spread-radius: 2
+
+        - type: rect
+          bounds: [350, 50, 200, 200]
+          color: [103, 150, 29]
+        - type: box-shadow
+          bounds: [350, 50, 200, 200]
+          color: [0, 0, 0, 0.47]
+          clip-mode: inset
+          offset: [0, 0]
+          blur-radius: 7
+          spread-radius: 2

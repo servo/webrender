@@ -579,21 +579,46 @@ fn prepare_interned_prim_for_render(
                 }
             );
 
+            // Compensate for the rounding `create_quad_primitive` applies to
+            // prim_rect when `aa_flags` is empty: the shader receives the
+            // rounded p0 as `local_prim_rect.p0` (after the round-trip through
+            // device space and back via `pattern_scale_offset`) and
+            // reconstructs absolute positions via `local_prim_rect.p0 +
+            // offset`. Computing offsets against the un-rounded p0 mismatches
+            // by up to half a device pixel and produces a one-pixel seam on
+            // trailing edges (bug 2035734). The round must be done in device
+            // space to match `create_quad_primitive` for non-identity
+            // transforms (e.g. Gecko at 125% display scaling).
+            let prim_min_rounded = match quad_transform.as_2d_scale_offset() {
+                Some(local_to_device) => {
+                    // Use Point2D::round (euclid's Round trait, defined as
+                    // (n+0.5).floor()) to match what create_quad_primitive
+                    // uses on the rendered quad bounds. f32::round here would
+                    // round half-away-from-zero and disagree at negative
+                    // half-integer device-x values, causing a 1-pixel shift
+                    // when the shader reconstructs dest_rect.min as
+                    // local_prim_rect.p0 + dest_rect_offset.
+                    let dev: DevicePoint = local_to_device.map_point(&prim_rect.min);
+                    local_to_device.unmap_point::<DevicePixel, LayoutPixel>(&dev.round())
+                }
+                None => prim_rect.min,
+            };
+
             // For outset, prim_rect == dest_rect so offset is zero.
             // For inset, prim_rect is the element rect; dest_rect (outer_shadow_rect)
             // may be offset and smaller, so we pass its size and offset separately.
             let dest_rect = outer_shadow_rect;
             let dest_rect_offset = LayoutVector2D::new(
-                dest_rect.min.x - prim_rect.min.x,
-                dest_rect.min.y - prim_rect.min.y,
+                dest_rect.min.x - prim_min_rounded.x,
+                dest_rect.min.y - prim_min_rounded.y,
             );
             let dest_rect_size = dest_rect.size();
 
             let mut element_radius = shadow_data.element_radius;
             border::ensure_no_corner_overlap(&mut element_radius, element_rect.size());
             let element_offset_rel_prim = LayoutVector2D::new(
-                element_rect.min.x - prim_rect.min.x,
-                element_rect.min.y - prim_rect.min.y,
+                element_rect.min.x - prim_min_rounded.x,
+                element_rect.min.y - prim_min_rounded.y,
             );
 
             let pattern = BoxShadowPatternData {

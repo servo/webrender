@@ -37,3 +37,11 @@ platform(linux,mac) fuzzy(1,8) == box-shadow-large-blur-radius-3.yaml box-shadow
 platform(linux,mac) fuzzy(1,79) == scale.yaml scale.png
 platform(linux,mac) fuzzy(1,4) == box-shadow-non-uniform-corner.yaml box-shadow-non-uniform-corner.png
 == box-shadow-clipped-corners.yaml box-shadow-clipped-corners-ref.yaml
+
+# bug 2035734: trailing-edge seam when prim_rect.p0 is fractional under the
+# quad path. The two cases differ in clip-mode; both regress identically if
+# element_offset_rel_prim isn't computed against the rounded prim_rect.min.
+platform(linux,mac) == box-shadow-fractional-spread.yaml box-shadow-fractional-spread.png
+platform(linux,mac) == box-shadow-fractional-inset.yaml box-shadow-fractional-inset.png
+platform(linux,mac) == box-shadow-fractional-transform.yaml box-shadow-fractional-transform.png
+platform(linux,mac) == box-shadow-fractional-negative.yaml box-shadow-fractional-negative.png
