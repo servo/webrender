@@ -308,6 +308,7 @@ fn prepare_prim_for_render(
                 NormalBorderScratch::build_for_prim(
                     data_handle,
                     PrimitiveInstanceIndex(prim_instance_index as u32),
+                    prim_instance.prim_rect.size(),
                     data_stores,
                     scratch,
                 );
@@ -316,6 +317,7 @@ fn prepare_prim_for_render(
                 ImageBorderScratch::build_for_prim(
                     data_handle,
                     PrimitiveInstanceIndex(prim_instance_index as u32),
+                    prim_instance.prim_rect.size(),
                     data_stores,
                     scratch,
                 );
@@ -414,10 +416,7 @@ fn prepare_interned_prim_for_render(
             // For Inset, the prim was registered with `info.rect = element_rect`,
             // so prim_rect == element; inner = element.translate(box_offset)
             // .inflate(spread_amount); outer = inner.inflate(blur_offset).
-            let prim_rect = LayoutRect::from_origin_and_size(
-                prim_instance.prim_origin,
-                prim_data.common.prim_size,
-            );
+            let prim_rect = prim_instance.prim_rect;
             let blur_offset = (BLUR_SAMPLE_SCALE * blur_radius).ceil();
             let (inner_shadow_rect, outer_shadow_rect, element_rect) = match shadow_data.clip_mode {
                 BoxShadowClipMode::Outset => {
@@ -631,10 +630,9 @@ fn prepare_interned_prim_for_render(
         PrimitiveKind::LineDecoration { data_handle } => {
             profile_scope!("LineDecoration");
             let prim_data = &data_stores.line_decoration[*data_handle];
-            let prim_size = prim_data.common.prim_size;
 
             let (task_id, gpu_address) = prim_data.kind.prepare(
-                prim_size,
+                prim_instance.prim_rect.size(),
                 prim_spatial_node_index,
                 frame_context,
                 frame_state,
@@ -659,7 +657,7 @@ fn prepare_interned_prim_for_render(
                     pic_context.raster_spatial_node_index,
                 )
                 .into_fast_transform();
-            let prim_offset = prim_instance.prim_origin.to_vector();
+            let prim_offset = prim_instance.prim_rect.min.to_vector();
 
             let surface = &frame_state.surfaces[pic_context.surface_index.0];
 
@@ -725,8 +723,12 @@ fn prepare_interned_prim_for_render(
             let nb_scratch = scratch.frame.normal_border[nb_handle];
 
             let brush_segments = &scratch.frame.segments[nb_scratch.brush_segments_range];
-            let gpu_address =
-                border_data.write_brush_gpu_blocks(common_data, brush_segments, frame_state);
+            let gpu_address = border_data.write_brush_gpu_blocks(
+                common_data,
+                prim_instance.prim_rect.size(),
+                brush_segments,
+                frame_state,
+            );
             scratch.frame.normal_border[nb_handle].gpu_address = gpu_address;
 
             // Hold split borrows on distinct fields of scratch.frame so
@@ -765,6 +767,7 @@ fn prepare_interned_prim_for_render(
             // cache with any shared template data.
             let gpu_address = prim_data.kind.update(
                 &mut prim_data.common,
+                prim_instance.prim_rect.size(),
                 brush_segments,
                 frame_state,
             );
@@ -794,7 +797,7 @@ fn prepare_interned_prim_for_render(
                 );
             } else {
                 let prim_data = &data_stores.prim[*data_handle];
-                let prim_rect = LayoutRect::from_origin_and_size(prim_instance.prim_origin, prim_data.common.prim_size);
+                let prim_rect = prim_instance.prim_rect;
                 let color = prim_data.resolve(frame_context.scene_properties);
 
                 quad::prepare_quad(
@@ -849,10 +852,7 @@ fn prepare_interned_prim_for_render(
             let image_data = &mut prim_data.kind;
 
             if !use_legacy_path {
-                let prim_rect = LayoutRect::from_origin_and_size(
-                    prim_instance.prim_origin,
-                    common_data.prim_size,
-                );
+                let prim_rect = prim_instance.prim_rect;
 
                 crate::prim_store::image::prepare_image_quads(
                     &prim_rect,
@@ -880,7 +880,7 @@ fn prepare_interned_prim_for_render(
                 prim_spatial_node_index,
                 frame_state,
                 frame_context,
-                prim_instance.prim_origin,
+                prim_instance.prim_rect,
                 scratch,
             );
             scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
@@ -900,10 +900,10 @@ fn prepare_interned_prim_for_render(
         PrimitiveKind::LinearGradient { data_handle, .. } => {
             profile_scope!("LinearGradient");
             let prim_data = &mut data_stores.linear_grad[*data_handle];
-            let prim_rect = LayoutRect::from_origin_and_size(prim_instance.prim_origin, prim_data.common.prim_size);
+            let prim_rect = prim_instance.prim_rect;
             let stretch_size = LayoutSize::new(
-                prim_data.stretch_ratio.width * prim_data.common.prim_size.width,
-                prim_data.stretch_ratio.height * prim_data.common.prim_size.height,
+                prim_data.stretch_ratio.width * prim_rect.size().width,
+                prim_data.stretch_ratio.height * prim_rect.size().height,
             );
 
             if let Some(nine_patch) = &prim_data.border_nine_patch {
@@ -955,7 +955,7 @@ fn prepare_interned_prim_for_render(
                 None
             };
 
-            let local_rect = LayoutRect::from_origin_and_size(prim_instance.prim_origin, prim_data.common.prim_size);
+            let local_rect = prim_instance.prim_rect;
             quad::prepare_repeatable_quad(
                 prim_data,
                 &local_rect,
@@ -980,10 +980,10 @@ fn prepare_interned_prim_for_render(
         PrimitiveKind::RadialGradient { data_handle, .. } => {
             profile_scope!("RadialGradient");
             let prim_data = &mut data_stores.radial_grad[*data_handle];
-            let local_rect = LayoutRect::from_origin_and_size(prim_instance.prim_origin, prim_data.common.prim_size);
+            let local_rect = prim_instance.prim_rect;
             let stretch_size = LayoutSize::new(
-                prim_data.stretch_ratio.width * prim_data.common.prim_size.width,
-                prim_data.stretch_ratio.height * prim_data.common.prim_size.height,
+                prim_data.stretch_ratio.width * local_rect.size().width,
+                prim_data.stretch_ratio.height * local_rect.size().height,
             );
 
             if let Some(nine_patch) = &prim_data.border_nine_patch {
@@ -1030,10 +1030,10 @@ fn prepare_interned_prim_for_render(
         PrimitiveKind::ConicGradient { data_handle, .. } => {
             profile_scope!("ConicGradient");
             let prim_data = &mut data_stores.conic_grad[*data_handle];
-            let prim_rect = LayoutRect::from_origin_and_size(prim_instance.prim_origin, prim_data.common.prim_size);
+            let prim_rect = prim_instance.prim_rect;
             let stretch_size = LayoutSize::new(
-                prim_data.stretch_ratio.width * prim_data.common.prim_size.width,
-                prim_data.stretch_ratio.height * prim_data.common.prim_size.height,
+                prim_data.stretch_ratio.width * prim_rect.size().width,
+                prim_data.stretch_ratio.height * prim_rect.size().height,
             );
 
             if let Some(nine_patch) = &prim_data.border_nine_patch {
@@ -1090,7 +1090,7 @@ fn prepare_interned_prim_for_render(
                 None
             };
 
-            let local_rect = LayoutRect::from_origin_and_size(prim_instance.prim_origin, prim_data.common.prim_size);
+            let local_rect = prim_instance.prim_rect;
             quad::prepare_repeatable_quad(
                 prim_data,
                 &local_rect,

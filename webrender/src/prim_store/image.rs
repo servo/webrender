@@ -165,7 +165,7 @@ impl ImageData {
         prim_spatial_node_index: SpatialNodeIndex,
         frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
-        prim_origin: LayoutPoint,
+        prim_rect: LayoutRect,
         scratch: &mut PrimitiveScratchBuffer,
     ) -> storage::Index<ImageScratch> {
 
@@ -196,7 +196,6 @@ impl ImageData {
         // We also rely on having a tight clip rect in some cases other than
         // tiled/repeated images, for example when rendering a snapshot image
         // where the snapshot area is tighter than the rasterized area.
-        let prim_rect = LayoutRect::from_origin_and_size(prim_origin, common.prim_size);
         let tight_clip_rect = scratch.frame.draws[prim_instance_index.0 as usize]
             .clip_chain
             .local_clip_rect
@@ -204,8 +203,8 @@ impl ImageData {
 
         let mut image_scratch = ImageScratch::empty();
         image_scratch.tight_local_clip_rect = tight_clip_rect;
-        if self.stretch_size.width >= common.prim_size.width
-            && self.stretch_size.height >= common.prim_size.height
+        if self.stretch_size.width >= prim_rect.size().width
+            && self.stretch_size.height >= prim_rect.size().height
         {
             image_scratch.may_need_repetition = false;
         }
@@ -356,7 +355,6 @@ impl ImageData {
                 // have it in the shader.
                 image_scratch.may_need_repetition = false;
 
-                let prim_rect = LayoutRect::from_origin_and_size(prim_origin, common.prim_size);
                 let repetitions = image_tiling::repetitions(
                     &prim_rect,
                     &visible_rect,
@@ -925,9 +923,9 @@ fn test_struct_sizes() {
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<Image>(), 32, "Image size changed");
-    assert_eq!(mem::size_of::<ImageTemplate>(), 60, "ImageTemplate size changed");
-    assert_eq!(mem::size_of::<ImageKey>(), 44, "ImageKey size changed");
+    assert_eq!(mem::size_of::<ImageTemplate>(), 52, "ImageTemplate size changed");
+    assert_eq!(mem::size_of::<ImageKey>(), 36, "ImageKey size changed");
     assert_eq!(mem::size_of::<YuvImage>(), 32, "YuvImage size changed");
-    assert_eq!(mem::size_of::<YuvImageTemplate>(), 72, "YuvImageTemplate size changed");
-    assert_eq!(mem::size_of::<YuvImageKey>(), 44, "YuvImageKey size changed");
+    assert_eq!(mem::size_of::<YuvImageTemplate>(), 64, "YuvImageTemplate size changed");
+    assert_eq!(mem::size_of::<YuvImageKey>(), 36, "YuvImageKey size changed");
 }

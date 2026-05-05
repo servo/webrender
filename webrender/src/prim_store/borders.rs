@@ -62,18 +62,18 @@ impl NormalBorderScratch {
     /// Called from the prep-pass before `update_clip_task` runs, since
     /// `update_clip_task_for_brush` reads the brush segments via the
     /// `NormalBorderScratch` allocated here. The segment list is built
-    /// against `common.prim_size`, with the two arenas
+    /// against the prim's per-instance size, with the two arenas
     /// (`scratch.frame.segments` and `scratch.frame.border_segments`)
     /// receiving direct pushes through `data_mut` to avoid intermediate
     /// `Vec` allocations.
     pub fn build_for_prim(
         data_handle: NormalBorderDataHandle,
         prim_instance_index: PrimitiveInstanceIndex,
+        prim_size: LayoutSize,
         data_stores: &DataStores,
         scratch: &mut PrimitiveScratchBuffer,
     ) {
         let prim_data = &data_stores.normal_border[data_handle];
-        let prim_size = prim_data.common.prim_size;
         let border = &prim_data.kind.border;
         let widths = &prim_data.kind.widths;
 
@@ -152,6 +152,7 @@ impl NormalBorderData {
     pub fn write_brush_gpu_blocks(
         &mut self,
         common: &mut PrimTemplateCommonData,
+        prim_size: LayoutSize,
         brush_segments: &[BrushSegment],
         frame_state: &mut FrameBuildingState,
     ) -> GpuBufferAddress {
@@ -163,7 +164,7 @@ impl NormalBorderData {
         writer.push(&ImageBrushPrimitiveData {
             color: PremultipliedColorF::WHITE,
             background_color: PremultipliedColorF::WHITE,
-            stretch_size: common.prim_size,
+            stretch_size: prim_size,
         });
 
         for segment in brush_segments {
@@ -380,11 +381,11 @@ impl ImageBorderScratch {
     pub fn build_for_prim(
         data_handle: ImageBorderDataHandle,
         prim_instance_index: PrimitiveInstanceIndex,
+        prim_size: LayoutSize,
         data_stores: &DataStores,
         scratch: &mut PrimitiveScratchBuffer,
     ) {
         let prim_data = &data_stores.image_border[data_handle];
-        let prim_size = prim_data.common.prim_size;
         let nine_patch = &prim_data.kind.nine_patch;
 
         let brush_open = scratch.frame.segments.open_range();
@@ -422,11 +423,12 @@ impl ImageBorderData {
     pub fn update(
         &mut self,
         common: &mut PrimTemplateCommonData,
+        prim_size: LayoutSize,
         brush_segments: &[BrushSegment],
         frame_state: &mut FrameBuildingState,
     ) -> GpuBufferAddress {
         let mut writer = frame_state.frame_gpu_data.f32.write_blocks(3 + brush_segments.len() * VECS_PER_SEGMENT);
-        self.write_prim_gpu_blocks(&mut writer, &common.prim_size);
+        self.write_prim_gpu_blocks(&mut writer, &prim_size);
         Self::write_segment_gpu_blocks(&mut writer, brush_segments);
         let gpu_address = writer.finish();
 
@@ -550,9 +552,9 @@ fn test_struct_sizes() {
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<NormalBorderPrim>(), 84, "NormalBorderPrim size changed");
-    assert_eq!(mem::size_of::<NormalBorderTemplate>(), 148, "NormalBorderTemplate size changed");
-    assert_eq!(mem::size_of::<NormalBorderKey>(), 96, "NormalBorderKey size changed");
+    assert_eq!(mem::size_of::<NormalBorderTemplate>(), 140, "NormalBorderTemplate size changed");
+    assert_eq!(mem::size_of::<NormalBorderKey>(), 88, "NormalBorderKey size changed");
     assert_eq!(mem::size_of::<ImageBorder>(), 68, "ImageBorder size changed");
-    assert_eq!(mem::size_of::<ImageBorderTemplate>(), 104, "ImageBorderTemplate size changed");
-    assert_eq!(mem::size_of::<ImageBorderKey>(), 80, "ImageBorderKey size changed");
+    assert_eq!(mem::size_of::<ImageBorderTemplate>(), 96, "ImageBorderTemplate size changed");
+    assert_eq!(mem::size_of::<ImageBorderKey>(), 72, "ImageBorderKey size changed");
 }

@@ -415,7 +415,6 @@ pub struct PrimKeyCommonData {
     pub flags: PrimitiveFlags,
     pub aligned_aa_edges: EdgeMask,
     pub transformed_aa_edges: EdgeMask,
-    pub prim_size: SizeKey,
 }
 
 impl From<&LayoutPrimitiveInfo> for PrimKeyCommonData {
@@ -424,7 +423,6 @@ impl From<&LayoutPrimitiveInfo> for PrimKeyCommonData {
             flags: info.flags,
             aligned_aa_edges: info.aligned_aa_edges,
             transformed_aa_edges: info.transformed_aa_edges,
-            prim_size: info.rect.size().into(),
         }
     }
 }
@@ -443,7 +441,6 @@ pub struct PrimKey<T: MallocSizeOf> {
 #[derive(Debug)]
 pub struct PrimTemplateCommonData {
     pub flags: PrimitiveFlags,
-    pub prim_size: LayoutSize,
     pub opacity: PrimitiveOpacity,
     /// Address of the per-primitive data in the GPU cache.
     ///
@@ -459,7 +456,6 @@ impl PrimTemplateCommonData {
     pub fn with_key_common(common: PrimKeyCommonData) -> Self {
         PrimTemplateCommonData {
             flags: common.flags,
-            prim_size: common.prim_size.into(),
             gpu_buffer_address: GpuBufferAddress::INVALID,
             opacity: PrimitiveOpacity::translucent(),
             aligned_aa_edges: common.aligned_aa_edges,
@@ -818,20 +814,24 @@ pub struct PrimitiveInstance {
     /// All information and state related to clip(s) for this primitive
     pub clip_leaf_id: ClipLeafId,
 
-    /// Position of the primitive in local space
-    pub prim_origin: LayoutPoint,
+    /// Local-space rect of the primitive (origin + size). Carries both
+    /// the position and the per-instance size; the latter used to live
+    /// on `PrimTemplateCommonData.prim_size` but is per-instance now so
+    /// that the intern key can deduplicate across differently-sized
+    /// instances of the same prim shape.
+    pub prim_rect: LayoutRect,
 }
 
 impl PrimitiveInstance {
     pub fn new(
         kind: PrimitiveKind,
         clip_leaf_id: ClipLeafId,
-        prim_origin: LayoutPoint,
+        prim_rect: LayoutRect,
     ) -> Self {
         PrimitiveInstance {
             kind,
             clip_leaf_id,
-            prim_origin,
+            prim_rect,
         }
     }
 
@@ -1326,6 +1326,6 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<PrimitiveInstance>(), 40, "PrimitiveInstance size changed");
+    assert_eq!(mem::size_of::<PrimitiveInstance>(), 48, "PrimitiveInstance size changed");
     assert_eq!(mem::size_of::<PrimitiveKind>(), 24, "PrimitiveKind size changed");
 }
