@@ -214,6 +214,7 @@ pub fn prepare_quad(
         strategy,
         &pattern,
         local_rect,
+        &clip_chain.local_clip_rect,
         aligned_aa_edges,
         transfomed_aa_edges,
         prim_instance_index,
@@ -287,11 +288,23 @@ pub fn prepare_repeatable_quad(
         || stretch_size.height < local_rect.height();
 
     if !needs_repetition {
+        // The stretch size may be larger than the local rect's size which
+        // should resut in some stretching (without repetitions). However,
+        // the non-repeated quad code paths don't take a stretch_size, so
+        // we bake it into the local rect and make sure that the local clip
+        // prevents the primitive from overflowing its initial bounds.
+        let local_clip_rect = clip_chain.local_clip_rect.intersection_unchecked(&local_rect);
+        let local_rect = LayoutRect::from_origin_and_size(
+            local_rect.min,
+            stretch_size,
+        );
+
         // Most common path.
         prepare_quad_impl(
             strategy,
             &pattern,
-            local_rect,
+            &local_rect,
+            &local_clip_rect,
             aligned_aa_edges,
             transfomed_aa_edges,
             prim_instance_index,
@@ -391,6 +404,7 @@ pub fn prepare_repeatable_quad(
             strategy,
             &repeat_pattern,
             local_rect,
+            &clip_chain.local_clip_rect,
             aligned_aa_edges,
             transfomed_aa_edges,
             prim_instance_index,
@@ -422,6 +436,7 @@ pub fn prepare_repeatable_quad(
     let repetitions = crate::image_tiling::repetitions(&local_rect, &visible_rect, stride);
     for tile in repetitions {
         let tile_rect = LayoutRect::from_origin_and_size(tile.origin, stretch_size);
+        let clip_rect = clip_chain.local_clip_rect.intersection_unchecked(&tile_rect);
         let pattern_offset = tile.origin - local_rect.min;
         let pattern = pattern_builder.build(
             None,
@@ -437,6 +452,7 @@ pub fn prepare_repeatable_quad(
             strategy,
             &pattern,
             &tile_rect,
+            &clip_rect,
             aligned_aa_edges & tile.edge_flags,
             transfomed_aa_edges & tile.edge_flags,
             prim_instance_index,
@@ -562,6 +578,7 @@ pub fn prepare_border_image_nine_patch(
             strategy,
             &img_pattern,
             &dst_rect,
+            &clip_chain.local_clip_rect,
             aligned_aa_edges & side,
             transfomed_aa_edges & side,
             prim_instance_index,
@@ -584,6 +601,7 @@ fn prepare_quad_impl(
     strategy: QuadRenderStrategy,
     pattern: &Pattern,
     local_rect: &LayoutRect,
+    local_clip_rect: &LayoutRect,
     aligned_aa_edges: EdgeMask,
     transfomed_aa_edges: EdgeMask,
     prim_instance_index: PrimitiveInstanceIndex,
@@ -649,8 +667,8 @@ fn prepare_quad_impl(
         }
 
         let quad = create_quad_primitive(
-            &local_rect,
-            &clip_chain.local_clip_rect,
+            local_rect,
+            local_clip_rect,
             &DeviceRect::max_rect(),
             transform.as_2d_scale_offset(),
             round_edges,
@@ -725,7 +743,7 @@ fn prepare_quad_impl(
                 transform.prim_spatial_node_index(),
                 transform.raster_spatial_node_index(),
                 local_rect,
-                &clip_chain.local_clip_rect,
+                local_clip_rect,
                 &clipped_surface_rect,
                 transform.as_2d_scale_offset(),
                 transform.device_pixel_scale(),
@@ -755,6 +773,7 @@ fn prepare_quad_impl(
             prepare_tiles(
                 prim_instance_index,
                 local_rect,
+                local_clip_rect,
                 &clipped_surface_rect,
                 pattern,
                 quad_flags,
@@ -774,7 +793,7 @@ fn prepare_quad_impl(
             prepare_nine_patch(
                 prim_instance_index,
                 local_rect,
-                &clip_chain.local_clip_rect,
+                local_clip_rect,
                 &clipped_surface_rect,
                 &clip_rect,
                 radius,
@@ -1069,6 +1088,7 @@ fn prepare_nine_patch(
 fn prepare_tiles(
     prim_instance_index: PrimitiveInstanceIndex,
     local_rect: &LayoutRect,
+    local_clip_rect: &LayoutRect,
     device_clip_rect: &DeviceRect,
     pattern: &Pattern,
     mut quad_flags: QuadFlags,
@@ -1206,8 +1226,8 @@ fn prepare_tiles(
 
     let indirect_prim_address = write_prim_blocks(
         &mut frame_state.frame_gpu_data.f32,
-        &local_rect,
-        &clip_chain.local_clip_rect,
+        local_rect,
+        local_clip_rect,
         device_clip_rect,
         transform.as_2d_scale_offset(),
         !aa_flags,
