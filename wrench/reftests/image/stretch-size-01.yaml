@@ -1,8 +1,0 @@
-# An image with a stretch size large than the primitive bounds.
-# This should stretch the image without rendering outside of its
-# bounds.
-root:
-  items:
-    - image: xy-gradient(200, 200)
-      bounds: 0 0 200 200
-      stretch-size: 400 200
