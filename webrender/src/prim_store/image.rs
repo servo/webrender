@@ -435,29 +435,25 @@ impl ImageData {
 }
 
 pub fn can_use_quad_shaders(
-    _image_data: &ImageData,
-    _resource_cache: &ResourceCache,
+    image_data: &ImageData,
+    resource_cache: &ResourceCache,
 ) -> bool {
-    // TODO(Bug 2026629): Temporarily disabled due to some visiual regressions.
-
-    // let image_properties = resource_cache.get_image_properties(image_data.key);
-    // match &image_properties {
-    //     Some(ImageProperties { tiling: None, external_image: None, adjustment, .. }) => {
-    //         return adjustment.x0 == 0.0
-    //             && adjustment.y0 == 0.0
-    //             && adjustment.x1 == 0.0
-    //             && adjustment.y1 == 0.0
-    //             && image_data.alpha_type == AlphaType::PremultipliedAlpha
-    //             // See the comment in ps_quad_textured about ignoring the base color
-    //             // due to a driver issue.
-    //             && image_data.color == ColorF::WHITE;
-    //     }
-    //     _ => {
-    //         return false;
-    //     }
-    // }
-
-    false
+    let image_properties = resource_cache.get_image_properties(image_data.key);
+    match &image_properties {
+        Some(ImageProperties { tiling: None, external_image: None, adjustment, .. }) => {
+            return adjustment.x0 == 0.0
+                && adjustment.y0 == 0.0
+                && adjustment.x1 == 0.0
+                && adjustment.y1 == 0.0
+                && image_data.alpha_type == AlphaType::PremultipliedAlpha
+                // See the comment in ps_quad_textured about ignoring the base color
+                // due to a driver issue.
+                && image_data.color == ColorF::WHITE;
+        }
+        _ => {
+            return false;
+        }
+    }
 }
 
 pub fn prepare_image_quads(
