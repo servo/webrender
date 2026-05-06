@@ -34,3 +34,4 @@ fuzzy(3,3000) == snapshot-shadow.yaml snapshot-shadow-ref.yaml
 # instead of leaving the snapshot empty.
 == snapshot-perspective-01.yaml empty.yaml
 == snapshot-complex-clip.yaml snapshot-complex-clip-ref.yaml
+== stretch-size-01.yaml stretch-size-01-ref.yaml
