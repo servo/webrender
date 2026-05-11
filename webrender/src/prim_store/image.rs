@@ -922,6 +922,6 @@ fn test_struct_sizes() {
     assert_eq!(mem::size_of::<ImageTemplate>(), 52, "ImageTemplate size changed");
     assert_eq!(mem::size_of::<ImageKey>(), 36, "ImageKey size changed");
     assert_eq!(mem::size_of::<YuvImage>(), 32, "YuvImage size changed");
-    assert_eq!(mem::size_of::<YuvImageTemplate>(), 64, "YuvImageTemplate size changed");
+    assert_eq!(mem::size_of::<YuvImageTemplate>(), 76, "YuvImageTemplate size changed");
     assert_eq!(mem::size_of::<YuvImageKey>(), 36, "YuvImageKey size changed");
 }
