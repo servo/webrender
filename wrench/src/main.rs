@@ -1207,7 +1207,7 @@ fn build_app(args: clap::ArgMatches, proxy: Option<EventLoopProxy<()>>) -> Wrenc
         } else if input_path.as_path().is_dir() {
             ThingToBuild::LoadCapture(input_path)
         } else {
-            ThingToBuild::Ready(Box::new(YamlFrameReader::new_from_args(m)) as Box<dyn WrenchThing>)
+            ThingToBuild::Ready(Box::new(YamlFrameReader::new_from_show_args(m)) as Box<dyn WrenchThing>)
         };
         (Some(thing), no_block, no_batch)
     } else {

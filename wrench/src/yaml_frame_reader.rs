@@ -414,8 +414,11 @@ impl YamlFrameReader {
 
     pub fn new_from_args(args: &clap::ArgMatches) -> YamlFrameReader {
         let yaml_file = args.value_of("INPUT").map(PathBuf::from).unwrap();
+        YamlFrameReader::new(&yaml_file)
+    }
 
-        let mut y = YamlFrameReader::new(&yaml_file);
+    pub fn new_from_show_args(args: &clap::ArgMatches) -> YamlFrameReader {
+        let mut y = YamlFrameReader::new_from_args(args);
 
         y.keyframes = args.value_of("keyframes").map(|path| {
             let mut file = File::open(&path).unwrap();
