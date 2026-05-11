@@ -1,0 +1,23 @@
+# Like preserve3d-leaf-under-flat-perspective.yaml but with a much tighter
+# perspective value (perspective: 4) matching the bug 1817905 CSS testcase.
+# The rotated rect's corners land far behind the camera in this setup —
+# this exercises the frustum-cull path with extreme perspective.
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: 0 0 800 600
+      perspective: 4
+      items:
+        - type: stacking-context
+          bounds: 0 0 800 600
+          transform: translate(200, 200, 0)
+          items:
+            - type: stacking-context
+              bounds: 0 0 360 240
+              transform: rotate-y(45)
+              transform-style: preserve-3d
+              items:
+                - type: rect
+                  bounds: 0 0 360 240
+                  color: black

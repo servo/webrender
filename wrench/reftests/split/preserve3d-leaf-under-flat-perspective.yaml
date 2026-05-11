@@ -1,0 +1,27 @@
+# Regression test for bug 1817905:
+# perspective ancestor + intermediate flat translate-Z + preserve-3d on a
+# rotated leaf used to produce window-size-dependent distortion because the
+# plane splitter ran in world (post-perspective) space and dropped polygon
+# corners whose homogeneous w landed at or behind the near plane.
+# preserve-3d on a leaf with no 3D children is semantically equivalent to
+# flat, so this should render identically to the ref (which omits preserve-3d
+# on the leaf).
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: 0 0 800 600
+      perspective: 100
+      items:
+        - type: stacking-context
+          bounds: 0 0 800 600
+          transform: translate(200, 200, 0)
+          items:
+            - type: stacking-context
+              bounds: 0 0 360 240
+              transform: rotate-y(45)
+              transform-style: preserve-3d
+              items:
+                - type: rect
+                  bounds: 0 0 360 240
+                  color: black

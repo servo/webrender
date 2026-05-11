@@ -1,0 +1,28 @@
+# Regression test for bug 1817905, case f:
+# perspective ancestor + intermediate flat translate-Z + preserve-3d wrapper
+# whose child has the actual rotateY. Different SC structure from the leaf
+# case but same root cause: plane splitter previously baked perspective into
+# polygon coords before BSP.
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: 0 0 800 600
+      perspective: 100
+      items:
+        - type: stacking-context
+          bounds: 0 0 800 600
+          transform: translate(200, 200, 0)
+          items:
+            - type: stacking-context
+              bounds: 0 0 360 240
+              transform: translate(0, 0, 0)
+              transform-style: preserve-3d
+              items:
+                - type: stacking-context
+                  bounds: 0 0 360 240
+                  transform: rotate-y(45)
+                  items:
+                    - type: rect
+                      bounds: 0 0 360 240
+                      color: black

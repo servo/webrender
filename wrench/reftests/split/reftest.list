@@ -20,3 +20,9 @@ platform(linux,mac) fuzzy(1,20) == same-plane.yaml same-plane.png
 fuzzy(1,40000) == filter.yaml filter-ref.yaml
 fuzzy(1,10000) == gradient.yaml gradient-ref.yaml
 == order-3.yaml order-3-ref.yaml
+# bug 1817905: preserve-3d on a rotated leaf under perspective + intermediate
+# flat translate-Z. The plane splitter now operates in the 3D context's
+# ancestor space, so this matches the no-preserve-3d ref.
+platform(linux,mac) == preserve3d-leaf-under-flat-perspective.yaml preserve3d-leaf-under-flat-perspective.png
+platform(linux,mac) == preserve3d-wrapper-under-flat-perspective.yaml preserve3d-wrapper-under-flat-perspective.png
+platform(linux,mac) == preserve3d-leaf-tight-perspective.yaml preserve3d-leaf-tight-perspective.png

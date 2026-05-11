@@ -911,7 +911,7 @@ impl PictureInstance {
             );
         }
 
-        if let Picture3DContext::In { root_data: Some(ref mut list), plane_splitter_index, .. } = self.context_3d {
+        if let Picture3DContext::In { root_data: Some(ref mut list), plane_splitter_index, ancestor_index, .. } = self.context_3d {
             let splitter = &mut frame_state.plane_splitters[plane_splitter_index.0];
 
             // Resolve split planes via BSP
@@ -919,6 +919,7 @@ impl PictureInstance {
                 splitter,
                 list,
                 &mut frame_state.frame_gpu_data.f32,
+                ancestor_index,
                 &frame_context.spatial_tree,
             );
 
@@ -953,20 +954,22 @@ impl PictureInstance {
         splitter: &mut PlaneSplitter,
         spatial_tree: &SpatialTree,
         prim_spatial_node_index: SpatialNodeIndex,
-        // TODO: this is called "visibility" while transitioning from world to raster
-        // space.
-        visibility_spatial_node_index: SpatialNodeIndex,
+        // Coordinate space of the 3D rendering context's containing block
+        // (`ancestor_index` from Picture3DContext::In). Polygons are projected
+        // into this pre-perspective space so the BSP works on real 3D planes
+        // rather than post-perspective ones.
+        ancestor_spatial_node_index: SpatialNodeIndex,
         original_local_rect: LayoutRect,
         combined_local_clip_rect: &LayoutRect,
         dirty_rect: VisRect,
         plane_split_anchor: PlaneSplitAnchor,
     ) -> bool {
-        let transform = spatial_tree.get_relative_transform(
+        let prim_to_ancestor = spatial_tree.get_relative_transform(
             prim_spatial_node_index,
-            visibility_spatial_node_index
+            ancestor_spatial_node_index
         );
 
-        let matrix = transform.clone().into_transform().cast().to_untyped();
+        let ancestor_matrix = prim_to_ancestor.clone().into_transform().cast().to_untyped();
 
         // Apply the local clip rect here, before splitting. This is
         // because the local clip rect can't be applied in the vertex
@@ -980,9 +983,8 @@ impl PictureInstance {
             Some(rect) => rect.cast(),
             None => return false,
         };
-        let dirty_rect = dirty_rect.cast();
 
-        match transform {
+        match prim_to_ancestor {
             CoordinateSpaceMapping::Local => {
                 let polygon = Polygon::from_rect(
                     local_rect.to_rect() * Scale::new(1.0),
@@ -994,7 +996,7 @@ impl PictureInstance {
                 let inv_matrix = scale_offset.inverse().to_transform().cast();
                 let polygon = Polygon::from_transformed_rect_with_inverse(
                     local_rect.to_rect().to_untyped(),
-                    &matrix,
+                    &ancestor_matrix,
                     &inv_matrix,
                     plane_split_anchor,
                 ).unwrap();
@@ -1002,18 +1004,31 @@ impl PictureInstance {
             }
             CoordinateSpaceMapping::ScaleOffset(_) |
             CoordinateSpaceMapping::Transform(_) => {
-                let mut clipper = Clipper::new();
-                let results = clipper.clip_transformed(
-                    Polygon::from_rect(
-                        local_rect.to_rect().to_untyped(),
-                        plane_split_anchor,
-                    ),
-                    &matrix,
-                    Some(dirty_rect.to_rect().to_untyped()),
+                let prim_to_world = spatial_tree
+                    .get_world_transform(prim_spatial_node_index)
+                    .into_transform()
+                    .cast()
+                    .to_untyped();
+                let world_bounds = dirty_rect.cast().to_rect().to_untyped();
+
+                let mut clipper = Clipper::<PlaneSplitAnchor>::new();
+                let planes = match Clipper::<PlaneSplitAnchor>::frustum_planes(&prim_to_world, Some(world_bounds)) {
+                    Ok(p) => p,
+                    Err(_) => return false,
+                };
+                for plane in planes {
+                    clipper.add(plane);
+                }
+
+                let polygon = Polygon::from_rect(
+                    local_rect.to_rect().to_untyped(),
+                    plane_split_anchor,
                 );
-                if let Ok(results) = results {
-                    for poly in results {
-                        splitter.add(poly);
+                let clipped: Vec<_> = clipper.clip(polygon).to_vec();
+
+                for poly in clipped {
+                    if let Some(transformed) = poly.transform(&ancestor_matrix) {
+                        splitter.add(transformed);
                     }
                 }
             }
@@ -1026,6 +1041,7 @@ impl PictureInstance {
         splitter: &mut PlaneSplitter,
         ordered: &mut Vec<OrderedPictureChild>,
         gpu_buffer: &mut GpuBufferBuilderF,
+        ancestor_index: SpatialNodeIndex,
         spatial_tree: &SpatialTree,
     ) {
         ordered.clear();
@@ -1036,7 +1052,7 @@ impl PictureInstance {
         ordered.reserve(sorted.len());
         for poly in sorted {
             let transform = match spatial_tree
-                .get_world_transform(poly.anchor.spatial_node_index)
+                .get_relative_transform(poly.anchor.spatial_node_index, ancestor_index)
                 .inverse()
             {
                 Some(transform) => transform.into_transform(),
