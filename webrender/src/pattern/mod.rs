@@ -138,6 +138,12 @@ impl Pattern {
         }
     }
 
+    pub fn with_blend_mode(mut self, blend_mode: BlendMode) -> Self {
+        self.blend_mode = blend_mode;
+
+        self
+    }
+
     pub fn as_render_task(&self) -> Option<RenderTaskId> {
         if self.kind != PatternKind::ColorOrTexture || self.texture_input.task_id == RenderTaskId::INVALID {
             return None;
