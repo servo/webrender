@@ -24,7 +24,7 @@ use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::transform::TransformPalette;
 use crate::quad;
 use crate::prim_store::{PrimitiveInstance, PrimitiveStore, PrimitiveScratchBuffer};
-use crate::renderer::{GpuBufferAddress, GpuBufferBuilder};
+use crate::renderer::{BlendMode, GpuBufferAddress, GpuBufferBuilder};
 use crate::render_backend::DataStores;
 use crate::render_task::{RenderTaskKind, RenderTaskAddress};
 use crate::render_task::{RenderTask, ScalingTask, SVGFEFilterTask};
@@ -374,6 +374,7 @@ impl RenderTarget {
                     INVALID_SEGMENT_INDEX as u8,
                     info.texture_input,
                     ZBufferId(0),
+                    BlendMode::None, // This parameter is ignored
                     render_tasks,
                     gpu_buffer_builder,
                     |key, instance| {
@@ -878,6 +879,7 @@ fn add_rect_clip_task_to_batch(
         INVALID_SEGMENT_INDEX as u8,
         RenderTaskId::INVALID,
         ZBufferId(0),
+        BlendMode::None, // This parameter is ignored.
         render_tasks,
         gpu_buffers,
         |_, prim| {
@@ -939,6 +941,7 @@ fn add_image_clip_task_to_batch(
         segment_index,
         task.src_task,
         ZBufferId(0),
+        BlendMode::None, // This parameter is ignored.
         render_tasks,
         gpu_buffers,
         |_, prim| {
