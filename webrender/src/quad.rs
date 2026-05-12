@@ -167,7 +167,6 @@ pub enum QuadRenderStrategy {
 pub fn prepare_quad(
     pattern_builder: &dyn PatternBuilder,
     local_rect: &LayoutRect,
-    local_clip_rect: &LayoutRect,
     aligned_aa_edges: EdgeMask,
     transfomed_aa_edges: EdgeMask,
     prim_instance_index: PrimitiveInstanceIndex,
@@ -215,7 +214,7 @@ pub fn prepare_quad(
         strategy,
         &pattern,
         local_rect,
-        local_clip_rect,
+        &clip_chain.local_clip_rect,
         aligned_aa_edges,
         transfomed_aa_edges,
         prim_instance_index,

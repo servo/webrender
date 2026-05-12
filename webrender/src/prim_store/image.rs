@@ -440,7 +440,7 @@ pub fn can_use_quad_shaders(
 ) -> bool {
     let image_properties = resource_cache.get_image_properties(image_data.key);
     match &image_properties {
-        Some(ImageProperties { external_image: None, adjustment, .. }) => {
+        Some(ImageProperties { tiling: None, external_image: None, adjustment, .. }) => {
             return adjustment.x0 == 0.0
                 && adjustment.y0 == 0.0
                 && adjustment.x1 == 0.0
@@ -473,29 +473,25 @@ pub fn prepare_image_quads(
         .resource_cache
         .get_image_properties(image_data.key);
 
-    let Some(image_properties) = image_properties else {
-        return;
-    };
-
-    let src_is_opaque = image_properties.descriptor.is_opaque()
-        && common_data.opacity.is_opaque
-        && image_data.color.a >= 0.9999;
-
-    let premultiplied = image_data.alpha_type == AlphaType::PremultipliedAlpha;
-
-    let request = ImageRequest {
-        key: image_data.key,
-        rendering: image_data.image_rendering,
-        tile: None,
-    };
-
-    match image_properties.tiling {
+    match image_properties {
         // Non-tiled (most common) path.
-        None => {
+        Some(ImageProperties { tiling: None, ref descriptor, .. }) => {
+            let request = ImageRequest {
+                key: image_data.key,
+                rendering: image_data.image_rendering,
+                tile: None,
+            };
+
             let size = frame_state.resource_cache.request_image(
                 request,
                 &mut frame_state.frame_gpu_data.f32,
             );
+
+            let is_opaque = if descriptor.is_opaque() {
+                image_data.color.a >= 0.9999
+            } else {
+                false
+            };
 
             let src_task_id = frame_state.rg_builder.add().init(
                 RenderTask::new_image(size, request, false)
@@ -503,8 +499,8 @@ pub fn prepare_image_quads(
 
             let image_pattern = ImagePattern {
                 src_task_id,
-                src_is_opaque,
-                premultiplied,
+                src_is_opaque: common_data.opacity.is_opaque && is_opaque,
+                premultiplied: image_data.alpha_type == AlphaType::PremultipliedAlpha,
             };
 
             quad::prepare_repeatable_quad(
@@ -526,95 +522,8 @@ pub fn prepare_image_quads(
                 scratch,
             );
         }
-        Some(tile_size) => {
-            // TODO: rename the blob's visible_rect into something that doesn't conflict
-            // with the terminology we use during culling since it's not really the same
-            // thing.
-            let active_rect = image_properties.visible_rect;
-            let visible_rect = compute_conservative_visible_rect(
-                &scratch.frame.draws[prim_instance_index.0 as usize].clip_chain,
-                frame_state.current_dirty_region().combined,
-                frame_state.current_dirty_region().visibility_spatial_node,
-                quad_transform.prim_spatial_node_index(),
-                frame_context.spatial_tree,
-            );
-
-            let stride = image_data.stretch_size + image_data.tile_spacing;
-
-            let repetitions = image_tiling::repetitions(
-                prim_rect,
-                &visible_rect,
-                stride,
-            );
-
-            let base_edge_flags = edge_flags_for_tile_spacing(&image_data.tile_spacing);
-
-            for image_tiling::Repetition { origin, edge_flags } in repetitions {
-                let rep_edge_flags = base_edge_flags & edge_flags;
-
-                let layout_image_rect = LayoutRect::from_origin_and_size(
-                    origin,
-                    image_data.stretch_size,
-                );
-
-                let tiles = image_tiling::tiles(
-                    &layout_image_rect,
-                    &visible_rect,
-                    &active_rect,
-                    tile_size as i32,
-                );
-
-                // Tighten the clip rect because decomposing the repeated image can
-                // produce primitives that are partially covering the original image
-                // rect and we want to clip these extra parts out.
-                // We also rely on having a tight clip rect in some cases other than
-                // tiled/repeated images, for example when rendering a snapshot image
-                // where the snapshot area is tighter than the rasterized area.
-                let tight_clip_rect =  clip_chain
-                    .local_clip_rect
-                    .intersection(&prim_rect)
-                    .unwrap();
-
-                for tile in tiles {
-                    let request = request.with_tile(tile.offset);
-                    let size = frame_state.resource_cache.request_image(
-                        request,
-                        &mut frame_state.frame_gpu_data.f32,
-                    );
-
-                    let tile_edge_flags = rep_edge_flags & tile.edge_flags;
-                    let aligned_aa_edges = tile_edge_flags & common_data.aligned_aa_edges;
-                    let transformed_aa_edges = tile_edge_flags & common_data.transformed_aa_edges;
-
-                    let src_task_id = frame_state.rg_builder.add().init(
-                        RenderTask::new_image(size, request, false)
-                    );
-
-                    let image_pattern = ImagePattern {
-                        src_task_id,
-                        src_is_opaque,
-                        premultiplied,
-                    };
-
-                    quad::prepare_quad(
-                        &image_pattern,
-                        &tile.rect,
-                        &tight_clip_rect,
-                        aligned_aa_edges,
-                        transformed_aa_edges,
-                        prim_instance_index,
-                        &None,
-                        clip_chain,
-                        quad_transform,
-                        frame_context,
-                        pic_context,
-                        targets,
-                        interned_clips,
-                        frame_state,
-                        scratch,
-                    );
-                }
-            }
+        _ => {
+            unimplemented!();
         }
     }
 }

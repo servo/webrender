@@ -636,7 +636,6 @@ fn prepare_interned_prim_for_render(
             quad::prepare_quad(
                 &pattern,
                 &prim_rect,
-                &prim_info.clip_chain.local_clip_rect,
                 prim_data.common.aligned_aa_edges,
                 prim_data.common.transformed_aa_edges,
                 prim_instance_index,
@@ -829,7 +828,6 @@ fn prepare_interned_prim_for_render(
                 quad::prepare_quad(
                     &color,
                     &prim_rect,
-                    &prim_info.clip_chain.local_clip_rect,
                     prim_data.common.aligned_aa_edges,
                     prim_data.common.transformed_aa_edges,
                     prim_instance_index,
