@@ -689,7 +689,6 @@ fn prepare_quad_impl(
                 transform_id,
                 quad_flags,
                 aa_flags,
-                pattern.blend_mode,
             ),
             transform.prim_spatial_node_index(),
             targets,
@@ -763,7 +762,6 @@ fn prepare_quad_impl(
 
             add_composite_prim(
                 pattern.base_color,
-                pattern.blend_mode,
                 prim_instance_index,
                 &clipped_surface_rect,
                 frame_state,
@@ -1078,7 +1076,6 @@ fn prepare_nine_patch(
     if !scratch.frame.quad_indirect_segments.is_empty() {
         add_composite_prim(
             pattern.base_color,
-            pattern.blend_mode,
             prim_instance_index,
             &device_clip_rect,
             frame_state,
@@ -1328,7 +1325,6 @@ fn prepare_tiles(
     if !scratch.frame.quad_indirect_segments.is_empty() {
         add_composite_prim(
             pattern.base_color,
-            pattern.blend_mode,
             prim_instance_index,
             device_clip_rect,
             frame_state,
@@ -1618,7 +1614,6 @@ fn add_pattern_prim(
             quad_flags,
             // TODO(gw): No AA on composite, unless we use it to apply 2d clips
             EdgeMask::empty(),
-            pattern.blend_mode,
         ),
         targets,
     );
@@ -1626,7 +1621,6 @@ fn add_pattern_prim(
 
 fn add_composite_prim(
     base_color: ColorF,
-    blend_mode: BlendMode,
     prim_instance_index: PrimitiveInstanceIndex,
     rect: &DeviceRect,
     frame_state: &mut FrameBuildingState,
@@ -1673,7 +1667,6 @@ fn add_composite_prim(
             quad_flags,
             // TODO(gw): No AA on composite, unless we use it to apply 2d clips
             EdgeMask::empty(),
-            blend_mode,
         ),
         targets,
     );
@@ -2095,7 +2088,6 @@ pub fn add_to_batch<F>(
     segment_index: u8,
     src_task_id: RenderTaskId,
     z_id: ZBufferId,
-    blend_mode: BlendMode,
     render_tasks: &RenderTaskGraph,
     gpu_buffer_builder: &mut GpuBufferBuilder,
     mut f: F,
@@ -2140,24 +2132,22 @@ pub fn add_to_batch<F>(
         TextureSource::Invalid,
     );
 
-    let prim_blend_mode = if quad_flags.contains(QuadFlags::IS_OPAQUE)
-        && blend_mode == BlendMode::PremultipliedAlpha
-    {
+    let default_blend_mode = if quad_flags.contains(QuadFlags::IS_OPAQUE) {
         BlendMode::None
     } else {
-        blend_mode
+        BlendMode::PremultipliedAlpha
     };
 
     let edge_flags_bits = edge_flags.bits();
 
     let prim_batch_key = BatchKey {
-        blend_mode: prim_blend_mode,
+        blend_mode: default_blend_mode,
         kind: BatchKind::Quad(kind),
         textures,
     };
 
     let aa_batch_key = BatchKey {
-        blend_mode,
+        blend_mode: BlendMode::PremultipliedAlpha,
         kind: BatchKind::Quad(kind),
         textures,
     };

@@ -12,7 +12,7 @@ use api::{ColorF, units::DeviceRect};
 
 use crate::frame_builder::FrameBuilderConfig;
 use crate::render_task_graph::RenderTaskId;
-use crate::renderer::{BlendMode, GpuBufferBuilder};
+use crate::renderer::GpuBufferBuilder;
 use crate::spatial_tree::SpatialTree;
 use crate::transform::TransformPalette;
 
@@ -106,7 +106,6 @@ pub struct Pattern {
     pub texture_input: PatternTextureInput,
     pub base_color: ColorF,
     pub is_opaque: bool,
-    pub blend_mode: BlendMode,
 }
 
 impl Pattern {
@@ -120,7 +119,6 @@ impl Pattern {
             texture_input: PatternTextureInput::default(),
             base_color: color,
             is_opaque: color.a >= 1.0,
-            blend_mode: BlendMode::PremultipliedAlpha,
         }
     }
 
@@ -134,14 +132,7 @@ impl Pattern {
             texture_input: PatternTextureInput::new(src_task),
             base_color: ColorF::WHITE,
             is_opaque,
-            blend_mode: BlendMode::PremultipliedAlpha,
         }
-    }
-
-    pub fn with_blend_mode(mut self, blend_mode: BlendMode) -> Self {
-        self.blend_mode = blend_mode;
-
-        self
     }
 
     pub fn as_render_task(&self) -> Option<RenderTaskId> {

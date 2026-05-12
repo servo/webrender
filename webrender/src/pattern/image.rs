@@ -6,12 +6,10 @@ use api::units::*;
 
 use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState};
 use crate::render_task_graph::RenderTaskId;
-use crate::renderer::BlendMode;
 
 pub struct ImagePattern {
     pub src_task_id: RenderTaskId,
     pub src_is_opaque: bool,
-    pub premultiplied: bool,
     // pub color: ColorF, // TODO
 }
 
@@ -23,13 +21,6 @@ impl PatternBuilder for ImagePattern {
         _ctx: &PatternBuilderContext,
         _state: &mut PatternBuilderState,
     ) -> Pattern {
-        let blend_mode = if self.premultiplied || self.src_is_opaque {
-            BlendMode::PremultipliedAlpha
-        } else {
-            BlendMode::Alpha
-        };
-
         Pattern::texture(self.src_task_id, self.src_is_opaque)
-            .with_blend_mode(blend_mode)
     }
 }

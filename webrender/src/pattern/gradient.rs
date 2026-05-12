@@ -5,7 +5,7 @@
 use api::units::*;
 use api::{ColorF, ExtendMode, GradientStop};
 use crate::pattern::{Pattern, PatternKind, PatternShaderInput, PatternTextureInput};
-use crate::renderer::{BlendMode, GpuBufferBuilder, GpuBufferWriterF};
+use crate::renderer::{GpuBufferBuilder, GpuBufferWriterF};
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
@@ -51,7 +51,6 @@ pub fn linear_gradient_pattern(
         texture_input: PatternTextureInput::default(),
         base_color: ColorF::WHITE,
         is_opaque,
-        blend_mode: BlendMode::PremultipliedAlpha,
     }
 }
 
@@ -94,7 +93,6 @@ pub fn radial_gradient_pattern(
         texture_input: PatternTextureInput::default(),
         base_color: ColorF::WHITE,
         is_opaque,
-        blend_mode: BlendMode::PremultipliedAlpha,
     }
 }
 
@@ -134,7 +132,6 @@ pub fn conic_gradient_pattern(
         texture_input: PatternTextureInput::default(),
         base_color: ColorF::WHITE,
         is_opaque,
-        blend_mode: BlendMode::PremultipliedAlpha,
     }
 }
 

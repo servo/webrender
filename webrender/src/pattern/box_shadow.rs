@@ -7,7 +7,6 @@ use api::units::*;
 use api::ColorF;
 use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState, PatternKind, PatternShaderInput, PatternTextureInput};
 use crate::render_task_graph::RenderTaskId;
-use crate::renderer::BlendMode;
 
 pub struct BoxShadowPatternData {
     pub color: ColorF,
@@ -77,7 +76,6 @@ impl PatternBuilder for BoxShadowPatternData {
             texture_input: PatternTextureInput::new(self.render_task),
             base_color: self.color,
             is_opaque: false,
-            blend_mode: BlendMode::PremultipliedAlpha,
         }
     }
 }

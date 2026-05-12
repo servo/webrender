@@ -840,7 +840,7 @@ impl BatchBuilder {
             PrimitiveCommand::Instance { draw_index, gpu_buffer_address } => {
                 (draw_index, Some(gpu_buffer_address.as_int()))
             }
-            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_id, blend_mode } => {
+            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_id } => {
                 let prim_info = &ctx.scratch.frame.draws[draw_index.0 as usize];
                 let bounding_rect = &prim_info.clip_chain.pic_coverage_rect;
                 let render_task_address = self.batcher.render_task_address;
@@ -859,7 +859,6 @@ impl BatchBuilder {
                         INVALID_SEGMENT_INDEX as u8,
                         *src_color_task_id,
                         z_id,
-                        *blend_mode,
                         render_tasks,
                         gpu_buffer_builder,
                         |key, instance| {
@@ -890,7 +889,6 @@ impl BatchBuilder {
                             i as u8,
                             *task_id,
                             z_id,
-                            *blend_mode,
                             render_tasks,
                             gpu_buffer_builder,
                             |key, instance| {

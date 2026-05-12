@@ -445,6 +445,7 @@ pub fn can_use_quad_shaders(
                 && adjustment.y0 == 0.0
                 && adjustment.x1 == 0.0
                 && adjustment.y1 == 0.0
+                && image_data.alpha_type == AlphaType::PremultipliedAlpha
                 // See the comment in ps_quad_textured about ignoring the base color
                 // due to a driver issue.
                 && image_data.color == ColorF::WHITE;
@@ -493,39 +494,72 @@ pub fn prepare_image_quads(
                 false
             };
 
-            let src_task_id = frame_state.rg_builder.add().init(
+            let task_id = frame_state.rg_builder.add().init(
                 RenderTask::new_image(size, request, false)
             );
 
-            let image_pattern = ImagePattern {
-                src_task_id,
-                src_is_opaque: common_data.opacity.is_opaque && is_opaque,
-                premultiplied: image_data.alpha_type == AlphaType::PremultipliedAlpha,
-            };
-
-            quad::prepare_repeatable_quad(
-                &image_pattern,
+            prepare_non_tiled_image_quad(
+                task_id,
+                is_opaque,
                 prim_rect,
-                image_data.stretch_size,
-                image_data.tile_spacing,
-                common_data.aligned_aa_edges,
-                common_data.transformed_aa_edges,
-                prim_instance_index,
-                &None,
+                common_data,
+                image_data,
                 clip_chain,
+                prim_instance_index,
                 quad_transform,
                 frame_context,
                 pic_context,
                 targets,
                 interned_clips,
                 frame_state,
-                scratch,
+                scratch
             );
         }
         _ => {
             unimplemented!();
         }
     }
+}
+
+pub fn prepare_non_tiled_image_quad(
+    image_task: RenderTaskId,
+    is_opaque: bool,
+    prim_rect: &LayoutRect,
+    common_data: &PrimTemplateCommonData,
+    image_data: &ImageData,
+    clip_chain: &ClipChainInstance,
+    prim_instance_index: PrimitiveInstanceIndex,
+    quad_transform: &mut QuadTransformState,
+    frame_context: &FrameBuildingContext,
+    pic_context: &PictureContext,
+    targets: &[CommandBufferIndex],
+    interned_clips: &DataStore<ClipIntern>,
+    frame_state: &mut FrameBuildingState,
+    scratch: &mut PrimitiveScratchBuffer,
+) {
+    let pattern_builder = ImagePattern {
+        src_task_id: image_task,
+        src_is_opaque: common_data.opacity.is_opaque && is_opaque,
+    };
+
+    quad::prepare_repeatable_quad(
+        &pattern_builder,
+        prim_rect,
+        image_data.stretch_size,
+        image_data.tile_spacing,
+        common_data.aligned_aa_edges,
+        common_data.transformed_aa_edges,
+        prim_instance_index,
+        &None,
+        clip_chain,
+        quad_transform,
+        frame_context,
+        pic_context,
+        targets,
+        interned_clips,
+        frame_state,
+        scratch,
+    );
 }
 
 fn edge_flags_for_tile_spacing(tile_spacing: &LayoutSize) -> EdgeMask {
