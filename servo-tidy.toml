@@ -73,6 +73,7 @@ packages = [
     "windows_i686_msvc",
     "windows_aarch64_gnullvm",
     "miniz_oxide",
+    "socket2",
     # 0.9 required by glean/uniffi
     # 0.5 by proc-macro-crate
     "toml",
