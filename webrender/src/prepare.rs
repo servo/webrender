@@ -1328,6 +1328,8 @@ fn prepare_interned_prim_for_render(
 
             if let Picture3DContext::In { root_data: None, plane_splitter_index, ancestor_index, .. } = pic.context_3d {
                 let dirty_rect = frame_state.current_dirty_region().combined;
+                let visibility_spatial_node = frame_state.current_dirty_region().visibility_spatial_node;
+
                 let splitter = &mut frame_state.plane_splitters[plane_splitter_index.0];
                 let surface_index = pic.raster_config.as_ref().unwrap().surface_index;
                 let surface = &frame_state.surfaces[surface_index.0];
@@ -1338,6 +1340,7 @@ fn prepare_interned_prim_for_render(
                     frame_context.spatial_tree,
                     prim_spatial_node_index,
                     ancestor_index,
+                    visibility_spatial_node,
                     local_prim_rect,
                     &prim_info.clip_chain.local_clip_rect,
                     dirty_rect,
