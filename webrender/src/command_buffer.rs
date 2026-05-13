@@ -2,8 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::units::PictureRect;
+use api::{MixBlendMode, units::PictureRect};
 use crate::pattern::{PatternKind, PatternShaderInput};
+use crate::renderer::BlendMode;
 use crate::{spatial_tree::SpatialNodeIndex, render_task_graph::RenderTaskId, surface::SurfaceTileDescriptor, tile_cache::TileKey, renderer::GpuBufferAddress, FastHashMap};
 use crate::gpu_types::QuadSegment;
 use crate::prim_store::storage;
@@ -134,6 +135,7 @@ pub enum PrimitiveCommand {
         transform_id: GpuTransformId,
         quad_flags: QuadFlags,
         edge_flags: EdgeMask,
+        blend_mode: BlendMode,
     },
 }
 
@@ -165,6 +167,7 @@ impl PrimitiveCommand {
         transform_id: GpuTransformId,
         quad_flags: QuadFlags,
         edge_flags: EdgeMask,
+        blend_mode: BlendMode,
     ) -> Self {
         PrimitiveCommand::Quad {
             pattern,
@@ -175,6 +178,7 @@ impl PrimitiveCommand {
             transform_id,
             quad_flags,
             edge_flags,
+            blend_mode,
         }
     }
 
@@ -189,6 +193,39 @@ impl PrimitiveCommand {
     }
 }
 
+
+// Non-Advanced variants map to 0..=8; Advanced(mode) maps to 9 + mode as u32.
+// MixBlendMode is repr(u8) with values 0..=16, so Advanced covers 9..=25.
+
+fn encode_blend_mode(blend_mode: BlendMode) -> u32 {
+    match blend_mode {
+        BlendMode::None => 0,
+        BlendMode::Alpha => 1,
+        BlendMode::PremultipliedAlpha => 2,
+        BlendMode::PremultipliedDestOut => 3,
+        BlendMode::SubpixelDualSource => 4,
+        BlendMode::MultiplyDualSource => 5,
+        BlendMode::Screen => 6,
+        BlendMode::Exclusion => 7,
+        BlendMode::PlusLighter => 8,
+        BlendMode::Advanced(mode) => 9 + mode as u32,
+    }
+}
+
+fn decode_blend_mode(val: u32) -> BlendMode {
+    match val {
+        0 => BlendMode::None,
+        1 => BlendMode::Alpha,
+        2 => BlendMode::PremultipliedAlpha,
+        3 => BlendMode::PremultipliedDestOut,
+        4 => BlendMode::SubpixelDualSource,
+        5 => BlendMode::MultiplyDualSource,
+        6 => BlendMode::Screen,
+        7 => BlendMode::Exclusion,
+        8 => BlendMode::PlusLighter,
+        _ => BlendMode::Advanced(unsafe { std::mem::transmute::<u8, MixBlendMode>((val - 9) as u8) }),
+    }
+}
 
 /// A list of commands describing how to draw a primitive list.
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -252,7 +289,7 @@ impl CommandBuffer {
                 self.commands.push(Command::draw_instance(draw_index));
                 self.commands.push(Command::data(gpu_buffer_address.as_u32()));
             }
-            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, transform_id, quad_flags, edge_flags, src_color_task_id } => {
+            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, transform_id, quad_flags, edge_flags, src_color_task_id, blend_mode } => {
                 self.commands.push(Command::draw_quad(draw_index));
                 self.commands.push(Command::data(pattern as u32));
                 self.commands.push(Command::data(pattern_input.0 as u32));
@@ -262,6 +299,7 @@ impl CommandBuffer {
                 self.commands.push(Command::data(gpu_buffer_address.as_u32()));
                 self.commands.push(Command::data(transform_id.0));
                 self.commands.push(Command::data((quad_flags.bits() as u32) << 16 | edge_flags.bits() as u32));
+                self.commands.push(Command::data(encode_blend_mode(blend_mode)));
             }
         }
     }
@@ -315,6 +353,7 @@ impl CommandBuffer {
                     let bits = cmd_iter.next().unwrap().0;
                     let quad_flags = QuadFlags::from_bits((bits >> 16) as u8).unwrap();
                     let edge_flags = EdgeMask::from_bits((bits & 0xff) as u8).unwrap();
+                    let blend_mode = decode_blend_mode(cmd_iter.next().unwrap().0);
                     let gpu_buffer_address = GpuBufferAddress::from_u32(data.0);
                     let cmd = PrimitiveCommand::quad(
                         pattern,
@@ -325,6 +364,7 @@ impl CommandBuffer {
                         transform_id,
                         quad_flags,
                         edge_flags,
+                        blend_mode,
                     );
                     f(&cmd, current_spatial_node_index, &segments);
                     segments.clear()
