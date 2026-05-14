@@ -917,8 +917,25 @@ pub fn get_surface_rects(
         PictureCompositeMode::Filter(Filter::DropShadows(ref shadows)) => {
             let local_prim_rect = surface.clipped_local_rect;
 
+            // Track max blur inflation across all shadows so the content-side
+            // source region is inflated by blur margin (matching the default
+            // branch's `get_rect(Some(sub_rect))` step for Blur). Without this,
+            // the picture_task texture's edges land on image content and the
+            // content quad's blur margin samples UVs > 1 → image edge bleed.
+            let mut max_blur_inflation_x: f32 = 0.0;
+            let mut max_blur_inflation_y: f32 = 0.0;
+            for shadow in shadows {
+                let (blur_radius_x, blur_radius_y) = surface.clamp_blur_radius(
+                    shadow.blur_radius,
+                    shadow.blur_radius,
+                );
+                max_blur_inflation_x = max_blur_inflation_x.max(blur_radius_x * BLUR_SAMPLE_SCALE);
+                max_blur_inflation_y = max_blur_inflation_y.max(blur_radius_y * BLUR_SAMPLE_SCALE);
+            }
+
             let mut required_local_rect = local_prim_rect
                 .intersection(&local_clip_rect)
+                .map(|r| r.inflate(max_blur_inflation_x, max_blur_inflation_y))
                 .unwrap_or(PictureRect::zero());
 
             for shadow in shadows {

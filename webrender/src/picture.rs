@@ -2444,3 +2444,109 @@ fn test_drop_filter_dirty_region_outside_prim() {
     ).expect("No surface rect");
     assert_eq!(info.task_size, DeviceIntSize::new(432, 578));
 }
+
+#[test]
+fn test_drop_filter_partial_dirty_content_inflate() {
+    // Bug 1822189: When the parent's dirty region (clipping_rect here) overlaps
+    // the drop-shadow's image content but stops short of the picture's full
+    // unclipped extent, the source-texture allocation must include enough blur
+    // margin around the image content to keep the picture_task texture's edges
+    // in transparent space. Otherwise the content quad's blur margin samples
+    // UVs > 1 and the texture-edge image content bleeds into the visible
+    // result.
+
+    use api::Shadow;
+    use crate::spatial_tree::{SceneSpatialTree, SpatialTree};
+
+    let mut cst = SceneSpatialTree::new();
+    let root_reference_frame_index = cst.root_reference_frame_index();
+
+    let mut spatial_tree = SpatialTree::new();
+    spatial_tree.apply_updates(cst.end_frame_and_get_pending_updates());
+    spatial_tree.update_tree(&SceneProperties::new());
+
+    let map_local_to_picture = SpaceMapper::new_with_target(
+        root_reference_frame_index,
+        root_reference_frame_index,
+        PictureRect::max_rect(),
+        &spatial_tree,
+    );
+
+    // 500x500 image content, drop-shadow with non-zero offset.
+    let mut surfaces = vec![
+        SurfaceInfo {
+            unclipped_local_rect: PictureRect::max_rect(),
+            clipped_local_rect: PictureRect::max_rect(),
+            is_opaque: true,
+            // Parent's clipping_rect = dirty region that partially overlaps
+            // the image but stops short of the full picture extent. This is
+            // the scenario where the bug used to leave the texture's right
+            // and bottom edges on image content.
+            clipping_rect: PictureRect::new(
+                PicturePoint::new(0.0, 0.0),
+                PicturePoint::new(683.0, 341.0),
+            ),
+            map_local_to_picture: map_local_to_picture.clone(),
+            raster_spatial_node_index: root_reference_frame_index,
+            surface_spatial_node_index: root_reference_frame_index,
+            visibility_spatial_node_index: root_reference_frame_index,
+            device_pixel_scale: DevicePixelScale::new(1.0),
+            world_scale_factors: (1.0, 1.0),
+            local_scale: (1.0, 1.0),
+            allow_snapping: true,
+            force_scissor_rect: false,
+            culling_rect: VisRect::max_rect(),
+        },
+        SurfaceInfo {
+            unclipped_local_rect: PictureRect::new(
+                PicturePoint::new(0.0, 0.0),
+                PicturePoint::new(500.0, 500.0),
+            ),
+            clipped_local_rect: PictureRect::new(
+                PicturePoint::new(0.0, 0.0),
+                PicturePoint::new(500.0, 500.0),
+            ),
+            is_opaque: true,
+            clipping_rect: PictureRect::max_rect(),
+            map_local_to_picture,
+            raster_spatial_node_index: root_reference_frame_index,
+            surface_spatial_node_index: root_reference_frame_index,
+            visibility_spatial_node_index: root_reference_frame_index,
+            device_pixel_scale: DevicePixelScale::new(1.0),
+            world_scale_factors: (1.0, 1.0),
+            local_scale: (1.0, 1.0),
+            allow_snapping: true,
+            force_scissor_rect: false,
+            culling_rect: VisRect::max_rect(),
+        },
+    ];
+
+    let shadows = smallvec![
+        Shadow {
+            offset: LayoutVector2D::new(400.0, 100.0),
+            color: ColorF::BLACK,
+            blur_radius: 20.0,
+        },
+    ];
+
+    let composite_mode = PictureCompositeMode::Filter(Filter::DropShadows(shadows));
+
+    let info = get_surface_rects(
+        SurfaceIndex(1),
+        &composite_mode,
+        SurfaceIndex(0),
+        &mut surfaces,
+        &spatial_tree,
+        MAX_SURFACE_SIZE as f32,
+        false,
+    ).expect("No surface rect");
+
+    // With the fix, the image-content side of required_local_rect is inflated
+    // by blur (20 * BLUR_SAMPLE_SCALE = 60) so the texture extends to
+    // (-60, -60)..(560, 401) — placing the right and bottom edges in the
+    // transparent blur margin around the image rather than on image content.
+    // Width=620, height=461. Without the fix this would be (560, 401) i.e.
+    // 560x401 with the texture's right and bottom edges sitting on the
+    // 500x500 image content, producing the visible bleed.
+    assert_eq!(info.task_size, DeviceIntSize::new(620, 461));
+}
