@@ -1454,7 +1454,6 @@ impl RenderBackend {
                 .cloned()
                 .filter(|key| !document_already_present(*key))
                 .collect();
-            #[allow(unused_variables)]
             let mut built_frame = false;
             for &document_id in &nop_documents {
                 built_frame |= self.update_document(
@@ -1472,9 +1471,12 @@ impl RenderBackend {
                     false,
                     None);
             }
-            #[cfg(feature = "capture")]
             match built_frame {
-                true => self.save_capture_sequence(),
+                true =>
+                {
+                    #[cfg(feature = "capture")]
+                    self.save_capture_sequence()
+                }
                 _ => {},
             }
         }
