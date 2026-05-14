@@ -3626,17 +3626,34 @@ impl<'a> SceneBuilder<'a> {
                 flags,
             );
 
+            // Recover the DL-space prim rect origin. `prim_info.rect.min` is in
+            // normalized space (eso added for interning stability across pre-scroll
+            // changes); subtract `offset` to get the DL-space prim origin that
+            // Gecko's glyph positions are relative to.
+            let dl_prim_origin = prim_info.rect.min.to_vector() - offset;
+
+            // Anchor the run on the first glyph's pen position. `run_origin` is the
+            // offset from the DL prim origin to the run pen origin -- invariant
+            // under pre-scroll because both terms are in DL space and shift
+            // together. Per-glyph positions are stored relative to the first
+            // glyph, also invariant.
+            //
             // TODO(gw): It'd be nice not to have to allocate here for creating
             //           the primitive key, when the common case is that the
             //           hash will match and we won't end up creating a new
             //           primitive template.
-            let prim_offset = prim_info.rect.min.to_vector() - offset;
+            let first_glyph_origin = glyph_range
+                .iter()
+                .next()
+                .map(|g| g.point.to_vector())
+                .unwrap_or_else(LayoutVector2D::zero);
+            let run_origin = first_glyph_origin - dl_prim_origin;
             let glyphs = glyph_range
                 .iter()
                 .map(|glyph| {
                     GlyphInstance {
                         index: glyph.index,
-                        point: glyph.point - prim_offset,
+                        point: glyph.point - first_glyph_origin,
                     }
                 })
                 .collect();
@@ -3651,6 +3668,7 @@ impl<'a> SceneBuilder<'a> {
             TextRun {
                 glyphs,
                 font,
+                run_origin,
                 shadow: false,
                 requested_raster_space,
             }
