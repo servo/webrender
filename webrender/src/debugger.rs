@@ -15,8 +15,13 @@ use api::debugger::{CompositorDebugInfo, CompositorDebugTile};
 use std::thread;
 use base64::prelude::*;
 use sha1::{Sha1, Digest};
-use hyper::{Request, Response, Body, service::{make_service_fn, service_fn}, Server};
+use hyper::{Request, Response, body::Incoming, service::service_fn};
+use hyper_util::rt::TokioIo;
+use hyper_util::server::conn::auto::Builder as ServerBuilder;
+use http_body_util::{BodyExt, Full};
+use hyper::body::Bytes;
 use tokio::io::AsyncWriteExt;
+use tokio::net::TcpListener;
 
 /// A minimal wrapper around RenderApi's channel that can be cloned.
 #[derive(Clone)]
@@ -189,48 +194,58 @@ pub fn start(api: RenderApi) {
         };
 
         runtime.block_on(async {
-            let make_svc = make_service_fn(move |_conn| {
-                let api = api.clone();
-                async move {
-                    Ok::<_, Infallible>(service_fn(move |req| {
-                        handle_request(req, api.clone())
-                    }))
-                }
-            });
-
-            let addr = address.parse().unwrap();
-            let server = match Server::try_bind(&addr) {
-                Ok(s) => s,
+            let listener = match TcpListener::bind(address).await {
+                Ok(l) => l,
                 Err(e) => {
-                    eprintln!("WebRender debugger could not bind: {addr}: {e:?}");
+                    eprintln!("WebRender debugger could not bind: {address}: {e:?}");
                     return;
                 }
             };
 
-            if let Err(e) = server.serve(make_svc).await {
-                eprintln!("WebRender debugger error: {:?}", e);
+            loop {
+                let (stream, _) = match listener.accept().await {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        eprintln!("WebRender debugger accept error: {:?}", e);
+                        continue;
+                    }
+                };
+
+                let api = api.clone();
+                tokio::spawn(async move {
+                    let io = TokioIo::new(stream);
+                    let svc = service_fn(move |req| {
+                        handle_request(req, api.clone())
+                    });
+                    if let Err(e) = ServerBuilder::new(hyper_util::rt::TokioExecutor::new())
+                        .serve_connection_with_upgrades(io, svc)
+                        .await
+                    {
+                        eprintln!("WebRender debugger connection error: {:?}", e);
+                    }
+                });
             }
         });
     });
 }
 
-async fn request_to_string(request: Request<Body>) -> Result<String, hyper::Error> {
-    let body_bytes = hyper::body::to_bytes(request.into_body()).await?;
+async fn request_to_string(request: Request<Incoming>) -> Result<String, hyper::Error> {
+    let body_bytes = request.into_body().collect().await?.to_bytes();
     Ok(String::from_utf8_lossy(&body_bytes).to_string())
 }
 
-fn string_response<S: Into<String>>(string: S) -> Response<Body> {
-    Response::new(Body::from(string.into()))
+fn string_response<S: Into<String>>(string: S) -> Response<Full<Bytes>> {
+    Response::new(Full::new(Bytes::from(string.into())))
 }
 
-fn status_response(status: u16) -> Response<Body> {
-    Response::builder().status(status).body(Body::from("")).unwrap()
+fn status_response(status: u16) -> Response<Full<Bytes>> {
+    Response::builder().status(status).body(Full::new(Bytes::new())).unwrap()
 }
 
 async fn handle_request(
-    request: Request<Body>,
+    request: Request<Incoming>,
     api: DebugRenderApi,
-) -> Result<Response<Body>, Infallible> {
+) -> Result<Response<Full<Bytes>>, Infallible> {
     let path = request.uri().path();
     let query = request.uri().query().unwrap_or("");
     let args: HashMap<String, String> = url::form_urlencoded::parse(query.as_bytes())
@@ -343,7 +358,7 @@ async fn handle_request(
 
                         // Spawn a task to handle writing to the WebSocket stream
                         tokio::spawn(async move {
-                            let mut stream = upgraded;
+                            let mut stream = TokioIo::new(upgraded);
                             while let Some(data) = rx.recv().await {
                                 if stream.write_all(&data).await.is_err() {
                                     break;
@@ -369,7 +384,7 @@ async fn handle_request(
                 .header("upgrade", "websocket")
                 .header("connection", "upgrade")
                 .header("sec-websocket-accept", accept_key)
-                .body(Body::from(""))
+                .body(Full::new(Bytes::new()))
                 .unwrap())
         }
         _ => {
