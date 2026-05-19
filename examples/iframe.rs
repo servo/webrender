@@ -70,7 +70,6 @@ impl Example for App {
                 should_snap: false,
                 paired_with_perspective: false,
             },
-            SpatialTreeItemKey::new(0, 0),
         );
 
         // And this is for the root pipeline

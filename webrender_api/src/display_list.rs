@@ -1457,7 +1457,6 @@ impl DisplayListBuilder {
         transform_style: di::TransformStyle,
         transform: PropertyBinding<LayoutTransform>,
         kind: di::ReferenceFrameKind,
-        key: di::SpatialTreeItemKey,
     ) -> di::SpatialId {
         let id = self.generate_spatial_index();
 
@@ -1471,7 +1470,6 @@ impl DisplayListBuilder {
                 },
                 kind,
                 id,
-                key,
             },
         });
         self.push_spatial_tree_item(&descriptor);
@@ -1490,7 +1488,6 @@ impl DisplayListBuilder {
         scale_from: Option<LayoutSize>,
         vertical_flip: bool,
         rotation: di::Rotation,
-        key: di::SpatialTreeItemKey,
     ) -> di::SpatialId {
         let id = self.generate_spatial_index();
 
@@ -1510,7 +1507,6 @@ impl DisplayListBuilder {
                     paired_with_perspective: false,
                 },
                 id,
-                key,
             },
         });
         self.push_spatial_tree_item(&descriptor);
@@ -1670,7 +1666,6 @@ impl DisplayListBuilder {
         external_scroll_offset: LayoutVector2D,
         scroll_offset_generation: APZScrollGeneration,
         has_scroll_linked_effect: HasScrollLinkedEffect,
-        key: di::SpatialTreeItemKey,
     ) -> di::SpatialId {
         let scroll_frame_id = self.generate_spatial_index();
 
@@ -1683,7 +1678,6 @@ impl DisplayListBuilder {
             external_scroll_offset,
             scroll_offset_generation,
             has_scroll_linked_effect,
-            key,
         });
 
         self.push_spatial_tree_item(&descriptor);
@@ -1776,7 +1770,6 @@ impl DisplayListBuilder {
         vertical_offset_bounds: di::StickyOffsetBounds,
         horizontal_offset_bounds: di::StickyOffsetBounds,
         previously_applied_offset: LayoutVector2D,
-        key: di::SpatialTreeItemKey,
         // TODO: The caller only ever passes an identity transform.
         // Could we pass just an (optional) animation id instead?
         transform: Option<PropertyBinding<LayoutTransform>>
@@ -1791,7 +1784,6 @@ impl DisplayListBuilder {
             vertical_offset_bounds,
             horizontal_offset_bounds,
             previously_applied_offset,
-            key,
             transform,
         });
 

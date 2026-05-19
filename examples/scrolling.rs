@@ -60,7 +60,6 @@ impl Example for App {
                 LayoutVector2D::zero(),
                 APZScrollGeneration::default(),
                 HasScrollLinkedEffect::No,
-                SpatialTreeItemKey::new(0, 0),
             );
             let space_and_clip1 = SpaceAndClipInfo {
                 spatial_id: space1,
@@ -116,7 +115,6 @@ impl Example for App {
                 LayoutVector2D::zero(),
                 APZScrollGeneration::default(),
                 HasScrollLinkedEffect::No,
-                SpatialTreeItemKey::new(0, 1),
             );
             let space_and_clip2 = SpaceAndClipInfo {
                 spatial_id: space2,
@@ -161,7 +159,6 @@ impl Example for App {
                 StickyOffsetBounds::new(-40.0, 60.0),
                 StickyOffsetBounds::new(0.0, 0.0),
                 LayoutVector2D::new(0.0, 0.0),
-                SpatialTreeItemKey::new(0, 2),
                 None,
             );
 
