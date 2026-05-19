@@ -685,8 +685,6 @@ pub struct SpatialTree {
 
     /// Stack of current state for each parent node while traversing and updating tree
     update_state_stack: Vec<TransformUpdateState>,
-
-    next_internal_uid: u64,
 }
 
 #[derive(Clone)]
@@ -833,7 +831,6 @@ impl SpatialTree {
             coord_systems: Vec::new(),
             root_reference_frame_index: SpatialNodeIndex::INVALID,
             update_state_stack: Vec::new(),
-            next_internal_uid: 1,
         }
     }
 
@@ -899,9 +896,6 @@ impl SpatialTree {
                         self.get_spatial_node_mut(parent).add_child(SpatialNodeIndex(index as u32));
                     }
 
-                    let uid = self.next_internal_uid;
-                    self.next_internal_uid += 1;
-
                     let node = SpatialNode {
                         viewport_transform: ScaleOffset::identity(),
                         content_transform: ScaleOffset::identity(),
@@ -915,7 +909,6 @@ impl SpatialTree {
                         invertible: true,
                         is_async_zooming: false,
                         is_ancestor_or_self_zooming: false,
-                        uid,
                     };
 
                     assert!(index <= self.spatial_nodes.len());
@@ -942,15 +935,11 @@ impl SpatialTree {
                         self.spatial_nodes[new_parent.0 as usize].add_child(SpatialNodeIndex(index as u32));
                     }
 
-                    let uid = self.next_internal_uid;
-                    self.next_internal_uid += 1;
-
                     let node = &mut self.spatial_nodes[index];
 
                     node.node_type = descriptor.node_type;
                     node.pipeline_id = descriptor.pipeline_id;
                     node.parent = parent;
-                    node.uid = uid;
                 }
                 SpatialTreeUpdate::Remove { index, .. } => {
                     let node = &mut self.spatial_nodes[index];
