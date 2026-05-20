@@ -486,6 +486,24 @@ impl SceneSpatialTree {
         );
         self.add_spatial_node(node)
     }
+
+    pub fn add_offset_frame(
+        &mut self,
+        parent_index: SpatialNodeIndex,
+        offset: LayoutVector2D,
+        pipeline_id: PipelineId,
+    ) -> SpatialNodeIndex {
+        // Offset frames are pure 2d translations - they inherit the coordinate
+        // system status of their parent.
+        let is_root_coord_system = self.spatial_nodes[parent_index.0 as usize].is_root_coord_system;
+        let node = SceneSpatialNode::new_offset_frame(
+            parent_index,
+            offset,
+            pipeline_id,
+            is_root_coord_system,
+        );
+        self.add_spatial_node(node)
+    }
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
