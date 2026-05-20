@@ -299,6 +299,10 @@ impl SceneSpatialTree {
                         current_scroll_root_is_sticky = true;
                     }
                 }
+                SpatialNodeType::OffsetFrame(..) => {
+                    // A pure 2D translation can be passed through, like a 2D scale/translation
+                    // reference frame.
+                }
                 SpatialNodeType::ScrollFrame(ref info) => {
                     match info.frame_kind {
                         ScrollFrameKind::PipelineRoot { is_root_pipeline } => {
@@ -768,6 +772,7 @@ impl SpatialTree {
                     info.current_offset = LayoutVector2D::zero();
                 }
                 SpatialNodeType::ReferenceFrame(..) => {}
+                SpatialNodeType::OffsetFrame(..) => {}
             }
         });
     }
@@ -1105,6 +1110,10 @@ impl SpatialTree {
                 pt.add_item(format!("source_transform: {:?}", info.source_transform));
                 pt.add_item(format!("origin_in_parent_reference_frame: {:?}", info.origin_in_parent_reference_frame));
             }
+            SpatialNodeType::OffsetFrame(offset) => {
+                pt.new_level(format!("OffsetFrame"));
+                pt.add_item(format!("offset: {:?}", offset));
+            }
         }
 
         pt.add_item(format!("index: {:?}", index));
@@ -1212,6 +1221,9 @@ pub fn get_external_scroll_offset<S: SpatialNodeContainer>(
                 // External scroll offsets are not propagated across
                 // reference frames.
                 break;
+            }
+            SpatialNodeType::OffsetFrame(..) => {
+                // An OffsetFrame does not affect external scroll offsets.
             }
         }
 
