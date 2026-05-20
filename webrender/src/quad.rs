@@ -236,6 +236,7 @@ pub fn prepare_quad(
 pub fn prepare_repeatable_quad(
     pattern_builder: &dyn PatternBuilder,
     local_rect: &LayoutRect,
+    local_clip_rect: &LayoutRect,
     stretch_size: LayoutSize,
     tile_spacing: LayoutSize,
     aligned_aa_edges: EdgeMask,
@@ -294,7 +295,7 @@ pub fn prepare_repeatable_quad(
         // the non-repeated quad code paths don't take a stretch_size, so
         // we bake it into the local rect and make sure that the local clip
         // prevents the primitive from overflowing its initial bounds.
-        let local_clip_rect = clip_chain.local_clip_rect.intersection_unchecked(&local_rect);
+        let local_clip_rect = local_clip_rect.intersection_unchecked(&local_rect);
         let local_rect = LayoutRect::from_origin_and_size(
             local_rect.min,
             stretch_size,
@@ -405,7 +406,7 @@ pub fn prepare_repeatable_quad(
             strategy,
             &repeat_pattern,
             local_rect,
-            &clip_chain.local_clip_rect,
+            local_clip_rect,
             aligned_aa_edges,
             transfomed_aa_edges,
             prim_instance_index,
@@ -431,13 +432,13 @@ pub fn prepare_repeatable_quad(
         frame_state.current_dirty_region().visibility_spatial_node,
         transform.prim_spatial_node_index(),
         frame_context.spatial_tree,
-    ).intersection_unchecked(&clip_chain.local_clip_rect);
+    ).intersection_unchecked(local_clip_rect);
 
     let stride = stretch_size + tile_spacing;
     let repetitions = crate::image_tiling::repetitions(&local_rect, &visible_rect, stride);
     for tile in repetitions {
         let tile_rect = LayoutRect::from_origin_and_size(tile.origin, stretch_size);
-        let clip_rect = clip_chain.local_clip_rect.intersection_unchecked(&tile_rect);
+        let clip_rect = local_clip_rect.intersection_unchecked(&tile_rect);
         let pattern_offset = tile.origin - local_rect.min;
         let pattern = pattern_builder.build(
             None,

@@ -990,6 +990,7 @@ fn prepare_interned_prim_for_render(
             quad::prepare_repeatable_quad(
                 prim_data,
                 &local_rect,
+                &prim_info.clip_chain.local_clip_rect,
                 stretch_size,
                 prim_data.tile_spacing,
                 prim_data.common.aligned_aa_edges,
@@ -1041,6 +1042,7 @@ fn prepare_interned_prim_for_render(
             quad::prepare_repeatable_quad(
                 prim_data,
                 &local_rect,
+                &prim_info.clip_chain.local_clip_rect,
                 stretch_size,
                 prim_data.tile_spacing,
                 prim_data.common.aligned_aa_edges,
@@ -1125,6 +1127,7 @@ fn prepare_interned_prim_for_render(
             quad::prepare_repeatable_quad(
                 prim_data,
                 &local_rect,
+                &prim_info.clip_chain.local_clip_rect,
                 stretch_size,
                 prim_data.tile_spacing,
                 prim_data.common.aligned_aa_edges,

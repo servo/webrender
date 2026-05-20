@@ -440,14 +440,10 @@ pub fn can_use_quad_shaders(
 ) -> bool {
     let image_properties = resource_cache.get_image_properties(image_data.key);
     match &image_properties {
-        Some(ImageProperties { external_image: None, adjustment, .. }) => {
-            return adjustment.x0 == 0.0
-                && adjustment.y0 == 0.0
-                && adjustment.x1 == 0.0
-                && adjustment.y1 == 0.0
-                // See the comment in ps_quad_textured about ignoring the base color
-                // due to a driver issue.
-                && image_data.color == ColorF::WHITE;
+        Some(ImageProperties { external_image: None, .. }) => {
+            // See the comment in ps_quad_textured about ignoring the base color
+            // due to a driver issue.
+            return image_data.color == ColorF::WHITE;
         }
         _ => {
             return false;
@@ -483,6 +479,17 @@ pub fn prepare_image_quads(
 
     let premultiplied = image_data.alpha_type == AlphaType::PremultipliedAlpha;
 
+    // Tighten the clip rect because decomposing the repeated image can
+    // produce primitives that are partially covering the original image
+    // rect and we want to clip these extra parts out.
+    // We also rely on having a tight clip rect in some cases other than
+    // tiled/repeated images, for example when rendering a snapshot image
+    // where the snapshot area is tighter than the rasterized area.
+    let tight_clip_rect = clip_chain
+        .local_clip_rect
+        .intersection(&prim_rect)
+        .unwrap();
+
     let request = ImageRequest {
         key: image_data.key,
         rendering: image_data.image_rendering,
@@ -497,6 +504,9 @@ pub fn prepare_image_quads(
                 &mut frame_state.frame_gpu_data.f32,
             );
 
+            let prim_rect = image_properties.adjustment.map_local_rect(&prim_rect);
+            let stretch_size = image_properties.adjustment.map_stretch_size(image_data.stretch_size);
+
             let src_task_id = frame_state.rg_builder.add().init(
                 RenderTask::new_image(size, request, false)
             );
@@ -509,8 +519,9 @@ pub fn prepare_image_quads(
 
             quad::prepare_repeatable_quad(
                 &image_pattern,
-                prim_rect,
-                image_data.stretch_size,
+                &prim_rect,
+                &tight_clip_rect,
+                stretch_size,
                 image_data.tile_spacing,
                 common_data.aligned_aa_edges,
                 common_data.transformed_aa_edges,
@@ -563,17 +574,6 @@ pub fn prepare_image_quads(
                     &active_rect,
                     tile_size as i32,
                 );
-
-                // Tighten the clip rect because decomposing the repeated image can
-                // produce primitives that are partially covering the original image
-                // rect and we want to clip these extra parts out.
-                // We also rely on having a tight clip rect in some cases other than
-                // tiled/repeated images, for example when rendering a snapshot image
-                // where the snapshot area is tighter than the rasterized area.
-                let tight_clip_rect =  clip_chain
-                    .local_clip_rect
-                    .intersection(&prim_rect)
-                    .unwrap();
 
                 for tile in tiles {
                     let request = request.with_tile(tile.offset);
