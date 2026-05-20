@@ -271,6 +271,10 @@ fn prepare_prim_for_render(
                     &data_stores.image[*data_handle].kind,
                     frame_state.resource_cache,
                 );
+
+                use_legacy_path = use_legacy_path || scratch.frame
+                    .draws[prim_instance_index]
+                    .compositor_surface_kind == CompositorSurfaceKind::Underlay;
             }
             _ => {}
         };
