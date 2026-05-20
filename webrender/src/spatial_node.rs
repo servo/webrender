@@ -44,11 +44,6 @@ pub enum SpatialNodeType {
 
     /// A reference frame establishes a new coordinate space in the tree.
     ReferenceFrame(ReferenceFrameInfo),
-
-    /// Applies a fixed 2D translation to its descendants. Unlike a reference
-    /// frame, this does not establish a new coordinate system; it is simply a
-    /// lightweight, axis-aligned offset.
-    OffsetFrame(LayoutVector2D),
 }
 
 /// Information about a spatial node that can be queried during either scene of
@@ -156,21 +151,6 @@ impl SceneSpatialNode {
             pipeline_id,
             Some(parent_index),
             SpatialNodeType::StickyFrame(sticky_frame_info),
-            is_root_coord_system,
-        )
-    }
-
-    #[allow(dead_code)]
-    pub fn new_offset_frame(
-        parent_index: SpatialNodeIndex,
-        offset: LayoutVector2D,
-        pipeline_id: PipelineId,
-        is_root_coord_system: bool,
-    ) -> Self {
-        Self::new(
-            pipeline_id,
-            Some(parent_index),
-            SpatialNodeType::OffsetFrame(offset),
             is_root_coord_system,
         )
     }
@@ -541,16 +521,6 @@ impl SpatialNode {
 
                 self.coordinate_system_id = state.current_coordinate_system_id;
           }
-            SpatialNodeType::OffsetFrame(offset) => {
-                // An OffsetFrame is a pure 2D translation: it stays in the parent coordinate
-                // system and contributes its offset to descendants.
-                let accumulated_offset = state.parent_accumulated_scroll_offset + offset;
-                self.viewport_transform = state.coordinate_system_relative_scale_offset
-                    .pre_offset(snap_offset(accumulated_offset, state.coordinate_system_relative_scale_offset.scale).to_untyped());
-                self.content_transform = self.viewport_transform;
-
-                self.coordinate_system_id = state.current_coordinate_system_id;
-            }
         }
 
         //TODO: remove the field entirely?
@@ -716,9 +686,6 @@ impl SpatialNode {
                 state.nearest_scrolling_ancestor_viewport =
                     state.nearest_scrolling_ancestor_viewport
                        .translate(translation);
-            }
-            SpatialNodeType::OffsetFrame(offset) => {
-                state.parent_accumulated_scroll_offset += offset;
             }
         }
     }

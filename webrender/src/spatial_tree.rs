@@ -299,10 +299,6 @@ impl SceneSpatialTree {
                         current_scroll_root_is_sticky = true;
                     }
                 }
-                SpatialNodeType::OffsetFrame(..) => {
-                    // A pure 2D translation can be passed through, like a 2D scale/translation
-                    // reference frame.
-                }
                 SpatialNodeType::ScrollFrame(ref info) => {
                     match info.frame_kind {
                         ScrollFrameKind::PipelineRoot { is_root_pipeline } => {
@@ -481,24 +477,6 @@ impl SceneSpatialTree {
         let node = SceneSpatialNode::new_sticky_frame(
             parent_index,
             sticky_frame_info,
-            pipeline_id,
-            is_root_coord_system,
-        );
-        self.add_spatial_node(node)
-    }
-
-    pub fn add_offset_frame(
-        &mut self,
-        parent_index: SpatialNodeIndex,
-        offset: LayoutVector2D,
-        pipeline_id: PipelineId,
-    ) -> SpatialNodeIndex {
-        // Offset frames are pure 2d translations - they inherit the coordinate
-        // system status of their parent.
-        let is_root_coord_system = self.spatial_nodes[parent_index.0 as usize].is_root_coord_system;
-        let node = SceneSpatialNode::new_offset_frame(
-            parent_index,
-            offset,
             pipeline_id,
             is_root_coord_system,
         );
@@ -790,7 +768,6 @@ impl SpatialTree {
                     info.current_offset = LayoutVector2D::zero();
                 }
                 SpatialNodeType::ReferenceFrame(..) => {}
-                SpatialNodeType::OffsetFrame(..) => {}
             }
         });
     }
@@ -1128,10 +1105,6 @@ impl SpatialTree {
                 pt.add_item(format!("source_transform: {:?}", info.source_transform));
                 pt.add_item(format!("origin_in_parent_reference_frame: {:?}", info.origin_in_parent_reference_frame));
             }
-            SpatialNodeType::OffsetFrame(offset) => {
-                pt.new_level(format!("OffsetFrame"));
-                pt.add_item(format!("offset: {:?}", offset));
-            }
         }
 
         pt.add_item(format!("index: {:?}", index));
@@ -1239,9 +1212,6 @@ pub fn get_external_scroll_offset<S: SpatialNodeContainer>(
                 // External scroll offsets are not propagated across
                 // reference frames.
                 break;
-            }
-            SpatialNodeType::OffsetFrame(..) => {
-                // An OffsetFrame does not affect external scroll offsets.
             }
         }
 
