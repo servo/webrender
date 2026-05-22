@@ -52,6 +52,9 @@ pub fn upload_to_texture_cache(
     renderer: &mut Renderer,
     update_list: FastHashMap<CacheTextureId, Vec<TextureCacheUpdate>>,
 ) {
+    if update_list.is_empty() {
+        return;
+    }
 
     let mut stats = UploadStats {
         num_draw_calls: 0,
