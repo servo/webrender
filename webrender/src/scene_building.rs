@@ -1619,51 +1619,23 @@ impl<'a> SceneBuilder<'a> {
                     info.tile_size,
                 );
 
-                let mut stops = read_gradient_stops(item.gradient_stops());
+                let stops = read_gradient_stops(item.gradient_stops());
                 let mut start = info.gradient.start_point;
                 let mut end = info.gradient.end_point;
-                let flags = layout.flags;
-                let optimized = optimize_linear_gradient(
+                // Run the simplification + clip pass; the fast-path two-stop
+                // segment decomposition that used to run here now happens at
+                // prepare time so segments tile against the snapped prim_rect
+                // (see `decompose_axis_aligned_gradient`).
+                optimize_linear_gradient(
                     &mut layout.rect,
                     &mut tile_size,
                     info.tile_spacing,
                     &layout.clip_rect,
                     &mut start,
                     &mut end,
-                    info.gradient.extend_mode,
-                    &mut stops,
-                    self.config.enable_dithering,
-                    &mut |rect, start, end, stops, edge_aa_mask| {
-                        let layout = LayoutPrimitiveInfo {
-                            rect: *rect,
-                            clip_rect: *rect,
-                            flags,
-                            aligned_aa_edges: EdgeMask::empty(),
-                            transformed_aa_edges: edge_aa_mask,
-                        };
-                        if let Some(prim_key_kind) = self.create_linear_gradient_prim(
-                            &layout,
-                            start,
-                            end,
-                            stops.to_vec(),
-                            ExtendMode::Clamp,
-                            rect.size(),
-                            LayoutSize::zero(),
-                            None,
-                            edge_aa_mask,
-                        ) {
-                            self.add_nonshadowable_primitive(
-                                spatial_node_index,
-                                clip_node_id,
-                                &layout,
-                                Vec::new(),
-                                prim_key_kind,
-                            );
-                        }
-                    }
                 );
 
-                if !optimized && !tile_size.ceil().is_empty() {
+                if !tile_size.ceil().is_empty() {
                     if let Some(prim_key_kind) = self.create_linear_gradient_prim(
                         &layout,
                         start,
