@@ -921,6 +921,8 @@ fn prepare_interned_prim_for_render(
             scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
                 KindScratchHandle::Image(img_scratch_handle);
             let image_adjustment = scratch.frame.images[img_scratch_handle].adjustment;
+            let effective_stretch_size =
+                image_data.stretch_size.resolve(&prim_instance.prim_rect);
 
             write_segment(
                 prim_info.segment_instance_index,
@@ -928,7 +930,7 @@ fn prepare_interned_prim_for_render(
                 &mut scratch.frame.segments,
                 &mut scratch.frame.segment_instances,
                 |request| {
-                    image_data.write_prim_gpu_blocks(&image_adjustment, request);
+                    image_data.write_prim_gpu_blocks(&image_adjustment, effective_stretch_size, request);
                 },
             );
         }

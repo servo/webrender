@@ -14,7 +14,7 @@ use crate::command_buffer::CommandBufferIndex;
 use crate::gpu_types::{ImageBrushPrimitiveData, YuvPrimitive};
 use crate::pattern::image::ImagePattern;
 use crate::quad::QuadTransformState;
-use crate::renderer::{GpuBufferBuilderF, GpuBufferWriterF};
+use crate::renderer::{GpuBufferAddress, GpuBufferBuilderF, GpuBufferWriterF};
 use crate::scene_building::{CreateShadow, IsVisible};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext};
 use crate::intern::{DataStore, Handle as InternHandle, InternDebug, Internable};
@@ -85,6 +85,11 @@ pub struct ImageScratch {
     /// scene-build time. Read by batch to choose between brush_image
     /// and brush_fast_image.
     pub may_need_repetition: bool,
+    /// Address of the per-instance image-brush GPU block. Lives here
+    /// (rather than on the template's `PrimTemplateCommonData`) because
+    /// the resolved stretch size and adjustment-mapped values vary per
+    /// instance, even when many instances share a single template.
+    pub gpu_address: GpuBufferAddress,
 }
 
 impl ImageScratch {
@@ -96,7 +101,68 @@ impl ImageScratch {
             adjustment: AdjustedImageSource::new(),
             tight_local_clip_rect: LayoutRect::zero(),
             may_need_repetition: true,
+            gpu_address: GpuBufferAddress::INVALID,
         }
+    }
+}
+
+/// How to compute the effective stretch size for an image primitive, per
+/// axis. `FillsPrim` resolves to the (snapped) prim-rect extent at
+/// frame-build so the value sent to the GPU lands on the snapped pixel
+/// grid. `Explicit` keeps the gecko-specified value verbatim. Per-axis
+/// because gecko can specify a background tile that fills the prim on
+/// one axis but tiles on the other (e.g. `background-repeat: repeat-y`
+/// with `background-size: 116.8px 0.8px`).
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, MallocSizeOf)]
+pub struct StretchSizeKey {
+    pub size: SizeKey,
+    pub fills_width: bool,
+    pub fills_height: bool,
+}
+
+impl StretchSizeKey {
+    /// Both axes fill the prim. The stored size is unused; normalised
+    /// to zero so different prim sizes still intern to the same key.
+    pub fn fills_prim() -> Self {
+        StretchSizeKey {
+            size: LayoutSize::zero().into(),
+            fills_width: true,
+            fills_height: true,
+        }
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Copy, MallocSizeOf)]
+pub struct StretchSize {
+    pub size: LayoutSize,
+    pub fills_width: bool,
+    pub fills_height: bool,
+}
+
+impl From<StretchSizeKey> for StretchSize {
+    fn from(k: StretchSizeKey) -> Self {
+        StretchSize {
+            size: k.size.into(),
+            fills_width: k.fills_width,
+            fills_height: k.fills_height,
+        }
+    }
+}
+
+impl StretchSize {
+    /// Resolve to the LayoutSize used for the GPU shader and tiling math.
+    /// Per-axis: an axis flagged `fills_*` resolves to the snapped prim
+    /// rect's extent on that axis; the other axis keeps the stored size.
+    pub fn resolve(self, prim_rect: &LayoutRect) -> LayoutSize {
+        let prim_size = prim_rect.size();
+        LayoutSize::new(
+            if self.fills_width { prim_size.width } else { self.size.width },
+            if self.fills_height { prim_size.height } else { self.size.height },
+        )
     }
 }
 
@@ -105,7 +171,7 @@ impl ImageScratch {
 #[derive(Debug, Clone, Eq, PartialEq, MallocSizeOf, Hash)]
 pub struct Image {
     pub key: ApiImageKey,
-    pub stretch_size: SizeKey,
+    pub stretch_size: StretchSizeKey,
     pub tile_spacing: SizeKey,
     pub color: ColorU,
     pub image_rendering: ImageRendering,
@@ -133,7 +199,7 @@ impl InternDebug for ImageKey {}
 #[derive(Debug, MallocSizeOf)]
 pub struct ImageData {
     pub key: ApiImageKey,
-    pub stretch_size: LayoutSize,
+    pub stretch_size: StretchSize,
     pub tile_spacing: LayoutSize,
     pub color: ColorF,
     pub image_rendering: ImageRendering,
@@ -201,10 +267,12 @@ impl ImageData {
             .local_clip_rect
             .intersection(&prim_rect).unwrap();
 
+        let effective_stretch_size = self.stretch_size.resolve(&prim_rect);
+
         let mut image_scratch = ImageScratch::empty();
         image_scratch.tight_local_clip_rect = tight_clip_rect;
-        if self.stretch_size.width >= prim_rect.size().width
-            && self.stretch_size.height >= prim_rect.size().height
+        if effective_stretch_size.width >= prim_rect.size().width
+            && effective_stretch_size.height >= prim_rect.size().height
         {
             image_scratch.may_need_repetition = false;
         }
@@ -268,8 +336,8 @@ impl ImageData {
                 } else {
                     let padding = DeviceIntSideOffsets::new(
                         0,
-                        (self.tile_spacing.width * size.width as f32 / self.stretch_size.width) as i32,
-                        (self.tile_spacing.height * size.height as f32 / self.stretch_size.height) as i32,
+                        (self.tile_spacing.width * size.width as f32 / effective_stretch_size.width) as i32,
+                        (self.tile_spacing.height * size.height as f32 / effective_stretch_size.height) as i32,
                         0,
                     );
 
@@ -349,7 +417,7 @@ impl ImageData {
 
                 let base_edge_flags = edge_flags_for_tile_spacing(&self.tile_spacing);
 
-                let stride = self.stretch_size + self.tile_spacing;
+                let stride = effective_stretch_size + self.tile_spacing;
 
                 // We are performing the decomposition on the CPU here, no need to
                 // have it in the shader.
@@ -367,7 +435,7 @@ impl ImageData {
 
                     let layout_image_rect = LayoutRect::from_origin_and_size(
                         origin,
-                        self.stretch_size,
+                        effective_stretch_size,
                     );
 
                     let tiles = image_tiling::tiles(
@@ -416,14 +484,19 @@ impl ImageData {
         }
 
         let mut writer = frame_state.frame_gpu_data.f32.write_blocks(3);
-        self.write_prim_gpu_blocks(&image_scratch.adjustment, &mut writer);
-        common.gpu_buffer_address = writer.finish();
+        self.write_prim_gpu_blocks(&image_scratch.adjustment, effective_stretch_size, &mut writer);
+        image_scratch.gpu_address = writer.finish();
 
         scratch.frame.images.push(image_scratch)
     }
 
-    pub fn write_prim_gpu_blocks(&self, adjustment: &AdjustedImageSource, writer: &mut GpuBufferWriterF) {
-        let stretch_size = adjustment.map_stretch_size(self.stretch_size)
+    pub fn write_prim_gpu_blocks(
+        &self,
+        adjustment: &AdjustedImageSource,
+        stretch_size: LayoutSize,
+        writer: &mut GpuBufferWriterF,
+    ) {
+        let stretch_size = adjustment.map_stretch_size(stretch_size)
              + self.tile_spacing;
 
         writer.push(&ImageBrushPrimitiveData {
@@ -504,8 +577,9 @@ pub fn prepare_image_quads(
                 &mut frame_state.frame_gpu_data.f32,
             );
 
+            let effective_stretch_size = image_data.stretch_size.resolve(prim_rect);
             let prim_rect = image_properties.adjustment.map_local_rect(&prim_rect);
-            let stretch_size = image_properties.adjustment.map_stretch_size(image_data.stretch_size);
+            let stretch_size = image_properties.adjustment.map_stretch_size(effective_stretch_size);
 
             let src_task_id = frame_state.rg_builder.add().init(
                 RenderTask::new_image(size, request, false)
@@ -550,7 +624,8 @@ pub fn prepare_image_quads(
                 frame_context.spatial_tree,
             );
 
-            let stride = image_data.stretch_size + image_data.tile_spacing;
+            let effective_stretch_size = image_data.stretch_size.resolve(prim_rect);
+            let stride = effective_stretch_size + image_data.tile_spacing;
 
             let repetitions = image_tiling::repetitions(
                 prim_rect,
@@ -565,7 +640,7 @@ pub fn prepare_image_quads(
 
                 let layout_image_rect = LayoutRect::from_origin_and_size(
                     origin,
-                    image_data.stretch_size,
+                    effective_stretch_size,
                 );
 
                 let tiles = image_tiling::tiles(
@@ -975,9 +1050,9 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<Image>(), 32, "Image size changed");
-    assert_eq!(mem::size_of::<ImageTemplate>(), 52, "ImageTemplate size changed");
-    assert_eq!(mem::size_of::<ImageKey>(), 36, "ImageKey size changed");
+    assert_eq!(mem::size_of::<Image>(), 36, "Image size changed");
+    assert_eq!(mem::size_of::<ImageTemplate>(), 56, "ImageTemplate size changed");
+    assert_eq!(mem::size_of::<ImageKey>(), 40, "ImageKey size changed");
     assert_eq!(mem::size_of::<YuvImage>(), 32, "YuvImage size changed");
     assert_eq!(mem::size_of::<YuvImageTemplate>(), 76, "YuvImageTemplate size changed");
     assert_eq!(mem::size_of::<YuvImageKey>(), 36, "YuvImageKey size changed");

@@ -77,7 +77,7 @@ use crate::prim_store::gradient::{
     ConicGradientParams, optimize_radial_gradient, apply_gradient_local_clip,
     optimize_linear_gradient,
 };
-use crate::prim_store::image::{Image, YuvImage};
+use crate::prim_store::image::{Image, StretchSizeKey, YuvImage};
 use crate::prim_store::line_dec::LineDecoration;
 use crate::prim_store::picture::{Picture, PictureKey};
 use crate::picture_composite_mode::PictureCompositeKey;
@@ -1444,7 +1444,7 @@ impl<'a> SceneBuilder<'a> {
                     spatial_node_index,
                     clip_node_id,
                     &layout,
-                    layout.rect.size(),
+                    StretchSizeKey::fills_prim(),
                     LayoutSize::zero(),
                     info.image_key,
                     info.image_rendering,
@@ -1460,8 +1460,7 @@ impl<'a> SceneBuilder<'a> {
                     info.bounds,
                 );
 
-                let stretch_size = process_repeat_size(
-                    &layout.rect,
+                let stretch_size = process_image_stretch_size(
                     &unsnapped_rect,
                     info.stretch_size,
                 );
@@ -3651,7 +3650,7 @@ impl<'a> SceneBuilder<'a> {
         spatial_node_index: SpatialNodeIndex,
         clip_node_id: ClipNodeId,
         info: &LayoutPrimitiveInfo,
-        stretch_size: LayoutSize,
+        stretch_size: StretchSizeKey,
         mut tile_spacing: LayoutSize,
         image_key: ImageKey,
         image_rendering: ImageRendering,
@@ -3659,7 +3658,15 @@ impl<'a> SceneBuilder<'a> {
         color: ColorF,
     ) {
         let mut prim_rect = info.rect;
-        simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
+        // Resolve per-axis: axes that fill the prim use the unsnapped
+        // prim-rect size (`prim_rect` here is unsnapped at scene build).
+        let prim_size = prim_rect.size();
+        let stored: LayoutSize = stretch_size.size.into();
+        let stretch_size_for_simplify = LayoutSize::new(
+            if stretch_size.fills_width { prim_size.width } else { stored.width },
+            if stretch_size.fills_height { prim_size.height } else { stored.height },
+        );
+        simplify_repeated_primitive(&stretch_size_for_simplify, &mut tile_spacing, &mut prim_rect);
         let info = LayoutPrimitiveInfo {
             rect: prim_rect,
             .. *info
@@ -3673,7 +3680,7 @@ impl<'a> SceneBuilder<'a> {
             Image {
                 key: image_key,
                 tile_spacing: tile_spacing.into(),
-                stretch_size: stretch_size.into(),
+                stretch_size,
                 color: color.into(),
                 image_rendering,
                 alpha_type,
@@ -4749,6 +4756,34 @@ fn filter_datas_for_compositing(
         });
     }
     filter_datas
+}
+
+/// Image-specific stretch-size discriminator. Decided per-axis: if the
+/// gecko-specified `repeat_size` matches the unsnapped prim rect on
+/// that axis (within an FP-noise epsilon), the axis is flagged
+/// `fills_*` and the effective extent is resolved against the snapped
+/// prim rect at frame-build. Otherwise the explicit per-axis value is
+/// stored verbatim. Per-axis (rather than all-or-nothing) preserves the
+/// old `process_repeat_size` behaviour where a width-matching tile with
+/// a non-matching height still picks up the snapped prim width.
+fn process_image_stretch_size(
+    unsnapped_rect: &LayoutRect,
+    repeat_size: LayoutSize,
+) -> StretchSizeKey {
+    const EPSILON: f32 = 0.001;
+    let fills_width = repeat_size.width.approx_eq_eps(&unsnapped_rect.width(), &EPSILON);
+    let fills_height = repeat_size.height.approx_eq_eps(&unsnapped_rect.height(), &EPSILON);
+    // Normalise filling axes to zero so prims that fill both axes share
+    // an intern key regardless of their displayed size.
+    let stored = LayoutSize::new(
+        if fills_width { 0.0 } else { repeat_size.width },
+        if fills_height { 0.0 } else { repeat_size.height },
+    );
+    StretchSizeKey {
+        size: stored.into(),
+        fills_width,
+        fills_height,
+    }
 }
 
 fn process_repeat_size(

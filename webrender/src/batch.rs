@@ -2265,7 +2265,7 @@ impl BatchBuilder {
                     );
 
                     let (prim_cache_address, segments) = if prim_info.segment_instance_index == SegmentInstanceIndex::UNUSED {
-                        (prim_cache_address, None)
+                        (image_scratch.gpu_address, None)
                     } else {
                         let segment_instance = &ctx.scratch.frame.segment_instances[prim_info.segment_instance_index];
                         let segments = Some(&ctx.scratch.frame.segments[segment_instance.segments_range]);
