@@ -227,9 +227,18 @@ pub struct PrimitiveDrawHeader {
     /// `Blit` for kinds that aren't candidates for compositor surfaces
     /// or for draws that didn't get promoted this frame.
     pub compositor_surface_kind: CompositorSurfaceKind,
+
+    /// Local-space rect of the primitive after device-pixel snapping has
+    /// been applied. Populated for every prim each frame by
+    /// `frame_snap::snap_frame_rects` (snapping
+    /// `PrimitiveInstance.unsnapped_prim_rect` against the current spatial
+    /// tree) before any visibility / prepare consumer reads it.
+    pub snapped_local_rect: LayoutRect,
 }
 
 impl PrimitiveDrawHeader {
+    /// Allocate a fresh draw header. `snapped_local_rect` is left at zero
+    /// here; the per-frame snap pass overwrites it before any consumer runs.
     pub fn new() -> Self {
         PrimitiveDrawHeader {
             prim_instance_index: PrimitiveInstanceIndex::INVALID,
@@ -239,6 +248,7 @@ impl PrimitiveDrawHeader {
             kind_scratch: KindScratchHandle::None,
             segment_instance_index: SegmentInstanceIndex::UNUSED,
             compositor_surface_kind: CompositorSurfaceKind::Blit,
+            snapped_local_rect: LayoutRect::zero(),
         }
     }
 
@@ -409,6 +419,7 @@ pub fn update_prim_visibility(
 
             let local_coverage_rect = frame_state.data_stores.get_local_prim_coverage_rect(
                 prim_instance,
+                frame_state.scratch.primitive.frame.draws[prim_instance_index].snapped_local_rect,
                 &store.pictures,
                 frame_state.surfaces,
             );

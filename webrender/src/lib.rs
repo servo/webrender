@@ -100,6 +100,7 @@ mod device;
 mod ellipse;
 mod filterdata;
 mod frame_builder;
+mod frame_snap;
 mod freelist;
 mod glyph_cache;
 mod gpu_types;

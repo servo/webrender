@@ -205,9 +205,14 @@ impl HitTestingScene {
             let src_clip_node = clip_tree_builder.get_node(clip_node_id);
             let clip_item = &interners.clip[src_clip_node.handle];
 
+            // SNAPTODO: Scene-build hit-test scene captures the unsnapped
+            // clip rect. Snapping happens against frame-time spatial state
+            // which isn't available here; audit hit-test consumers to
+            // confirm using the unsnapped value is correct for hit
+            // semantics, or apply a frame-time snap before testing.
             let clip_node = HitTestClipNode::new(
                 &clip_item.key,
-                src_clip_node.clip_rect,
+                src_clip_node.unsnapped_clip_rect,
                 interners,
                 src_clip_node.parent,
                 src_clip_node.spatial_node_index,
