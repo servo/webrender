@@ -57,21 +57,6 @@ pub struct SurfaceInfo {
     /// A local rect defining the size of this surface, in the
     /// coordinate system of the parent surface. This contains
     /// the unclipped bounding rect of child primitives.
-    ///
-    /// SNAPTODO: This rect is built by mapping per-cluster bounding
-    /// rects (and child-surface coverage rects) into this surface's
-    /// picture space via `map_local_to_picture`. Even once the source
-    /// cluster bound is a true union of per-prim *snapped* local
-    /// rects, the resulting `unclipped_local_rect` is not guaranteed
-    /// to be snapped: any 2D transform that isn't an axis-aligned,
-    /// integer-pixel translation between the cluster/child-surface
-    /// spatial node and this surface's spatial node will produce
-    /// sub-pixel edges in picture space. Float blur-margin inflation
-    /// inside `composite_mode.get_coverage` can also break the snap.
-    /// Consumers that need a snapped value will either need to
-    /// re-snap in surface space or restrict the snap path to surfaces
-    /// where the cross-space mapping preserves grid alignment (see
-    /// `SurfaceInfo.allow_snapping`).
     pub unclipped_local_rect: PictureRect,
     /// The local space coverage of child primitives after they are
     /// are clipped to their owning clip-chain.

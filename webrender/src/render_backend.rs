@@ -140,13 +140,11 @@ crate::enumerate_interners!(declare_data_stores);
 
 impl DataStores {
     /// Returns the local rect for a primitive. For most primitives, this is
-    /// the device-snapped local rect carried on the per-draw header. For
-    /// pictures, the rect is reconstructed from the picture's raster surface
-    /// since it's only known during frame building.
+    /// stored in the template. For pictures, this is stored inside the picture
+    /// primitive instance itself, since this is determined during frame building.
     pub fn get_local_prim_rect(
         &self,
         prim_instance: &PrimitiveInstance,
-        snapped_local_rect: LayoutRect,
         pictures: &[PictureInstance],
         surfaces: &[SurfaceInfo],
     ) -> LayoutRect {
@@ -165,18 +163,16 @@ impl DataStores {
                     }
                 }
             }
-            _ => snapped_local_rect,
+            _ => prim_instance.prim_rect,
         }
     }
 
-    /// Returns the local coverage (space occupied) for a primitive. For most
-    /// primitives, this is the device-snapped local rect carried on the
-    /// per-draw header. For pictures, the coverage is reconstructed from the
-    /// picture's raster surface since it's only known during frame building.
+    /// Returns the local coverage (space occupied) for a primitive. For most primitives,
+    /// this is stored in the template. For pictures, this is stored inside the picture
+    /// primitive instance itself, since this is determined during frame building.
     pub fn get_local_prim_coverage_rect(
         &self,
         prim_instance: &PrimitiveInstance,
-        snapped_local_rect: LayoutRect,
         pictures: &[PictureInstance],
         surfaces: &[SurfaceInfo],
     ) -> LayoutRect {
@@ -195,7 +191,7 @@ impl DataStores {
                     }
                 }
             }
-            _ => snapped_local_rect,
+            _ => prim_instance.prim_rect,
         }
     }
 

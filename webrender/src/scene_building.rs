@@ -502,6 +502,13 @@ pub struct SceneBuilder<'a> {
     /// Maintains state about the list of tile caches being built for this scene.
     tile_cache_builder: TileCacheBuilder,
 
+    /// A helper struct to snap local rects in device space. During frame
+    /// building we may establish new raster roots, however typically that is in
+    /// cases where we won't be applying snapping (e.g. has perspective), or in
+    /// edge cases (e.g. SVG filter) where we can accept slightly incorrect
+    /// behaviour in favour of getting the common case right.
+    snap_to_device: SpaceSnapper,
+
     /// A DAG that represents dependencies between picture primitives. This builds
     /// a set of passes to run various picture processing passes in during frame
     /// building, in a way that pictures are processed before (or after) their
@@ -566,6 +573,12 @@ impl<'a> SceneBuilder<'a> {
         spatial_tree.reset();
         let root_reference_frame_index = spatial_tree.root_reference_frame_index();
 
+        // During scene building, we assume a 1:1 picture -> raster pixel scale
+        let snap_to_device = SpaceSnapper::new(
+            root_reference_frame_index,
+            RasterPixelScale::new(1.0),
+        );
+
         let mut builder = SceneBuilder {
             scene,
             spatial_tree,
@@ -589,6 +602,7 @@ impl<'a> SceneBuilder<'a> {
                 frame_builder_config.background_color,
                 debug_flags,
             ),
+            snap_to_device,
             picture_graph: mem::take(&mut recycler.picture_graph),
             // This vector is empty most of the time, don't bother with recycling it for now.
             snapshot_pictures: Vec::new(),
@@ -774,19 +788,13 @@ impl<'a> SceneBuilder<'a> {
             }
         }
 
-        // SNAPTODO: Scene-build use of unsnapped clip rects to compare
-        // an LCA clip against a picture's clip and decide whether the
-        // picture's crop is redundant. Snapping isn't possible here
-        // (no frame-time spatial tree); audit whether sub-pixel
-        // differences between the LCA and picture clip can flip this
-        // decision once per-frame snapping is real.
         let lca_tree_node = shared_clip_node_id
             .and_then(|node_id| (node_id != ClipNodeId::NONE).then_some(node_id))
             .map(|node_id| clip_tree_builder.get_node(node_id));
         let lca_node = lca_tree_node
             .map(|tree_node| &clip_interner[tree_node.handle]);
         let lca_clip_rect = lca_tree_node
-            .map(|tree_node| tree_node.unsnapped_clip_rect);
+            .map(|tree_node| tree_node.clip_rect);
         let pic_node_id = prim_index
             .map(|prim_index| clip_tree_builder.get_leaf(prim_instances[prim_index].clip_leaf_id).node_id)
             .and_then(|node_id| (node_id != ClipNodeId::NONE).then_some(node_id));
@@ -795,7 +803,7 @@ impl<'a> SceneBuilder<'a> {
         let pic_node = pic_tree_node
             .map(|tree_node| &clip_interner[tree_node.handle]);
         let pic_clip_rect = pic_tree_node
-            .map(|tree_node| tree_node.unsnapped_clip_rect);
+            .map(|tree_node| tree_node.clip_rect);
 
         // The logic behind this optimisation is that there's no need to clip
         // the contents of a picture when the crop will be applied anyway as
@@ -1185,11 +1193,7 @@ impl<'a> SceneBuilder<'a> {
         };
 
         let origin = if snap_origin {
-            // Snap in device space (via the parent's accumulated transform),
-            // not by rounding the local-space origin. With a fractional
-            // ancestor transform (e.g. `transform: translate(0.4px)`) a
-            // plain `round()` snaps to the wrong integer device pixel.
-            self.snap_point_to_device(info.origin, parent_space)
+            info.origin.round()
         } else {
             info.origin
         };
@@ -1261,25 +1265,10 @@ impl<'a> SceneBuilder<'a> {
 
         self.id_to_index_mapper_stack.push(NodeIdToIndexMapper::default());
 
-        let bounds = self.normalize_rect_scroll_offset(
+        let bounds = self.normalize_scroll_offset_and_snap_rect(
             &info.bounds,
             spatial_node_index,
         );
-
-        // Snap the iframe's reference-frame origin to integer device
-        // pixels. `build_reference_frame` does the equivalent for
-        // DisplayItem::PushReferenceFrame via the `should_snap` flag;
-        // this code path skips build_reference_frame and goes directly
-        // to `push_reference_frame`, so we apply the same snap here.
-        // The snap must be done in device space (via the parent's
-        // accumulated transform), not by rounding the local-space
-        // `bounds.min` -- with a fractional ancestor transform (e.g.
-        // `transform: translate(0.4px)`) the local round picks the wrong
-        // integer and the iframe lands a sub-pixel away from where the
-        // pre-snap-pass scene-build snapper would have placed it (bug
-        // 1580534).
-        let snapped_origin = self.snap_point_to_device(bounds.min, spatial_node_index);
-        let iframe_size = bounds.size();
 
         let spatial_node_index = self.push_reference_frame(
             SpatialId::root_reference_frame(iframe_pipeline_id),
@@ -1292,11 +1281,11 @@ impl<'a> SceneBuilder<'a> {
                 should_snap: true,
                 paired_with_perspective: false,
             },
-            snapped_origin.to_vector(),
+            bounds.min.to_vector(),
             true,
         );
 
-        let iframe_rect = LayoutRect::from_size(iframe_size);
+        let iframe_rect = LayoutRect::from_size(bounds.size());
         let is_root_pipeline = self.iframe_size.is_empty();
 
         self.add_scroll_frame(
@@ -1305,7 +1294,7 @@ impl<'a> SceneBuilder<'a> {
             ExternalScrollId(0, iframe_pipeline_id),
             iframe_pipeline_id,
             &iframe_rect,
-            &iframe_size,
+            &bounds.size(),
             ScrollFrameKind::PipelineRoot {
                 is_root_pipeline,
             },
@@ -1321,7 +1310,7 @@ impl<'a> SceneBuilder<'a> {
             self.root_iframe_clip = Some(ClipId::root(iframe_pipeline_id));
             self.add_tile_cache_barrier_if_needed(SliceFlags::empty());
         }
-        self.iframe_size.push(iframe_size);
+        self.iframe_size.push(bounds.size());
 
         self.build_spatial_tree_for_display_list(
             &pipeline.display_list,
@@ -1357,14 +1346,26 @@ impl<'a> SceneBuilder<'a> {
         // If no bounds rect is given, default to clip rect.
         let mut clip_rect = common.clip_rect;
         let mut prim_rect = bounds.unwrap_or(clip_rect);
-        // Remove the external scroll offset embedded in the DL coordinates
-        // by Gecko. Snap is no longer applied here; it happens at frame time
-        // (see `frame_snap::snap_frame_rects`). Both AA and non-AA prims
-        // follow the same normalize path now.
-        prim_rect = self.normalize_rect_scroll_offset(&prim_rect, spatial_node_index);
-        clip_rect = self.normalize_rect_scroll_offset(&clip_rect, spatial_node_index);
-        let unsnapped_rect = prim_rect;
+        let unsnapped_rect = self.normalize_rect_scroll_offset(&prim_rect, spatial_node_index);
 
+        // If antialiased, no need to snap but we still need to remove the
+        // external scroll offset (it's applied later during frame building,
+        // so that we don't intern to a different hash and invalidate content
+        // in picture caches unnecessarily).
+        if common.flags.contains(PrimitiveFlags::ANTIALISED) {
+            prim_rect = self.normalize_rect_scroll_offset(&prim_rect, spatial_node_index);
+            clip_rect = self.normalize_rect_scroll_offset(&clip_rect, spatial_node_index);
+        } else {
+            clip_rect = self.normalize_scroll_offset_and_snap_rect(
+                &clip_rect,
+                spatial_node_index,
+            );
+
+            prim_rect = self.normalize_scroll_offset_and_snap_rect(
+                &prim_rect,
+                spatial_node_index,
+            );
+        }
 
         let clip_node_id = self.get_clip_node(
             common.clip_chain_id,
@@ -1409,26 +1410,22 @@ impl<'a> SceneBuilder<'a> {
         rect.translate(current_offset)
     }
 
-    /// Snap a point in `target_spatial_node`'s local space to integer
-    /// device pixels. Equivalent to `point.round()` when the target's
-    /// accumulated transform is integer-aligned, but rounds in device
-    /// space when an ancestor introduces a fractional offset (e.g.
-    /// `transform: translate(0.4px)`). Replaces the scene-build snap
-    /// path that was removed when frame-time snapping landed — used
-    /// for reference-frame origins, which are spatial-tree-shape
-    /// inputs and so must still be snapped at scene build (the
-    /// frame-time snap pass only touches prim / clip rects).
-    fn snap_point_to_device(
-        &self,
-        point: LayoutPoint,
+    // Remove external scroll offset and snap a rect. The external scroll offset must
+    // be removed first, as it may be fractional (which we don't want to affect the
+    // snapping behavior during scene building).
+    fn normalize_scroll_offset_and_snap_rect(
+        &mut self,
+        rect: &LayoutRect,
         target_spatial_node: SpatialNodeIndex,
-    ) -> LayoutPoint {
-        let root = self.spatial_tree.root_reference_frame_index();
-        let mut snapper = SpaceSnapper::new(root, RasterPixelScale::new(1.0));
-        snapper.set_target_spatial_node(target_spatial_node, self.spatial_tree);
-        snapper.snap_point(&point)
-    }
+    ) -> LayoutRect {
+        let rect = self.normalize_rect_scroll_offset(rect, target_spatial_node);
 
+        self.snap_to_device.set_target_spatial_node(
+            target_spatial_node,
+            self.spatial_tree,
+        );
+        self.snap_to_device.snap_rect(&rect)
+    }
 
     fn build_item<'b>(
         &'b mut self,
@@ -1550,7 +1547,7 @@ impl<'a> SceneBuilder<'a> {
 
                 let spatial_node_index = self.get_space(info.spatial_id);
 
-                let rect = self.normalize_rect_scroll_offset(
+                let rect = self.normalize_scroll_offset_and_snap_rect(
                     &info.rect,
                     spatial_node_index,
                 );
@@ -2825,7 +2822,7 @@ impl<'a> SceneBuilder<'a> {
     ) {
         let spatial_node_index = self.get_space(spatial_id);
 
-        let snapped_mask_rect = self.normalize_rect_scroll_offset(
+        let snapped_mask_rect = self.normalize_scroll_offset_and_snap_rect(
             &image_mask.rect,
             spatial_node_index,
         );
@@ -2874,7 +2871,7 @@ impl<'a> SceneBuilder<'a> {
     ) {
         let spatial_node_index = self.get_space(spatial_id);
 
-        let snapped_clip_rect = self.normalize_rect_scroll_offset(
+        let snapped_clip_rect = self.normalize_scroll_offset_and_snap_rect(
             clip_rect,
             spatial_node_index,
         );
@@ -2907,7 +2904,7 @@ impl<'a> SceneBuilder<'a> {
     ) {
         let spatial_node_index = self.get_space(spatial_id);
 
-        let snapped_region_rect = self.normalize_rect_scroll_offset(
+        let snapped_region_rect = self.normalize_scroll_offset_and_snap_rect(
             &clip.rect,
             spatial_node_index,
         );
