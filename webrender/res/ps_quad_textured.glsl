@@ -62,7 +62,11 @@ void swgl_drawSpanRGBA8() {
             // Fall back to fragment shader as we don't specialize for mask yet. Perhaps
             // we can use an existing swgl commit or add a new one though?
         } else {
-            swgl_commitTextureLinearColorRGBA8(sColor0, v_uv0, v_uv0_sample_bounds, v_color);
+            if (v_color != vec4(1.0)) {
+                swgl_commitTextureColorRGBA8(sColor0, v_uv0, v_uv0_sample_bounds, v_color);
+            } else {
+                swgl_commitTextureRGBA8(sColor0, v_uv0, v_uv0_sample_bounds);
+            }
         }
     } else {
         swgl_commitSolidRGBA8(v_color);
