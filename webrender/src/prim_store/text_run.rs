@@ -84,15 +84,10 @@ impl intern::InternDebug for TextRunKey {}
 pub struct TextRunTemplate {
     pub common: PrimTemplateCommonData,
     pub font: FontInstance,
-    /// Offset from the prim's local-space origin (DL space at frame time) to
-    /// the run's pen origin. Per-instance `run_origin = prim_rect.min +
-    /// run_origin_offset` is the anchor used by the snap path and the
-    /// shader's glyph position composition. The prim_rect read at frame time
-    /// is currently the snapped local rect from the per-draw header; while
-    /// snapping is still a no-op (snapped == unsnapped) this is equivalent
-    /// to the unsnapped value, but once snapping is wired up this anchor
-    /// will follow the snapped rect — to be reconciled with the glyph-snap
-    /// pass in a follow-up.
+    /// Offset from `prim_instance.prim_rect.min` (DL space at frame time)
+    /// to the run's pen origin. Per-instance `run_origin = prim_rect.min
+    /// + run_origin_offset` is the anchor used by the snap path and the
+    /// shader's glyph position composition.
     pub run_origin_offset: LayoutVector2D,
     /// Glyph pen positions relative to the run's pen origin.
     pub glyphs: Vec<GlyphInstance>,
