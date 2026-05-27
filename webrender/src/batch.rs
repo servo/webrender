@@ -959,6 +959,7 @@ impl BatchBuilder {
 
         let prim_rect = ctx.data_stores.get_local_prim_rect(
             prim_instance,
+            prim_info.snapped_local_rect,
             &ctx.prim_store.pictures,
             ctx.surfaces,
         );
@@ -1805,12 +1806,15 @@ impl BatchBuilder {
                 // floats in the extra header integers.
                 let glyph_keys = &ctx.scratch.frame.glyph_keys[run_scratch.glyph_keys_range];
                 // Template glyphs are stored relative to the run's pen origin
-                // (see TextRunTemplate::run_origin_offset). Compose it into the
-                // shader-facing prim origin so `glyph.point + local_rect.min`
-                // in the shader still resolves to the correct world position.
+                // (see TextRunTemplate::run_origin_offset). `run_origin_offset`
+                // was computed at scene-build against the *unsnapped* prim
+                // origin, so compose with that here — using the snapped prim
+                // rect would double-apply the snap delta (the shader handles
+                // device-grid snapping via `snapped_reference_frame_relative
+                // _offset`).
                 let prim_header = PrimitiveHeader {
                     local_rect: LayoutRect {
-                        min: prim_rect.min + prim_data.run_origin_offset,
+                        min: prim_instance.unsnapped_prim_rect.min + prim_data.run_origin_offset,
                         max: run_scratch.snapped_reference_frame_relative_offset.to_point(),
                     },
                     specific_prim_address: prim_cache_address.as_int(),
