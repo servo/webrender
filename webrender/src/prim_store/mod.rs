@@ -814,24 +814,25 @@ pub struct PrimitiveInstance {
     /// All information and state related to clip(s) for this primitive
     pub clip_leaf_id: ClipLeafId,
 
-    /// Local-space rect of the primitive (origin + size). Carries both
-    /// the position and the per-instance size; the latter used to live
-    /// on `PrimTemplateCommonData.prim_size` but is per-instance now so
-    /// that the intern key can deduplicate across differently-sized
-    /// instances of the same prim shape.
-    pub prim_rect: LayoutRect,
+    /// Local-space rect of the primitive (origin + size), as authored by the
+    /// display list (not snapped to the device pixel grid). Carries both the
+    /// position and the per-instance size; the latter used to live on
+    /// `PrimTemplateCommonData.prim_size` but is per-instance now so that the
+    /// intern key can deduplicate across differently-sized instances of the
+    /// same prim shape.
+    pub unsnapped_prim_rect: LayoutRect,
 }
 
 impl PrimitiveInstance {
     pub fn new(
         kind: PrimitiveKind,
         clip_leaf_id: ClipLeafId,
-        prim_rect: LayoutRect,
+        unsnapped_prim_rect: LayoutRect,
     ) -> Self {
         PrimitiveInstance {
             kind,
             clip_leaf_id,
-            prim_rect,
+            unsnapped_prim_rect,
         }
     }
 

@@ -350,6 +350,29 @@ impl FrameBuilder {
             false,
         ));
 
+        // Build the per-frame draw header storage with one entry per prim
+        // instance. Identity-indexed by `PrimitiveInstanceIndex.0` for now;
+        // a follow-up will switch this to push-per-draw. The per-prim
+        // `snapped_local_rect` is filled in by `snap_frame_rects` below.
+        scratch.primitive.frame.draws.clear();
+        scratch.primitive.frame.draws.resize_with(
+            scene.prim_instances.len(),
+            crate::visibility::PrimitiveDrawHeader::new,
+        );
+
+        // Snap prim, cluster, and clip-tree rects against the current spatial
+        // tree. Must precede `propagate_bounding_rects` (which reads
+        // `cluster.snapped_bounding_rect`) and the visibility / prepare /
+        // batch passes (which read `draws[i].snapped_local_rect` and the
+        // clip-tree `snapped_*` fields).
+        crate::frame_snap::snap_frame_rects(
+            &mut scene.prim_store,
+            &scene.prim_instances,
+            &mut scene.clip_tree,
+            &mut scratch.primitive.frame.draws,
+            spatial_tree,
+        );
+
         scene.picture_graph.propagate_bounding_rects(
             &mut scene.prim_store.pictures,
             &mut scene.surfaces,
@@ -369,15 +392,6 @@ impl FrameBuilder {
         for _ in 0..n_pics {
             visited_pictures.push(false);
         }
-
-        // Resize the per-frame draw header storage to hold one entry per
-        // prim instance. Identity-indexed by `PrimitiveInstanceIndex.0`;
-        // a follow-up will switch this to push-per-draw.
-        scratch.primitive.frame.draws.clear();
-        scratch.primitive.frame.draws.resize_with(
-            scene.prim_instances.len(),
-            crate::visibility::PrimitiveDrawHeader::new,
-        );
 
         {
             profile_scope!("UpdateVisibility");
