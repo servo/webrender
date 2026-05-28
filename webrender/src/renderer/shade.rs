@@ -623,6 +623,7 @@ pub struct Shaders {
     ps_quad_textured: ShaderHandle,
     ps_quad_textured_external: Option<ShaderHandle>,
     ps_quad_textured_external_bt709: Option<ShaderHandle>,
+    ps_quad_textured_rect: Option<ShaderHandle>,
     ps_quad_repeat: ShaderHandle,
     ps_quad_gradient: ShaderHandle,
     ps_quad_box_shadow: ShaderHandle,
@@ -842,6 +843,19 @@ impl Shaders {
             None
         };
 
+        let ps_quad_textured_rect = if has_platform_support(
+            ImageBufferKind::TextureRect, device,
+        ) {
+            Some(loader.create_shader(
+                ShaderKind::Primitive,
+                "ps_quad_textured",
+                &["TEXTURE_RECT"],
+                &shader_list,
+            )?)
+        } else {
+            None
+        };
+
         let ps_quad_repeat = loader.create_shader(
             ShaderKind::Primitive,
             "ps_quad_repeat",
@@ -1035,6 +1049,7 @@ impl Shaders {
             ps_quad_textured,
             ps_quad_textured_external,
             ps_quad_textured_external_bt709,
+            ps_quad_textured_rect,
             ps_quad_repeat,
             ps_quad_gradient,
             ps_quad_box_shadow,
@@ -1106,6 +1121,8 @@ impl Shaders {
                 .expect("bug: ps_quad_textured TEXTURE_EXTERNAL variant not loaded"),
             PatternKind::TextureExternalBT709 => self.ps_quad_textured_external_bt709
                 .expect("bug: ps_quad_textured TEXTURE_EXTERNAL_BT709 variant not loaded"),
+            PatternKind::TextureRect => self.ps_quad_textured_rect
+                .expect("bug: ps_quad_textured TEXTURE_RECT variant not loaded"),
             PatternKind::Gradient => self.ps_quad_gradient,
             PatternKind::Repeat => self.ps_quad_repeat,
             PatternKind::BoxShadow => self.ps_quad_box_shadow,
@@ -1143,6 +1160,10 @@ impl Shaders {
             BatchKind::Quad(PatternKind::TextureExternalBT709) => {
                 self.ps_quad_textured_external_bt709
                     .expect("bug: ps_quad_textured TEXTURE_EXTERNAL_BT709 variant not loaded")
+            }
+            BatchKind::Quad(PatternKind::TextureRect) => {
+                self.ps_quad_textured_rect
+                    .expect("bug: ps_quad_textured TEXTURE_RECT variant not loaded")
             }
             BatchKind::Quad(PatternKind::Gradient) => {
                 self.ps_quad_gradient

@@ -235,6 +235,7 @@ impl RenderTarget {
                 FastHashMap::default(),
                 FastHashMap::default(),
                 FastHashMap::default(),
+                FastHashMap::default(),
             ],
             prim_instances_with_scissor: FastHashMap::default(),
             clip_masks: ClipMaskInstanceList::new(memory),

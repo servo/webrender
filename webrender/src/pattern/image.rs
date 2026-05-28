@@ -37,7 +37,7 @@ impl PatternBuilder for ImagePattern {
             ImageBufferKind::Texture2D => PatternKind::ColorOrTexture,
             ImageBufferKind::TextureExternal => PatternKind::TextureExternal,
             ImageBufferKind::TextureExternalBT709 => PatternKind::TextureExternalBT709,
-            ImageBufferKind::TextureRect => unimplemented!(),
+            ImageBufferKind::TextureRect => PatternKind::TextureRect,
         };
 
         pattern

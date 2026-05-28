@@ -511,23 +511,12 @@ pub fn can_use_quad_shaders(
 ) -> bool {
     let image_properties = resource_cache.get_image_properties(image_data.key);
     match &image_properties {
-        Some(props) => {
+        Some(_) => {
             // See the comment in ps_quad_textured about ignoring the base color
             // due to a driver issue.
             if image_data.color != ColorF::WHITE {
                 return false;
             }
-            // TextureRect external images need unnormalized UV coordinates which
-            // the quad shaders do not currently handle, so fall back to the brush
-            // path for those.
-            if let Some(external_image) = props.external_image {
-                if external_image.image_type
-                    == ExternalImageType::TextureHandle(ImageBufferKind::TextureRect)
-                {
-                    return false;
-                }
-            }
-
             true
         }
         None => false,

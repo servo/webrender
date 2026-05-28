@@ -213,9 +213,11 @@ pub fn get_shader_features(flags: ShaderFeatureFlags) -> ShaderFeatures {
 
     // ps_quad_textured needs per-texture-kind variants so that external image
     // sources (e.g. ANGLE DXGI textures) are sampled with the correct sampler
-    // type. TextureRect is not used by the quad path so we don't compile a
-    // TEXTURE_RECT variant.
+    // type.
     let mut ps_quad_textured_features: Vec<String> = vec!["TEXTURE_2D".to_string()];
+    if flags.contains(ShaderFeatureFlags::GL) {
+        ps_quad_textured_features.push("TEXTURE_RECT".to_string());
+    }
     if flags.contains(ShaderFeatureFlags::TEXTURE_EXTERNAL) {
         ps_quad_textured_features.push("TEXTURE_EXTERNAL".to_string());
     }
