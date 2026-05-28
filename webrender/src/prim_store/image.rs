@@ -511,14 +511,26 @@ pub fn can_use_quad_shaders(
 ) -> bool {
     let image_properties = resource_cache.get_image_properties(image_data.key);
     match &image_properties {
-        Some(ImageProperties { external_image: None, .. }) => {
+        Some(props) => {
             // See the comment in ps_quad_textured about ignoring the base color
             // due to a driver issue.
-            return image_data.color == ColorF::WHITE;
+            if image_data.color != ColorF::WHITE {
+                return false;
+            }
+            // TextureRect external images need unnormalized UV coordinates which
+            // the quad shaders do not currently handle, so fall back to the brush
+            // path for those.
+            if let Some(external_image) = props.external_image {
+                if external_image.image_type
+                    == ExternalImageType::TextureHandle(ImageBufferKind::TextureRect)
+                {
+                    return false;
+                }
+            }
+
+            true
         }
-        _ => {
-            return false;
-        }
+        None => false,
     }
 }
 
@@ -585,9 +597,39 @@ pub fn prepare_image_quads(
             let prim_rect = image_properties.adjustment.map_local_rect(&prim_rect);
             let stretch_size = image_properties.adjustment.map_stretch_size(effective_stretch_size);
 
-            let src_task_id = frame_state.rg_builder.add().init(
+            let mut src_task_id = frame_state.rg_builder.add().init(
                 RenderTask::new_image(size, request, false)
             );
+
+            if let Some(external_image) = image_properties.external_image {
+                // On some devices we cannot render from an ImageBufferKind::TextureExternal
+                // source using most shaders, so must perform a copy to a regular texture first.
+                let requires_copy = frame_context.fb_config.external_images_require_copy
+                    && external_image.image_type
+                        == ExternalImageType::TextureHandle(ImageBufferKind::TextureExternal);
+
+                if requires_copy {
+                    let target_kind = if image_properties.descriptor.format.bytes_per_pixel() == 1 {
+                        RenderTargetKind::Alpha
+                    } else {
+                        RenderTargetKind::Color
+                    };
+
+                    src_task_id = RenderTask::new_scaling(
+                        src_task_id,
+                        frame_state.rg_builder,
+                        target_kind,
+                        size,
+                    );
+
+                    frame_state.surface_builder.add_child_render_task(
+                        src_task_id,
+                        frame_state.rg_builder,
+                    );
+
+                    sampler_kind = ImageBufferKind::Texture2D;
+                }
+            }
 
             let image_pattern = ImagePattern {
                 src_task_id,
