@@ -617,7 +617,12 @@ pub struct Shaders {
     ps_text_run_dual_source: Option<TextShader>,
 
     ps_split_composite: ShaderHandle,
+    // ps_quad_textured comes in sampler-type-specific variants so that
+    // external image sources (e.g. ANGLE DXGI textures) are sampled with the
+    // matching sColor0 declaration. The variant is selected via PatternKind.
     ps_quad_textured: ShaderHandle,
+    ps_quad_textured_external: Option<ShaderHandle>,
+    ps_quad_textured_external_bt709: Option<ShaderHandle>,
     ps_quad_repeat: ShaderHandle,
     ps_quad_gradient: ShaderHandle,
     ps_quad_box_shadow: ShaderHandle,
@@ -803,9 +808,39 @@ impl Shaders {
         let ps_quad_textured = loader.create_shader(
             ShaderKind::Primitive,
             "ps_quad_textured",
-            &[],
+            &["TEXTURE_2D"],
             &shader_list,
         )?;
+
+        // The TextureExternal variants are only used on devices that expose
+        // GL_OES_EGL_image_external via ESSL3. ESSL1 doesn't support the
+        // GLSL features used by the quad shaders.
+        let ps_quad_textured_external = if has_platform_support(
+                ImageBufferKind::TextureExternal, device,
+            ) && texture_external_version == TextureExternalVersion::ESSL3
+        {
+            Some(loader.create_shader(
+                ShaderKind::Primitive,
+                "ps_quad_textured",
+                &["TEXTURE_EXTERNAL"],
+                &shader_list,
+            )?)
+        } else {
+            None
+        };
+
+        let ps_quad_textured_external_bt709 = if has_platform_support(
+            ImageBufferKind::TextureExternalBT709, device,
+        ) {
+            Some(loader.create_shader(
+                ShaderKind::Primitive,
+                "ps_quad_textured",
+                &["TEXTURE_EXTERNAL_BT709"],
+                &shader_list,
+            )?)
+        } else {
+            None
+        };
 
         let ps_quad_repeat = loader.create_shader(
             ShaderKind::Primitive,
@@ -998,6 +1033,8 @@ impl Shaders {
             ps_text_run,
             ps_text_run_dual_source,
             ps_quad_textured,
+            ps_quad_textured_external,
+            ps_quad_textured_external_bt709,
             ps_quad_repeat,
             ps_quad_gradient,
             ps_quad_box_shadow,
@@ -1061,10 +1098,14 @@ impl Shaders {
 
     pub fn get_quad_shader(
         &mut self,
-        pattern: PatternKind
+        pattern: PatternKind,
     ) -> &mut LazilyCompiledShader {
         let shader_handle = match pattern {
             PatternKind::ColorOrTexture => self.ps_quad_textured,
+            PatternKind::TextureExternal => self.ps_quad_textured_external
+                .expect("bug: ps_quad_textured TEXTURE_EXTERNAL variant not loaded"),
+            PatternKind::TextureExternalBT709 => self.ps_quad_textured_external_bt709
+                .expect("bug: ps_quad_textured TEXTURE_EXTERNAL_BT709 variant not loaded"),
             PatternKind::Gradient => self.ps_quad_gradient,
             PatternKind::Repeat => self.ps_quad_repeat,
             PatternKind::BoxShadow => self.ps_quad_box_shadow,
@@ -1094,6 +1135,14 @@ impl Shaders {
         match key.kind {
             BatchKind::Quad(PatternKind::ColorOrTexture) => {
                 self.ps_quad_textured
+            }
+            BatchKind::Quad(PatternKind::TextureExternal) => {
+                self.ps_quad_textured_external
+                    .expect("bug: ps_quad_textured TEXTURE_EXTERNAL variant not loaded")
+            }
+            BatchKind::Quad(PatternKind::TextureExternalBT709) => {
+                self.ps_quad_textured_external_bt709
+                    .expect("bug: ps_quad_textured TEXTURE_EXTERNAL_BT709 variant not loaded")
             }
             BatchKind::Quad(PatternKind::Gradient) => {
                 self.ps_quad_gradient
@@ -1174,7 +1223,9 @@ impl Shaders {
     pub fn cs_svg_filter_node(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_svg_filter_node) }
     pub fn cs_clip_rectangle_slow(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_clip_rectangle_slow) }
     pub fn cs_clip_rectangle_fast(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_clip_rectangle_fast) }
-    pub fn ps_quad_textured(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_quad_textured) }
+    pub fn ps_quad_textured(&mut self) -> &mut LazilyCompiledShader {
+        self.loader.get(self.ps_quad_textured)
+    }
     pub fn ps_mask(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_mask) }
     pub fn ps_mask_fast(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_mask_fast) }
     pub fn ps_clear(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_clear) }

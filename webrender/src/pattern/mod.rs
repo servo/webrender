@@ -27,10 +27,15 @@ pub enum PatternKind {
 
     Mask = 3,
     BoxShadow = 4,
+    // Variants of ColorOrTexture that use a non-default sampler type
+    // (samplerExternalOES / __samplerExternal2DY2YEXT). The quad shader is
+    // compiled in matching per-kind variants; see ps_quad_textured.glsl.
+    TextureExternal = 5,
+    TextureExternalBT709 = 6,
     // When adding patterns, don't forget to update the NUM_PATTERNS constant.
 }
 
-pub const NUM_PATTERNS: u32 = 5;
+pub const NUM_PATTERNS: u32 = 7;
 
 impl PatternKind {
     pub fn from_u32(val: u32) -> Self {

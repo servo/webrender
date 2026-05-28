@@ -33,7 +33,15 @@
 /// - vec4 pattern_fragment(vec4 base_color)
 ///```
 
+// Default to a sampler2D source if the shader was compiled without an
+// explicit texture-kind feature.
+#if !defined(WR_FEATURE_TEXTURE_2D) \
+    && !defined(WR_FEATURE_TEXTURE_RECT) \
+    && !defined(WR_FEATURE_TEXTURE_EXTERNAL) \
+    && !defined(WR_FEATURE_TEXTURE_EXTERNAL_BT709) \
+    && !defined(WR_FEATURE_TEXTURE_EXTERNAL_ESSL1)
 #define WR_FEATURE_TEXTURE_2D
+#endif
 
 #include shared,rect,transform,render_task,gpu_buffer
 

@@ -16,7 +16,13 @@ varying highp vec2 v_uv0;
 void vs_init_sample_color0(vec2 sample_pos, RectWithEndpoint uv_rect) {
     vec2 uv = mix(uv_rect.p0, uv_rect.p1, sample_pos);
 
+    // For sampler2DRect, the uv_rect is already in pixel space and sampling
+    // expects pixel-space coordinates, so skip the normalization.
+#ifdef WR_FEATURE_TEXTURE_RECT
+    vec2 texture_size = vec2(1.0);
+#else
     vec2 texture_size = vec2(TEX_SIZE(sColor0));
+#endif
 
     v_uv0 = uv / texture_size;
 

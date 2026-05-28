@@ -3,9 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{
-    AlphaType, ColorDepth, ColorF, ColorU, ExternalImageType,
-    ImageKey as ApiImageKey, ImageBufferKind, ImageRendering, PremultipliedColorF,
-    RasterSpace, Shadow, YuvColorSpace, ColorRange, YuvFormat,
+    AlphaType, ColorDepth, ColorF, ColorRange, ColorU, ExternalImageData, ExternalImageType, ImageBufferKind, ImageKey as ApiImageKey, ImageRendering, PremultipliedColorF, RasterSpace, Shadow, YuvColorSpace, YuvFormat
 };
 use api::units::*;
 use euclid::point2;
@@ -569,6 +567,12 @@ pub fn prepare_image_quads(
         tile: None,
     };
 
+    let mut sampler_kind = ImageBufferKind::Texture2D;
+    if let Some(ExternalImageData { image_type: ExternalImageType::TextureHandle(kind), .. }) = image_properties.external_image {
+        sampler_kind = kind;
+    }
+
+
     match image_properties.tiling {
         // Non-tiled (most common) path.
         None => {
@@ -589,6 +593,7 @@ pub fn prepare_image_quads(
                 src_task_id,
                 src_is_opaque,
                 premultiplied,
+                sampler_kind,
             };
 
             quad::prepare_repeatable_quad(
@@ -669,6 +674,7 @@ pub fn prepare_image_quads(
                         src_task_id,
                         src_is_opaque,
                         premultiplied,
+                        sampler_kind,
                     };
 
                     quad::prepare_quad(
