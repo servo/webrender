@@ -39,19 +39,15 @@ flat varying highp vec4 v_uv_rect;
 flat varying highp vec4 v_uv_bounds;
 
 // Element clip SDF data: corner ellipse centers (xy) and radii (zw).
-// Plane normals are reconstructed from radii in the fragment shader;
-// only the plane constants are passed separately (see vElemPlaneConstants).
+// Plane normals and constants, as well as the element rect bounds, are all
+// reconstructed in the fragment shader from these centers and radii. Keeping
+// the varying count low matters here: this shader sits close to the GLES3
+// minimum of 15 varying vectors, and older GPUs fail to link a program that
+// exceeds their varying limit, falling back to software (bug 2043249).
 flat varying highp vec4 vElemCenter_Radius_TL;
 flat varying highp vec4 vElemCenter_Radius_TR;
 flat varying highp vec4 vElemCenter_Radius_BR;
 flat varying highp vec4 vElemCenter_Radius_BL;
-
-// Corner half-space plane constants (one per corner, xyzw = TL TR BR BL).
-// Normals are derived from the corner radii stored in vElemCenter_Radius_*.zw.
-flat varying highp vec4 vElemPlaneConstants;
-
-// Element rect bounds in local space (for signed_distance_rect fallback).
-flat varying highp vec4 vElemBounds;
 
 #ifdef WR_VERTEX_SHADER
 
@@ -86,11 +82,11 @@ void pattern_vertex(PrimitiveInfo info) {
         info.segment.uv_rect.p1 - vec2(0.5)
     ) / texture_size.xyxy;
 
-    // Element clip: compute corner centers, radii, and half-space plane constants.
+    // Element clip: compute corner centers and radii. The half-space plane
+    // constants and the element rect bounds are reconstructed from these in the
+    // fragment shader, to keep the varying count low (see bug 2043249).
     vec2 elem_p0 = info.local_prim_rect.p0 + data2.xy;
     vec2 elem_p1 = elem_p0 + data2.zw;
-
-    vElemBounds = vec4(elem_p0, elem_p1);
 
     vec2 r_tl = data3.xy;
     vec2 r_tr = data3.zw;
@@ -101,19 +97,6 @@ void pattern_vertex(PrimitiveInfo info) {
     vElemCenter_Radius_TR = vec4(elem_p1.x - r_tr.x, elem_p0.y + r_tr.y, r_tr);
     vElemCenter_Radius_BR = vec4(elem_p1 - r_br, r_br);
     vElemCenter_Radius_BL = vec4(elem_p0.x + r_bl.x, elem_p1.y - r_bl.y, r_bl);
-
-    // Plane normals are n = ±radius.yx (reconstructed in the fragment shader from the
-    // stored radii). Only the plane constants are needed as varyings.
-    vec2 n_tl = -r_tl.yx;
-    vec2 n_tr = vec2(r_tr.y, -r_tr.x);
-    vec2 n_br = r_br.yx;
-    vec2 n_bl = vec2(-r_bl.y, r_bl.x);
-    vElemPlaneConstants = vec4(
-        dot(n_tl, vec2(elem_p0.x,            elem_p0.y + r_tl.y)),
-        dot(n_tr, vec2(elem_p1.x - r_tr.x,   elem_p0.y)),
-        dot(n_br, vec2(elem_p1.x,             elem_p1.y - r_br.y)),
-        dot(n_bl, vec2(elem_p0.x + r_bl.x,   elem_p1.y))
-    );
 }
 
 #endif
@@ -146,6 +129,11 @@ vec4 pattern_fragment(vec4 base_color) {
     // distance_aa returns 1 when dist < 0 (inside) and 0 when dist > 0 (outside).
     float aa_range = compute_aa_range(local_pos);
 
+    vec2 c_tl = vElemCenter_Radius_TL.xy;
+    vec2 c_tr = vElemCenter_Radius_TR.xy;
+    vec2 c_br = vElemCenter_Radius_BR.xy;
+    vec2 c_bl = vElemCenter_Radius_BL.xy;
+
     vec2 r_tl = vElemCenter_Radius_TL.zw;
     vec2 r_tr = vElemCenter_Radius_TR.zw;
     vec2 r_br = vElemCenter_Radius_BR.zw;
@@ -157,18 +145,24 @@ vec4 pattern_fragment(vec4 base_color) {
     vec2 n_br = r_br.yx;
     vec2 n_bl = vec2(-r_bl.y, r_bl.x);
 
-    vec3 elem_plane_tl = vec3(n_tl, vElemPlaneConstants.x);
-    vec3 elem_plane_tr = vec3(n_tr, vElemPlaneConstants.y);
-    vec3 elem_plane_br = vec3(n_br, vElemPlaneConstants.z);
-    vec3 elem_plane_bl = vec3(n_bl, vElemPlaneConstants.w);
+    // Reconstruct the corner half-space plane constants from the centers and
+    // radii. Each plane passes through the point where the corner arc meets the
+    // adjacent straight edge (e.g. the TL plane through (elem_p0.x, center.y)).
+    vec3 elem_plane_tl = vec3(n_tl, dot(n_tl, vec2(c_tl.x - r_tl.x, c_tl.y)));
+    vec3 elem_plane_tr = vec3(n_tr, dot(n_tr, vec2(c_tr.x,          c_tr.y - r_tr.y)));
+    vec3 elem_plane_br = vec3(n_br, dot(n_br, vec2(c_br.x + r_br.x, c_br.y)));
+    vec3 elem_plane_bl = vec3(n_bl, dot(n_bl, vec2(c_bl.x,          c_bl.y + r_bl.y)));
+
+    // Reconstruct the element rect bounds from the TL and BR corner data.
+    vec4 elem_bounds = vec4(c_tl - r_tl, c_br + r_br);
 
     float elem_dist = distance_to_rounded_rect(
         local_pos,
-        elem_plane_tl, vec4(vElemCenter_Radius_TL.xy, inverse_radii_squared(r_tl)),
-        elem_plane_tr, vec4(vElemCenter_Radius_TR.xy, inverse_radii_squared(r_tr)),
-        elem_plane_br, vec4(vElemCenter_Radius_BR.xy, inverse_radii_squared(r_br)),
-        elem_plane_bl, vec4(vElemCenter_Radius_BL.xy, inverse_radii_squared(r_bl)),
-        vElemBounds
+        elem_plane_tl, vec4(c_tl, inverse_radii_squared(r_tl)),
+        elem_plane_tr, vec4(c_tr, inverse_radii_squared(r_tr)),
+        elem_plane_br, vec4(c_br, inverse_radii_squared(r_br)),
+        elem_plane_bl, vec4(c_bl, inverse_radii_squared(r_bl)),
+        elem_bounds
     );
 
     // Outset (inset=0): dist < 0 = inside element → should be clipped out → use -elem_dist.
