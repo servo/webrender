@@ -509,18 +509,7 @@ pub fn can_use_quad_shaders(
     image_data: &ImageData,
     resource_cache: &ResourceCache,
 ) -> bool {
-    let image_properties = resource_cache.get_image_properties(image_data.key);
-    match &image_properties {
-        Some(_) => {
-            // See the comment in ps_quad_textured about ignoring the base color
-            // due to a driver issue.
-            if image_data.color != ColorF::WHITE {
-                return false;
-            }
-            true
-        }
-        None => false,
-    }
+    resource_cache.get_image_properties(image_data.key).is_some()
 }
 
 pub fn prepare_image_quads(
