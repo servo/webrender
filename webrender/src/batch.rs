@@ -1786,41 +1786,22 @@ impl BatchBuilder {
                 let text_run_scratch_handle = prim_info.kind_scratch.unwrap_text_run();
                 let run_scratch = &ctx.scratch.frame.text_runs[text_run_scratch_handle];
                 let subpx_dir = run_scratch.used_font.get_subpx_dir();
-
-                // The GPU buffer holding color + glyph blocks lives on
-                // per-instance scratch (`TextRunScratch.gpu_address`), since
-                // multiple prims that share an intern key need their own
-                // GPU blocks.
-                let prim_cache_address = run_scratch.gpu_address;
                 let prim_data = &ctx.data_stores.text_run[data_handle];
 
-                // The local prim rect is only informative for text primitives, as
-                // thus is not directly necessary for any drawing of the text run.
-                // However the glyph offsets are relative to the prim rect origin
-                // less the unsnapped reference frame offset. We also want the
-                // the snapped reference frame offset, because cannot recalculate
-                // it as it ignores the animated components for the transform. As
-                // such, we adjust the prim rect origin here, and replace the size
-                // with the unsnapped and snapped offsets respectively. This has
-                // the added bonus of avoiding quantization effects when storing
-                // floats in the extra header integers.
                 let glyph_keys = &ctx.scratch.frame.glyph_keys[run_scratch.glyph_keys_range];
-                // Template glyphs are stored relative to the run's pen origin
-                // (see TextRunTemplate::run_origin_offset). `run_origin_offset`
-                // was computed at scene-build against the *unsnapped* prim
-                // origin, so compose with that here — using the snapped prim
-                // rect would double-apply the snap delta (the shader handles
-                // device-grid snapping via `snapped_reference_frame_relative
-                // _offset`).
+
+                // `local_rect.p0` is the run anchor (the normalized prim rect
+                // origin). In device mode the shader transforms it to device
+                // space and adds the per-glyph device offsets stored at
+                // `gpu_address`. `user_data` carries the raster scale (for
+                // local-raster mode's raster -> local mapping) and the mode flag
+                // (0 = device, 1 = local raster).
                 let prim_header = PrimitiveHeader {
-                    local_rect: LayoutRect {
-                        min: prim_instance.unsnapped_prim_rect.min + prim_data.run_origin_offset,
-                        max: run_scratch.snapped_reference_frame_relative_offset.to_point(),
-                    },
-                    specific_prim_address: prim_cache_address.as_int(),
+                    local_rect: run_scratch.local_rect,
+                    specific_prim_address: run_scratch.gpu_address.as_int(),
                     user_data: [
                         (run_scratch.raster_scale * 65535.0).round() as i32,
-                        0,
+                        run_scratch.local_raster as i32,
                         0,
                         0,
                     ],
@@ -1892,14 +1873,22 @@ impl BatchBuilder {
                         // callback from request_glyphs(), rather than using the bounds of the
                         // entire text run. This improves batching when glyphs are fragmented
                         // over multiple textures in the texture cache.
-                        // This code is taken from the ps_text_run shader.
+                        // This mirrors the glyph positioning in the ps_text_run shader. The
+                        // TRANSFORM_GLYPHS branch covers device mode for 2D rotated/skewed
+                        // glyphs; the other branch covers device-mode axis-aligned and
+                        // local-raster mode (distinguished by `run_scratch.raster_scale`).
+                        // `text_offset` is zero because glyph positions are stored absolutely
+                        // (relative to the prim origin via `local_rect.min`), not relative to
+                        // a separate snapped reference-frame offset; the TRANSFORM_GLYPHS
+                        // branch's `raster_text_offset` then reduces to the reference-frame
+                        // device snap that `request_resources` applies.
                         let tight_bounding_rect = {
                             let snap_bias = match subpx_dir {
                                 SubpixelDirection::None => DeviceVector2D::new(0.5, 0.5),
                                 SubpixelDirection::Horizontal => DeviceVector2D::new(0.125, 0.5),
                                 SubpixelDirection::Vertical => DeviceVector2D::new(0.5, 0.125),
                             };
-                            let text_offset = prim_header.local_rect.max.to_vector();
+                            let text_offset = LayoutVector2D::zero();
 
                             let pic_bounding_rect = if run_scratch.used_font.flags.contains(FontInstanceFlags::TRANSFORM_GLYPHS) {
                                 let mut device_bounding_rect = DeviceRect::default();
