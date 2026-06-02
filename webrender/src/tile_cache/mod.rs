@@ -2990,12 +2990,30 @@ impl TileCacheInstance {
         });
 
         if !self.underlays.is_empty() && !self.deferred_dirty_tests.is_empty() {
-            // Cancel underlay if underlay intersects with backdrop filter.
-            let (underlays, cancel_underlays): (Vec<_>, Vec<_>) = self.underlays
-                .iter()
-                .partition(|desc| self.deferred_dirty_tests
+            let is_yuv_8bit = |desc: &ExternalSurfaceDescriptor| {
+                matches!(
+                    desc.dependency,
+                    ExternalSurfaceDependency::Yuv {
+                        channel_bit_depth: 8,
+                        ..
+                    }
+                )
+            };
+
+            let intersects_with_dirty_tests = |desc: &ExternalSurfaceDescriptor| {
+                self.deferred_dirty_tests
                     .iter()
-                    .any(|dirty_test| !desc.local_rect.intersects(&dirty_test.prim_rect)));
+                    .any(|dirty_test| dirty_test.prim_rect.intersects(&desc.local_rect))
+            };
+
+            // Cancel underlay if underlay intersects with backdrop filter and bit depth is 8 bits
+            // XXX WebRender does not support full HDR yet. HDR requires external composite to show correct colors.
+            let (underlays, cancel_underlays): (Vec<_>, Vec<_>) =
+                self.underlays
+                    .iter()
+                    .partition(|desc| {
+                        !is_yuv_8bit(desc) || !intersects_with_dirty_tests(desc)
+                    });
 
             if !cancel_underlays.is_empty() {
                 for desc in cancel_underlays {
