@@ -1,0 +1,28 @@
+# A rounded rectangle under a different scale than the primitive it clips.
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 200, 200]
+      transform: scale(2.0, 2.0)
+      items:
+        - type: clip
+          id: 1
+          complex:
+            - rect: [0, 0, 300, 300]
+              radius: [40, 40]
+        - type: clip-chain
+          id: 2
+          clips: [1]
+    - type: stacking-context
+      bounds: [0, 0, 600, 600]
+      items:
+        # A second rect that is only there to prevent the clip from being
+        # moved to the compositor.
+        - type: rect
+          bounds: [0, 0, 300, 300]
+          color: white
+        - type: rect
+          bounds: [0, 0, 600, 600]
+          color: green
+          clip-chain: 2

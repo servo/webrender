@@ -1398,10 +1398,13 @@ fn get_prim_render_strategy(
                         spatial_tree,
                     );
 
-                    if let Some(rect) = map_clip_to_prim.map(&clip_instance.clip_rect) {
+                    if let Some(clip_rect) = map_clip_to_prim.map(&clip_instance.clip_rect) {
+                        let radius = map_clip_to_prim.map_vector(
+                            LayoutVector2D::new(max_corner_width, max_corner_height)
+                        );
                         return QuadRenderStrategy::NinePatch {
-                            radius: LayoutVector2D::new(max_corner_width, max_corner_height),
-                            clip_rect: rect,
+                            radius,
+                            clip_rect,
                         };
                     }
                 }
