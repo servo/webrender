@@ -6,6 +6,7 @@ pub mod gradient;
 pub mod box_shadow;
 pub mod repeat;
 pub mod image;
+pub mod cutout;
 
 use api::units::{LayoutVector2D, LayoutPoint};
 use api::{ColorF, units::DeviceRect};
