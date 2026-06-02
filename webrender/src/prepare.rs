@@ -271,13 +271,8 @@ fn prepare_prim_for_render(
             => {
                 use_legacy_path = false;
             }
-            PrimitiveKind::Image { data_handle, .. } => {
-                use_legacy_path = !crate::prim_store::image::can_use_quad_shaders(
-                    &data_stores.image[*data_handle].kind,
-                    frame_state.resource_cache,
-                );
-
-                use_legacy_path = use_legacy_path || scratch.frame
+            PrimitiveKind::Image { .. } => {
+                use_legacy_path = scratch.frame
                     .draws[prim_instance_index]
                     .compositor_surface_kind == CompositorSurfaceKind::Underlay;
             }

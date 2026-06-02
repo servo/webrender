@@ -505,13 +505,6 @@ impl ImageData {
     }
 }
 
-pub fn can_use_quad_shaders(
-    image_data: &ImageData,
-    resource_cache: &ResourceCache,
-) -> bool {
-    resource_cache.get_image_properties(image_data.key).is_some()
-}
-
 pub fn prepare_image_quads(
     prim_rect: &LayoutRect,
     common_data: &PrimTemplateCommonData,
