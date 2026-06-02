@@ -26,9 +26,14 @@ void vs_init_sample_color0(vec2 sample_pos, RectWithEndpoint uv_rect) {
 
     v_uv0 = uv / texture_size;
 
+    // The uv rect may be flipped (for example Y-flipped external images), in which case
+    // p0 > p1. Normalize with min/max so the sample bounds stay valid.
+    vec2 min_uv = min(uv_rect.p0, uv_rect.p1);
+    vec2 max_uv = max(uv_rect.p0, uv_rect.p1);
+
     v_uv0_sample_bounds = vec4(
-        uv_rect.p0 + vec2(0.5),
-        uv_rect.p1 - vec2(0.5)
+        min_uv + vec2(0.5),
+        max_uv - vec2(0.5)
     ) / texture_size.xyxy;
 }
 

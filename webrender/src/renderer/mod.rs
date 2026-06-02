@@ -1672,6 +1672,10 @@ impl Renderer {
             &mut frame.gpu_buffer_f,
         );
 
+        // Now that external images are resolved, copy their (potentially Y-flipped) uv
+        // rects into the quad segment blocks that reference them.
+        frame.gpu_buffer_f.apply_deferred_uv_copies();
+
         self.draw_frame(
             frame,
             device_size,
