@@ -151,6 +151,12 @@ impl Pattern {
         self
     }
 
+    pub fn with_base_color(mut self, color: ColorF) -> Self {
+        self.base_color = color;
+
+        self
+    }
+
     pub fn as_render_task(&self) -> Option<RenderTaskId> {
         if self.kind != PatternKind::ColorOrTexture || self.texture_input.task_id == RenderTaskId::INVALID {
             return None;

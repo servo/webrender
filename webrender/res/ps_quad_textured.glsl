@@ -22,14 +22,6 @@ void pattern_vertex(PrimitiveInfo info) {
     if (info.pattern_input.x == SHADER_MODE_TEXTURE) {
         // Textured
 
-        // TODO: Ideally we would unconditionally modulate the texture with the provided
-        // base color, however we are currently getting glitches on Adreno GPUs on Windows
-        // if the base color is set to white for composite primitives. While we figure this
-        // out, v_color is forced to white here in the textured case, which restores the
-        // behavior from before the patch that introduced the glitches.
-        // See comment in `add_composite_prim`.
-        v_color = vec4(1.0);
-
         RectWithEndpoint pattern_rect = info.local_prim_rect;
         if (info.pattern_input.y == MAP_TO_SEGMENT) {
             pattern_rect = info.segment.rect;

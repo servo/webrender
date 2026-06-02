@@ -345,8 +345,8 @@ pub fn prepare_repeatable_quad(
         || (num_repetitions > 64.0 && surface_rect.area() < 1024.0 * 1024.0);
 
     if repeat_using_a_shader {
-        let src_task_id = match src_task_id {
-            Some(task) => task,
+        let (src_task_id, base_color) = match src_task_id {
+            Some(task) => (task, pattern.base_color),
             None => {
                 // The source is not an image. Make it one by rendering
                 // the pattern in a render task.
@@ -379,7 +379,7 @@ pub fn prepare_repeatable_quad(
                     return;
                 };
 
-                task_id
+                (task_id, ColorF::WHITE)
             }
         };
 
@@ -398,7 +398,7 @@ pub fn prepare_repeatable_quad(
                 frame_gpu_data: frame_state.frame_gpu_data,
                 transforms: frame_state.transforms,
             },
-        );
+        ).with_base_color(base_color);
 
         // Note: caching is disabled when using the repeating shader.
         // The cache key would need more information about the repetition.
@@ -764,7 +764,6 @@ fn prepare_quad_impl(
             };
 
             add_composite_prim(
-                pattern.base_color,
                 pattern.blend_mode,
                 prim_instance_index,
                 &clipped_surface_rect,
@@ -1079,7 +1078,6 @@ fn prepare_nine_patch(
 
     if !scratch.frame.quad_indirect_segments.is_empty() {
         add_composite_prim(
-            pattern.base_color,
             pattern.blend_mode,
             prim_instance_index,
             &device_clip_rect,
@@ -1329,7 +1327,6 @@ fn prepare_tiles(
 
     if !scratch.frame.quad_indirect_segments.is_empty() {
         add_composite_prim(
-            pattern.base_color,
             pattern.blend_mode,
             prim_instance_index,
             device_clip_rect,
@@ -1627,7 +1624,6 @@ fn add_pattern_prim(
 }
 
 fn add_composite_prim(
-    base_color: ColorF,
     blend_mode: BlendMode,
     prim_instance_index: PrimitiveInstanceIndex,
     rect: &DeviceRect,
@@ -1646,12 +1642,7 @@ fn add_composite_prim(
         &mut frame_state.frame_gpu_data.f32,
         rect,
         rect,
-        // TODO: The base color for composite prim should be opaque white
-        // (or white with some transparency to support an opacity directly
-        // in the quad primitive). However, passing opaque white
-        // here causes glitches with Adreno GPUs on Windows specifically
-        // (See bug 1897444).
-        base_color,
+        ColorF::WHITE,
         RenderTaskId::INVALID,
         segments,
         ScaleOffset::identity(),
