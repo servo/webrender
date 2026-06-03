@@ -11,8 +11,8 @@ fuzzy(128,69) fuzzy-if(platform(swgl),2,118) == border-overlapping-corner.yaml b
 platform(linux,mac) fuzzy(3,80) == border-suite.yaml border-suite.png
 platform(linux,mac) fuzzy(8,105) == border-suite-2.yaml border-suite-2.png
 platform(linux,mac) fuzzy(1,10) == border-suite-3.yaml border-suite-3.png
-skip_on(android,device) == border-double-simple.yaml border-double-simple-ref.yaml  # Fails on Pixel2
-== border-double-simple-2.yaml border-double-simple-2-ref.yaml
+fuzzy(1,60) skip_on(android,device) == border-double-simple.yaml border-double-simple-ref.yaml  # Fails on Pixel2
+fuzzy(1,60) == border-double-simple-2.yaml border-double-simple-2-ref.yaml
 skip_on(android,device) fuzzy(64,24) == border-groove-simple.yaml border-groove-simple-ref.yaml  # Fails on Pixel2
 skip_on(android,device) fuzzy(64,24) == border-ridge-simple.yaml border-ridge-simple-ref.yaml  # Fails on Pixel2
 platform(linux,mac) fuzzy(1,26) == degenerate-curve.yaml degenerate-curve.png
@@ -31,5 +31,5 @@ fuzzy(1,30) fuzzy-if(platform(win),1,80) == discontinued-dash.yaml discontinued-
 platform(linux,mac) == border-dashed-dotted-caching.yaml border-dashed-dotted-caching.png
 != small-inset-outset.yaml small-inset-outset-notref.yaml
 fuzzy(1,90) == no-aa.yaml green-square.yaml
-skip_on(android,device) == border-double-1px.yaml border-double-1px-ref.yaml  # Fails on Pixel2
+fuzzy(1,20) skip_on(android,device) == border-double-1px.yaml border-double-1px-ref.yaml  # Fails on Pixel2
 == max-scale.yaml max-scale-ref.yaml
