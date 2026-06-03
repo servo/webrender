@@ -207,6 +207,23 @@ impl SpaceSnapper {
         }
     }
 
+    pub fn new_with_target<S: SpatialNodeContainer>(
+        ref_spatial_node_index: SpatialNodeIndex,
+        target_node_index: SpatialNodeIndex,
+        raster_pixel_scale: RasterPixelScale,
+        spatial_tree: &S,
+    ) -> Self {
+        let mut snapper = SpaceSnapper {
+            ref_spatial_node_index,
+            current_target_spatial_node_index: SpatialNodeIndex::INVALID,
+            snapping_transform: None,
+            raster_pixel_scale,
+        };
+
+        snapper.set_target_spatial_node(target_node_index, spatial_tree);
+        snapper
+    }
+
     pub fn set_target_spatial_node<S: SpatialNodeContainer>(
         &mut self,
         target_node_index: SpatialNodeIndex,
