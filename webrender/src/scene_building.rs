@@ -3563,34 +3563,26 @@ impl<'a> SceneBuilder<'a> {
                 flags,
             );
 
-            // Recover the DL-space prim rect origin. `prim_info.rect.min` is in
-            // normalized space (eso added for interning stability across pre-scroll
-            // changes); subtract `offset` to get the DL-space prim origin that
-            // Gecko's glyph positions are relative to.
-            let dl_prim_origin = prim_info.rect.min.to_vector() - offset;
-
-            // Anchor the run on the first glyph's pen position. `run_origin` is the
-            // offset from the DL prim origin to the run pen origin -- invariant
-            // under pre-scroll because both terms are in DL space and shift
-            // together. Per-glyph positions are stored relative to the first
-            // glyph, also invariant.
+            // Store glyph pen positions relative to the *normalized* prim rect
+            // origin. Gecko embeds the external scroll offset in the DL
+            // coordinates; `normalize_rect_scroll_offset` removes it from rects
+            // by adding `offset` (see `process_common_properties`). We normalize
+            // the glyph positions the same way (`glyph.point + offset`) and then
+            // subtract the already-normalized prim origin. The scroll offset
+            // therefore cancels, keeping the intern key stable across pre-scroll
+            // offset changes.
             //
             // TODO(gw): It'd be nice not to have to allocate here for creating
             //           the primitive key, when the common case is that the
             //           hash will match and we won't end up creating a new
             //           primitive template.
-            let first_glyph_origin = glyph_range
-                .iter()
-                .next()
-                .map(|g| g.point.to_vector())
-                .unwrap_or_else(LayoutVector2D::zero);
-            let run_origin = first_glyph_origin - dl_prim_origin;
+            let prim_origin = prim_info.rect.min.to_vector();
             let glyphs = glyph_range
                 .iter()
                 .map(|glyph| {
                     GlyphInstance {
                         index: glyph.index,
-                        point: glyph.point - first_glyph_origin,
+                        point: glyph.point + offset - prim_origin,
                     }
                 })
                 .collect();
@@ -3605,7 +3597,6 @@ impl<'a> SceneBuilder<'a> {
             TextRun {
                 glyphs,
                 font,
-                run_origin,
                 shadow: false,
                 requested_raster_space,
             }
