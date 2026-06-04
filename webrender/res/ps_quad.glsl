@@ -35,11 +35,7 @@
 
 // Default to a sampler2D source if the shader was compiled without an
 // explicit texture-kind feature.
-#if !defined(WR_FEATURE_TEXTURE_2D) \
-    && !defined(WR_FEATURE_TEXTURE_RECT) \
-    && !defined(WR_FEATURE_TEXTURE_EXTERNAL) \
-    && !defined(WR_FEATURE_TEXTURE_EXTERNAL_BT709) \
-    && !defined(WR_FEATURE_TEXTURE_EXTERNAL_ESSL1)
+#if !defined(WR_FEATURE_TEXTURE_2D) && !defined(WR_FEATURE_TEXTURE_RECT) && !defined(WR_FEATURE_TEXTURE_EXTERNAL) && !defined(WR_FEATURE_TEXTURE_EXTERNAL_BT709) && !defined(WR_FEATURE_TEXTURE_EXTERNAL_ESSL1)
 #define WR_FEATURE_TEXTURE_2D
 #endif
 
