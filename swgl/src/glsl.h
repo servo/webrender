@@ -802,6 +802,14 @@ Float pow(Float x, Float y) {
   return if_then_else((x == 0) | (x == 1), x, approx_pow2(approx_log2(x) * y));
 }
 
+vec2 pow(vec2 a, vec2 b) {
+  return vec2(pow(a.x, b.x), pow(a.y, b.y));
+}
+
+vec2_scalar pow(vec2_scalar a, vec2_scalar b) {
+  return vec2_scalar(pow(a.x, b.x), pow(a.y, b.y));
+}
+
 #define exp __glsl_exp
 
 SI float exp(float x) { return expf(x); }
