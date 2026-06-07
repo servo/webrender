@@ -289,13 +289,6 @@ pub struct StickyFrameDescriptor {
     /// original position relative to non-sticky content within the same scrolling frame.
     pub horizontal_offset_bounds: StickyOffsetBounds,
 
-    /// The amount of offset that has already been applied to the sticky frame. A positive y
-    /// component this field means that a top-sticky item was in a scrollframe that has been
-    /// scrolled down, such that the sticky item's position needed to be offset downwards by
-    /// `previously_applied_offset.y`. A negative y component corresponds to the upward offset
-    /// applied due to bottom-stickiness. The x-axis works analogously.
-    pub previously_applied_offset: LayoutVector2D,
-
     /// A property binding that we use to store an animation ID for APZ
     pub transform: Option<PropertyBinding<LayoutTransform>>,
 }

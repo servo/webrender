@@ -545,7 +545,9 @@ impl SpatialNode {
         // be offset in order to keep it on screen. Since we care about the relationship
         // between the scrolled content and unscrolled viewport we adjust the viewport's
         // position by the scroll offset in order to work with their relative positions on the
-        // page.
+        // page. `frame_rect` is the item's natural (unstuck) position: the display-list
+        // builder removed the offset layout had already applied, so we compute the full
+        // sticky offset here rather than a delta on top of a pre-applied amount.
         let mut sticky_rect = info.frame_rect.translate(*viewport_scroll_offset);
 
         let mut sticky_offset = LayoutVector2D::zero();
@@ -555,26 +557,11 @@ impl SpatialNode {
                 // If the sticky rect is positioned above the top edge of the viewport (plus margin)
                 // we move it down so that it is fully inside the viewport.
                 sticky_offset.y = top_viewport_edge - sticky_rect.min.y;
-            } else if info.previously_applied_offset.y > 0.0 &&
-                sticky_rect.min.y > top_viewport_edge {
-                // However, if the sticky rect is positioned *below* the top edge of the viewport
-                // and there is already some offset applied to the sticky rect's position, then
-                // we need to move it up so that it remains at the correct position. This
-                // makes sticky_offset.y negative and effectively reduces the amount of the
-                // offset that was already applied. We limit the reduction so that it can, at most,
-                // cancel out the already-applied offset, but should never end up adjusting the
-                // position the other way.
-                sticky_offset.y = top_viewport_edge - sticky_rect.min.y;
-                sticky_offset.y = sticky_offset.y.max(-info.previously_applied_offset.y);
             }
         }
 
-        // If we don't have a sticky-top offset (sticky_offset.y + info.previously_applied_offset.y
-        // == 0), or if we have a previously-applied bottom offset (previously_applied_offset.y < 0)
-        // then we check for handling the bottom margin case. Note that the "don't have a sticky-top
-        // offset" case includes the case where we *had* a sticky-top offset but we reduced it to
-        // zero in the above block.
-        if sticky_offset.y + info.previously_applied_offset.y <= 0.0 {
+        // If we don't have a sticky-top offset, check for handling the bottom margin case.
+        if sticky_offset.y <= 0.0 {
             if let Some(margin) = info.margins.bottom {
                 // If sticky_offset.y is nonzero that means we must have set it
                 // in the sticky-top handling code above, so this item must have
@@ -585,16 +572,10 @@ impl SpatialNode {
                 sticky_rect.max.y += sticky_offset.y;
 
                 // Same as the above case, but inverted for bottom-sticky items. Here
-                // we adjust items upwards, resulting in a negative sticky_offset.y,
-                // or reduce the already-present upward adjustment, resulting in a positive
-                // sticky_offset.y.
+                // we adjust items upwards, resulting in a negative sticky_offset.y.
                 let bottom_viewport_edge = viewport_rect.max.y - margin;
                 if sticky_rect.max.y > bottom_viewport_edge {
                     sticky_offset.y += bottom_viewport_edge - sticky_rect.max.y;
-                } else if info.previously_applied_offset.y < 0.0 &&
-                    sticky_rect.max.y < bottom_viewport_edge {
-                    sticky_offset.y += bottom_viewport_edge - sticky_rect.max.y;
-                    sticky_offset.y = sticky_offset.y.min(-info.previously_applied_offset.y);
                 }
             }
         }
@@ -604,46 +585,29 @@ impl SpatialNode {
             let left_viewport_edge = viewport_rect.min.x + margin;
             if sticky_rect.min.x < left_viewport_edge {
                 sticky_offset.x = left_viewport_edge - sticky_rect.min.x;
-            } else if info.previously_applied_offset.x > 0.0 &&
-                sticky_rect.min.x > left_viewport_edge {
-                sticky_offset.x = left_viewport_edge - sticky_rect.min.x;
-                sticky_offset.x = sticky_offset.x.max(-info.previously_applied_offset.x);
             }
         }
 
-        if sticky_offset.x + info.previously_applied_offset.x <= 0.0 {
+        if sticky_offset.x <= 0.0 {
             if let Some(margin) = info.margins.right {
                 sticky_rect.min.x += sticky_offset.x;
                 sticky_rect.max.x += sticky_offset.x;
                 let right_viewport_edge = viewport_rect.max.x - margin;
                 if sticky_rect.max.x > right_viewport_edge {
                     sticky_offset.x += right_viewport_edge - sticky_rect.max.x;
-                } else if info.previously_applied_offset.x < 0.0 &&
-                    sticky_rect.max.x < right_viewport_edge {
-                    sticky_offset.x += right_viewport_edge - sticky_rect.max.x;
-                    sticky_offset.x = sticky_offset.x.min(-info.previously_applied_offset.x);
                 }
             }
         }
 
-        // The total "sticky offset" (which is the sum that was already applied by
-        // the calling code, stored in info.previously_applied_offset, and the extra amount we
-        // computed as a result of scrolling, stored in sticky_offset) needs to be
-        // clamped to the provided bounds.
-        let clamp_adjusted = |value: f32, adjust: f32, bounds: &StickyOffsetBounds| {
-            (value + adjust).max(bounds.min).min(bounds.max) - adjust
+        // Clamp the sticky offset to the provided bounds, which describe how far
+        // the item can travel from its natural position.
+        let clamp = |value: f32, bounds: &StickyOffsetBounds| {
+            value.max(bounds.min).min(bounds.max)
         };
-        sticky_offset.y = clamp_adjusted(sticky_offset.y,
-                                         info.previously_applied_offset.y,
-                                         &info.vertical_offset_bounds);
-        sticky_offset.x = clamp_adjusted(sticky_offset.x,
-                                         info.previously_applied_offset.x,
-                                         &info.horizontal_offset_bounds);
+        sticky_offset.y = clamp(sticky_offset.y, &info.vertical_offset_bounds);
+        sticky_offset.x = clamp(sticky_offset.x, &info.horizontal_offset_bounds);
 
-        // Reapply the content-process side sticky offset, which was removed
-        // from the primitive bounds attached to this node, so that interning
-        // sees stable values.
-        sticky_offset + info.previously_applied_offset
+        sticky_offset
     }
 
     pub fn prepare_state_for_children(&self, state: &mut TransformUpdateState) {
@@ -864,7 +828,6 @@ pub struct StickyFrameInfo {
   pub frame_rect: LayoutRect,
     pub vertical_offset_bounds: StickyOffsetBounds,
     pub horizontal_offset_bounds: StickyOffsetBounds,
-    pub previously_applied_offset: LayoutVector2D,
     pub current_offset: LayoutVector2D,
     pub transform: Option<PropertyBinding<LayoutTransform>>,
 }
@@ -875,7 +838,6 @@ impl StickyFrameInfo {
         margins: SideOffsets2D<Option<f32>, LayoutPixel>,
         vertical_offset_bounds: StickyOffsetBounds,
         horizontal_offset_bounds: StickyOffsetBounds,
-        previously_applied_offset: LayoutVector2D,
         transform: Option<PropertyBinding<LayoutTransform>>,
     ) -> StickyFrameInfo {
         StickyFrameInfo {
@@ -883,7 +845,6 @@ impl StickyFrameInfo {
             margins,
             vertical_offset_bounds,
             horizontal_offset_bounds,
-            previously_applied_offset,
             current_offset: LayoutVector2D::zero(),
             transform,
         }

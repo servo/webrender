@@ -1838,7 +1838,6 @@ fn test_find_scroll_root_sticky() {
             margins: euclid::SideOffsets2D::new(Some(0.0), None, None, None),
             vertical_offset_bounds: api::StickyOffsetBounds::new(0.0, 0.0),
             horizontal_offset_bounds: api::StickyOffsetBounds::new(0.0, 0.0),
-            previously_applied_offset: LayoutVector2D::zero(),
             current_offset: LayoutVector2D::zero(),
             transform: None
         },

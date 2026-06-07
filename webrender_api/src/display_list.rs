@@ -1918,22 +1918,26 @@ impl DisplayListBuilder {
         // Could we pass just an (optional) animation id instead?
         transform: Option<PropertyBinding<LayoutTransform>>
     ) -> di::SpatialId {
+        // Fold the sticky frame's already-applied offset into the accumulated
+        // offset so the frame rect (and all descendants) are normalized to the
+        // item's natural, unstuck position. WebRender then computes the full
+        // sticky offset at frame time and no longer needs the applied offset.
         let parent_offset = self.accumulated_scroll_offset(parent_spatial_id);
+        let node_offset = parent_offset - previously_applied_offset;
         let id = self.generate_spatial_index();
 
         let descriptor = di::SpatialTreeItem::StickyFrame(di::StickyFrameDescriptor {
             parent_spatial_id,
             id,
-            bounds: self.normalize_rect(frame_rect, parent_spatial_id),
+            bounds: frame_rect.translate(node_offset),
             margins,
             vertical_offset_bounds,
             horizontal_offset_bounds,
-            previously_applied_offset,
             transform,
         });
 
         self.push_spatial_tree_item(&descriptor);
-        self.record_scroll_offset(id, parent_offset - previously_applied_offset);
+        self.record_scroll_offset(id, node_offset);
         id
     }
 

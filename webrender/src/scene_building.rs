@@ -1060,7 +1060,6 @@ impl<'a> SceneBuilder<'a> {
             info.margins,
             info.vertical_offset_bounds,
             info.horizontal_offset_bounds,
-            info.previously_applied_offset,
             info.transform,
         );
 
