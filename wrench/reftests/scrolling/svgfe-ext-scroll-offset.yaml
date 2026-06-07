@@ -1,0 +1,30 @@
+# Tests that an SVGFE filter subregion authored inside a scroll frame with an
+# external scroll offset is normalized to the same space as the primitives, so
+# the green flood (subregion) exactly covers the red SourceGraphic rect. If the
+# subregion were not offset to match, the flood would be shifted by 50px and
+# red would show through.
+root:
+  items:
+    - type: scroll-frame
+      bounds: [0, 0, 100, 100]
+      content-size: [100, 1000]
+      scroll-offset: [0, 0]
+      external-scroll-offset: [0, 50]
+      items:
+        - type: stacking-context
+          bounds: [0, 0, 100, 1000]
+          filters:
+            - svgfe: SourceGraphic
+            - svgfe: flood
+              linear: false
+              color: green
+              subregion: [0, 50, 100, 100]
+            - svgfe: compositeover
+              linear: false
+              subregion: [0, 0, 100, 1000]
+              in: 1
+              in2: 0
+          items:
+            - type: rect
+              color: red
+              bounds: [0, 50, 100, 100]
