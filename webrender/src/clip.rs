@@ -108,7 +108,7 @@ use crate::render_task::RenderTask;
 use crate::render_task_graph::RenderTaskGraphBuilder;
 use crate::resource_cache::{ImageRequest, ResourceCache};
 use crate::scene_builder_thread::Interners;
-use crate::space::SpaceMapper;
+use crate::space::{SpaceMapper, SpaceSnapper};
 use crate::util::{extract_inner_rect_safe, project_rect, MatrixHelpers, MaxRect, ScaleOffset};
 use euclid::approxeq::ApproxEq;
 use std::{iter, ops, u32, mem};
@@ -121,18 +121,35 @@ pub struct ClipTreeNode {
     pub handle: ClipDataHandle,
     pub spatial_node_index: SpatialNodeIndex,
     /// Clip rect as authored by the display list (not snapped to the device
-    /// pixel grid).
+    /// pixel grid). Snapped on demand by `ClipTreeNode::snapped_clip_rect`
+    /// during clip-chain construction.
     pub unsnapped_clip_rect: LayoutRect,
-    /// `unsnapped_clip_rect` snapped against the current spatial tree, in the
-    /// node's own spatial-node space. Written each frame by
-    /// `frame_snap::snap_frame_rects` before any frame-time consumer reads it.
-    pub snapped_clip_rect: LayoutRect,
     pub parent: ClipNodeId,
 
     children: FastHashMap<ClipEntry, ClipNodeId>,
 
     // TODO(gw): Consider adding a default leaf for cases when the local_clip_rect is not relevant,
     //           that can be shared among primitives (to reduce amount of clip-chain building).
+}
+
+impl ClipTreeNode {
+    /// Snap `unsnapped_clip_rect` against the current spatial tree, in this
+    /// node's own spatial-node space. Built on demand during clip-chain
+    /// construction (the snapped rect depends on the per-frame spatial tree).
+    /// The caller passes a reusable `SpaceSnapper` whose reference node is the
+    /// root reference frame; `set_target_spatial_node` early-outs when the
+    /// target is unchanged, so reusing it across sibling/ancestor nodes is
+    /// cheap. Only the root sentinel node carries an `INVALID` spatial node,
+    /// and that node is never visited during clip-chain construction.
+    fn snapped_clip_rect(
+        &self,
+        snapper: &mut SpaceSnapper,
+        spatial_tree: &SpatialTree,
+    ) -> LayoutRect {
+        debug_assert!(self.spatial_node_index != SpatialNodeIndex::INVALID);
+        snapper.set_target_spatial_node(self.spatial_node_index, spatial_tree);
+        snapper.snap_rect(&self.unsnapped_clip_rect)
+    }
 }
 
 /// A leaf node in a clip-tree. Any primitive that is clipped will have a handle to
@@ -207,7 +224,6 @@ impl ClipTree {
                     handle: ClipDataHandle::INVALID,
                     spatial_node_index: SpatialNodeIndex::INVALID,
                     unsnapped_clip_rect: LayoutRect::zero(),
-                    snapped_clip_rect: LayoutRect::zero(),
                     children: FastHashMap::default(),
                     parent: ClipNodeId::NONE,
                 }
@@ -225,7 +241,6 @@ impl ClipTree {
             handle: ClipDataHandle::INVALID,
             spatial_node_index: SpatialNodeIndex::INVALID,
             unsnapped_clip_rect: LayoutRect::zero(),
-            snapped_clip_rect: LayoutRect::zero(),
             children: FastHashMap::default(),
             parent: ClipNodeId::NONE,
         });
@@ -264,7 +279,6 @@ impl ClipTree {
                         handle: key.handle,
                         spatial_node_index: key.spatial_node_index,
                         unsnapped_clip_rect: key.clip_rect.into(),
-                        snapped_clip_rect: LayoutRect::zero(),
                         children: FastHashMap::default(),
                         parent: id,
                     });
@@ -336,12 +350,6 @@ impl ClipTree {
     /// Retrieve a clip tree leaf by id
     pub fn get_leaf(&self, id: ClipLeafId) -> &ClipTreeLeaf {
         &self.leaves[id.0 as usize]
-    }
-
-    /// Mutable view of every node in the clip-tree. Used by the frame-time
-    /// snap pass to refresh `snapped_clip_rect`.
-    pub fn nodes_mut(&mut self) -> &mut [ClipTreeNode] {
-        &mut self.nodes
     }
 
     /// Mutable accessor for a single leaf. Used by the frame-time snap pass
@@ -1431,11 +1439,13 @@ impl ClipStore {
         let clip_root = clip_tree.current_clip_root();
         let clip_leaf = clip_tree.get_leaf(clip_leaf_id);
 
-        // The leaf and each ancestor node have been pre-snapped by
-        // `frame_snap::snap_frame_rects` for this frame; we just consume the
-        // snapped values to build clip-chain geometry.
+        // The leaf has been pre-snapped by `frame_snap::snap_frame_rects` for
+        // this frame; ancestor node clip rects are snapped on demand below.
         let mut local_clip_rect = clip_leaf.snapped_local_clip_rect;
         let mut current = clip_leaf.node_id;
+
+        let root = spatial_tree.root_reference_frame_index();
+        let mut snapper = SpaceSnapper::new(root, RasterPixelScale::new(1.0));
 
         while current != clip_root && current != ClipNodeId::NONE {
             let node = clip_tree.get_node(current);
@@ -1443,7 +1453,7 @@ impl ClipStore {
             if !add_clip_node_to_current_chain(
                 node.handle,
                 node.spatial_node_index,
-                node.snapped_clip_rect,
+                node.snapped_clip_rect(&mut snapper, spatial_tree),
                 prim_spatial_node_index,
                 pic_spatial_node_index,
                 visibility_spatial_node_index,

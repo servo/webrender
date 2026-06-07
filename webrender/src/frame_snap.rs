@@ -11,7 +11,7 @@ use api::units::{LayoutRect, RasterPixelScale};
 use crate::clip::ClipTree;
 use crate::prim_store::{PrimitiveInstance, PrimitiveStore};
 use crate::space::SpaceSnapper;
-use crate::spatial_tree::{SpatialNodeIndex, SpatialTree};
+use crate::spatial_tree::SpatialTree;
 use crate::util::MaxRect;
 use crate::visibility::PrimitiveDrawHeader;
 
@@ -63,14 +63,5 @@ pub fn snap_frame_rects(
                 }
             }
         }
-    }
-
-    for node in clip_tree.nodes_mut() {
-        if node.spatial_node_index == SpatialNodeIndex::INVALID {
-            node.snapped_clip_rect = node.unsnapped_clip_rect;
-            continue;
-        }
-        snapper.set_target_spatial_node(node.spatial_node_index, spatial_tree);
-        node.snapped_clip_rect = snapper.snap_rect(&node.unsnapped_clip_rect);
     }
 }
