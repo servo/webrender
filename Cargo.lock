@@ -3496,7 +3496,7 @@ dependencies = [
 
 [[package]]
 name = "webrender"
-version = "0.68.0"
+version = "0.68.1"
 dependencies = [
  "allocator-api2",
  "base64",
@@ -3557,7 +3557,7 @@ dependencies = [
 
 [[package]]
 name = "webrender_api"
-version = "0.68.0"
+version = "0.68.1"
 dependencies = [
  "app_units",
  "bitflags 2.4.2",
