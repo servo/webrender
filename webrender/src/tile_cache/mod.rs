@@ -1143,6 +1143,10 @@ impl TileCacheInstance {
                                         top_right: so.map_size(&radius.top_right),
                                         bottom_left: so.map_size(&radius.bottom_left),
                                         bottom_right: so.map_size(&radius.bottom_right),
+                                        shape_top_left: radius.shape_top_left,
+                                        shape_top_right: radius.shape_top_right,
+                                        shape_bottom_left: radius.shape_bottom_left,
+                                        shape_bottom_right: radius.shape_bottom_right,
                                     },
                                 ),
                                 ClipSpaceConversion::Transform(..) => unreachable!(),
@@ -1922,6 +1926,10 @@ impl TileCacheInstance {
                                 top_right: scale_offset.map_size(&radius.top_right),
                                 bottom_left: scale_offset.map_size(&radius.bottom_left),
                                 bottom_right: scale_offset.map_size(&radius.bottom_right),
+                                shape_top_left: radius.shape_top_left,
+                                shape_top_right: radius.shape_top_right,
+                                shape_bottom_left: radius.shape_bottom_left,
+                                shape_bottom_right: radius.shape_bottom_right,
                             },
                         )
                     }

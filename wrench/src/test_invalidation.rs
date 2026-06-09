@@ -291,6 +291,10 @@ impl<'a> TestHarness<'a> {
             top_right: LayoutSize::new(20.0, 20.0),
             bottom_left: LayoutSize::new(15.0, 15.0),
             bottom_right: LayoutSize::new(15.0, 15.0),
+            shape_top_left: 1.0,
+            shape_top_right: 1.0,
+            shape_bottom_left: 1.0,
+            shape_bottom_right: 1.0,
         };
         assert_eq!(clip.radius, expected_radius, "Combined clip radii");
     }

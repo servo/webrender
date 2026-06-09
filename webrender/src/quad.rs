@@ -1750,7 +1750,7 @@ pub fn prepare_clip_task(
 
                 (true, clip_address)
             } else {
-                let mut writer = gpu_buffer.write_blocks(4);
+                let mut writer = gpu_buffer.write_blocks(5);
                 writer.push_one(clip_instance.clip_rect);
                 writer.push_one([
                     radius.top_left.width,
@@ -1765,6 +1765,12 @@ pub fn prepare_clip_task(
                     radius.bottom_right.height,
                 ]);
                 writer.push_one([mode as i32 as f32, 0.0, 0.0, 0.0]);
+                writer.push_one([
+                    radius.shape_top_left,
+                    radius.shape_top_right,
+                    radius.shape_bottom_right,
+                    radius.shape_bottom_left,
+                ]);
                 let clip_address = writer.finish();
 
                 (false, clip_address)

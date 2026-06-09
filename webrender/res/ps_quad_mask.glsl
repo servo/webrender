@@ -20,6 +20,9 @@ flat varying highp vec4 vClipCenter_Radius_BL;
 flat varying highp vec4 vClipPlane_A;
 flat varying highp vec4 vClipPlane_B;
 flat varying highp vec4 vClipPlane_C;
+
+flat varying highp vec4 vClipShape;
+
 #endif
 flat varying highp vec2 vClipMode;
 
@@ -37,6 +40,8 @@ struct Clip {
 #else
     vec4 radii_top;
     vec4 radii_bottom;
+
+    vec4 shape;
 #endif
     float mode;
     int space;
@@ -53,14 +58,25 @@ Clip fetch_clip(int index) {
     clip.radii = texels[1];
     clip.mode = texels[2].x;
 #else
-    vec4 texels[4] = fetch_from_gpu_buffer_4f(index);
+    vec4 texels[5] = fetch_from_gpu_buffer_5f(index);
     clip.rect = RectWithEndpoint(texels[0].xy, texels[0].zw);
     clip.radii_top = texels[1];
     clip.radii_bottom = texels[2];
     clip.mode = texels[3].x;
+    clip.shape = texels[4];
 #endif
 
     return clip;
+}
+
+vec4 precalc_corner(vec2 center, vec2 radii, float k) {
+    if (k == 1.0) {
+        // round/ellipse corner, precalc the ellipse parameters
+        return vec4(center, inverse_radii_squared(radii));
+    } else {
+        // superellipse, precalc the superellipse parameters
+        return vec4(center, inverse_radii(radii));
+    }
 }
 
 void pattern_vertex(PrimitiveInfo prim_info) {
@@ -98,19 +114,23 @@ void pattern_vertex(PrimitiveInfo prim_info) {
     vec2 r_br = clip.radii_bottom.zw;
     vec2 r_bl = clip.radii_bottom.xy;
 
-    vClipCenter_Radius_TL = vec4(clip.rect.p0 + r_tl,
-                                 inverse_radii_squared(r_tl));
+    vClipCenter_Radius_TL = precalc_corner(clip.rect.p0 + r_tl,
+                                           r_tl,
+                                           clip.shape.x);
 
-    vClipCenter_Radius_TR = vec4(clip.rect.p1.x - r_tr.x,
-                                 clip.rect.p0.y + r_tr.y,
-                                 inverse_radii_squared(r_tr));
+    vClipCenter_Radius_TR = precalc_corner(vec2(clip.rect.p1.x - r_tr.x,
+                                                clip.rect.p0.y + r_tr.y),
+                                           r_tr,
+                                           clip.shape.y);
 
-    vClipCenter_Radius_BR = vec4(clip.rect.p1 - r_br,
-                                 inverse_radii_squared(r_br));
+    vClipCenter_Radius_BR = precalc_corner(clip.rect.p1 - r_br,
+                                           r_br,
+                                           clip.shape.z);
 
-    vClipCenter_Radius_BL = vec4(clip.rect.p0.x + r_bl.x,
-                                 clip.rect.p1.y - r_bl.y,
-                                 inverse_radii_squared(r_bl));
+    vClipCenter_Radius_BL = precalc_corner(vec2(clip.rect.p0.x + r_bl.x,
+                                                clip.rect.p1.y - r_bl.y),
+                                           r_bl,
+                                           clip.shape.w);
 
     // We need to know the half-spaces of the corners separate from the center
     // and radius. We compute a point that falls on the diagonal (which is just
@@ -134,6 +154,8 @@ void pattern_vertex(PrimitiveInfo prim_info) {
     vClipPlane_A = vec4(tl.x, tl.y, tl.z, tr.x);
     vClipPlane_B = vec4(tr.y, tr.z, br.x, br.y);
     vClipPlane_C = vec4(br.z, bl.x, bl.y, bl.z);
+
+    vClipShape = clip.shape;
 #endif
 
 }
@@ -166,18 +188,31 @@ vec4 pattern_fragment(vec4 _base_color) {
     vec3 plane_br = vec3(vClipPlane_B.z, vClipPlane_B.w, vClipPlane_C.x);
     vec3 plane_bl = vec3(vClipPlane_C.y, vClipPlane_C.z, vClipPlane_C.w);
 
-    float dist = distance_to_rounded_rect(
-        clip_local_pos,
-        plane_tl,
-        vClipCenter_Radius_TL,
-        plane_tr,
-        vClipCenter_Radius_TR,
-        plane_br,
-        vClipCenter_Radius_BR,
-        plane_bl,
-        vClipCenter_Radius_BL,
-        vTransformBounds
-    );
+    float dist;
+    if (vClipShape == vec4(1.0)) {
+        dist = distance_to_rounded_rect(
+            clip_local_pos,
+            plane_tl,
+            vClipCenter_Radius_TL,
+            plane_tr,
+            vClipCenter_Radius_TR,
+            plane_br,
+            vClipCenter_Radius_BR,
+            plane_bl,
+            vClipCenter_Radius_BL,
+            vTransformBounds
+        );
+    } else {
+        dist = distance_to_shaped_rect(
+            clip_local_pos,
+            vClipCenter_Radius_TL,
+            vClipCenter_Radius_TR,
+            vClipCenter_Radius_BR,
+            vClipCenter_Radius_BL,
+            vTransformBounds,
+            vClipShape
+        );
+    }
 #endif
 
     // Compute AA for the given dist and range.

@@ -479,6 +479,10 @@ impl YamlHelper for Yaml {
                     top_right,
                     bottom_left,
                     bottom_right,
+                    shape_top_left: 1.0,
+                    shape_top_right: 1.0,
+                    shape_bottom_left: 1.0,
+                    shape_bottom_right: 1.0,
                 })
             }
             Yaml::Hash(_) => {
@@ -491,6 +495,10 @@ impl YamlHelper for Yaml {
                     top_right,
                     bottom_left,
                     bottom_right,
+                    shape_top_left: 1.0,
+                    shape_top_right: 1.0,
+                    shape_bottom_left: 1.0,
+                    shape_bottom_right: 1.0,
                 })
             }
             _ => {

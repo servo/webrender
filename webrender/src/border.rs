@@ -43,6 +43,11 @@ pub struct BorderRadiusAu {
     pub top_right: LayoutSizeAu,
     pub bottom_left: LayoutSizeAu,
     pub bottom_right: LayoutSizeAu,
+
+    pub shape_top_left: u32,
+    pub shape_top_right: u32,
+    pub shape_bottom_left: u32,
+    pub shape_bottom_right: u32,
 }
 
 impl From<BorderRadius> for BorderRadiusAu {
@@ -52,6 +57,10 @@ impl From<BorderRadius> for BorderRadiusAu {
             top_right: radius.top_right.to_au(),
             bottom_right: radius.bottom_right.to_au(),
             bottom_left: radius.bottom_left.to_au(),
+            shape_top_left: radius.shape_top_left.to_bits(),
+            shape_top_right: radius.shape_top_right.to_bits(),
+            shape_bottom_left: radius.shape_bottom_left.to_bits(),
+            shape_bottom_right: radius.shape_bottom_right.to_bits(),
         }
     }
 }
@@ -63,6 +72,10 @@ impl From<BorderRadiusAu> for BorderRadius {
             top_right: LayoutSize::from_au(radius.top_right),
             bottom_right: LayoutSize::from_au(radius.bottom_right),
             bottom_left: LayoutSize::from_au(radius.bottom_left),
+            shape_top_left: f32::from_bits(radius.shape_top_left),
+            shape_top_right: f32::from_bits(radius.shape_top_right),
+            shape_bottom_left: f32::from_bits(radius.shape_bottom_left),
+            shape_bottom_right: f32::from_bits(radius.shape_bottom_right),
         }
     }
 }

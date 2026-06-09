@@ -1233,6 +1233,10 @@ impl YamlFrameReader {
                 top_right: adjust_corner(border_radius.top_right, spread_amount),
                 bottom_right: adjust_corner(border_radius.bottom_right, spread_amount),
                 bottom_left: adjust_corner(border_radius.bottom_left, spread_amount),
+                shape_top_left: border_radius.shape_top_left,
+                shape_top_right: border_radius.shape_top_right,
+                shape_bottom_left: border_radius.shape_bottom_left,
+                shape_bottom_right: border_radius.shape_bottom_right,
             }
         });
 

@@ -2346,6 +2346,10 @@ mod tests {
             top_right: LayoutSize::new(tr, tr),
             bottom_left: LayoutSize::new(bl, bl),
             bottom_right: LayoutSize::new(br, br),
+            shape_top_left: 1.0,
+            shape_top_right: 1.0,
+            shape_bottom_left: 1.0,
+            shape_bottom_right: 1.0,
         }
     }
 
@@ -2458,6 +2462,10 @@ pub fn intersect_rounded_rects(
         return None;
     }
 
+    if !radius_a.shapes_all_round() || !radius_b.shapes_all_round() {
+        return None;
+    }
+
     let result_radius = BorderRadius {
         top_left: resolve_corner_radius(
             result_rect.min.x, result_rect.min.y,
@@ -2483,6 +2491,10 @@ pub fn intersect_rounded_rects(
             rect_b.max.x, rect_b.max.y, radius_b.bottom_right,
             -1.0, -1.0,
         )?,
+        shape_top_left: 1.0,
+        shape_top_right: 1.0,
+        shape_bottom_left: 1.0,
+        shape_bottom_right: 1.0,
     };
 
     if !result_radius.can_use_fast_path_in(&result_rect) {
