@@ -353,26 +353,19 @@ impl FrameBuilder {
         // Build the per-frame draw header storage with one entry per prim
         // instance. Identity-indexed by `PrimitiveInstanceIndex.0` for now;
         // a follow-up will switch this to push-per-draw. The per-prim
-        // `snapped_local_rect` is filled in by `snap_frame_rects` below.
+        // `snapped_local_rect` is filled in by the visibility pass.
         scratch.primitive.frame.draws.clear();
         scratch.primitive.frame.draws.resize_with(
             scene.prim_instances.len(),
             crate::visibility::PrimitiveDrawHeader::new,
         );
 
-        // Snap prim, cluster, and clip-tree rects against the current spatial
-        // tree. Must precede `propagate_bounding_rects` (which reads
-        // `cluster.snapped_bounding_rect`) and the visibility / prepare /
-        // batch passes (which read `draws[i].snapped_local_rect` and the
-        // clip-tree `snapped_*` fields).
-        crate::frame_snap::snap_frame_rects(
-            &mut scene.prim_store,
-            &scene.prim_instances,
-            &mut scene.clip_tree,
-            &mut scratch.primitive.frame.draws,
-            spatial_tree,
-        );
-
+        // Cluster, prim, and clip-leaf rects are snapped to the device pixel
+        // grid as they are produced by the in-frame picture-graph passes:
+        // `propagate_bounding_rects` snaps each cluster bounding rect, and the
+        // visibility pass snaps each prim's `snapped_local_rect` and clip-leaf
+        // rect. Both snap against the consuming surface's raster node, so only
+        // pictures reachable this frame are touched.
         scene.picture_graph.propagate_bounding_rects(
             &mut scene.prim_store.pictures,
             &mut scene.surfaces,

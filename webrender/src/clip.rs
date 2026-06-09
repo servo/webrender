@@ -134,13 +134,12 @@ pub struct ClipTreeNode {
 
 impl ClipTreeNode {
     /// Snap `unsnapped_clip_rect` against the current spatial tree, in this
-    /// node's own spatial-node space. Built on demand during clip-chain
-    /// construction (the snapped rect depends on the per-frame spatial tree).
-    /// The caller passes a reusable `SpaceSnapper` whose reference node is the
-    /// root reference frame; `set_target_spatial_node` early-outs when the
-    /// target is unchanged, so reusing it across sibling/ancestor nodes is
-    /// cheap. Only the root sentinel node carries an `INVALID` spatial node,
-    /// and that node is never visited during clip-chain construction.
+    /// node's own spatial-node space, relative to the consuming prim's surface
+    /// raster node. Built on demand during clip-chain construction: the snapped
+    /// rect depends on the per-frame spatial tree, and a clip node can be shared
+    /// by prims in different surfaces, so it can't be pre-snapped to a single
+    /// space. Only the root sentinel node carries an `INVALID` spatial node, and
+    /// that node is never visited during clip-chain construction.
     fn snapped_clip_rect(
         &self,
         snapper: &mut SpaceSnapper,
@@ -169,9 +168,9 @@ pub struct ClipTreeLeaf {
     pub unsnapped_local_clip_rect: LayoutRect,
     /// `unsnapped_local_clip_rect` snapped against the current spatial tree
     /// in the owning primitive's cluster spatial-node space. Written each
-    /// frame by `frame_snap::snap_frame_rects` from the cluster loop, using
-    /// the cluster's (resolved) spatial node as the snap target. Picture /
-    /// tile-cache leaves carry `max_rect` and pass through unchanged.
+    /// frame by the visibility pass from the cluster loop, using the cluster's
+    /// (resolved) spatial node as the snap target. Picture / tile-cache leaves
+    /// carry `max_rect` and pass through unchanged.
     pub snapped_local_clip_rect: LayoutRect,
 }
 
@@ -352,9 +351,9 @@ impl ClipTree {
         &self.leaves[id.0 as usize]
     }
 
-    /// Mutable accessor for a single leaf. Used by the frame-time snap pass
-    /// from inside the cluster loop to refresh `snapped_local_clip_rect`
-    /// against the same spatial node as the owning prim's rect.
+    /// Mutable accessor for a single leaf. Used by the visibility pass from
+    /// inside the cluster loop to refresh `snapped_local_clip_rect` against
+    /// the same spatial node as the owning prim's rect.
     pub fn get_leaf_mut(&mut self, id: ClipLeafId) -> &mut ClipTreeLeaf {
         &mut self.leaves[id.0 as usize]
     }
@@ -1427,6 +1426,7 @@ impl ClipStore {
         prim_spatial_node_index: SpatialNodeIndex,
         pic_spatial_node_index: SpatialNodeIndex,
         visibility_spatial_node_index: SpatialNodeIndex,
+        snapper: &mut SpaceSnapper,
         clip_leaf_id: ClipLeafId,
         spatial_tree: &SpatialTree,
         clip_data_store: &ClipDataStore,
@@ -1439,13 +1439,11 @@ impl ClipStore {
         let clip_root = clip_tree.current_clip_root();
         let clip_leaf = clip_tree.get_leaf(clip_leaf_id);
 
-        // The leaf has been pre-snapped by `frame_snap::snap_frame_rects` for
-        // this frame; ancestor node clip rects are snapped on demand below.
+        // The leaf has been pre-snapped by the visibility pass for this frame;
+        // ancestor node clip rects are snapped on demand below, via `snapper`
+        // (bound to the same surface raster node the prim snapped against).
         let mut local_clip_rect = clip_leaf.snapped_local_clip_rect;
         let mut current = clip_leaf.node_id;
-
-        let root = spatial_tree.root_reference_frame_index();
-        let mut snapper = SpaceSnapper::new(root, RasterPixelScale::new(1.0));
 
         while current != clip_root && current != ClipNodeId::NONE {
             let node = clip_tree.get_node(current);
@@ -1453,7 +1451,7 @@ impl ClipStore {
             if !add_clip_node_to_current_chain(
                 node.handle,
                 node.spatial_node_index,
-                node.snapped_clip_rect(&mut snapper, spatial_tree),
+                node.snapped_clip_rect(snapper, spatial_tree),
                 prim_spatial_node_index,
                 pic_spatial_node_index,
                 visibility_spatial_node_index,
