@@ -273,9 +273,9 @@ enum BudgetType {
 }
 
 impl BudgetType {
-    pub const COUNT: usize = 7;
+    const COUNT: usize = 7;
 
-    pub const VALUES: [BudgetType; BudgetType::COUNT] = [
+    const VALUES: [BudgetType; BudgetType::COUNT] = [
         BudgetType::SharedColor8Linear,
         BudgetType::SharedColor8Nearest,
         BudgetType::SharedColor8Glyphs,
@@ -285,7 +285,7 @@ impl BudgetType {
         BudgetType::Standalone,
     ];
 
-    pub const PRESSURE_COUNTERS: [usize; BudgetType::COUNT] = [
+    const PRESSURE_COUNTERS: [usize; BudgetType::COUNT] = [
         profiler::ATLAS_COLOR8_LINEAR_PRESSURE,
         profiler::ATLAS_COLOR8_NEAREST_PRESSURE,
         profiler::ATLAS_COLOR8_GLYPHS_PRESSURE,
