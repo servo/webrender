@@ -177,9 +177,9 @@ float apply_extend_mode(float offset) {
 // the layout of the gradient data in the gpu buffer.
 vec4 sample_gradient_stops_tree(float offset) {
     int count = v_gradient_header.y;
-    int colors_addr = v_gradient_header.w;
+    HIGHP_FS_ADDRESS int colors_addr = v_gradient_header.w;
     // Address of the current level
-    int level_base_addr = colors_addr + count;
+    HIGHP_FS_ADDRESS int level_base_addr = colors_addr + count;
     // Number of blocks of 4 indices for the current level.
     // At the root, a single block is stored. Each level stores
     // 5 times more blocks than the previous one.
@@ -269,7 +269,7 @@ vec4 sample_gradient_stops_tree(float offset) {
     } else if (index > count - 1) {
         index = count - 1;
     }
-    int color_pair_address = colors_addr + index - 1;
+    HIGHP_FS_ADDRESS int color_pair_address = colors_addr + index - 1;
     vec4 color_pair[2] = fetch_from_gpu_buffer_2f(color_pair_address);
 
     return mix(color_pair[0], color_pair[1], factor);
