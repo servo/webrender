@@ -1719,6 +1719,7 @@ impl BatchBuilder {
             PrimitiveKind::RadialGradient { .. } => { }
             PrimitiveKind::ConicGradient { .. } => { }
             PrimitiveKind::ImageBorder { .. } => {}
+            PrimitiveKind::LineDecoration { .. } => {}
             PrimitiveKind::BoxShadow { .. } => {
                 unreachable!("BUG: Should not hit box-shadow here as they are handled by quad infra");
             }
@@ -2004,69 +2005,6 @@ impl BatchBuilder {
                             ));
                         }
                     },
-                );
-            }
-            PrimitiveKind::LineDecoration { .. } => {
-                let scratch_handle = prim_info.kind_scratch.unwrap_line_decoration();
-                let line_dec_scratch = ctx.scratch.frame.line_decoration[scratch_handle];
-                let render_task_id = line_dec_scratch.task_id;
-                let prim_cache_address = line_dec_scratch.gpu_address;
-
-                let (clip_task_address, clip_mask_texture_id) = ctx.get_prim_clip_task_and_texture(
-                    prim_info.clip_task_index,
-                    render_tasks,
-                ).unwrap();
-
-                let (batch_kind, textures, prim_user_data, specific_resource_address) = if render_task_id != RenderTaskId::INVALID {
-                    let (uv_rect_address, texture) = render_tasks.resolve_location(render_task_id).unwrap();
-                    let textures = BatchTextures::prim_textured(
-                        texture,
-                        clip_mask_texture_id,
-                    );
-                    (
-                        BrushBatchKind::Image(texture.image_buffer_kind()),
-                        textures,
-                        ImageBrushUserData {
-                            color_mode: ShaderColorMode::Image,
-                            alpha_type: AlphaType::PremultipliedAlpha,
-                            raster_space: RasterizationSpace::Local,
-                            opacity: 1.0,
-                        }.encode(),
-                        uv_rect_address.as_int(),
-                    )
-                } else {
-                    (
-                        BrushBatchKind::Solid,
-                        BatchTextures::prim_untextured(clip_mask_texture_id),
-                        [get_shader_opacity(1.0), 0, 0, 0],
-                        0,
-                    )
-                };
-
-                let prim_header = PrimitiveHeader {
-                    specific_prim_address: prim_cache_address.as_int(),
-                    user_data: prim_user_data,
-                    ..base_prim_header
-                };
-                let prim_header_index = prim_headers.push(&prim_header);
-
-                let batch_key = BatchKey {
-                    blend_mode,
-                    kind: BatchKind::Brush(batch_kind),
-                    textures,
-                };
-
-                self.add_brush_instance_to_batches(
-                    batch_key,
-                    batch_features,
-                    bounding_rect,
-                    z_id,
-                    INVALID_SEGMENT_INDEX,
-                    common_data.transformed_aa_edges,
-                    clip_task_address,
-                    brush_flags | BrushFlags::PERSPECTIVE_INTERPOLATION,
-                    prim_header_index,
-                    specific_resource_address,
                 );
             }
             PrimitiveKind::Rectangle { .. } => {

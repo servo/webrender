@@ -11,7 +11,6 @@ use euclid::Scale;
 use crate::render_task::{RenderTask, RenderTaskKind};
 use crate::render_task_cache::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent};
 use crate::render_task_graph::RenderTaskId;
-use crate::renderer::GpuBufferAddress;
 use crate::scene_building::{CreateShadow, IsVisible};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState};
 use crate::intern;
@@ -26,14 +25,6 @@ use crate::util::clamp_to_scale_factor;
 
 /// Maximum resolution in device pixels at which line decorations are rasterized.
 pub const MAX_LINE_DECORATION_RESOLUTION: u32 = 4096;
-
-/// Per-frame scratch data for a LineDecoration primitive.
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-pub struct LineDecorationScratch {
-    pub task_id: RenderTaskId,
-    pub gpu_address: GpuBufferAddress,
-}
 
 #[derive(Clone, Debug, Hash, MallocSizeOf, PartialEq, Eq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
