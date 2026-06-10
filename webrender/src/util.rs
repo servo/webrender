@@ -525,6 +525,22 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for Transform3D<f32, Src, Dst> {
     }
 }
 
+pub trait PointHelpers<U>
+where
+    Self: Sized,
+{
+    fn snap(&self) -> Self;
+}
+
+impl<U> PointHelpers<U> for Point2D<f32, U> {
+    fn snap(&self) -> Self {
+        Point2D::new(
+            self.x.round(),
+            self.y.round(),
+        )
+    }
+}
+
 pub trait VectorHelpers<U>
 where
     Self: Sized,

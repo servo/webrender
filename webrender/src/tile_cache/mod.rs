@@ -39,7 +39,7 @@ use crate::profiler::TransactionProfile;
 use crate::renderer::GpuBufferBuilderF;
 use crate::resource_cache::{ResourceCache, ImageRequest};
 use crate::scene_building::SliceFlags;
-use crate::space::{SpaceMapper, SpaceSnapper};
+use crate::space::SpaceMapper;
 use crate::spatial_tree::{SpatialNodeIndex, SpatialTree};
 use crate::surface::{SubpixelMode, SurfaceInfo};
 use crate::util::{ScaleOffset, MatrixHelpers, MaxRect};
@@ -1081,13 +1081,10 @@ impl TileCacheInstance {
                 pic_rect,
             );
 
-            let mut clip_snapper = SpaceSnapper::new(surface, frame_context.spatial_tree);
-
             frame_state.clip_store.set_active_clips(
                 self.spatial_node_index,
                 map_local_to_picture.ref_spatial_node_index,
                 surface.visibility_spatial_node_index,
-                &mut clip_snapper,
                 shared_clip_leaf_id,
                 frame_context.spatial_tree,
                 &mut frame_state.data_stores.clip,

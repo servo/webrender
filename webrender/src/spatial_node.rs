@@ -12,7 +12,7 @@ use crate::spatial_tree::CoordinateSystemId;
 use euclid::{Vector2D, SideOffsets2D};
 use crate::scene::SceneProperties;
 use crate::util::{LayoutFastTransform, MatrixHelpers, ScaleOffset, TransformedRectKind};
-use crate::util::VectorHelpers;
+use crate::util::{PointHelpers, VectorHelpers};
 
 /// Defines the content of a spatial node. If the values in the descriptor don't
 /// change, that means the rest of the fields in a spatial node will end up with
@@ -54,6 +54,10 @@ pub struct SpatialNodeInfo<'a> {
 
     /// Parent spatial node. If this is None, we are the root node.
     pub parent: Option<SpatialNodeIndex>,
+
+    /// Snapping scale/offset relative to the coordinate system. If None, then
+    /// we should not snap entities bound to this spatial node.
+    pub snapping_transform: Option<ScaleOffset>,
 }
 
 /// Scene building specific representation of a spatial node, which is a much
@@ -62,6 +66,10 @@ pub struct SpatialNodeInfo<'a> {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(PartialEq)]
 pub struct SceneSpatialNode {
+    /// Snapping scale/offset relative to the coordinate system. If None, then
+    /// we should not snap entities bound to this spatial node.
+    pub snapping_transform: Option<ScaleOffset>,
+
     /// Parent spatial node. If this is None, we are the root node.
     pub parent: Option<SpatialNodeIndex>,
 
@@ -159,6 +167,7 @@ impl SceneSpatialNode {
                 pipeline_id,
                 node_type,
             },
+            snapping_transform: None,
             is_root_coord_system,
         }
     }
@@ -175,6 +184,10 @@ pub struct SpatialNode {
 
     /// Content scale/offset relative to the coordinate system.
     pub content_transform: ScaleOffset,
+
+    /// Snapping scale/offset relative to the coordinate system. If None, then
+    /// we should not snap entities bound to this spatial node.
+    pub snapping_transform: Option<ScaleOffset>,
 
     /// The axis-aligned coordinate system id of this node.
     pub coordinate_system_id: CoordinateSystemId,
@@ -219,17 +232,11 @@ fn snap_offset<OffsetUnits, ScaleUnits>(
     offset: Vector2D<f32, OffsetUnits>,
     scale: Vector2D<f32, ScaleUnits>,
 ) -> Vector2D<f32, OffsetUnits> {
-    // Snap the accumulated (composite) offset of a spatial node to the device
-    // pixel grid. Per-prim rect snapping at frame time happens in each surface's
-    // raster space (`SpaceSnapper`), which excludes a scroll/sticky slice's own
-    // composite offset; that offset must still be snapped here so the slice
-    // composites on an integer boundary. Scroll slices already land integer
-    // (their sampled offset is pre-snapped); sticky slices rely on this.
-    let snapped_x = (offset.x * scale.x).round();
-    let snapped_y = (offset.y * scale.y).round();
+    let world_offset = WorldPoint::new(offset.x * scale.x, offset.y * scale.y);
+    let snapped_world_offset = world_offset.snap();
     Vector2D::new(
-        if scale.x != 0.0 { snapped_x / scale.x } else { offset.x },
-        if scale.y != 0.0 { snapped_y / scale.y } else { offset.y },
+        if scale.x != 0.0 { snapped_world_offset.x / scale.x } else { offset.x },
+        if scale.y != 0.0 { snapped_world_offset.y / scale.y } else { offset.y },
     )
 }
 
@@ -358,25 +365,30 @@ impl SpatialNode {
                     ReferenceFrameKind::Transform { .. } => source_transform,
                 };
 
-                // An axis-aligned reference frame composes into a `ScaleOffset`,
-                // so its accumulated device offset is snapped below (the
-                // `should_snap` round on `cs_scale_offset`); the origin is used
-                // as-is here. A non-axis-aligned frame (skew / rotation /
-                // perspective) doesn't compose into a `ScaleOffset`, so that
-                // path can't reach it, and the frame-time rect pass can't either
-                // (`SpaceSnapper` won't snap across a non-axis-aligned frame), so
-                // snap the origin's device position here instead - otherwise a
-                // fractional origin shifts all content below it.
-                let parent_origin = match info.source_transform {
-                    PropertyBinding::Value(ref value)
-                        if ScaleOffset::from_transform(value).is_none() =>
-                    {
+                // Previously, the origin of a stacking context transform was snapped
+                // in Gecko. However, this causes jittering issues during scrolling in
+                // some cases when fractional scrolling is enabled. The origin used in
+                // Gecko doesn't have the external scroll offset from the content process
+                // removed, so if that content-side scroll amount is fractional, it can
+                // cause inconsistent snapping during scene building. Instead, we need
+                // to apply the device-pixel snap _after_ the external scroll offset
+                // has been removed. To further complicate matters, we _don't_ want to
+                // snap this if this spatial node has a snapping transform, as we rely
+                // on the fractional intermediate nodes in order to arrive at a correct
+                // final snapping result. If we don't have a snapping offset, we've
+                // reached a spatial node where snapping will no longer apply (e.g. a
+                // complex transform) and then we need to snap the device pixel position
+                // of that transform.
+                let parent_origin = match self.snapping_transform {
+                    Some(..) => {
+                        info.origin_in_parent_reference_frame
+                    }
+                    None => {
                         snap_offset(
                             info.origin_in_parent_reference_frame,
                             state.coordinate_system_relative_scale_offset.scale,
                         )
                     }
-                    _ => info.origin_in_parent_reference_frame,
                 };
 
                 let resolved_transform =
@@ -404,22 +416,17 @@ impl SpatialNode {
                     // incompatible coordinate system.
                     match ScaleOffset::from_transform(&relative_transform) {
                         Some(ref scale_offset) => {
-                            // Compose with the accumulated parent transform first,
-                            // then snap the *accumulated* device offset for
-                            // `should_snap` frames. Snapping the local offset before
-                            // composing (as this used to) ignores a fractional
-                            // ancestor transform and leaves the frame on a sub-pixel
-                            // boundary; see bug 1580534. The composed offset is already
-                            // in device space, so round it directly — `snap_offset`
-                            // would re-apply the accumulated scale and mis-round under a
-                            // non-unit-scale ancestor (e.g. `transform: scale(0.5)`,
-                            // bug 637852). We generally do not snap animated transforms
-                            // as it causes jitter, but we do want to snap the visual
-                            // viewport offset when scrolling.
-                            cs_scale_offset = scale_offset.then(&state.coordinate_system_relative_scale_offset);
+                            // We generally do not want to snap animated transforms as it causes jitter.
+                            // However, we do want to snap the visual viewport offset when scrolling.
+                            // This may still cause jitter when zooming, unfortunately.
+                            let mut maybe_snapped = scale_offset.clone();
                             if let ReferenceFrameKind::Transform { should_snap: true, .. } = info.kind {
-                                cs_scale_offset.offset = cs_scale_offset.offset.round();
+                                maybe_snapped.offset = snap_offset(
+                                    scale_offset.offset,
+                                    state.coordinate_system_relative_scale_offset.scale,
+                                );
                             }
+                            cs_scale_offset = maybe_snapped.then(&state.coordinate_system_relative_scale_offset);
                         }
                         None => reset_cs_id = true,
                     }

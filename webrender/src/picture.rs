@@ -120,7 +120,7 @@ use crate::render_task::{RenderTask, RenderTaskLocation};
 use crate::render_task::{StaticRenderTaskSurface, RenderTaskKind};
 use crate::renderer::GpuBufferAddress;
 use crate::resource_cache::ResourceCache;
-use crate::space::{SpaceMapper, SpaceSnapper};
+use crate::space::SpaceMapper;
 use crate::scene::SceneProperties;
 use crate::spatial_tree::CoordinateSystemId;
 use crate::surface::{SurfaceDescriptor, SurfaceTileDescriptor, get_surface_rects};
@@ -324,6 +324,11 @@ pub struct PrimitiveCluster {
     /// for a picture during the first picture traversal, which is needed for
     /// local scale determination, and render task size calculations.
     pub unsnapped_bounding_rect: LayoutRect,
+    /// The bounding rect of the cluster, snapped to the device pixel grid in
+    /// the cluster's own spatial-node space. Refreshed each frame by
+    /// `frame_snap::snap_frame_rects` from `unsnapped_bounding_rect`, before
+    /// any frame-time consumer reads it.
+    pub snapped_bounding_rect: LayoutRect,
     /// The range of primitive instance indices associated with this cluster.
     pub prim_range: Range<usize>,
     /// Various flags / state for this cluster.
@@ -339,6 +344,7 @@ impl PrimitiveCluster {
     ) -> Self {
         PrimitiveCluster {
             unsnapped_bounding_rect: LayoutRect::zero(),
+            snapped_bounding_rect: LayoutRect::zero(),
             spatial_node_index,
             flags,
             prim_range: first_instance_index..first_instance_index
@@ -466,8 +472,8 @@ impl PrimitiveList {
         let clip_leaf = clip_tree_builder.get_leaf(prim_instance.clip_leaf_id);
         // Scene-build feeds the cluster's `unsnapped_bounding_rect` from this
         // culling rect (clip-leaf rect ∩ prim_rect). Both inputs are pre-snap;
-        // the cluster bounding rect is re-snapped each frame in
-        // `PictureInstance::propagate_bounding_rect`.
+        // the cluster's per-frame `snapped_bounding_rect` is produced by
+        // re-snapping that bound in `frame_snap::snap_frame_rects`.
         let culling_rect = clip_leaf.unsnapped_local_clip_rect
             .intersection(&prim_rect)
             .unwrap_or_else(LayoutRect::zero);
@@ -1194,11 +1200,8 @@ impl PictureInstance {
                 let force_scissor_rect = self.prim_list.needs_scissor_rect;
 
                 // Check if there is perspective or if an SVG filter is applied, and thus whether a new
-                // rasterization root should be established. `surface_snaps` records
-                // whether content rasterized into this surface should be snapped:
-                // false for a non-snapping raster root, where snapping against its
-                // own scaled node would collapse content (see `raster-root-huge-scale`).
-                let (device_pixel_scale, raster_spatial_node_index, surface_snaps, local_scale, world_scale_factors) = match composite_mode {
+                // rasterization root should be established.
+                let (device_pixel_scale, raster_spatial_node_index, local_scale, world_scale_factors) = match composite_mode {
                     PictureCompositeMode::TileCache { slice_id } => {
                         let tile_cache = tile_caches.get_mut(&slice_id).unwrap();
 
@@ -1243,15 +1246,15 @@ impl PictureInstance {
 
                         let device_pixel_scale = Scale::new(scaling_factor);
 
-                        // Tile caches snap against their own (scroll-stable) raster node.
-                        (device_pixel_scale, surface_spatial_node_index, true, (1.0, 1.0), world_scale_factors)
+                        (device_pixel_scale, surface_spatial_node_index, (1.0, 1.0), world_scale_factors)
                     }
                     _ => {
                         let surface_spatial_node = frame_context.spatial_tree.get_spatial_node(surface_spatial_node_index);
 
                         let enable_snapping =
                             allow_snapping &&
-                            surface_spatial_node.coordinate_system_id == CoordinateSystemId::root();
+                            surface_spatial_node.coordinate_system_id == CoordinateSystemId::root() &&
+                            surface_spatial_node.snapping_transform.is_some();
 
                         if enable_snapping {
                             let raster_spatial_node_index = frame_context.spatial_tree.root_reference_frame_index();
@@ -1265,8 +1268,7 @@ impl PictureInstance {
 
                             let local_scale = local_to_raster_transform.scale_factors();
 
-                            // Root-snapping surface: raster node is root, content snaps.
-                            (Scale::new(1.0), raster_spatial_node_index, true, local_scale, (1.0, 1.0))
+                            (Scale::new(1.0), raster_spatial_node_index, local_scale, (1.0, 1.0))
                         } else {
                             // If client supplied a specific local scale, use that instead of
                             // estimating from parent transform
@@ -1279,10 +1281,7 @@ impl PictureInstance {
                                 world_scale_factors.0.max(world_scale_factors.1).min(max_scale)
                             );
 
-                            // Non-snapping raster root: its raster node is its own
-                            // (scaled) node, so content is left unsnapped — snapping
-                            // through the surface's local scale would collapse it.
-                            (device_pixel_scale, surface_spatial_node_index, false, (1.0, 1.0), world_scale_factors)
+                            (device_pixel_scale, surface_spatial_node_index, (1.0, 1.0), world_scale_factors)
                         }
                     }
                 };
@@ -1295,7 +1294,7 @@ impl PictureInstance {
                     device_pixel_scale,
                     world_scale_factors,
                     local_scale,
-                    surface_snaps,
+                    allow_snapping,
                     force_scissor_rect,
                 );
 
@@ -1329,12 +1328,14 @@ impl PictureInstance {
     ) {
         let surface = &mut surfaces[surface_index.0];
 
-        // Snapper into this surface's raster space, reused across all clusters
-        // (a no-op for surfaces that don't snap).
-        let mut snapper = SpaceSnapper::new(surface, frame_context.spatial_tree);
-
         for cluster in &mut self.prim_list.clusters {
             cluster.flags.remove(ClusterFlags::IS_VISIBLE);
+
+            // `cluster.snapped_bounding_rect` was refreshed for this frame by
+            // `frame_snap::snap_frame_rects` (snap of `unsnapped_bounding_rect`
+            // in the cluster's spatial-node space). Note that this alone is
+            // not enough to make `surface.unclipped_local_rect` snap-correct
+            // — see the SNAPTODO on that field.
 
             // Skip the cluster if backface culled.
             if !cluster.flags.contains(ClusterFlags::IS_BACKFACE_VISIBLE) {
@@ -1371,15 +1372,7 @@ impl PictureInstance {
             // Mark the cluster visible, since it passed the invertible and
             // backface checks.
             cluster.flags.insert(ClusterFlags::IS_VISIBLE);
-
-            // Snap the cluster bounding rect into the surface's raster space
-            // (the space this picture's content is rasterized in), mirroring
-            // the per-prim snap done in the visibility pass. Note that this
-            // alone is not enough to make `surface.unclipped_local_rect`
-            // snap-correct — see the SNAPTODO on that field.
-            snapper.set_target_spatial_node(cluster.spatial_node_index, frame_context.spatial_tree);
-            let snapped_bounding_rect = snapper.snap_rect(&cluster.unsnapped_bounding_rect);
-            if let Some(cluster_rect) = surface.map_local_to_picture.map(&snapped_bounding_rect) {
+            if let Some(cluster_rect) = surface.map_local_to_picture.map(&cluster.snapped_bounding_rect) {
                 surface.unclipped_local_rect = surface.unclipped_local_rect.union(&cluster_rect);
             }
         }
