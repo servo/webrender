@@ -443,9 +443,11 @@ fn prepare_interned_prim_for_render(
                 BoxShadowClipMode::Inset => prim_instance.unsnapped_prim_rect,
             };
             let element_rect = {
+                // Snap into the prim's surface raster space, matching how the
+                // prim's own rect was snapped in the visibility pass.
                 let mut snapper = SpaceSnapper::new(
-                    frame_context.spatial_tree.root_reference_frame_index(),
-                    RasterPixelScale::new(1.0),
+                    &frame_state.surfaces[pic_context.surface_index.0],
+                    frame_context.spatial_tree,
                 );
                 snapper.set_target_spatial_node(prim_spatial_node_index, frame_context.spatial_tree);
                 snapper.snap_rect(&unsnapped_element_rect)

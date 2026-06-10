@@ -99,7 +99,13 @@ pub struct SurfaceInfo {
     pub local_scale: (f32, f32),
     /// If true, we know this surface is completely opaque.
     pub is_opaque: bool,
-    /// If true, allow snapping on this and child surfaces
+    /// Whether content rasterized into this surface is snapped to the device
+    /// pixel grid at frame time. True for tile caches (snapped against the
+    /// scroll-stable cache node) and root-snapping surfaces (raster node is
+    /// root). False for a non-snapping raster root (preserve-3d / perspective /
+    /// huge-scale, `enable_snapping == false`): snapping against its own scaled
+    /// node would use only the tiny local scale and collapse content to zero,
+    /// so content is left unsnapped there instead.
     pub allow_snapping: bool,
     /// If true, the scissor rect must be set when drawing this surface
     pub force_scissor_rect: bool,
