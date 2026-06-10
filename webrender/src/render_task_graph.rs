@@ -829,7 +829,7 @@ impl RenderTaskGraphBuilder {
         }
 
         graph.sub_rects.reserve(self.sub_rects.len());
-        for item in &self.sub_rects {
+        for item in self.sub_rects.drain(..) {
             let task = &graph.tasks[item.source_task.index()];
             let task_rect = task.get_target_rect();
             let rect = item.sub_rect
