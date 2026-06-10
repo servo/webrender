@@ -6,7 +6,7 @@
 //!
 //! TODO: document this!
 
-use api::{BoxShadowClipMode, ColorF, DebugFlags, ExtendMode, GradientStop, RepeatMode};
+use api::{BoxShadowClipMode, ColorF, DebugFlags, ExtendMode, GradientStop, ImageBufferKind, RepeatMode};
 use api::ClipMode;
 use crate::pattern::cutout::Cutout;
 use crate::util::clamp_to_scale_factor;
@@ -38,7 +38,6 @@ use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::prim_store::*;
 use crate::prim_store::backdrop::BackdropRenderScratch;
 use crate::prim_store::borders::{ImageBorderScratch, NormalBorderScratch};
-use crate::prim_store::line_dec::LineDecorationScratch;
 use crate::quad::{self, QuadTransformState};
 use crate::render_backend::DataStores;
 use crate::render_task_cache::RenderTaskCacheKeyKind;
@@ -273,6 +272,7 @@ fn prepare_prim_for_render(
             | PrimitiveKind::LinearGradient { .. }
             | PrimitiveKind::Image { .. }
             | PrimitiveKind::NormalBorder { .. }
+            | PrimitiveKind::LineDecoration { .. }
             => {
                 use_legacy_path = false;
             }
@@ -296,6 +296,7 @@ fn prepare_prim_for_render(
             | PrimitiveKind::Image { .. }
             | PrimitiveKind::YuvImage { .. }
             | PrimitiveKind::NormalBorder { .. }
+            | PrimitiveKind::LineDecoration { .. }
             => {
                 use_legacy_path |= !can_use_clip_chain_for_quad_path(
                     &scratch.frame.draws[prim_instance_index].clip_chain,
@@ -682,20 +683,64 @@ fn prepare_interned_prim_for_render(
         PrimitiveKind::LineDecoration { data_handle } => {
             profile_scope!("LineDecoration");
             let prim_data = &data_stores.line_decoration[*data_handle];
+            let line_dec_data = &prim_data.kind;
 
-            let (task_id, gpu_address) = prim_data.kind.prepare(
+            let task = prim_data.kind.prepare(
                 prim_info.snapped_local_rect.size(),
                 prim_spatial_node_index,
                 frame_context,
                 frame_state,
             );
 
-            let line_dec_handle = scratch.frame.line_decoration.push(LineDecorationScratch {
-                task_id,
-                gpu_address,
-            });
-            scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
-                KindScratchHandle::LineDecoration(line_dec_handle);
+            if let Some((src_task_id, stretch_size)) = task {
+                let pattern = ImagePattern {
+                    src_task_id,
+                    src_is_opaque: false,
+                    premultiplied: true,
+                    sampler_kind: ImageBufferKind::Texture2D,
+                    color: line_dec_data.color,
+                };
+
+                quad::prepare_repeatable_quad(
+                    &pattern,
+                    &prim_info.snapped_local_rect,
+                    &prim_info.clip_chain.local_clip_rect,
+                    stretch_size,
+                    LayoutSize::zero(),
+                    prim_data.common.aligned_aa_edges,
+                    prim_data.common.transformed_aa_edges,
+                    prim_instance_index,
+                    &None,
+                    &prim_info.clip_chain,
+                    quad_transform,
+                    frame_context,
+                    pic_context,
+                    targets,
+                    &data_stores.clip,
+                    frame_state,
+                    scratch,
+                );
+            } else {
+                quad::prepare_quad(
+                    &line_dec_data.color,
+                    &prim_info.snapped_local_rect,
+                    &prim_info.clip_chain.local_clip_rect,
+                    prim_data.common.aligned_aa_edges,
+                    prim_data.common.transformed_aa_edges,
+                    prim_instance_index,
+                    &None,
+                    &prim_info.clip_chain,
+                    quad_transform,
+                    frame_context,
+                    pic_context,
+                    targets,
+                    &data_stores.clip,
+                    frame_state,
+                    scratch,
+                );
+            }
+
+            return;
         }
         PrimitiveKind::TextRun { data_handle } => {
             profile_scope!("TextRun");
