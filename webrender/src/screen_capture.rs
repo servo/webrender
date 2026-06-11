@@ -267,7 +267,18 @@ impl AsyncScreenshotGrabber {
         }
         assert_eq!(self.scaling_textures[level].get_dimensions(), texture_size);
 
-        let (read_target, read_target_rect) = if read_target_rect.width() > 2 * dest_size.width {
+        // Stop recursing once the next level's scaling texture would exceed the
+        // device's texture size limit; the device would otherwise clamp it and
+        // fail the assertion above. This level then scales down by more than a
+        // factor of two in a single (lower-quality) blit.
+        let max_texture_size = device.max_texture_size();
+        let next_texture_size = dest_size * 2;
+        let next_level_fits = next_texture_size.width <= max_texture_size
+            && next_texture_size.height <= max_texture_size;
+
+        let (read_target, read_target_rect) = if read_target_rect.width() > 2 * dest_size.width
+            && next_level_fits
+        {
             self.scale_screenshot(
                 device,
                 read_target,
