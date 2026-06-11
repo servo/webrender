@@ -1665,7 +1665,12 @@ impl DisplayListBuilder {
         filters: &[di::FilterOp],
         filter_datas: &[di::FilterData],
     ) {
-        self.push_filters_normalized(filters, filter_datas, common.spatial_id);
+        // Unlike a regular filter, a backdrop filter's picture is anchored to
+        // the backdrop root (resolved from SpatialNodeIndex::UNKNOWN), not to
+        // `common.spatial_id`, so the backdrop root does not re-apply this
+        // node's external scroll offset at frame time. The SVGFE subregion must
+        // therefore stay un-normalized; only the item geometry below is.
+        self.push_filters(filters, filter_datas);
 
         let (common, _offset) = self.normalize_common(common);
         let item = di::DisplayItem::BackdropFilter(di::BackdropFilterDisplayItem {
