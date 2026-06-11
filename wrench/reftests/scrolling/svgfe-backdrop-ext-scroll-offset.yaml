@@ -1,0 +1,32 @@
+# Tests that an SVGFE *backdrop* filter subregion is NOT normalized by the
+# external scroll offset. A backdrop filter's picture is anchored to the
+# backdrop root, not to the scrolling spatial node, so the backdrop root does
+# not re-apply the external scroll offset at frame time and the subregion must
+# be left as authored. Here the green flood subregion is positioned so that,
+# un-normalized, it exactly covers the visible viewport over the red backdrop.
+# If the subregion were (incorrectly) offset by the 50px external scroll
+# offset, the flood would shift and red would show through. See bug 2046779.
+root:
+  items:
+    - type: scroll-frame
+      bounds: [0, 0, 100, 100]
+      content-size: [100, 1000]
+      scroll-offset: [0, 0]
+      external-scroll-offset: [0, 50]
+      items:
+        - type: rect
+          color: red
+          bounds: [0, 50, 100, 100]
+        - type: backdrop-filter
+          bounds: [0, 50, 100, 100]
+          filters:
+            - svgfe: SourceGraphic
+            - svgfe: flood
+              linear: false
+              color: green
+              subregion: [0, 100, 100, 100]
+            - svgfe: compositeover
+              linear: false
+              subregion: [0, 0, 100, 1000]
+              in: 1
+              in2: 0
