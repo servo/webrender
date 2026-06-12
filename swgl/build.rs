@@ -137,7 +137,7 @@ fn translate_shader(
 }
 
 fn main() {
-    let shader_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap() + "/../webrender/res";
+    let shader_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap() + "/res";
 
     let shader_flags = ShaderFeatureFlags::GL
         | ShaderFeatureFlags::DUAL_SOURCE_BLENDING
