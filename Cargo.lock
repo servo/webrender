@@ -1460,7 +1460,7 @@ dependencies = [
 
 [[package]]
 name = "glsl-to-cxx"
-version = "0.1.0"
+version = "0.69.0"
 dependencies = [
  "glsl",
 ]
@@ -3620,7 +3620,7 @@ checksum = "8fb1df15f412ee2e9dfc1c504260fa695c1c3f10fe9f4a6ee2d2184d7d6450e2"
 
 [[package]]
 name = "swgl"
-version = "0.1.0"
+version = "0.69.0"
 dependencies = [
  "cc",
  "gleam",
@@ -4340,7 +4340,7 @@ dependencies = [
 
 [[package]]
 name = "webrender"
-version = "0.62.0"
+version = "0.69.0"
 dependencies = [
  "allocator-api2",
  "base64",
@@ -4405,7 +4405,7 @@ dependencies = [
 
 [[package]]
 name = "webrender_api"
-version = "0.62.0"
+version = "0.69.0"
 dependencies = [
  "app_units",
  "bitflags 2.11.0",
@@ -4423,7 +4423,7 @@ dependencies = [
 
 [[package]]
 name = "webrender_build"
-version = "0.0.2"
+version = "0.69.0"
 dependencies = [
  "bitflags 2.11.0",
  "lazy_static",
@@ -4752,7 +4752,7 @@ dependencies = [
 
 [[package]]
 name = "wr_glyph_rasterizer"
-version = "0.1.0"
+version = "0.69.0"
 dependencies = [
  "core-foundation 0.9.4",
  "core-graphics 0.23.1",

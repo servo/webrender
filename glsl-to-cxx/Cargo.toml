@@ -1,6 +1,7 @@
 [package]
 name = "glsl-to-cxx"
-version = "0.1.0"
+version.workspace = true
+description = "A translator from GLSL to vectorized C++."
 license = "MPL-2.0"
 authors = ["The Mozilla Project Developers", "Dimitri Sabadie"]
 edition = "2018"

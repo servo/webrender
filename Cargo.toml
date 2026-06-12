@@ -8,7 +8,19 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+version = "0.69.0"
+
 [workspace.dependencies]
+api = { version = "0.69", path = "./webrender_api", package = "webrender_api" }
+glsl-to-cxx = { version = "0.69", path = "./glsl-to-cxx", package = "glsl-to-cxx" }
+glyph_rasterizer = { version = "0.69", path = "./wr_glyph_rasterizer", package = "wr_glyph_rasterizer" }
+malloc_size_of = { version = "0.2.2", path = "./wr_malloc_size_of", package = "wr_malloc_size_of" }
+peek-poke = { version = "0.3", path = "./peek-poke", package = "peek-poke" }
+swgl = { version = "0.69", path = "./swgl", package = "swgl" }
+webrender = { version = "0.69", path = "./webrender", package = "webrender" }
+webrender_build = { version = "0.69", path = "./webrender_build", package = "webrender_build" }
+
 gleam = "0.15.1"
 glean = "=67.3.2"
 
