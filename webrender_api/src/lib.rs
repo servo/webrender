@@ -51,7 +51,6 @@ mod display_list;
 mod font;
 mod gradient_builder;
 mod image;
-mod fast_transform;
 mod tile_pool;
 pub mod units;
 
@@ -62,7 +61,6 @@ pub use crate::font::*;
 pub use crate::gradient_builder::*;
 pub use crate::image::*;
 pub use crate::tile_pool::*;
-pub use crate::fast_transform::*;
 
 use crate::units::*;
 use crate::channel::Receiver;
