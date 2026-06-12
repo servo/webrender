@@ -1,0 +1,529 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+#include shared,rect,border_shared,ellipse
+
+// For edges, the colors are the same. For corners, these
+// are the colors of each edge making up the corner.
+flat varying mediump vec4 vColor00;
+flat varying mediump vec4 vColor01;
+flat varying mediump vec4 vColor10;
+flat varying mediump vec4 vColor11;
+
+// A point + tangent defining the line where the edge
+// transition occurs. Used for corners only.
+flat varying highp vec4 vColorLine;
+
+// x: segment, y: clip mode, z: gpu buffer data address
+// We cast these to/from floats rather than using an ivec due to a driver bug
+// on Adreno 3xx. See bug 1730458.
+flat varying highp vec3 vSegment_ClipMode_DataAddress;
+// x, y: styles, z, w: edge axes
+// We cast these to/from floats rather than using an ivec (and bitshifting)
+// due to a driver bug on Adreno 3xx. See bug 1730458.
+flat varying mediump vec4 vStyleEdgeAxis;
+
+// xy = Local space position of the clip center.
+// zw = Scale the rect origin by this to get the outer
+// corner from the segment rectangle.
+flat varying highp vec4 vClipCenter_Sign;
+
+// An outer and inner elliptical radii for border
+// corner clipping.
+flat varying highp vec4 vClipRadii;
+#ifdef WR_FEATURE_SUPERELLIPSE
+flat varying highp vec4 vClipOffsets;
+#endif
+
+// Reference point for determine edge clip lines.
+flat varying highp vec4 vEdgeReference;
+
+// Stores widths/2 and widths/3 to save doing this in FS.
+flat varying highp vec4 vPartialWidths;
+
+// Clipping parameters for dot or dash.
+flat varying mediump vec4 vClipParams1;
+flat varying mediump vec4 vClipParams2;
+
+// Local space position
+varying highp vec2 vPos;
+
+// Must be kept in sync with BorderStyle in webrender_api/src/display_item.rs
+#define BORDER_STYLE_NONE         0
+#define BORDER_STYLE_SOLID        1
+#define BORDER_STYLE_DOUBLE       2
+#define BORDER_STYLE_DOTTED       3
+#define BORDER_STYLE_DASHED       4
+#define BORDER_STYLE_HIDDEN       5
+#define BORDER_STYLE_GROOVE       6
+#define BORDER_STYLE_RIDGE        7
+#define BORDER_STYLE_INSET        8
+#define BORDER_STYLE_OUTSET       9
+
+#define CLIP_NONE        0
+#define CLIP_DASH_CORNER 1
+#define CLIP_DASH_EDGE   2
+#define CLIP_DOT         3
+
+#ifdef WR_VERTEX_SHADER
+
+vec2 get_outer_corner_scale(int segment) {
+    vec2 p;
+
+    switch (segment) {
+        case SEGMENT_TOP_LEFT:
+            p = vec2(0.0, 0.0);
+            break;
+        case SEGMENT_TOP_RIGHT:
+            p = vec2(1.0, 0.0);
+            break;
+        case SEGMENT_BOTTOM_RIGHT:
+            p = vec2(1.0, 1.0);
+            break;
+        case SEGMENT_BOTTOM_LEFT:
+            p = vec2(0.0, 1.0);
+            break;
+        default:
+            // The result is only used for non-default segment cases
+            p = vec2(0.0);
+            break;
+    }
+
+    return p;
+}
+
+// NOTE(emilio): If you change this algorithm, do the same change
+// in border.rs
+vec4 mod_color(vec4 color, bool is_black, bool lighter) {
+    const float light_black = 0.7;
+    const float dark_black = 0.3;
+
+    const float dark_scale = 0.66666666;
+    const float light_scale = 1.0;
+
+    if (is_black) {
+        if (lighter) {
+            return vec4(vec3(light_black), color.a);
+        }
+        return vec4(vec3(dark_black), color.a);
+    }
+
+    if (lighter) {
+        return vec4(color.rgb * light_scale, color.a);
+    }
+    return vec4(color.rgb * dark_scale, color.a);
+}
+
+vec4[2] get_colors_for_side(vec4 color, int style) {
+    vec4 result[2];
+
+    bool is_black = color.rgb == vec3(0.0, 0.0, 0.0);
+
+    switch (style) {
+        case BORDER_STYLE_GROOVE:
+            result[0] = mod_color(color, is_black, true);
+            result[1] = mod_color(color, is_black, false);
+            break;
+        case BORDER_STYLE_RIDGE:
+            result[0] = mod_color(color, is_black, false);
+            result[1] = mod_color(color, is_black, true);
+            break;
+        default:
+            result[0] = color;
+            result[1] = color;
+            break;
+    }
+
+    return result;
+}
+
+void main(void) {
+    BorderInstanceGpuData data = fetch_gpu_data(aGpuDataAddress);
+
+    int segment = aFlags & 0xff;
+    int style0 = (aFlags >> 8) & 0xff;
+    int style1 = (aFlags >> 16) & 0xff;
+    int clip_mode = (aFlags >> 24) & 0x0f;
+
+    vec2 size = data.rect.zw - data.rect.xy;
+    vec2 outer_scale = get_outer_corner_scale(segment);
+    vec2 outer = outer_scale * size;
+    vec2 clip_sign = 1.0 - 2.0 * outer_scale;
+
+    // Set some flags used by the FS to determine the
+    // orientation of the two edges in this corner.
+    ivec2 edge_axis = ivec2(0, 0);
+    // Derive the positions for the edge clips, which must be handled
+    // differently between corners and edges.
+    vec2 edge_reference = vec2(0.0);
+    switch (segment) {
+        case SEGMENT_TOP_LEFT:
+            edge_axis = ivec2(0, 1);
+            edge_reference = outer;
+            break;
+        case SEGMENT_TOP_RIGHT:
+            edge_axis = ivec2(1, 0);
+            edge_reference = vec2(outer.x - data.widths.x, outer.y);
+            break;
+        case SEGMENT_BOTTOM_RIGHT:
+            edge_axis = ivec2(0, 1);
+            edge_reference = outer - data.widths;
+            break;
+        case SEGMENT_BOTTOM_LEFT:
+            edge_axis = ivec2(1, 0);
+            edge_reference = vec2(outer.x, outer.y - data.widths.y);
+            break;
+        case SEGMENT_TOP:
+        case SEGMENT_BOTTOM:
+            edge_axis = ivec2(1, 1);
+            break;
+        case SEGMENT_LEFT:
+        case SEGMENT_RIGHT:
+        default:
+            break;
+    }
+
+    vSegment_ClipMode_DataAddress = vec3(float(segment), float(clip_mode), float(aGpuDataAddress));
+    vStyleEdgeAxis = vec4(float(style0), float(style1), float(edge_axis.x), float(edge_axis.y));
+
+    vPartialWidths = vec4(data.widths / 3.0, data.widths / 2.0);
+    vPos = size * aPosition.xy;
+
+    vec4[2] color0 = get_colors_for_side(data.color0, style0);
+    vColor00 = color0[0];
+    vColor01 = color0[1];
+    vec4[2] color1 = get_colors_for_side(data.color1, style1);
+    vColor10 = color1[0];
+    vColor11 = color1[1];
+#ifdef WR_FEATURE_SUPERELLIPSE
+    vClipCenter_Sign = vec4(outer + clip_sign * (data.radii + data.shape_offset), clip_sign);
+#else
+    vClipCenter_Sign = vec4(outer + clip_sign * data.radii, clip_sign);
+#endif
+    vClipRadii = vec4(data.radii, max(data.radii - data.widths, 0.0));
+#ifdef WR_FEATURE_SUPERELLIPSE
+    vClipOffsets = vec4(0.0);
+#endif
+    vColorLine = vec4(outer, data.widths.y * -clip_sign.y, data.widths.x * clip_sign.x);
+    vEdgeReference = vec4(edge_reference, edge_reference + data.widths);
+    vClipParams1 = aClipParams1;
+    vClipParams2 = aClipParams2;
+
+#ifdef WR_FEATURE_SUPERELLIPSE
+    if (data.shape != 1.0)
+    {
+        vec2 reference_radii = (data.radii == vec2(0.0)) ? vec2(0.0) : data.radii + data.inset;
+        vec4 contour1 = compute_contoured_superellipse(reference_radii, data.shape, data.inset);
+        vec4 contour2 = compute_contoured_superellipse(reference_radii, data.shape, data.inset + data.widths);
+        vClipOffsets = vec4(contour1.xy, contour2.xy);
+        vClipRadii = vec4(contour1.zw, contour2.zw);
+    }
+#endif
+
+    // For the case of dot and dash clips, optimize the number of pixels that
+    // are hit to just include the dot itself.
+    if (clip_mode == CLIP_DOT) {
+        float radius = aClipParams1.z;
+
+        // Expand by a small amount to allow room for AA around
+        // the dot if it's big enough.
+        if (radius > 0.5)
+            radius += 2.0;
+
+        vPos = vClipParams1.xy + radius * (2.0 * aPosition.xy - 1.0);
+        vPos = clamp(vPos, vec2(0.0), size);
+    } else if (clip_mode == CLIP_DASH_CORNER) {
+        vec2 center = (aClipParams1.xy + aClipParams2.xy) * 0.5;
+        // This is a gross approximation which works out because dashes don't have
+        // a strong curvature and we will overshoot by inflating the geometry by
+        // this amount on each side (sqrt(2) * length(dash) would be enough and we
+        // compute 2 * approx_length(dash)).
+        float dash_length = length(aClipParams1.xy - aClipParams2.xy);
+        float width = max(data.widths.x, data.widths.y);
+        // expand by a small amout for AA just like we do for dots.
+        vec2 r = vec2(max(dash_length, width)) + 2.0;
+        vPos = clamp(vPos, center - r, center + r);
+    }
+
+    gl_Position = uTransform * vec4(aTaskOrigin + data.rect.xy + vPos, 0.0, 1.0);
+}
+#endif
+
+#ifdef WR_FRAGMENT_SHADER
+vec4 evaluate_color_for_style_in_corner(
+    BorderInstanceGpuData data,
+    vec2 clip_relative_pos,
+    int style,
+    vec4 color0,
+    vec4 color1,
+    vec4 clip_radii,
+    float mix_factor,
+    int segment,
+    float aa_range
+) {
+    switch (style) {
+        case BORDER_STYLE_DOUBLE: {
+            // Get the distances from 0.33 of the radii, and
+            // also 0.67 of the radii. Use these to form a
+            // SDF subtraction which will clip out the inside
+            // third of the rounded edge.
+            float d_radii_a;
+            float d_radii_b;
+#ifdef WR_FEATURE_SUPERELLIPSE
+            if (data.shape == 1.0) {
+#endif
+                d_radii_a = distance_to_ellipse(
+                    clip_relative_pos,
+                    clip_radii.xy - vPartialWidths.xy
+                );
+                d_radii_b = distance_to_ellipse(
+                    clip_relative_pos,
+                    clip_radii.xy - 2.0 * vPartialWidths.xy
+                );
+#ifdef WR_FEATURE_SUPERELLIPSE
+            } else {
+                d_radii_a = distance_to_superellipse(
+                    clip_relative_pos - mix(vClipOffsets.xy, vClipOffsets.zw, 1.0 / 3.0),
+                    mix(clip_radii.xy, clip_radii.zw, 1.0 / 3.0),
+                    data.shape
+                );
+                d_radii_b = distance_to_superellipse(
+                    clip_relative_pos - mix(vClipOffsets.xy, vClipOffsets.zw, 2.0 / 3.0),
+                    mix(clip_radii.xy, clip_radii.zw, 2.0 / 3.0),
+                    data.shape
+                );
+
+                // Clamp to the middle of the adjacent borders
+                vec2 included_region_a = data.radii - vPartialWidths.xy - clip_relative_pos;
+                d_radii_a = max(d_radii_a, -min(included_region_a.x, included_region_a.y));
+
+                vec2 included_region_b = data.radii - 2.0 * vPartialWidths.xy - clip_relative_pos;
+                d_radii_b = max(d_radii_b, -min(included_region_b.x, included_region_b.y));
+            }
+#endif
+
+            float d = min(-d_radii_a, d_radii_b);
+
+            color0 *= distance_aa(aa_range, d);
+            break;
+        }
+        case BORDER_STYLE_GROOVE:
+        case BORDER_STYLE_RIDGE: {
+            float d;
+#ifdef WR_FEATURE_SUPERELLIPSE
+            if (data.shape == 1.0) {
+#endif
+                d = distance_to_ellipse(
+                    clip_relative_pos,
+                    clip_radii.xy - vPartialWidths.zw
+                );
+#ifdef WR_FEATURE_SUPERELLIPSE
+            } else {
+                d = distance_to_superellipse(
+                    clip_relative_pos - mix(vClipOffsets.xy, vClipOffsets.zw, 0.5),
+                    mix(clip_radii.xy, clip_radii.zw, 0.5),
+                    data.shape
+                );
+
+                // Clamp to the middle of the adjacent borders
+                vec2 included_region = data.radii - vPartialWidths.zw - clip_relative_pos;
+                d = max(d, -min(included_region.x, included_region.y));
+            }
+#endif
+            float alpha = distance_aa(aa_range, d);
+            float swizzled_factor;
+            switch (segment) {
+                case SEGMENT_TOP_LEFT: swizzled_factor = 0.0; break;
+                case SEGMENT_TOP_RIGHT: swizzled_factor = mix_factor; break;
+                case SEGMENT_BOTTOM_RIGHT: swizzled_factor = 1.0; break;
+                case SEGMENT_BOTTOM_LEFT: swizzled_factor = 1.0 - mix_factor; break;
+                default: swizzled_factor = 0.0; break;
+            };
+            vec4 c0 = mix(color1, color0, swizzled_factor);
+            vec4 c1 = mix(color0, color1, swizzled_factor);
+            color0 = mix(c0, c1, alpha);
+            break;
+        }
+        default:
+            break;
+    }
+
+    return color0;
+}
+
+vec4 evaluate_color_for_style_in_edge(
+    vec2 pos_vec,
+    int style,
+    vec4 color0,
+    vec4 color1,
+    float aa_range,
+    int edge_axis_id
+) {
+    vec2 edge_axis = edge_axis_id != 0 ? vec2(0.0, 1.0) : vec2(1.0, 0.0);
+    float pos = dot(pos_vec, edge_axis);
+    switch (style) {
+        case BORDER_STYLE_DOUBLE: {
+            float d = -1.0;
+            float partial_width = dot(vPartialWidths.xy, edge_axis);
+            if (partial_width >= 1.0) {
+                vec2 ref = vec2(
+                    dot(vEdgeReference.xy, edge_axis) + partial_width,
+                    dot(vEdgeReference.zw, edge_axis) - partial_width
+                );
+                d = min(pos - ref.x, ref.y - pos);
+            }
+            color0 *= distance_aa(aa_range, d);
+            break;
+        }
+        case BORDER_STYLE_GROOVE:
+        case BORDER_STYLE_RIDGE: {
+            float ref = dot(vEdgeReference.xy + vPartialWidths.zw, edge_axis);
+            float d = pos - ref;
+            float alpha = distance_aa(aa_range, d);
+            color0 = mix(color0, color1, alpha);
+            break;
+        }
+        default:
+            break;
+    }
+
+    return color0;
+}
+
+void main(void) {
+    float aa_range = compute_aa_range(vPos);
+    vec4 color0, color1;
+
+    int segment = int(vSegment_ClipMode_DataAddress.x);
+    int clip_mode = int(vSegment_ClipMode_DataAddress.y);
+    int data_address = int(vSegment_ClipMode_DataAddress.z);
+    ivec2 style = ivec2(int(vStyleEdgeAxis.x), int(vStyleEdgeAxis.y));
+    ivec2 edge_axis = ivec2(int(vStyleEdgeAxis.z), int(vStyleEdgeAxis.w));
+
+    BorderInstanceGpuData data = fetch_gpu_data(data_address);
+
+    float mix_factor = 0.0;
+    if (edge_axis.x != edge_axis.y) {
+        float d_line = distance_to_line(vColorLine.xy, vColorLine.zw, vPos);
+        mix_factor = distance_aa(aa_range, -d_line);
+    }
+
+    // Check if inside corner clip-region
+    vec2 clip_relative_pos = vPos - vClipCenter_Sign.xy;
+    bool in_clip_region = all(lessThan(vClipCenter_Sign.zw * clip_relative_pos, vec2(0.0)));
+    float d = -1.0;
+
+    switch (clip_mode) {
+        case CLIP_DOT: {
+            // Set clip distance based or dot position and radius.
+            if (vClipParams1.w != 0.0) {
+                // Square dots are pixel aligned and drawn without AA.
+                vec2 offset = abs(vPos - vClipParams1.xy);
+                d = max(offset.x, offset.y) < vClipParams1.z ? -1.0 : 1.0;
+            } else {
+                d = distance(vClipParams1.xy, vPos) - vClipParams1.z;
+            }
+            break;
+        }
+        case CLIP_DASH_EDGE: {
+            bool is_vertical = vClipParams1.x == 0.;
+            float half_dash = is_vertical ? vClipParams1.y : vClipParams1.x;
+            // We want to draw something like:
+            // +---+---+---+---+
+            // |xxx|   |   |xxx|
+            // +---+---+---+---+
+            float pos = is_vertical ? vPos.y : vPos.x;
+            bool in_dash = pos < half_dash || pos > 3.0 * half_dash;
+            if (!in_dash) {
+                d = 1.;
+            }
+            break;
+        }
+        case CLIP_DASH_CORNER: {
+            // Get SDF for the two line/tangent clip lines,
+            // do SDF subtract to get clip distance.
+            float d0 = distance_to_line(vClipParams1.xy,
+                                        vClipParams1.zw,
+                                        vPos);
+            float d1 = distance_to_line(vClipParams2.xy,
+                                        vClipParams2.zw,
+                                        vPos);
+            d = max(d0, -d1);
+            break;
+        }
+        case CLIP_NONE:
+        default:
+            break;
+    }
+
+    if (in_clip_region) {
+        float d_radii_a;
+        float d_radii_b;
+
+#ifdef WR_FEATURE_SUPERELLIPSE
+        if (data.shape == 1.0) {
+#endif
+            d_radii_a = distance_to_ellipse(clip_relative_pos, vClipRadii.xy);
+            d_radii_b = distance_to_ellipse(clip_relative_pos, vClipRadii.zw);
+#ifdef WR_FEATURE_SUPERELLIPSE
+        } else {
+            clip_relative_pos = abs(clip_relative_pos) - data.shape_offset;
+            d_radii_a = distance_to_superellipse(clip_relative_pos - vClipOffsets.xy, vClipRadii.xy, data.shape);
+            d_radii_b = distance_to_superellipse(clip_relative_pos - vClipOffsets.zw, vClipRadii.zw, data.shape);
+
+            // exclude the straight border part from the subtracted region
+            vec2 included_region = data.radii - data.widths - clip_relative_pos;
+            d_radii_b = max(d_radii_b, -min(included_region.x, included_region.y));
+        }
+#endif
+
+        float d_radii = max(d_radii_a, -d_radii_b);
+        d = max(d, d_radii);
+        
+        color0 = evaluate_color_for_style_in_corner(
+            data,
+            clip_relative_pos,
+            style.x,
+            vColor00,
+            vColor01,
+            vClipRadii,
+            mix_factor,
+            segment,
+            aa_range
+        );
+        color1 = evaluate_color_for_style_in_corner(
+            data,
+            clip_relative_pos,
+            style.y,
+            vColor10,
+            vColor11,
+            vClipRadii,
+            mix_factor,
+            segment,
+            aa_range
+        );
+    } else {
+        color0 = evaluate_color_for_style_in_edge(
+            vPos,
+            style.x,
+            vColor00,
+            vColor01,
+            aa_range,
+            edge_axis.x
+        );
+        color1 = evaluate_color_for_style_in_edge(
+            vPos,
+            style.y,
+            vColor10,
+            vColor11,
+            aa_range,
+            edge_axis.y
+        );
+    }
+
+    float alpha = distance_aa(aa_range, d);
+    vec4 color = mix(color0, color1, mix_factor);
+    oFragColor = color * alpha;
+}
+#endif
