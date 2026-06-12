@@ -323,6 +323,10 @@ impl eframe::App for Gui {
                     ui.label("About");
                 });
 
+                if ui.button("Capture (RenderDoc)").clicked() {
+                    self.handle_command("renderdoc-capture");
+                }
+
                 // Connection status on the right
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let (msg, text_color, bg_color) = if self.data_model.is_connected {

@@ -4359,6 +4359,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "lazy_static",
+ "libloading",
  "log",
  "malloc_size_of_derive",
  "mozangle",

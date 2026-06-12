@@ -7,6 +7,7 @@ mod command;
 mod debug_commands;
 mod gui;
 mod net;
+mod renderdoc;
 mod script_commands;
 mod wrench;
 
