@@ -45,15 +45,6 @@ pub enum DebuggerMessage {
     UpdateFrameLog(FrameLogMessage),
 }
 
-/// Reply to a `/renderdoc-capture` request: the path of the written `.rdc` file
-/// on success, or an error message. Serialized as the JSON response body so the
-/// client can tell success from failure without inspecting the string itself.
-#[derive(Serialize, Deserialize)]
-pub enum RenderDocReply {
-    Path(String),
-    Error(String),
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct CompositorDebugTile {
     pub local_rect: PictureRect,

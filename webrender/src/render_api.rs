@@ -990,10 +990,6 @@ pub enum DebugCommand {
     #[cfg(feature = "debugger")]
     /// Add a new profiler consumer
     AddDebugClient(DebuggerClient),
-    #[cfg(feature = "debugger")]
-    /// Capture the next composited frame with RenderDoc, replying with the
-    /// written .rdc path (or an error message).
-    CaptureRenderDoc(Sender<crate::api::debugger::RenderDocReply>),
 }
 
 /// Message sent by the `RenderApi` to the render backend thread.

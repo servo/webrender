@@ -20,7 +20,7 @@ static_freetype = ["glyph_rasterizer/static_freetype"]
 leak_checks = []
 gecko = ["firefox-on-glean", "glean", "glyph_rasterizer/gecko"]
 sw_compositor = ["swgl"]
-debugger = ["hyper", "hyper-util", "http-body-util", "tokio", "serde_json", "url", "sha1", "base64", "libloading", "api/debugger", "capture"]
+debugger = ["hyper", "hyper-util", "http-body-util", "tokio", "serde_json", "url", "sha1", "base64", "api/debugger", "capture"]
 
 [build-dependencies]
 build-parallel = "0.1.2"
@@ -35,7 +35,6 @@ euclid = { version = "0.22.10", features = ["serde"] }
 rustc-hash = "2.1.1"
 gleam = { workspace = true }
 lazy_static = "1"
-libloading = { version = "0.8", optional = true }
 log = "0.4"
 malloc_size_of_derive = "0.1"
 num-traits = "0.2"

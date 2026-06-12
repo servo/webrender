@@ -22,7 +22,6 @@ WRShell can connect to either a local instance of WR (default), or an instance r
  * Get or set debug flags
  * Query and display the current spatial tree (basic only, needs additional functionality)
  * Display profile counter graphs (basic only, needs to be extended)
- * Capture the current frame as a RenderDoc trace and open it in RenderDoc
 
 ### Building
 
@@ -51,32 +50,6 @@ To run in CLI mode (defaults to local host connection if no IP specified):
 To run in GUI mode (defaults to local host connection if no IP specified):
 
 `cargo run --release -- gui [target IP]`
-
-### RenderDoc capture
-
-WRShell can capture the current WebRender frame as a RenderDoc `.rdc` trace and open it for inspection.
-
-RenderDoc hooks OpenGL at library-load time, so `librenderdoc` must be loaded into the rendering process *before* its GL context is created (i.e. via `LD_PRELOAD`); a later load cannot capture.
-
-The easiest way is the `mach wrshell` helper:
-
-```
-./mach wrshell [url]        # CLI mode
-./mach wrshell --gui [url]  # GUI mode
-```
-
-This downloads RenderDoc into `~/.mozbuild/renderdoc` if needed, launches Firefox with `librenderdoc` preloaded (and the GPU process disabled, so WebRender renders in the parent process), and starts WRShell connected to it.
-
-To trigger a capture:
-
-* CLI: run `rd` (alias for `renderdoc-capture`).
-* GUI: click the **Capture (RenderDoc)** button in the menu bar.
-
-The `.rdc` is written under `<objdir>/tmp/renderdoc-captures/` and opened in `qrenderdoc` automatically. WRShell locates `qrenderdoc` via `$WR_RENDERDOC_DIR`, then `$PATH`, then the `~/.mozbuild/renderdoc` cache.
-
-To capture against a manually-launched instance, run it with `LD_PRELOAD=.../librenderdoc.so` and set `WR_RENDERDOC_CAPTURE_PATH` to the desired capture-file template.
-
-Capturing forces a full picture-cache invalidation for the captured frame, so all tiles are re-rasterized within the capture — a single-frame capture cannot replay WebRender's persistent cached tile textures.
 
 ### Extending
 

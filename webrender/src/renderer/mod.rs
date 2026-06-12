@@ -888,14 +888,6 @@ pub struct Renderer {
 
     /// Hold DebugItems of DebugFlags::EXTERNAL_COMPOSITE_BORDERS for debug overlay
     external_composite_debug_items: Vec<DebugItem>,
-
-    /// On-demand RenderDoc frame capture, driven from the debugger / wrshell.
-    #[cfg(feature = "debugger")]
-    renderdoc: crate::renderdoc::RenderDocCapture,
-    /// Pending reply channel for an in-flight RenderDoc capture request; sent the
-    /// written .rdc path (or an error) once the next frame has been captured.
-    #[cfg(feature = "debugger")]
-    renderdoc_capture_reply: Option<crate::api::channel::Sender<crate::api::debugger::RenderDocReply>>,
 }
 
 #[derive(Debug)]
@@ -1306,18 +1298,6 @@ impl Renderer {
                     &self.profiler,
                 );
             }
-            #[cfg(feature = "debugger")]
-            DebugCommand::CaptureRenderDoc(reply) => {
-                if self.renderdoc.is_available() {
-                    self.renderdoc.arm();
-                    self.renderdoc_capture_reply = Some(reply);
-                } else {
-                    let _ = reply.send(crate::api::debugger::RenderDocReply::Error(
-                        "RenderDoc not available (launch the host with \
-                         LD_PRELOAD=librenderdoc.so)".to_string(),
-                    ));
-                }
-            }
         }
     }
 
@@ -1372,36 +1352,12 @@ impl Renderer {
                     None
                 };
 
-                #[cfg(feature = "debugger")]
-                let capture = self.renderdoc.take_request();
-                #[cfg(feature = "debugger")]
-                if capture {
-                    self.renderdoc.start();
-                }
-
                 let result = self.render_impl(
                     doc_id,
                     &mut doc,
                     size,
                     buffer_age,
                 );
-
-                #[cfg(feature = "debugger")]
-                if capture {
-                    let path = self.renderdoc.end();
-                    if let Some(reply) = self.renderdoc_capture_reply.take() {
-                        let result = match path {
-                            Some(p) => crate::api::debugger::RenderDocReply::Path(
-                                p.to_string_lossy().into_owned()
-                            ),
-                            None => crate::api::debugger::RenderDocReply::Error(
-                                "RenderDoc capture failed (launch the host with \
-                                 LD_PRELOAD=librenderdoc.so)".to_string()
-                            ),
-                        };
-                        let _ = reply.send(result);
-                    }
-                }
 
                 self.active_documents.insert(doc_id, doc);
 

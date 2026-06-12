@@ -5,7 +5,7 @@
 use crate::command::{Command, CommandList, CommandDescriptor};
 use crate::command::{CommandContext, CommandOutput};
 use webrender_api::DebugFlags;
-use webrender_api::debugger::{DebuggerTextureContent, RenderDocReply};
+use webrender_api::debugger::DebuggerTextureContent;
 
 // Implementation of a basic set of debug commands to demonstrate functionality
 
@@ -13,7 +13,6 @@ use webrender_api::debugger::{DebuggerTextureContent, RenderDocReply};
 pub fn register(cmd_list: &mut CommandList) {
     cmd_list.register_command(Box::new(PingCommand));
     cmd_list.register_command(Box::new(GenerateFrameCommand));
-    cmd_list.register_command(Box::new(CaptureRenderDocCommand));
     cmd_list.register_command(Box::new(ToggleProfilerCommand));
     cmd_list.register_command(Box::new(GetSpatialTreeCommand));
     cmd_list.register_command(Box::new(GetCompositeConfigCommand));
@@ -27,7 +26,6 @@ pub fn register(cmd_list: &mut CommandList) {
 
 struct PingCommand;
 struct GenerateFrameCommand;
-struct CaptureRenderDocCommand;
 struct ToggleProfilerCommand;
 struct GetSpatialTreeCommand;
 struct GetCompositeConfigCommand;
@@ -79,39 +77,6 @@ impl Command for GenerateFrameCommand {
             Err(err) => {
                 CommandOutput::Err(err)
             }
-        }
-    }
-}
-
-impl Command for CaptureRenderDocCommand {
-    fn descriptor(&self) -> CommandDescriptor {
-        CommandDescriptor {
-            name: "renderdoc-capture",
-            help: "Capture the next frame with RenderDoc and open it in qrenderdoc",
-            alias: Some("rd"),
-            ..Default::default()
-        }
-    }
-
-    fn run(
-        &mut self,
-        ctx: &mut CommandContext,
-    ) -> CommandOutput {
-        match ctx.net.get("renderdoc-capture") {
-            Ok(Some(body)) => match serde_json::from_str::<RenderDocReply>(&body) {
-                Ok(RenderDocReply::Path(path)) => match crate::renderdoc::open_capture(&path) {
-                    Ok(bin) => CommandOutput::Log(
-                        format!("Captured {path} (opening in {})", bin.display())
-                    ),
-                    Err(err) => CommandOutput::Log(
-                        format!("Captured {path} (not opened: {err})")
-                    ),
-                },
-                Ok(RenderDocReply::Error(err)) => CommandOutput::Err(err),
-                Err(err) => CommandOutput::Err(format!("malformed reply from WR: {err}")),
-            },
-            Ok(None) => CommandOutput::Err("empty response from WR".into()),
-            Err(err) => CommandOutput::Err(err),
         }
     }
 }
