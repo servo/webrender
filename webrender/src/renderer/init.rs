@@ -809,10 +809,6 @@ pub fn create_webrender_instance(
         pending_result_msg: None,
         layer_compositor_frame_state_in_prev_frame: None,
         external_composite_debug_items: Vec::new(),
-        #[cfg(feature = "debugger")]
-        renderdoc: crate::renderdoc::RenderDocCapture::new(),
-        #[cfg(feature = "debugger")]
-        renderdoc_capture_reply: None,
         command_log: None,
         #[cfg(feature = "debugger")]
         debugger: Debugger::new(),

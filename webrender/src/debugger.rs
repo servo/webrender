@@ -11,7 +11,7 @@ use api::channel::{Sender, unbounded_channel};
 use api::{DebugFlags, TextureCacheCategory};
 use api::debugger::{DebuggerMessage, SetDebugFlagsMessage, ProfileCounterDescriptor};
 use api::debugger::{FrameLogMessage, InitProfileCountersMessage, ProfileCounterId};
-use api::debugger::{CompositorDebugInfo, CompositorDebugTile, RenderDocReply};
+use api::debugger::{CompositorDebugInfo, CompositorDebugTile};
 use std::thread;
 use base64::prelude::*;
 use sha1::{Sha1, Digest};
@@ -302,29 +302,6 @@ async fn handle_request(
                 DebugCommand::GenerateFrame
             );
             Ok(status_response(200))
-        }
-        "/renderdoc-capture" => {
-            // Capture the next composited frame with RenderDoc, replying with
-            // the path of the written .rdc (or an error message).
-            let (tx, rx) = unbounded_channel();
-            // CaptureRenderDoc forces a full invalidated rebuild and captures
-            // that rebuilt frame, so all picture-cache tiles are re-rasterized
-            // within the captured frame (a single-frame capture can't replay
-            // cached tile textures rendered in earlier frames).
-            api.send_debug_cmd(
-                DebugCommand::CaptureRenderDoc(tx)
-            );
-            // Reply with a JSON-serialized RenderDocReply so the client can tell
-            // success from failure explicitly, rather than sniffing the string.
-            // TODO: the debugger protocol could instead signal errors via HTTP
-            // status codes (and have the client surface non-2xx as an error),
-            // which would generalize to the other endpoints that already return
-            // 400/403/404 but whose bodies the client currently ignores.
-            let reply = match rx.recv() {
-                Ok(reply) => reply,
-                Err(..) => RenderDocReply::Error("No response received from WR".into()),
-            };
-            Ok(string_response(serde_json::to_string(&reply).unwrap()))
         }
         "/query" => {
             // Query internal state about WR.
