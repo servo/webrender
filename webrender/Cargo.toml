@@ -47,7 +47,7 @@ smallvec = "1"
 api = { workspace = true }
 webrender_build = { workspace = true }
 malloc_size_of = { workspace = true }
-glyph_rasterizer = { workspace = true }
+glyph_rasterizer = { workspace = true, default-features = false }
 svg_fmt = "0.4"
 tracy-rs = "0.1.2"
 derive_more = { version = "2", features = ["add_assign"] }
