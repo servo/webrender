@@ -382,6 +382,15 @@ pub trait MatrixHelpers<Src, Dst> {
     fn is_simple_translation(&self) -> bool;
     fn is_simple_2d_translation(&self) -> bool;
     fn is_2d_scale_translation(&self) -> bool;
+    /// If this transform is a rotation or reflection by a multiple of 90 degrees
+    /// (with unit scale, no z-coupling and no perspective), decompose it into a
+    /// `ScaleOffset` plus whether the x and y axes are swapped (the 90/270-degree
+    /// case, where the `ScaleOffset` applies after the swap). Returns `None`
+    /// otherwise. Such a transform keeps content on the same pixel grid, so a
+    /// rect can be snapped across it losslessly. Unlike
+    /// `preserves_2d_axis_alignment`, this also rejects perspective (`m34`) and
+    /// rescaling.
+    fn as_grid_aligned_rotation(&self) -> Option<(ScaleOffset, bool)>;
     /// Return the determinant of the 2D part of the matrix.
     fn determinant_2d(&self) -> f32;
     /// Turn Z transformation into identity. This is useful when crossing "flat"
@@ -501,6 +510,32 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for Transform3D<f32, Src, Dst> {
             self.m21.abs() < NEARLY_ZERO && self.m23.abs() < NEARLY_ZERO && self.m24.abs() < NEARLY_ZERO &&
             self.m31.abs() < NEARLY_ZERO && self.m32.abs() < NEARLY_ZERO && self.m34.abs() < NEARLY_ZERO &&
             self.m43.abs() < NEARLY_ZERO
+    }
+
+    fn as_grid_aligned_rotation(&self) -> Option<(ScaleOffset, bool)> {
+        let is_zero = |v: f32| v.abs() < NEARLY_ZERO;
+        let is_one = |v: f32| (v - 1.0).abs() < NEARLY_ZERO;
+        let is_unit = |v: f32| (v.abs() - 1.0).abs() < NEARLY_ZERO;
+
+        // Must be a flat 2D transform: no z coupling and no perspective.
+        // Translation (m41, m42) is unconstrained; tz (m43) must be zero.
+        if !(is_zero(self.m13) && is_zero(self.m14) && is_zero(self.m23) && is_zero(self.m24) &&
+            is_zero(self.m31) && is_zero(self.m32) && is_one(self.m33) && is_zero(self.m34) &&
+            is_zero(self.m43) && is_one(self.m44)) {
+            return None;
+        }
+
+        // The remaining 2x2 must only rotate/flip by a right angle, never scale.
+        // A 0/180-degree rotation or axis flip (entries on the diagonal) maps to
+        // a `ScaleOffset` directly; a 90/270-degree rotation (entries off the
+        // diagonal) maps to the same `ScaleOffset` applied after swapping x and y.
+        if is_unit(self.m11) && is_unit(self.m22) && is_zero(self.m12) && is_zero(self.m21) {
+            Some((ScaleOffset::new(self.m11, self.m22, self.m41, self.m42), false))
+        } else if is_unit(self.m12) && is_unit(self.m21) && is_zero(self.m11) && is_zero(self.m22) {
+            Some((ScaleOffset::new(self.m21, self.m12, self.m41, self.m42), true))
+        } else {
+            None
+        }
     }
 
     fn determinant_2d(&self) -> f32 {

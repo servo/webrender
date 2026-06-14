@@ -489,9 +489,8 @@ impl TextRunTemplate {
             SubpixelDirection::Vertical => DeviceVector2D::new(0.5, 0.125),
         };
 
-        // World-space run anchor and reference-frame origin (device mode only).
+        // World-space run anchor (device mode only).
         let anchor_world = transform.transform_point2d(local_rect.min);
-        let reference_world = transform.transform_point2d(LayoutPoint::zero());
 
         let mut glyph_offsets: Vec<DeviceVector2D> = Vec::new();
         let glyph_keys_range = if local_raster {
@@ -509,23 +508,40 @@ impl TextRunTemplate {
                 glyph_offsets.push(snapped.to_vector());
                 GlyphKey::new(src.index, raster_pos, subpx_dir)
             }))
-        } else if let (Some(anchor_world), Some(reference_world)) = (anchor_world, reference_world) {
+        } else if let Some(anchor_world) = anchor_world {
             // Device mode.
             let anchor_device = anchor_world * dps;
 
-            // Snap the *reference frame* origin to the device grid and shift all
-            // glyphs by that delta. We snap the frame origin (the transform
-            // translation) rather than the prim rect origin so that the prim's
-            // own sub-pixel layout offset stays as content within the frame,
-            // while a fractional transform on the frame — a fractionally placed
-            // offscreen surface, or fractional scrolling — snaps away
-            // consistently (e.g. translate(7.49) and translate(7.0) produce the
-            // same aligned frame). The snap uses the full device position
-            // (translation, and thus live scroll, included), which is what fixes
-            // the external-scroll-offset / fractional-scroll artifacts the old
-            // path had. Mirrors the old `snapped_reference_frame_relative_offset`.
-            let reference_device = reference_world * dps;
-            let snap_shift = reference_device.round() - reference_device;
+            // Snap the *reference frame* origin (the prim spatial node's local
+            // origin) to the device grid against the ROOT, and shift all glyphs
+            // by that delta. We snap the frame origin rather than the prim rect
+            // origin so the prim's own sub-pixel layout offset stays as content
+            // within the frame, while a fractional transform on the frame — a
+            // fractionally placed offscreen surface, or fractional scrolling —
+            // snaps away consistently (e.g. translate(7.49) and translate(7.0)
+            // produce the same aligned frame).
+            //
+            // We snap against root rather than the surface's own raster space.
+            // Device-mode text always sits in a root-coordinate-system surface
+            // (rotated / scaled raster roots make their text local-raster,
+            // handled above), so root is the correct device grid: this aligns
+            // glyphs even when the surface is a non-root tile cache (sticky /
+            // scrolled / fixed) that composites at a fractional device offset,
+            // where snapping against the cache's own node would be a no-op. The
+            // full relative transform handles a rotation between the prim's node
+            // and root (e.g. doubly-rotated upright text).
+            let root_index = spatial_tree.root_reference_frame_index();
+            let snap_shift = match spatial_tree
+                .get_relative_transform(spatial_node_index, root_index)
+                .into_transform()
+                .transform_point2d(LayoutPoint::zero())
+            {
+                Some(p) => {
+                    let reference_device = DevicePoint::new(p.x * dps.0, p.y * dps.0);
+                    reference_device.round() - reference_device
+                }
+                None => DeviceVector2D::zero(),
+            };
             glyph_offsets.reserve(self.glyphs.len());
 
             scratch.frame.glyph_keys.extend(self.glyphs.iter().map(|src| {
