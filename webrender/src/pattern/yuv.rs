@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, YuvFormat, YuvRangedColorSpace};
+use api::{ColorF, ImageBufferKind, YuvFormat, YuvRangedColorSpace};
 use api::units::*;
 
 use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState, PatternKind, PatternShaderInput, PatternTextureInput};
@@ -144,6 +144,9 @@ pub struct YuvPattern {
     pub format: YuvFormat,
     pub color_space: YuvRangedColorSpace,
     pub channel_bit_depth: u32,
+    /// Texture target the planes are sampled from. Selects the matching
+    /// ps_quad_yuv shader variant (TEXTURE_2D / RECT / EXTERNAL / EXTERNAL_BT709).
+    pub sampler_kind: ImageBufferKind,
 }
 
 impl PatternBuilder for YuvPattern {
@@ -173,7 +176,12 @@ impl PatternBuilder for YuvPattern {
         let addr = writer.finish();
 
         Pattern {
-            kind: PatternKind::Yuv,
+            kind: match self.sampler_kind {
+                ImageBufferKind::Texture2D => PatternKind::Yuv,
+                ImageBufferKind::TextureExternal => PatternKind::YuvTextureExternal,
+                ImageBufferKind::TextureExternalBT709 => PatternKind::YuvTextureExternalBT709,
+                ImageBufferKind::TextureRect => PatternKind::YuvTextureRect,
+            },
             shader_input: PatternShaderInput(addr.as_int(), 0),
             texture_input: PatternTextureInput::yuv(self.planes),
             // YUV images are always opaque.
