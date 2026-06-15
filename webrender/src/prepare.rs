@@ -6,7 +6,7 @@
 //!
 //! TODO: document this!
 
-use api::{BoxShadowClipMode, ColorF, DebugFlags, ExtendMode, GradientStop, ImageBufferKind, RepeatMode};
+use api::{BoxShadowClipMode, ColorF, DebugFlags, ExtendMode, ExternalImageType, GradientStop, ImageBufferKind, RepeatMode};
 use api::ClipMode;
 use crate::pattern::cutout::Cutout;
 use crate::util::clamp_to_scale_factor;
@@ -24,6 +24,7 @@ use crate::command_buffer::{CommandBufferIndex, PrimitiveCommand};
 use crate::border;
 use crate::clip::{ClipStore, ClipNodeRange};
 use crate::pattern::image::ImagePattern;
+use crate::pattern::yuv::YuvPattern;
 use crate::render_task_graph::RenderTaskId;
 use crate::renderer::{GpuBufferAddress, GpuBufferWriterF};
 use crate::spatial_tree::SpatialNodeIndex;
@@ -213,6 +214,24 @@ fn can_use_clip_chain_for_quad_path(
     true
 }
 
+fn yuv_planes_need_non_2d_target(
+    yuv_image_data: &crate::prim_store::image::YuvImageData,
+    resource_cache: &crate::resource_cache::ResourceCache,
+) -> bool {
+    let plane_count = yuv_image_data.format.get_plane_num();
+    yuv_image_data.yuv_key[.. plane_count].iter().any(|key| {
+        match resource_cache.get_image_properties(*key).and_then(|props| props.external_image) {
+            // External texture-handle images carry their own buffer kind.
+            Some(ext) => !matches!(
+                ext.image_type,
+                ExternalImageType::TextureHandle(ImageBufferKind::Texture2D)
+            ),
+            // Texture-cache backed images (raw/blob/buffer) are always Texture2D.
+            None => false,
+        }
+    })
+}
+
 fn prepare_prim_for_render(
     store: &mut PrimitiveStore,
     prim_instance_index: usize,
@@ -276,9 +295,24 @@ fn prepare_prim_for_render(
             => {
                 use_legacy_path = false;
             }
-            PrimitiveKind::YuvImage { .. } => {
+            PrimitiveKind::YuvImage { data_handle, .. } => {
                 let prim_info = scratch.frame.draws[prim_instance_index];
-                use_legacy_path = prim_info.compositor_surface_kind != CompositorSurfaceKind::Underlay;
+                // Underlay draws a cutout and Blit (non-composited) draws the YUV
+                // image directly: both go through the quad path. Overlay still uses
+                // the legacy brush path for now.
+                use_legacy_path = prim_info.compositor_surface_kind == CompositorSurfaceKind::Overlay;
+
+                // Support for non TEXTURE_2D input in the quad_yuv shader will
+                // be added in a followup patch.
+                if !use_legacy_path
+                    && prim_info.compositor_surface_kind != CompositorSurfaceKind::Underlay
+                    && yuv_planes_need_non_2d_target(
+                        &data_stores.yuv_image[*data_handle].kind,
+                        frame_state.resource_cache,
+                    )
+                {
+                    use_legacy_path = true;
+                }
             }
             _ => {}
         };
@@ -1095,6 +1129,44 @@ fn prepare_interned_prim_for_render(
 
                     return;
                 }
+
+                // Non-composited: draw the YUV image directly through the quad path.
+                yuv_image_data.update(
+                    common_data,
+                    prim_info.compositor_surface_kind.is_composited(),
+                    frame_state,
+                );
+
+                let pattern = YuvPattern {
+                    planes: [
+                        yuv_image_data.src_yuv[0].unwrap_or(RenderTaskId::INVALID),
+                        yuv_image_data.src_yuv[1].unwrap_or(RenderTaskId::INVALID),
+                        yuv_image_data.src_yuv[2].unwrap_or(RenderTaskId::INVALID),
+                    ],
+                    format: yuv_image_data.format,
+                    color_space: yuv_image_data.color_space.with_range(yuv_image_data.color_range),
+                    channel_bit_depth: yuv_image_data.color_depth.bit_depth(),
+                };
+
+                quad::prepare_quad(
+                    &pattern,
+                    &prim_info.snapped_local_rect,
+                    &prim_info.clip_chain.local_clip_rect,
+                    common_data.aligned_aa_edges,
+                    common_data.transformed_aa_edges,
+                    prim_instance_index,
+                    &None,
+                    &prim_info.clip_chain,
+                    quad_transform,
+                    frame_context,
+                    pic_context,
+                    targets,
+                    &data_stores.clip,
+                    frame_state,
+                    scratch,
+                );
+
+                return;
             }
 
             // Update the template this instane references, which may refresh the GPU
