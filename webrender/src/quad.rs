@@ -685,7 +685,7 @@ fn prepare_quad_impl(
             &PrimitiveCommand::quad(
                 pattern.kind,
                 pattern.shader_input,
-                pattern.texture_input.task_ids,
+                pattern.texture_input.task_id,
                 crate::prim_store::storage::Index::from_u32(prim_instance_index.0),
                 main_prim_address,
                 transform_id,
@@ -697,14 +697,12 @@ fn prepare_quad_impl(
             targets,
         );
 
-        // If the pattern samples from one or more textures, add them as
-        // dependencies of the surface we're drawing directly on to.
-        for task_id in pattern.texture_input.task_ids {
-            if task_id != RenderTaskId::INVALID {
-                frame_state
-                    .surface_builder
-                    .add_child_render_task(task_id, frame_state.rg_builder);
-            }
+        // If the pattern samples from a texture, add it as a dependency
+        // of the surface we're drawing directly on to.
+        if pattern.texture_input.task_id != RenderTaskId::INVALID {
+            frame_state
+                .surface_builder
+                .add_child_render_task(pattern.texture_input.task_id, frame_state.rg_builder);
         }
 
         return;
@@ -997,7 +995,7 @@ fn prepare_nine_patch(
         &device_prim_rect,
         &device_clip_rect,
         pattern.base_color,
-        pattern.texture_input.task_id(),
+        pattern.texture_input.task_id,
         &[],
         local_to_device.inverse(),
     );
@@ -1058,7 +1056,7 @@ fn prepare_nine_patch(
             } else {
                 scratch.frame.quad_direct_segments.push(QuadSegment {
                     rect: segment_device_rect.to_f32().cast_unit(),
-                    task_id: pattern.texture_input.task_id(),
+                    task_id: pattern.texture_input.task_id,
                 });
             };
         }
@@ -1308,9 +1306,9 @@ fn prepare_tiles(
 
         let device_prim_rect: DeviceRect = local_to_device.map_rect(&local_rect);
 
-        if pattern.texture_input.task_id() != RenderTaskId::INVALID {
+        if pattern.texture_input.task_id != RenderTaskId::INVALID {
             for segment in &mut scratch.frame.quad_direct_segments {
-                segment.task_id = pattern.texture_input.task_id();
+                segment.task_id = pattern.texture_input.task_id;
             }
         }
 
@@ -1544,16 +1542,14 @@ fn add_render_task_with_mask(
                     aa_flags,
                     quad_flags,
                     needs_scissor_rect,
-                    pattern.texture_input.task_ids,
+                    pattern.texture_input.task_id,
                 ),
             ));
 
-            // If the pattern samples from one or more textures, add them as
-            // dependencies of the indirect render task that relies on them.
-            for input_task_id in pattern.texture_input.task_ids {
-                if input_task_id != RenderTaskId::INVALID {
-                    rg_builder.add_dependency(task_id, input_task_id);
-                }
+            // If the pattern samples from a texture, add it as a dependency
+            // of the indirect render task that relies on it.
+            if pattern.texture_input.task_id != RenderTaskId::INVALID {
+                rg_builder.add_dependency(task_id, pattern.texture_input.task_id);
             }
 
             if clips_range.count > 0 {
@@ -1600,7 +1596,7 @@ fn add_pattern_prim(
         rect,
         clip_rect,
         pattern.base_color,
-        pattern.texture_input.task_id(),
+        pattern.texture_input.task_id,
         segments,
         pattern_transform,
     );
@@ -1617,7 +1613,7 @@ fn add_pattern_prim(
         &PrimitiveCommand::quad(
             pattern.kind,
             pattern.shader_input,
-            pattern.texture_input.task_ids,
+            pattern.texture_input.task_id,
             crate::prim_store::storage::Index::from_u32(prim_instance_index.0),
             prim_address,
             GpuTransformId::IDENTITY,
@@ -1666,7 +1662,7 @@ fn add_composite_prim(
                 crate::pattern::TEXTURED_SHADER_MODE_TEXTURE,
                 crate::pattern::TEXTURED_SHADER_MAP_TO_SEGMENT,
             ),
-            [RenderTaskId::INVALID; 3],
+            RenderTaskId::INVALID,
             crate::prim_store::storage::Index::from_u32(prim_instance_index.0),
             composite_prim_address,
             GpuTransformId::IDENTITY,
@@ -1815,7 +1811,7 @@ pub fn prepare_clip_task(
                     &tile.tile_rect,
                     &tile.tile_rect,
                     pattern.base_color,
-                    pattern.texture_input.task_id(),
+                    pattern.texture_input.task_id,
                     &[QuadSegment {
                         rect: tile.tile_rect.to_untyped(),
                         task_id: tile.task_id,
@@ -1867,7 +1863,7 @@ pub fn prepare_clip_task(
             &task_rect,
             &task_rect,
             pattern.base_color,
-            pattern.texture_input.task_id(),
+            pattern.texture_input.task_id,
             &[],
             pattern_transform,
         );
@@ -1974,7 +1970,7 @@ fn create_quad_primitive(
     QuadPrimitive {
         bounds: prim_rect,
         clip: prim_clip_rect,
-        input_task: pattern.texture_input.task_id(),
+        input_task: pattern.texture_input.task_id,
         pattern_scale_offset: pattern_transform,
         color: pattern.base_color.premultiplied(),
     }
@@ -2017,7 +2013,7 @@ fn write_prim_blocks(
         prim_rect,
         prim_clip_rect,
         pattern.base_color,
-        pattern.texture_input.task_id(),
+        pattern.texture_input.task_id,
         &[],
         pattern_transform,
     )
@@ -2099,7 +2095,7 @@ pub fn add_to_batch<F>(
     quad_flags: QuadFlags,
     edge_flags: EdgeMask,
     segment_index: u8,
-    src_task_ids: [RenderTaskId; 3],
+    src_task_id: RenderTaskId,
     z_id: ZBufferId,
     blend_mode: BlendMode,
     render_tasks: &RenderTaskGraph,
@@ -2118,21 +2114,18 @@ pub fn add_to_batch<F>(
         All = 5,
     }
 
-    let mut textures = [TextureSource::Invalid; 3];
-    for (i, src_task_id) in src_task_ids.iter().enumerate() {
-        textures[i] = match *src_task_id {
-            RenderTaskId::INVALID => TextureSource::Invalid,
-            _ =>  match render_tasks.resolve_texture(*src_task_id) {
-                Some(texture) => texture,
-                None => {
-                    // If a valid render task does not yield a texture source, render
-                    // nothing. This can happen, for example when a stacking context
-                    // could not be snapshotted.
-                    return;
-                },
-            }
-        };
-    }
+    let texture = match src_task_id {
+        RenderTaskId::INVALID => TextureSource::Invalid,
+        _ =>  match render_tasks.resolve_texture(src_task_id) {
+            Some(texture) => texture,
+            None => {
+                // If a valid render task does not yield a texture source, render
+                // nothing. This can happen, for example when a stacking context
+                // could not be snapshotted.
+                return;
+            },
+        }
+    };
 
 
     // See QuadHeader in ps_quad.glsl
@@ -2144,10 +2137,9 @@ pub fn add_to_batch<F>(
     });
     let prim_address_i = writer.finish();
 
-    let textures = BatchTextures::composite_yuv(
-        textures[0],
-        textures[1],
-        textures[2],
+    let textures = BatchTextures::prim_textured(
+        texture,
+        TextureSource::Invalid,
     );
 
     let prim_blend_mode = if quad_flags.contains(QuadFlags::IS_OPAQUE)

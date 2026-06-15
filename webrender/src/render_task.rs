@@ -207,7 +207,7 @@ pub struct PrimTask {
     pub edge_flags: EdgeMask,
     pub quad_flags: QuadFlags,
     pub prim_needs_scissor_rect: bool,
-    pub texture_input: [RenderTaskId; 3],
+    pub texture_input: RenderTaskId,
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -517,7 +517,7 @@ impl RenderTaskKind {
         edge_flags: EdgeMask,
         quad_flags: QuadFlags,
         prim_needs_scissor_rect: bool,
-        texture_input: [RenderTaskId; 3],
+        texture_input: RenderTaskId,
     ) -> Self {
         RenderTaskKind::Prim(PrimTask {
             pattern,

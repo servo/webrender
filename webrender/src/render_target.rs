@@ -5,7 +5,7 @@
 
 use api::units::*;
 use api::{ColorF, LineOrientation, BorderStyle};
-use crate::batch::{AlphaBatchBuilder, AlphaBatchContainer, BatchTextures, TextureSet};
+use crate::batch::{AlphaBatchBuilder, AlphaBatchContainer, BatchTextures};
 use crate::batch::{ClipBatcher, BatchBuilder, INVALID_SEGMENT_INDEX, ClipMaskInstanceList};
 use crate::render_task::{SubTask, RectangleClipSubTask, ImageClipSubTask};
 use crate::command_buffer::{CommandBufferList, QuadFlags};
@@ -162,8 +162,8 @@ pub struct RenderTarget {
     alpha_tasks: FrameVec<RenderTaskId>,
     pub resolve_ops: FrameVec<ResolveOp>,
 
-    pub prim_instances: [FastHashMap<TextureSet, FrameVec<PrimitiveInstanceData>>; NUM_PATTERNS],
-    pub prim_instances_with_scissor: FastHashMap<(DeviceIntRect, PatternKind), FastHashMap<TextureSet, FrameVec<PrimitiveInstanceData>>>,
+    pub prim_instances: [FastHashMap<TextureSource, FrameVec<PrimitiveInstanceData>>; NUM_PATTERNS],
+    pub prim_instances_with_scissor: FastHashMap<(DeviceIntRect, PatternKind), FastHashMap<TextureSource, FrameVec<PrimitiveInstanceData>>>,
 
     pub clip_masks: ClipMaskInstanceList,
 
@@ -227,7 +227,16 @@ impl RenderTarget {
             used_rect,
             resolve_ops: memory.new_vec(),
             clear_color: Some(ColorF::TRANSPARENT),
-            prim_instances: std::array::from_fn(|_| FastHashMap::default()),
+            prim_instances: [
+                FastHashMap::default(),
+                FastHashMap::default(),
+                FastHashMap::default(),
+                FastHashMap::default(),
+                FastHashMap::default(),
+                FastHashMap::default(),
+                FastHashMap::default(),
+                FastHashMap::default(),
+            ],
             prim_instances_with_scissor: FastHashMap::default(),
             clip_masks: ClipMaskInstanceList::new(memory),
             clip_batcher: ClipBatcher::new(gpu_supports_fast_clears, memory),
@@ -376,12 +385,12 @@ impl RenderTarget {
                             self.prim_instances_with_scissor
                                 .entry((target_rect, info.pattern))
                                 .or_insert(FastHashMap::default())
-                                .entry(key.textures.input)
+                                .entry(key.textures.input.colors[0])
                                 .or_insert_with(|| ctx.frame_memory.new_vec())
                                 .push(instance);
                         } else {
                             self.prim_instances[info.pattern as usize]
-                                .entry(key.textures.input)
+                                .entry(key.textures.input.colors[0])
                                 .or_insert_with(|| ctx.frame_memory.new_vec())
                                 .push(instance);
                         }
@@ -871,7 +880,7 @@ fn add_rect_clip_task_to_batch(
         task.quad_flags,
         EdgeMask::empty(),
         INVALID_SEGMENT_INDEX as u8,
-        [RenderTaskId::INVALID; 3],
+        RenderTaskId::INVALID,
         ZBufferId(0),
         BlendMode::None, // This parameter is ignored.
         render_tasks,
@@ -933,7 +942,7 @@ fn add_image_clip_task_to_batch(
         task.quad_flags,
         EdgeMask::empty(),
         segment_index,
-        [task.src_task, RenderTaskId::INVALID, RenderTaskId::INVALID],
+        task.src_task,
         ZBufferId(0),
         BlendMode::None, // This parameter is ignored.
         render_tasks,

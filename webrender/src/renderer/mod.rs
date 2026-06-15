@@ -49,7 +49,7 @@ use core::time::Duration;
 
 use crate::pattern::PatternKind;
 use crate::render_api::{DebugCommand, ApiMsg, MemoryReport};
-use crate::batch::{AlphaBatchContainer, BatchKind, BatchFeatures, BatchTextures, BrushBatchKind, ClipBatchList, TextureSet};
+use crate::batch::{AlphaBatchContainer, BatchKind, BatchFeatures, BatchTextures, BrushBatchKind, ClipBatchList};
 use crate::batch::ClipMaskInstanceList;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
@@ -279,10 +279,6 @@ impl BatchKind {
             BatchKind::Quad(PatternKind::Gradient) => GPU_TAG_GRADIENT,
             BatchKind::Quad(PatternKind::Repeat) => GPU_TAG_REPEAT,
             BatchKind::Quad(PatternKind::BoxShadow) => GPU_TAG_PRIMITIVE,
-            BatchKind::Quad(PatternKind::Yuv) => GPU_TAG_BRUSH_YUV_IMAGE,
-            BatchKind::Quad(PatternKind::YuvTextureExternal) => GPU_TAG_BRUSH_YUV_IMAGE,
-            BatchKind::Quad(PatternKind::YuvTextureExternalBT709) => GPU_TAG_BRUSH_YUV_IMAGE,
-            BatchKind::Quad(PatternKind::YuvTextureRect) => GPU_TAG_BRUSH_YUV_IMAGE,
             BatchKind::Quad(PatternKind::Mask) => GPU_TAG_INDIRECT_MASK,
         }
     }
@@ -2397,8 +2393,8 @@ impl Renderer {
     fn handle_prims(
         &mut self,
         draw_target: &DrawTarget,
-        prim_instances: &[FastHashMap<TextureSet, FrameVec<PrimitiveInstanceData>>],
-        prim_instances_with_scissor: &FastHashMap<(DeviceIntRect, PatternKind), FastHashMap<TextureSet, FrameVec<PrimitiveInstanceData>>>,
+        prim_instances: &[FastHashMap<TextureSource, FrameVec<PrimitiveInstanceData>>],
+        prim_instances_with_scissor: &FastHashMap<(DeviceIntRect, PatternKind), FastHashMap<TextureSource, FrameVec<PrimitiveInstanceData>>>,
         projection: &default::Transform3D<f32>,
         stats: &mut RendererStats,
     ) {
@@ -2425,11 +2421,8 @@ impl Renderer {
                     &mut self.command_log,
                 );
 
-                for (texture_set, prim_instances) in prim_instances_map {
-                    let texture_bindings = BatchTextures {
-                        input: *texture_set,
-                        clip_mask: TextureSource::Invalid,
-                    };
+                for (texture_source, prim_instances) in prim_instances_map {
+                    let texture_bindings = BatchTextures::composite_rgb(*texture_source);
 
                     self.draw_instanced_batch(
                         prim_instances,
@@ -2462,11 +2455,8 @@ impl Renderer {
 
                     self.device.set_scissor_rect(draw_target.to_framebuffer_rect(*scissor_rect));
 
-                    for (texture_set, prim_instances) in prim_instances_map {
-                        let texture_bindings = BatchTextures {
-                            input: *texture_set,
-                            clip_mask: TextureSource::Invalid,
-                        };
+                    for (texture_source, prim_instances) in prim_instances_map {
+                        let texture_bindings = BatchTextures::composite_rgb(*texture_source);
 
                         self.draw_instanced_batch(
                             prim_instances,

@@ -128,9 +128,7 @@ pub enum PrimitiveCommand {
     Quad {
         pattern: PatternKind,
         pattern_input: PatternShaderInput,
-        // Source textures sampled by the pattern. Most patterns only use slot 0;
-        // multi-plane patterns such as YUV use the additional slots.
-        src_color_task_ids: [RenderTaskId; 3],
+        src_color_task_id: RenderTaskId,
         // TODO(gw): Used for bounding rect only, could possibly remove
         draw_index: storage::Index<PrimitiveDrawHeader>,
         gpu_buffer_address: GpuBufferAddress,
@@ -163,7 +161,7 @@ impl PrimitiveCommand {
     pub fn quad(
         pattern: PatternKind,
         pattern_input: PatternShaderInput,
-        src_color_task_ids: [RenderTaskId; 3],
+        src_color_task_id: RenderTaskId,
         draw_index: storage::Index<PrimitiveDrawHeader>,
         gpu_buffer_address: GpuBufferAddress,
         transform_id: GpuTransformId,
@@ -174,7 +172,7 @@ impl PrimitiveCommand {
         PrimitiveCommand::Quad {
             pattern,
             pattern_input,
-            src_color_task_ids,
+            src_color_task_id,
             draw_index,
             gpu_buffer_address,
             transform_id,
@@ -291,19 +289,17 @@ impl CommandBuffer {
                 self.commands.push(Command::draw_instance(draw_index));
                 self.commands.push(Command::data(gpu_buffer_address.as_u32()));
             }
-            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, transform_id, quad_flags, edge_flags, src_color_task_ids, blend_mode } => {
+            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, transform_id, quad_flags, edge_flags, src_color_task_id, blend_mode } => {
                 self.commands.push(Command::draw_quad(draw_index));
                 self.commands.push(Command::data(pattern as u32));
                 self.commands.push(Command::data(pattern_input.0 as u32));
                 self.commands.push(Command::data(pattern_input.1 as u32));
+                self.commands.push(Command::data(src_color_task_id.index));
+                self.commands.push(Command::data(src_color_task_id.sub_rect_index as u32));
                 self.commands.push(Command::data(gpu_buffer_address.as_u32()));
                 self.commands.push(Command::data(transform_id.0));
                 self.commands.push(Command::data((quad_flags.bits() as u32) << 16 | edge_flags.bits() as u32));
                 self.commands.push(Command::data(encode_blend_mode(blend_mode)));
-                for i in 0..pattern.num_src_textures() {
-                    self.commands.push(Command::data(src_color_task_ids[i].index));
-                    self.commands.push(Command::data(src_color_task_ids[i].sub_rect_index as u32));
-                }
             }
         }
     }
@@ -348,6 +344,10 @@ impl CommandBuffer {
                         cmd_iter.next().unwrap().0 as i32,
                         cmd_iter.next().unwrap().0 as i32,
                     );
+                    let src_color_task_id = RenderTaskId {
+                        index: cmd_iter.next().unwrap().0,
+                        sub_rect_index: cmd_iter.next().unwrap().0 as u16
+                    };
                     let data = cmd_iter.next().unwrap();
                     let transform_id = GpuTransformId(cmd_iter.next().unwrap().0);
                     let bits = cmd_iter.next().unwrap().0;
@@ -355,19 +355,10 @@ impl CommandBuffer {
                     let edge_flags = EdgeMask::from_bits((bits & 0xff) as u8).unwrap();
                     let blend_mode = decode_blend_mode(cmd_iter.next().unwrap().0);
                     let gpu_buffer_address = GpuBufferAddress::from_u32(data.0);
-
-                    let mut src_color_task_ids = [RenderTaskId::INVALID; 3];
-                    for i in 0..pattern.num_src_textures() {
-                        src_color_task_ids[i] = RenderTaskId {
-                            index: cmd_iter.next().unwrap().0,
-                            sub_rect_index: cmd_iter.next().unwrap().0 as u16
-                        };
-                    }
-
                     let cmd = PrimitiveCommand::quad(
                         pattern,
                         pattern_input,
-                        src_color_task_ids,
+                        src_color_task_id,
                         draw_index,
                         gpu_buffer_address,
                         transform_id,

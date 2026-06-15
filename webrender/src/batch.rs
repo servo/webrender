@@ -78,7 +78,7 @@ pub enum BatchKind {
 }
 
 /// Input textures for a primitive, without consideration of clip mask
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TextureSet {
@@ -840,7 +840,7 @@ impl BatchBuilder {
             PrimitiveCommand::Instance { draw_index, gpu_buffer_address } => {
                 (draw_index, Some(gpu_buffer_address.as_int()))
             }
-            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_ids, blend_mode } => {
+            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_id, blend_mode } => {
                 let prim_info = &ctx.scratch.frame.draws[draw_index.0 as usize];
                 let bounding_rect = &prim_info.clip_chain.pic_coverage_rect;
                 let render_task_address = self.batcher.render_task_address;
@@ -857,7 +857,7 @@ impl BatchBuilder {
                         *quad_flags,
                         *edge_flags,
                         INVALID_SEGMENT_INDEX as u8,
-                        *src_color_task_ids,
+                        *src_color_task_id,
                         z_id,
                         *blend_mode,
                         render_tasks,
@@ -888,7 +888,7 @@ impl BatchBuilder {
                             *quad_flags,
                             *edge_flags,
                             i as u8,
-                            [*task_id, src_color_task_ids[1], src_color_task_ids[2]],
+                            *task_id,
                             z_id,
                             *blend_mode,
                             render_tasks,
@@ -1720,7 +1720,6 @@ impl BatchBuilder {
             PrimitiveKind::ConicGradient { .. } => { }
             PrimitiveKind::ImageBorder { .. } => {}
             PrimitiveKind::LineDecoration { .. } => {}
-            PrimitiveKind::YuvImage { .. } => {}
             PrimitiveKind::BoxShadow { .. } => {
                 unreachable!("BUG: Should not hit box-shadow here as they are handled by quad infra");
             }
@@ -2015,6 +2014,101 @@ impl BatchBuilder {
                     [get_shader_opacity(1.0), 0, 0, 0],
                     0,
                 );
+
+                let prim_header = PrimitiveHeader {
+                    specific_prim_address: prim_cache_address.as_int(),
+                    user_data: batch_params.prim_user_data,
+                    ..base_prim_header
+                };
+                let prim_header_index = prim_headers.push(&prim_header);
+
+                self.add_segmented_prim_to_batch(
+                    segments,
+                    common_data.opacity,
+                    &batch_params,
+                    blend_mode,
+                    batch_features,
+                    brush_flags,
+                    common_data.transformed_aa_edges,
+                    prim_header_index,
+                    bounding_rect,
+                    transform_metadata,
+                    z_id,
+                    prim_info.clip_task_index,
+                    ctx,
+                    render_tasks,
+                );
+            }
+            PrimitiveKind::YuvImage { data_handle, .. } => {
+                let segment_instance_index = prim_info.segment_instance_index;
+                if prim_info.compositor_surface_kind.needs_cutout() {
+                    self.add_compositor_surface_cutout(
+                        prim_rect,
+                        prim_info.clip_chain.local_clip_rect,
+                        prim_info.clip_task_index,
+                        transform_id,
+                        z_id,
+                        bounding_rect,
+                        ctx,
+                        render_tasks,
+                        prim_headers,
+                    );
+
+                    return;
+                }
+
+                let yuv_image_data = &ctx.data_stores.yuv_image[data_handle].kind;
+                let mut textures = TextureSet::UNTEXTURED;
+                let mut uv_rect_addresses = [0; 3];
+
+                //yuv channel
+                let channel_count = yuv_image_data.format.get_plane_num();
+                debug_assert!(channel_count <= 3);
+                for channel in 0 .. channel_count {
+
+                    let src_channel = render_tasks.resolve_location(yuv_image_data.src_yuv[channel]);
+
+                    let (uv_rect_address, texture_source) = match src_channel {
+                        Some(src) => src,
+                        None => {
+                            warn!("Warnings: skip a PrimitiveKind::YuvImage");
+                            return;
+                        }
+                    };
+
+                    textures.colors[channel] = texture_source;
+                    uv_rect_addresses[channel] = uv_rect_address.as_int();
+                }
+
+                // All yuv textures should be the same type.
+                let buffer_kind = textures.colors[0].image_buffer_kind();
+                assert!(
+                    textures.colors[1 .. yuv_image_data.format.get_plane_num()]
+                        .iter()
+                        .all(|&tid| buffer_kind == tid.image_buffer_kind())
+                );
+
+                let kind = BrushBatchKind::YuvImage(
+                    buffer_kind,
+                    yuv_image_data.format,
+                    yuv_image_data.color_depth,
+                    yuv_image_data.color_space,
+                    yuv_image_data.color_range,
+                );
+
+                let batch_params = BrushBatchParameters::shared(
+                    kind,
+                    textures,
+                    [
+                        uv_rect_addresses[0],
+                        uv_rect_addresses[1],
+                        uv_rect_addresses[2],
+                        0,
+                    ],
+                    0,
+                );
+
+                debug_assert_ne!(segment_instance_index, SegmentInstanceIndex::INVALID);
 
                 let prim_header = PrimitiveHeader {
                     specific_prim_address: prim_cache_address.as_int(),
