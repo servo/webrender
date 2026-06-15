@@ -3,10 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadius, ClipMode, ColorF};
-use api::{ImageRendering, RepeatMode, PrimitiveFlags};
+use api::{ImageRendering, PrimitiveFlags};
 use api::{FillRule, POLYGON_CLIP_VERTEX_MAX};
 use api::units::*;
-use euclid::{SideOffsets2D, Size2D};
 use malloc_size_of::MallocSizeOf;
 use crate::clip::ClipLeafId;
 use crate::quad::QuadTileClassifier;
@@ -230,192 +229,14 @@ impl PolygonKey {
 
 impl Eq for PolygonKey {}
 
-/// A hashable SideOffset2D that can be used in primitive keys.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, MallocSizeOf, PartialEq)]
-pub struct SideOffsetsKey {
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-    pub left: f32,
-}
+// `SideOffsetsKey`, `SizeKey`, `PointKey` and `VectorKey` now live in
+// `webrender_api` so builder-side interning keys can reference them. Re-exported
+// here to keep existing references working.
+pub use api::key_types::{PointKey, SizeKey, VectorKey};
 
-impl Eq for SideOffsetsKey {}
-
-impl hash::Hash for SideOffsetsKey {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.top.to_bits().hash(state);
-        self.right.to_bits().hash(state);
-        self.bottom.to_bits().hash(state);
-        self.left.to_bits().hash(state);
-    }
-}
-
-impl From<SideOffsetsKey> for LayoutSideOffsets {
-    fn from(key: SideOffsetsKey) -> LayoutSideOffsets {
-        LayoutSideOffsets::new(
-            key.top,
-            key.right,
-            key.bottom,
-            key.left,
-        )
-    }
-}
-
-impl<U> From<SideOffsets2D<f32, U>> for SideOffsetsKey {
-    fn from(offsets: SideOffsets2D<f32, U>) -> SideOffsetsKey {
-        SideOffsetsKey {
-            top: offsets.top,
-            right: offsets.right,
-            bottom: offsets.bottom,
-            left: offsets.left,
-        }
-    }
-}
-
-/// A hashable size for using as a key during primitive interning.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Copy, Debug, Clone, MallocSizeOf, PartialEq)]
-pub struct SizeKey {
-    w: f32,
-    h: f32,
-}
-
-impl Eq for SizeKey {}
-
-impl hash::Hash for SizeKey {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.w.to_bits().hash(state);
-        self.h.to_bits().hash(state);
-    }
-}
-
-impl From<SizeKey> for LayoutSize {
-    fn from(key: SizeKey) -> LayoutSize {
-        LayoutSize::new(key.w, key.h)
-    }
-}
-
-impl<U> From<Size2D<f32, U>> for SizeKey {
-    fn from(size: Size2D<f32, U>) -> SizeKey {
-        SizeKey {
-            w: size.width,
-            h: size.height,
-        }
-    }
-}
-
-/// A hashable vec for using as a key during primitive interning.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Copy, Debug, Clone, MallocSizeOf, PartialEq)]
-pub struct VectorKey {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl Eq for VectorKey {}
-
-impl hash::Hash for VectorKey {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.x.to_bits().hash(state);
-        self.y.to_bits().hash(state);
-    }
-}
-
-impl From<VectorKey> for LayoutVector2D {
-    fn from(key: VectorKey) -> LayoutVector2D {
-        LayoutVector2D::new(key.x, key.y)
-    }
-}
-
-impl From<VectorKey> for WorldVector2D {
-    fn from(key: VectorKey) -> WorldVector2D {
-        WorldVector2D::new(key.x, key.y)
-    }
-}
-
-impl From<LayoutVector2D> for VectorKey {
-    fn from(vec: LayoutVector2D) -> VectorKey {
-        VectorKey {
-            x: vec.x,
-            y: vec.y,
-        }
-    }
-}
-
-impl From<WorldVector2D> for VectorKey {
-    fn from(vec: WorldVector2D) -> VectorKey {
-        VectorKey {
-            x: vec.x,
-            y: vec.y,
-        }
-    }
-}
-
-/// A hashable point for using as a key during primitive interning.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Copy, Clone, MallocSizeOf, PartialEq)]
-pub struct PointKey {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl Eq for PointKey {}
-
-impl hash::Hash for PointKey {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.x.to_bits().hash(state);
-        self.y.to_bits().hash(state);
-    }
-}
-
-impl From<PointKey> for LayoutPoint {
-    fn from(key: PointKey) -> LayoutPoint {
-        LayoutPoint::new(key.x, key.y)
-    }
-}
-
-impl From<LayoutPoint> for PointKey {
-    fn from(p: LayoutPoint) -> PointKey {
-        PointKey {
-            x: p.x,
-            y: p.y,
-        }
-    }
-}
-
-impl From<PicturePoint> for PointKey {
-    fn from(p: PicturePoint) -> PointKey {
-        PointKey {
-            x: p.x,
-            y: p.y,
-        }
-    }
-}
-
-impl From<WorldPoint> for PointKey {
-    fn from(p: WorldPoint) -> PointKey {
-        PointKey {
-            x: p.x,
-            y: p.y,
-        }
-    }
-}
-
-/// A hashable float for using as a key during primitive interning.
-
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
-pub struct PrimKeyCommonData {
-    pub flags: PrimitiveFlags,
-    pub aligned_aa_edges: EdgeMask,
-    pub transformed_aa_edges: EdgeMask,
-}
+// `PrimKeyCommonData` now lives in `webrender_api` so interned keys reference
+// only api-resident types. Re-exported here to keep existing references working.
+pub use api::key_types::PrimKeyCommonData;
 
 impl From<&LayoutPrimitiveInfo> for PrimKeyCommonData {
     fn from(info: &LayoutPrimitiveInfo) -> Self {
@@ -704,20 +525,9 @@ impl ClipData {
     }
 }
 
-/// A hashable descriptor for nine-patches, used by image and
-/// gradient borders.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct NinePatchDescriptor {
-    pub width: i32,
-    pub height: i32,
-    pub slice: DeviceIntSideOffsets,
-    pub fill: bool,
-    pub repeat_horizontal: RepeatMode,
-    pub repeat_vertical: RepeatMode,
-    pub widths: SideOffsetsKey,
-}
+// `NinePatchDescriptor` now lives in `webrender_api` so builder-side interning
+// keys can reference it. Re-exported here to keep existing references working.
+pub use api::key_types::NinePatchDescriptor;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]

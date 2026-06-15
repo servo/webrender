@@ -51,6 +51,10 @@ mod display_list;
 mod font;
 mod gradient_builder;
 mod image;
+/// Internal: hashable building blocks for interning keys, shared with the
+/// `webrender` crate. Not part of the public API surface.
+#[doc(hidden)]
+pub mod key_types;
 mod tile_pool;
 pub mod units;
 

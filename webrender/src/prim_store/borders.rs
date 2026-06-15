@@ -5,7 +5,7 @@
 use api::{BorderStyle, NormalBorder, PremultipliedColorF, RasterSpace, Shadow};
 use api::units::*;
 use crate::border::{self, build_border_instances, get_max_scale_for_border};
-use crate::border::NormalBorderAu;
+use crate::border::{NormalBorderAu, NinePatchDescriptorExt};
 use crate::gpu_types::ImageBrushPrimitiveData;
 use crate::render_backend::DataStores;
 use crate::render_task_cache::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent, to_cache_size};

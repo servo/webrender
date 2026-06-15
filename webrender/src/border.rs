@@ -35,50 +35,9 @@ pub const MAX_DASH_COUNT: u32 = 2048;
 //           all the border structs with hashable
 //           variants...
 
-#[derive(Copy, Clone, Debug, Hash, MallocSizeOf, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct BorderRadiusAu {
-    pub top_left: LayoutSizeAu,
-    pub top_right: LayoutSizeAu,
-    pub bottom_left: LayoutSizeAu,
-    pub bottom_right: LayoutSizeAu,
-
-    pub shape_top_left: u32,
-    pub shape_top_right: u32,
-    pub shape_bottom_left: u32,
-    pub shape_bottom_right: u32,
-}
-
-impl From<BorderRadius> for BorderRadiusAu {
-    fn from(radius: BorderRadius) -> BorderRadiusAu {
-        BorderRadiusAu {
-            top_left: radius.top_left.to_au(),
-            top_right: radius.top_right.to_au(),
-            bottom_right: radius.bottom_right.to_au(),
-            bottom_left: radius.bottom_left.to_au(),
-            shape_top_left: radius.shape_top_left.to_bits(),
-            shape_top_right: radius.shape_top_right.to_bits(),
-            shape_bottom_left: radius.shape_bottom_left.to_bits(),
-            shape_bottom_right: radius.shape_bottom_right.to_bits(),
-        }
-    }
-}
-
-impl From<BorderRadiusAu> for BorderRadius {
-    fn from(radius: BorderRadiusAu) -> Self {
-        BorderRadius {
-            top_left: LayoutSize::from_au(radius.top_left),
-            top_right: LayoutSize::from_au(radius.top_right),
-            bottom_right: LayoutSize::from_au(radius.bottom_right),
-            bottom_left: LayoutSize::from_au(radius.bottom_left),
-            shape_top_left: f32::from_bits(radius.shape_top_left),
-            shape_top_right: f32::from_bits(radius.shape_top_right),
-            shape_bottom_left: f32::from_bits(radius.shape_bottom_left),
-            shape_bottom_right: f32::from_bits(radius.shape_bottom_right),
-        }
-    }
-}
+// `BorderRadiusAu` now lives in `webrender_api` so builder-side interning keys
+// can reference it. Re-exported here to keep existing references working.
+pub use api::key_types::BorderRadiusAu;
 
 #[derive(Clone, Debug, Hash, MallocSizeOf, PartialEq, Eq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -1316,8 +1275,20 @@ pub fn build_border_instances(
     instances
 }
 
-impl NinePatchDescriptor {
-    pub fn for_each_segment(
+/// WebRender-side behavior for the (api-resident) `NinePatchDescriptor`. The
+/// data lives in `webrender_api` so interning keys can reference it; the
+/// nine-patch segmentation logic stays here as an extension trait.
+pub trait NinePatchDescriptorExt {
+    fn for_each_segment(
+        &self,
+        rect: &LayoutRect,
+        add_segment: &mut dyn FnMut(&LayoutRect, &TexelRect, EdgeMask, RepeatMode, RepeatMode),
+    );
+    fn create_brush_segments(&self, size: LayoutSize) -> Vec<BrushSegment>;
+}
+
+impl NinePatchDescriptorExt for NinePatchDescriptor {
+    fn for_each_segment(
         &self,
         rect: &LayoutRect,
         add_segment: &mut dyn FnMut(
@@ -1463,7 +1434,7 @@ impl NinePatchDescriptor {
         }
     }
 
-    pub fn create_brush_segments(&self, size: LayoutSize) -> Vec<BrushSegment> {
+    fn create_brush_segments(&self, size: LayoutSize) -> Vec<BrushSegment> {
         // Build the list of image segments
         let mut segments = Vec::new();
 

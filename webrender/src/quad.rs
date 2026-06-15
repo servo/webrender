@@ -6,6 +6,7 @@ use api::{units::*, ClipMode, ColorF};
 use euclid::{Scale, point2};
 
 use crate::ItemUid;
+use crate::border::NinePatchDescriptorExt;
 use crate::gpu_types::ClipSpace;
 use crate::pattern::repeat::RepeatedPattern;
 use crate::render_task::{SubTask, RectangleClipSubTask, ImageClipSubTask};

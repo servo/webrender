@@ -59,61 +59,10 @@ use smallvec::SmallVec;
 // clip mask overhead, and possibly exceeding the maximum row size of the GPU cache.
 const MAX_SEGMENTS: usize = 64;
 
-// Note: This can use up to 4 bits due to how it will be packed in
-// the instance data.
-
-/// *Note*: the bit values have to match the shader logic in
-/// `write_transform_vertex()` function.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, MallocSizeOf)]
-pub struct EdgeMask(u8);
-
-bitflags! {
-    impl EdgeMask: u8 {
-        ///
-        const LEFT = 0x1;
-        ///
-        const TOP = 0x2;
-        ///
-        const RIGHT = 0x4;
-        ///
-        const BOTTOM = 0x8;
-    }
-}
-
-impl core::fmt::Debug for EdgeMask {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        if self.is_empty() {
-            write!(f, "{:#x}", Self::empty().bits())
-        } else {
-            bitflags::parser::to_writer(self, f)
-        }
-    }
-}
-
-impl EdgeMask {
-    /// Returns a rectangle with the egdes of `a` or `b`, selected indicidually.
-    ///
-    /// For each side bit, if it is set then use the edge from `a`, else use the edge from `b`.
-    pub fn select<T: Copy, U>(&self, a: euclid::Box2D<T, U>, b: euclid::Box2D<T, U>) -> euclid::Box2D<T, U> {
-        let mut rect = b;
-        if self.contains(Self::LEFT) {
-            rect.min.x = a.min.x;
-        }
-        if self.contains(Self::TOP) {
-            rect.min.y = a.min.y;
-        }
-        if self.contains(Self::RIGHT) {
-            rect.max.x = a.max.x;
-        }
-        if self.contains(Self::BOTTOM) {
-            rect.max.y = a.max.y;
-        }
-
-        rect
-    }
-}
+// `EdgeMask` now lives in `webrender_api` so it can be referenced by interned
+// keys built in the DisplayListBuilder. Re-exported here to keep the existing
+// `crate::segment::EdgeMask` references working.
+pub use api::key_types::EdgeMask;
 
 bitflags! {
     #[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
