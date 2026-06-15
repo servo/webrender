@@ -9,10 +9,10 @@ use api::units::*;
 use euclid::point2;
 use crate::clip::{ClipChainInstance, ClipIntern};
 use crate::command_buffer::CommandBufferIndex;
-use crate::gpu_types::{ImageBrushPrimitiveData, YuvPrimitive};
+use crate::gpu_types::ImageBrushPrimitiveData;
 use crate::pattern::image::ImagePattern;
 use crate::quad::QuadTransformState;
-use crate::renderer::{GpuBufferAddress, GpuBufferBuilderF, GpuBufferWriterF};
+use crate::renderer::{GpuBufferAddress, GpuBufferWriterF};
 use crate::scene_building::{CreateShadow, IsVisible};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext};
 use crate::intern::{DataStore, Handle as InternHandle, InternDebug, Internable};
@@ -27,7 +27,7 @@ use crate::render_task::RenderTask;
 use crate::render_task_cache::{
     RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent
 };
-use crate::resource_cache::{ImageRequest, ImageProperties, ResourceCache};
+use crate::resource_cache::{ImageRequest, ImageProperties};
 use crate::visibility::compute_conservative_visible_rect;
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::{image_tiling, quad};
@@ -945,13 +945,12 @@ impl YuvImageData {
     /// template. The initial request call to the GPU cache ensures that work is only
     /// done if the cache entry is invalid (due to first use or eviction).
     pub fn update(
-        &mut self,
-        common: &mut PrimTemplateCommonData,
+        &self,
         is_composited: bool,
         frame_state: &mut FrameBuildingState,
-    ) {
+    ) -> [RenderTaskId; 3] {
 
-        self.src_yuv = [ None, None, None ];
+        let mut src_yuv = [ RenderTaskId::INVALID; 3 ];
 
         let channel_num = self.format.get_plane_num();
         debug_assert!(channel_num <= 3);
@@ -975,42 +974,10 @@ impl YuvImageData {
                 )
             );
 
-            self.src_yuv[channel] = Some(task_id);
+            src_yuv[channel] = task_id;
         }
 
-        let mut writer = frame_state.frame_gpu_data.f32.write_blocks(1);
-        self.write_prim_gpu_blocks(&mut writer);
-        common.gpu_buffer_address = writer.finish();
-
-    // YUV images never have transparency
-        common.opacity = PrimitiveOpacity::opaque();
-    }
-
-    pub fn request_resources(
-        &mut self,
-        resource_cache: &mut ResourceCache,
-        gpu_buffer: &mut GpuBufferBuilderF,
-    ) {
-        let channel_num = self.format.get_plane_num();
-        debug_assert!(channel_num <= 3);
-        for channel in 0 .. channel_num {
-            resource_cache.request_image(
-                ImageRequest {
-                    key: self.yuv_key[channel],
-                    rendering: self.image_rendering,
-                    tile: None,
-                },
-                gpu_buffer,
-            );
-        }
-    }
-
-    pub fn write_prim_gpu_blocks(&self, writer: &mut GpuBufferWriterF) {
-        writer.push(&YuvPrimitive {
-            channel_bit_depth: self.color_depth.bit_depth(),
-            color_space: self.color_space.with_range(self.color_range),
-            yuv_format: self.format,
-        });
+        src_yuv
     }
 }
 
