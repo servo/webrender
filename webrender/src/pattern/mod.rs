@@ -7,6 +7,7 @@ pub mod box_shadow;
 pub mod repeat;
 pub mod image;
 pub mod cutout;
+pub mod yuv;
 
 use api::units::{LayoutVector2D, LayoutPoint};
 use api::{ColorF, units::DeviceRect};
@@ -35,15 +36,27 @@ pub enum PatternKind {
     TextureExternal = 5,
     TextureExternalBT709 = 6,
     TextureRect = 7,
+    // Samples up to three planes (sColor0/1/2) and converts from YUV to RGB.
+    Yuv = 8,
     // When adding patterns, don't forget to update the NUM_PATTERNS constant.
 }
 
-pub const NUM_PATTERNS: u32 = 8;
+pub const NUM_PATTERNS: u32 = 9;
 
 impl PatternKind {
     pub fn from_u32(val: u32) -> Self {
         assert!(val < NUM_PATTERNS);
         unsafe { std::mem::transmute(val) }
+    }
+
+    pub fn num_src_textures(&self) -> usize {
+        match self {
+            PatternKind::Gradient
+            | PatternKind::Mask
+            => 0,
+            PatternKind::Yuv => 3,
+            _ => 1,
+        }
     }
 }
 
@@ -65,13 +78,17 @@ impl Default for PatternShaderInput {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PatternTextureInput {
-    pub task_id: RenderTaskId,
+    /// The render tasks providing the source texture(s) sampled by the pattern.
+    ///
+    /// Most patterns only sample from a single texture (slot 0). Multi-plane
+    /// patterns such as YUV use the additional slots (bound to sColor1/sColor2).
+    pub task_ids: [RenderTaskId; 3],
 }
 
 impl Default for PatternTextureInput {
     fn default() -> Self {
         PatternTextureInput {
-            task_id: RenderTaskId::INVALID,
+            task_ids: [RenderTaskId::INVALID; 3],
         }
     }
 }
@@ -79,8 +96,19 @@ impl Default for PatternTextureInput {
 impl PatternTextureInput {
     pub fn new(task_id: RenderTaskId) -> Self {
         PatternTextureInput {
-            task_id,
+            task_ids: [task_id, RenderTaskId::INVALID, RenderTaskId::INVALID],
         }
+    }
+
+    pub fn yuv(task_ids: [RenderTaskId; 3]) -> Self {
+        PatternTextureInput {
+            task_ids,
+        }
+    }
+
+    /// The primary (plane 0) source texture.
+    pub fn task_id(&self) -> RenderTaskId {
+        self.task_ids[0]
     }
 }
 
@@ -159,11 +187,11 @@ impl Pattern {
     }
 
     pub fn as_render_task(&self) -> Option<RenderTaskId> {
-        if self.kind != PatternKind::ColorOrTexture || self.texture_input.task_id == RenderTaskId::INVALID {
+        if self.kind != PatternKind::ColorOrTexture || self.texture_input.task_id() == RenderTaskId::INVALID {
             return None;
         }
 
-        Some(self.texture_input.task_id)
+        Some(self.texture_input.task_id())
     }
 }
 

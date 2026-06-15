@@ -78,7 +78,7 @@ pub enum BatchKind {
 }
 
 /// Input textures for a primitive, without consideration of clip mask
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TextureSet {
@@ -840,7 +840,7 @@ impl BatchBuilder {
             PrimitiveCommand::Instance { draw_index, gpu_buffer_address } => {
                 (draw_index, Some(gpu_buffer_address.as_int()))
             }
-            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_id, blend_mode } => {
+            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_ids, blend_mode } => {
                 let prim_info = &ctx.scratch.frame.draws[draw_index.0 as usize];
                 let bounding_rect = &prim_info.clip_chain.pic_coverage_rect;
                 let render_task_address = self.batcher.render_task_address;
@@ -857,7 +857,7 @@ impl BatchBuilder {
                         *quad_flags,
                         *edge_flags,
                         INVALID_SEGMENT_INDEX as u8,
-                        *src_color_task_id,
+                        *src_color_task_ids,
                         z_id,
                         *blend_mode,
                         render_tasks,
@@ -888,7 +888,7 @@ impl BatchBuilder {
                             *quad_flags,
                             *edge_flags,
                             i as u8,
-                            *task_id,
+                            [*task_id, src_color_task_ids[1], src_color_task_ids[2]],
                             z_id,
                             *blend_mode,
                             render_tasks,
