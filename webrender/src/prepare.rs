@@ -1088,50 +1088,9 @@ fn prepare_interned_prim_for_render(
             let common_data = &mut prim_data.common;
             let yuv_image_data = &mut prim_data.kind;
 
-            if !use_legacy_path {
-                if prim_info.compositor_surface_kind == CompositorSurfaceKind::Underlay {
-                    quad::prepare_quad(
-                        &Cutout,
-                        &prim_info.snapped_local_rect,
-                        &prim_info.clip_chain.local_clip_rect,
-                        common_data.aligned_aa_edges,
-                        common_data.transformed_aa_edges,
-                        prim_instance_index,
-                        &None,
-                        &prim_info.clip_chain,
-                        quad_transform,
-                        frame_context,
-                        pic_context,
-                        targets,
-                        &data_stores.clip,
-                        frame_state,
-                        scratch,
-                    );
-
-                    return;
-                }
-
-                // Non-composited: draw the YUV image directly through the quad path.
-                yuv_image_data.update(
-                    common_data,
-                    prim_info.compositor_surface_kind.is_composited(),
-                    frame_state,
-                );
-
-                let pattern = YuvPattern {
-                    planes: [
-                        yuv_image_data.src_yuv[0].unwrap_or(RenderTaskId::INVALID),
-                        yuv_image_data.src_yuv[1].unwrap_or(RenderTaskId::INVALID),
-                        yuv_image_data.src_yuv[2].unwrap_or(RenderTaskId::INVALID),
-                    ],
-                    format: yuv_image_data.format,
-                    color_space: yuv_image_data.color_space.with_range(yuv_image_data.color_range),
-                    channel_bit_depth: yuv_image_data.color_depth.bit_depth(),
-                    sampler_kind: yuv_planes_sampler_kind(yuv_image_data, frame_state.resource_cache),
-                };
-
+            if prim_info.compositor_surface_kind == CompositorSurfaceKind::Underlay {
                 quad::prepare_quad(
-                    &pattern,
+                    &Cutout,
                     &prim_info.snapped_local_rect,
                     &prim_info.clip_chain.local_clip_rect,
                     common_data.aligned_aa_edges,
@@ -1151,23 +1110,39 @@ fn prepare_interned_prim_for_render(
                 return;
             }
 
-            // Update the template this instane references, which may refresh the GPU
-            // cache with any shared template data.
-            yuv_image_data.update(
-                common_data,
+            // Non-composited: draw the YUV image directly through the quad path.
+            let planes = yuv_image_data.update(
                 prim_info.compositor_surface_kind.is_composited(),
                 frame_state,
             );
 
-            write_segment(
-                prim_info.segment_instance_index,
+            let pattern = YuvPattern {
+                planes,
+                format: yuv_image_data.format,
+                color_space: yuv_image_data.color_space.with_range(yuv_image_data.color_range),
+                channel_bit_depth: yuv_image_data.color_depth.bit_depth(),
+                sampler_kind: yuv_planes_sampler_kind(yuv_image_data, frame_state.resource_cache),
+            };
+
+            quad::prepare_quad(
+                &pattern,
+                &prim_info.snapped_local_rect,
+                &prim_info.clip_chain.local_clip_rect,
+                common_data.aligned_aa_edges,
+                common_data.transformed_aa_edges,
+                prim_instance_index,
+                &None,
+                &prim_info.clip_chain,
+                quad_transform,
+                frame_context,
+                pic_context,
+                targets,
+                &data_stores.clip,
                 frame_state,
-                &mut scratch.frame.segments,
-                &mut scratch.frame.segment_instances,
-                |writer| {
-                    yuv_image_data.write_prim_gpu_blocks(writer);
-                }
+                scratch,
             );
+
+            return;
         }
         PrimitiveKind::Image { data_handle, .. } => {
             profile_scope!("Image");
