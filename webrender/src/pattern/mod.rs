@@ -9,8 +9,8 @@ pub mod image;
 pub mod cutout;
 pub mod yuv;
 
-use api::units::{LayoutVector2D, LayoutPoint};
-use api::{ColorF, units::DeviceRect};
+use api::units::*;
+use api::ColorF;
 
 use crate::frame_builder::FrameBuilderConfig;
 use crate::render_task_graph::RenderTaskId;
@@ -37,11 +37,17 @@ pub enum PatternKind {
     TextureExternalBT709 = 6,
     TextureRect = 7,
     // Samples up to three planes (sColor0/1/2) and converts from YUV to RGB.
+    // Like ColorOrTexture, the YUV pattern comes in sampler-type-specific
+    // variants so that the planes are sampled with the matching sColor
+    // declaration; see ps_quad_yuv.glsl. `Yuv` is the default (TEXTURE_2D).
     Yuv = 8,
+    YuvTextureExternal = 9,
+    YuvTextureExternalBT709 = 10,
+    YuvTextureRect = 11,
     // When adding patterns, don't forget to update the NUM_PATTERNS constant.
 }
 
-pub const NUM_PATTERNS: u32 = 9;
+pub const NUM_PATTERNS: u32 = 12;
 
 impl PatternKind {
     pub fn from_u32(val: u32) -> Self {
@@ -54,7 +60,11 @@ impl PatternKind {
             PatternKind::Gradient
             | PatternKind::Mask
             => 0,
-            PatternKind::Yuv => 3,
+            PatternKind::Yuv
+            | PatternKind::YuvTextureExternal
+            | PatternKind::YuvTextureExternalBT709
+            | PatternKind::YuvTextureRect
+            => 3,
             _ => 1,
         }
     }

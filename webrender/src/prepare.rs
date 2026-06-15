@@ -6,7 +6,7 @@
 //!
 //! TODO: document this!
 
-use api::{BoxShadowClipMode, ColorF, DebugFlags, ExtendMode, ExternalImageType, GradientStop, ImageBufferKind, RepeatMode};
+use api::{BoxShadowClipMode, ColorF, DebugFlags, ExtendMode, ExternalImageData, ExternalImageType, GradientStop, ImageBufferKind, RepeatMode};
 use api::ClipMode;
 use crate::pattern::cutout::Cutout;
 use crate::util::clamp_to_scale_factor;
@@ -214,22 +214,22 @@ fn can_use_clip_chain_for_quad_path(
     true
 }
 
-fn yuv_planes_need_non_2d_target(
+/// Returns the texture sampler kind used by a YUV image's planes, which selects
+/// the matching ps_quad_yuv shader variant. All planes are expected to share the
+/// same kind. Texture-cache backed images (raw/blob/buffer) are always Texture2D.
+fn yuv_planes_sampler_kind(
     yuv_image_data: &crate::prim_store::image::YuvImageData,
     resource_cache: &crate::resource_cache::ResourceCache,
-) -> bool {
+) -> ImageBufferKind {
     let plane_count = yuv_image_data.format.get_plane_num();
-    yuv_image_data.yuv_key[.. plane_count].iter().any(|key| {
-        match resource_cache.get_image_properties(*key).and_then(|props| props.external_image) {
-            // External texture-handle images carry their own buffer kind.
-            Some(ext) => !matches!(
-                ext.image_type,
-                ExternalImageType::TextureHandle(ImageBufferKind::Texture2D)
-            ),
-            // Texture-cache backed images (raw/blob/buffer) are always Texture2D.
-            None => false,
+    for key in &yuv_image_data.yuv_key[.. plane_count] {
+        if let Some(ExternalImageData { image_type: ExternalImageType::TextureHandle(kind), .. }) =
+            resource_cache.get_image_properties(*key).and_then(|props| props.external_image)
+        {
+            return kind;
         }
-    })
+    }
+    ImageBufferKind::Texture2D
 }
 
 fn prepare_prim_for_render(
@@ -294,25 +294,6 @@ fn prepare_prim_for_render(
             | PrimitiveKind::LineDecoration { .. }
             => {
                 use_legacy_path = false;
-            }
-            PrimitiveKind::YuvImage { data_handle, .. } => {
-                let prim_info = scratch.frame.draws[prim_instance_index];
-                // Underlay draws a cutout and Blit (non-composited) draws the YUV
-                // image directly: both go through the quad path. Overlay still uses
-                // the legacy brush path for now.
-                use_legacy_path = prim_info.compositor_surface_kind == CompositorSurfaceKind::Overlay;
-
-                // Support for non TEXTURE_2D input in the quad_yuv shader will
-                // be added in a followup patch.
-                if !use_legacy_path
-                    && prim_info.compositor_surface_kind != CompositorSurfaceKind::Underlay
-                    && yuv_planes_need_non_2d_target(
-                        &data_stores.yuv_image[*data_handle].kind,
-                        frame_state.resource_cache,
-                    )
-                {
-                    use_legacy_path = true;
-                }
             }
             _ => {}
         };
@@ -1146,6 +1127,7 @@ fn prepare_interned_prim_for_render(
                     format: yuv_image_data.format,
                     color_space: yuv_image_data.color_space.with_range(yuv_image_data.color_range),
                     channel_bit_depth: yuv_image_data.color_depth.bit_depth(),
+                    sampler_kind: yuv_planes_sampler_kind(yuv_image_data, frame_state.resource_cache),
                 };
 
                 quad::prepare_quad(
