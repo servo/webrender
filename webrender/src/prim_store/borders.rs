@@ -13,7 +13,7 @@ use crate::renderer::{GpuBufferAddress, GpuBufferWriterF};
 use crate::scene_building::{CreateShadow, IsVisible};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState};
 use crate::intern;
-use crate::internal_types::{LayoutPrimitiveInfo, FrameId};
+use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
     BorderSegmentInfo, BrushSegment, InternablePrimitive, NinePatchDescriptor, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveKind, PrimitiveScratchBuffer, PrimitiveStore, VECS_PER_SEGMENT
 };
@@ -366,6 +366,13 @@ pub struct ImageBorderScratch {
     /// block contents (stretch_size and segments) depend on the prim's
     /// per-instance size.
     pub gpu_address: GpuBufferAddress,
+    /// Per-instance source image render task, recomputed each frame in
+    /// `ImageBorderData::update`. Lives here rather than on the now-immutable
+    /// template.
+    pub src_color: Option<RenderTaskId>,
+    /// Whether the source image is opaque. Derived each frame from the
+    /// resource-cache image properties.
+    pub is_opaque: bool,
 }
 
 impl ImageBorderScratch {
@@ -395,6 +402,8 @@ impl ImageBorderScratch {
         let handle = scratch.frame.image_border.push(ImageBorderScratch {
             brush_segments_range,
             gpu_address: GpuBufferAddress::INVALID,
+            src_color: None,
+            is_opaque: false,
         });
         scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
             KindScratchHandle::ImageBorder(handle);
@@ -408,9 +417,6 @@ pub struct ImageBorderData {
     #[ignore_malloc_size_of = "Arc"]
     pub request: ImageRequest,
     pub nine_patch: NinePatchDescriptor,
-    pub src_color: Option<RenderTaskId>,
-    pub frame_id: FrameId,
-    pub is_opaque: bool,
 }
 
 impl ImageBorderData {
@@ -419,41 +425,35 @@ impl ImageBorderData {
     /// template. The initial request call to the GPU cache ensures that work is only
     /// done if the cache entry is invalid (due to first use or eviction).
     pub fn update(
-        &mut self,
+        &self,
         prim_size: LayoutSize,
         brush_segments: &[BrushSegment],
         frame_state: &mut FrameBuildingState,
-    ) -> GpuBufferAddress {
+    ) -> (GpuBufferAddress, Option<RenderTaskId>, bool) {
         let mut writer = frame_state.frame_gpu_data.f32.write_blocks(3 + brush_segments.len() * VECS_PER_SEGMENT);
         self.write_prim_gpu_blocks(&mut writer, &prim_size);
         Self::write_segment_gpu_blocks(&mut writer, brush_segments);
         let gpu_address = writer.finish();
 
-        let frame_id = frame_state.rg_builder.frame_id();
-        if self.frame_id != frame_id {
-            self.frame_id = frame_id;
+        let size = frame_state.resource_cache.request_image(
+            self.request,
+            &mut frame_state.frame_gpu_data.f32,
+        );
 
-            let size = frame_state.resource_cache.request_image(
-                self.request,
-                &mut frame_state.frame_gpu_data.f32,
-            );
+        let task_id = frame_state.rg_builder.add().init(
+            RenderTask::new_image(size, self.request, false)
+        );
+        let src_color = Some(task_id);
 
-            let task_id = frame_state.rg_builder.add().init(
-                RenderTask::new_image(size, self.request, false)
-            );
+        let image_properties = frame_state
+            .resource_cache
+            .get_image_properties(self.request.key);
 
-            self.src_color = Some(task_id);
+        let is_opaque = image_properties
+            .map(|properties| properties.descriptor.is_opaque())
+            .unwrap_or(true);
 
-            let image_properties = frame_state
-                .resource_cache
-                .get_image_properties(self.request.key);
-
-            self.is_opaque = image_properties
-                .map(|properties| properties.descriptor.is_opaque())
-                .unwrap_or(true);
-        }
-
-        gpu_address
+        (gpu_address, src_color, is_opaque)
     }
 
     fn write_prim_gpu_blocks(
@@ -492,9 +492,6 @@ impl From<ImageBorderKey> for ImageBorderTemplate {
             kind: ImageBorderData {
                 request: key.kind.request,
                 nine_patch: key.kind.nine_patch,
-                src_color: None,
-                frame_id: FrameId::INVALID,
-                is_opaque: false,
             }
         }
     }
@@ -551,6 +548,6 @@ fn test_struct_sizes() {
     assert_eq!(mem::size_of::<NormalBorderTemplate>(), 152, "NormalBorderTemplate size changed");
     assert_eq!(mem::size_of::<NormalBorderKey>(), 104, "NormalBorderKey size changed");
     assert_eq!(mem::size_of::<ImageBorder>(), 68, "ImageBorder size changed");
-    assert_eq!(mem::size_of::<ImageBorderTemplate>(), 104, "ImageBorderTemplate size changed");
+    assert_eq!(mem::size_of::<ImageBorderTemplate>(), 72, "ImageBorderTemplate size changed");
     assert_eq!(mem::size_of::<ImageBorderKey>(), 72, "ImageBorderKey size changed");
 }

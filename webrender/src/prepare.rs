@@ -1010,7 +1010,7 @@ fn prepare_interned_prim_for_render(
         }
         PrimitiveKind::ImageBorder { data_handle, .. } => {
             profile_scope!("ImageBorder");
-            let prim_data = &mut data_stores.image_border[*data_handle];
+            let prim_data = &data_stores.image_border[*data_handle];
 
             // The per-frame brush segments were allocated in
             // prepare_prim_for_render before update_clip_task; the
@@ -1023,14 +1023,17 @@ fn prepare_interned_prim_for_render(
                 scratch.frame.image_border[ib_handle].brush_segments_range;
             let brush_segments = &scratch.frame.segments[brush_segments_range];
 
-            // Update the template this instance references, which may refresh the GPU
-            // cache with any shared template data.
-            let gpu_address = prim_data.kind.update(
+            // Compute this instance's per-frame GPU block, source render task
+            // and opacity, and store them on the per-frame scratch entry.
+            let (gpu_address, src_color, is_opaque) = prim_data.kind.update(
                 prim_info.snapped_local_rect.size(),
                 brush_segments,
                 frame_state,
             );
-            scratch.frame.image_border[ib_handle].gpu_address = gpu_address;
+            let ib_scratch = &mut scratch.frame.image_border[ib_handle];
+            ib_scratch.gpu_address = gpu_address;
+            ib_scratch.src_color = src_color;
+            ib_scratch.is_opaque = is_opaque;
         }
         PrimitiveKind::Rectangle { data_handle, .. } => {
             profile_scope!("Rectangle");
