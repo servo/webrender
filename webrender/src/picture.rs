@@ -699,7 +699,7 @@ impl PictureInstance {
         parent_subpixel_mode: SubpixelMode,
         frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
-        data_stores: &mut DataStores,
+        data_stores: &DataStores,
         scratch: &mut PrimitiveScratchBuffer,
         tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
     ) -> Option<(PictureContext, PictureState, PrimitiveList, storage::Index<PictureScratch>)> {
@@ -1418,7 +1418,7 @@ impl PictureInstance {
     pub fn write_gpu_blocks(
         &mut self,
         frame_state: &mut FrameBuildingState,
-        data_stores: &mut DataStores,
+        data_stores: &DataStores,
         scratch: &mut PictureScratch,
     ) {
         let raster_config = match self.raster_config {
