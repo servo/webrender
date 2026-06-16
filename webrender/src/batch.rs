@@ -1603,7 +1603,26 @@ impl BatchBuilder {
 
         let common_data = ctx.data_stores.as_common_data(prim_instance);
 
-        let needs_blending = !common_data.opacity.is_opaque ||
+        // Per-instance opacity. Previously cached on the (now immutable)
+        // prim template; sourced per kind from its per-frame scratch
+        // (Rectangle/Image) or derived directly (constant for YuvImage /
+        // NormalBorder, template flag for ImageBorder).
+        let opacity = match prim_instance.kind {
+            PrimitiveKind::Rectangle { .. } => {
+                ctx.scratch.frame.rectangle[prim_info.kind_scratch.unwrap_rectangle()].opacity
+            }
+            PrimitiveKind::Image { .. } => {
+                ctx.scratch.frame.images[prim_info.kind_scratch.unwrap_image()].opacity
+            }
+            PrimitiveKind::YuvImage { .. } => PrimitiveOpacity::opaque(),
+            PrimitiveKind::NormalBorder { .. } => PrimitiveOpacity::translucent(),
+            PrimitiveKind::ImageBorder { data_handle, .. } => {
+                PrimitiveOpacity { is_opaque: ctx.data_stores.image_border[data_handle].kind.is_opaque }
+            }
+            _ => PrimitiveOpacity::translucent(),
+        };
+
+        let needs_blending = !opacity.is_opaque ||
             prim_info.clip_task_index != ClipTaskIndex::INVALID ||
             !transform_metadata.is_2d_axis_aligned ||
             is_anti_aliased;
@@ -1679,7 +1698,7 @@ impl BatchBuilder {
 
             self.add_segmented_prim_to_batch(
                 segments,
-                common_data.opacity,
+                opacity,
                 &batch_params,
                 blend_mode,
                 batch_features,
@@ -1753,7 +1772,7 @@ impl BatchBuilder {
                 let brush_segments = &ctx.scratch.frame.segments[nb_scratch.brush_segments_range];
                 self.add_segmented_prim_to_batch(
                     Some(brush_segments),
-                    common_data.opacity,
+                    opacity,
                     &batch_params,
                     blend_mode,
                     batch_features,
@@ -2018,7 +2037,7 @@ impl BatchBuilder {
 
                 self.add_segmented_prim_to_batch(
                     segments,
-                    common_data.opacity,
+                    opacity,
                     &batch_params,
                     blend_mode,
                     batch_features,
@@ -2123,7 +2142,7 @@ impl BatchBuilder {
 
                     self.add_segmented_prim_to_batch(
                         segments,
-                        common_data.opacity,
+                        opacity,
                         &batch_params,
                         blend_mode,
                         batch_features,

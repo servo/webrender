@@ -15,7 +15,7 @@ use crate::frame_builder::{FrameBuildingContext, FrameBuildingState};
 use crate::intern;
 use crate::internal_types::{LayoutPrimitiveInfo, FrameId};
 use crate::prim_store::{
-    BorderSegmentInfo, BrushSegment, InternablePrimitive, NinePatchDescriptor, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveKind, PrimitiveOpacity, PrimitiveScratchBuffer, PrimitiveStore, VECS_PER_SEGMENT
+    BorderSegmentInfo, BrushSegment, InternablePrimitive, NinePatchDescriptor, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveKind, PrimitiveScratchBuffer, PrimitiveStore, VECS_PER_SEGMENT
 };
 use crate::resource_cache::ImageRequest;
 use crate::render_task::{RenderTask, RenderTaskKind};
@@ -151,7 +151,6 @@ impl NormalBorderData {
     /// done if the cache entry is invalid (due to first use or eviction).
     pub fn write_brush_gpu_blocks(
         &mut self,
-        common: &mut PrimTemplateCommonData,
         prim_size: LayoutSize,
         brush_segments: &[BrushSegment],
         frame_state: &mut FrameBuildingState,
@@ -172,7 +171,6 @@ impl NormalBorderData {
         }
 
         let gpu_address = writer.finish();
-        common.opacity = PrimitiveOpacity::translucent();
         gpu_address
     }
 
@@ -422,7 +420,6 @@ impl ImageBorderData {
     /// done if the cache entry is invalid (due to first use or eviction).
     pub fn update(
         &mut self,
-        common: &mut PrimTemplateCommonData,
         prim_size: LayoutSize,
         brush_segments: &[BrushSegment],
         frame_state: &mut FrameBuildingState,
@@ -456,7 +453,6 @@ impl ImageBorderData {
                 .unwrap_or(true);
         }
 
-        common.opacity = PrimitiveOpacity { is_opaque: self.is_opaque };
         gpu_address
     }
 
