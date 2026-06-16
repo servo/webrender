@@ -595,15 +595,15 @@ static ALWAYS_INLINE IntRange clip_distance_range(const E& left,
 // Converts a run array into a flattened array of depth samples. This just
 // walks through every run and fills the samples with the depth value from
 // the run.
-static void flatten_depth_runs(DepthRun* runs, size_t width) {
+static void flatten_depth_runs(DepthRun* runs, int width) {
   if (runs->is_flat()) {
     return;
   }
   while (width > 0) {
-    size_t n = runs->count;
+    uint8_t n = runs->count;
     fill_flat_depth(runs, n, runs->depth);
     runs += n;
-    width -= n;
+    width -= int(n);
   }
 }
 
@@ -1008,8 +1008,9 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint32_t z,
         // edges per the change in right and left X. If the left and right X
         // positions are extremely close together, then avoid stepping the
         // interpolants.
-        float stepScale = 1.0f / (right.x - left.x);
-        if (!isfinite(stepScale)) stepScale = 0.0f;
+        float stepWidth = right.x - left.x;
+        float stepScale = 1.0f / stepWidth;
+        if (!isfinite(stepWidth) || !isfinite(stepScale)) stepScale = 0.0f;
         Interpolants step = (right.interp - left.interp) * stepScale;
         // Advance current interpolants to X at start of span.
         Interpolants o = left.interp + step * (span.start + 0.5f - left.x);
@@ -1239,8 +1240,9 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
         // Calculate the fragment Z and W change per change in fragment X step.
         // If the left and right X positions are extremely close together, then
         // avoid stepping.
-        float stepScale = 1.0f / (right.x() - left.x());
-        if (!isfinite(stepScale)) stepScale = 0.0f;
+        float stepWidth = right.x() - left.x();
+        float stepScale = 1.0f / stepWidth;
+        if (!isfinite(stepWidth) || !isfinite(stepScale)) stepScale = 0.0f;
         vec2_scalar stepZW = (right.zw() - left.zw()) * stepScale;
         // Calculate initial Z and W values for span start.
         vec2_scalar zw = left.zw() + stepZW * (span.start + 0.5f - left.x());
