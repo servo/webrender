@@ -1314,7 +1314,7 @@ impl BatchBuilder {
                                   filter_data.data.b_func.to_int() << 20 |
                                   filter_data.data.a_func.to_int() << 16) as i32);
 
-                            let user_data = filter_data.gpu_buffer_address.as_int();
+                            let user_data = picture_scratch.extra_gpu_data[0].as_int();
 
                             let key = BatchKey::new(
                                 BatchKind::Brush(BrushBatchKind::Blend),
