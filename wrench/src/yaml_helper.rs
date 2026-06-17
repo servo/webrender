@@ -208,6 +208,8 @@ impl YamlHelper for Yaml {
         match *self {
             Yaml::Integer(iv) => Some(iv as f32),
             Yaml::Real(ref sv) => f32::from_str(sv.as_str()).ok(),
+            Yaml::String(ref sv) if sv == "+Inf" => Some(f32::INFINITY),
+            Yaml::String(ref sv) if sv == "-Inf" => Some(f32::NEG_INFINITY),
             _ => None,
         }
     }
@@ -485,20 +487,44 @@ impl YamlHelper for Yaml {
                     shape_bottom_right: 1.0,
                 })
             }
-            Yaml::Hash(_) => {
-                let top_left = self["top-left"].as_border_radius_component();
-                let top_right = self["top-right"].as_border_radius_component();
-                let bottom_left = self["bottom-left"].as_border_radius_component();
-                let bottom_right = self["bottom-right"].as_border_radius_component();
+            Yaml::Array(ref array) if array.len() == 8 => {
+                let top_left = array[0].as_border_radius_component();
+                let top_right = array[1].as_border_radius_component();
+                let bottom_left = array[2].as_border_radius_component();
+                let bottom_right = array[3].as_border_radius_component();
+                let shape_top_left = array[4].as_f32().unwrap();
+                let shape_top_right = array[5].as_f32().unwrap();
+                let shape_bottom_left = array[6].as_f32().unwrap();
+                let shape_bottom_right = array[7].as_f32().unwrap();
                 Some(BorderRadius {
                     top_left,
                     top_right,
                     bottom_left,
                     bottom_right,
-                    shape_top_left: 1.0,
-                    shape_top_right: 1.0,
-                    shape_bottom_left: 1.0,
-                    shape_bottom_right: 1.0,
+                    shape_top_left,
+                    shape_top_right,
+                    shape_bottom_left,
+                    shape_bottom_right,
+                })
+            }
+            Yaml::Hash(_) => {
+                let top_left = self["top-left"].as_border_radius_component();
+                let top_right = self["top-right"].as_border_radius_component();
+                let bottom_left = self["bottom-left"].as_border_radius_component();
+                let bottom_right = self["bottom-right"].as_border_radius_component();
+                let shape_top_left = self["shape-top-left"].as_f32().unwrap_or(1.0);
+                let shape_top_right = self["shape-top-right"].as_f32().unwrap_or(1.0);
+                let shape_bottom_left = self["shape-bottom-left"].as_f32().unwrap_or(1.0);
+                let shape_bottom_right = self["shape-bottom-right"].as_f32().unwrap_or(1.0);
+                Some(BorderRadius {
+                    top_left,
+                    top_right,
+                    bottom_left,
+                    bottom_right,
+                    shape_top_left,
+                    shape_top_right,
+                    shape_bottom_left,
+                    shape_bottom_right,
                 })
             }
             _ => {
