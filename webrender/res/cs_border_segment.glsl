@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include shared,rect,border_shared,ellipse
+#include shared,rect,ellipse
 
 // For edges, the colors are the same. For corners, these
 // are the colors of each edge making up the corner.
@@ -46,6 +46,15 @@ flat varying mediump vec4 vClipParams2;
 // Local space position
 varying highp vec2 vPos;
 
+#define SEGMENT_TOP_LEFT        0
+#define SEGMENT_TOP_RIGHT       1
+#define SEGMENT_BOTTOM_RIGHT    2
+#define SEGMENT_BOTTOM_LEFT     3
+#define SEGMENT_LEFT            4
+#define SEGMENT_TOP             5
+#define SEGMENT_RIGHT           6
+#define SEGMENT_BOTTOM          7
+
 // Border styles as defined in webrender_api/types.rs
 #define BORDER_STYLE_NONE         0
 #define BORDER_STYLE_SOLID        1
@@ -64,6 +73,16 @@ varying highp vec2 vPos;
 #define CLIP_DOT         3
 
 #ifdef WR_VERTEX_SHADER
+
+PER_INSTANCE in vec2 aTaskOrigin;
+PER_INSTANCE in vec4 aRect;
+PER_INSTANCE in vec4 aColor0;
+PER_INSTANCE in vec4 aColor1;
+PER_INSTANCE in int aFlags;
+PER_INSTANCE in vec2 aWidths;
+PER_INSTANCE in vec2 aRadii;
+PER_INSTANCE in vec4 aClipParams1;
+PER_INSTANCE in vec4 aClipParams2;
 
 vec2 get_outer_corner_scale(int segment) {
     vec2 p;
@@ -136,14 +155,12 @@ vec4[2] get_colors_for_side(vec4 color, int style) {
 }
 
 void main(void) {
-    BorderInstanceGpuData data = fetch_gpu_data(aGpuDataAddress);
-
     int segment = aFlags & 0xff;
     int style0 = (aFlags >> 8) & 0xff;
     int style1 = (aFlags >> 16) & 0xff;
     int clip_mode = (aFlags >> 24) & 0x0f;
 
-    vec2 size = data.rect.zw - data.rect.xy;
+    vec2 size = aRect.zw - aRect.xy;
     vec2 outer_scale = get_outer_corner_scale(segment);
     vec2 outer = outer_scale * size;
     vec2 clip_sign = 1.0 - 2.0 * outer_scale;
@@ -161,15 +178,15 @@ void main(void) {
             break;
         case SEGMENT_TOP_RIGHT:
             edge_axis = ivec2(1, 0);
-            edge_reference = vec2(outer.x - data.widths.x, outer.y);
+            edge_reference = vec2(outer.x - aWidths.x, outer.y);
             break;
         case SEGMENT_BOTTOM_RIGHT:
             edge_axis = ivec2(0, 1);
-            edge_reference = outer - data.widths;
+            edge_reference = outer - aWidths;
             break;
         case SEGMENT_BOTTOM_LEFT:
             edge_axis = ivec2(1, 0);
-            edge_reference = vec2(outer.x, outer.y - data.widths.y);
+            edge_reference = vec2(outer.x, outer.y - aWidths.y);
             break;
         case SEGMENT_TOP:
         case SEGMENT_BOTTOM:
@@ -184,19 +201,19 @@ void main(void) {
     vSegmentClipMode = vec2(float(segment), float(clip_mode));
     vStyleEdgeAxis = vec4(float(style0), float(style1), float(edge_axis.x), float(edge_axis.y));
 
-    vPartialWidths = vec4(data.widths / 3.0, data.widths / 2.0);
+    vPartialWidths = vec4(aWidths / 3.0, aWidths / 2.0);
     vPos = size * aPosition.xy;
 
-    vec4[2] color0 = get_colors_for_side(data.color0, style0);
+    vec4[2] color0 = get_colors_for_side(aColor0, style0);
     vColor00 = color0[0];
     vColor01 = color0[1];
-    vec4[2] color1 = get_colors_for_side(data.color1, style1);
+    vec4[2] color1 = get_colors_for_side(aColor1, style1);
     vColor10 = color1[0];
     vColor11 = color1[1];
-    vClipCenter_Sign = vec4(outer + clip_sign * data.radii, clip_sign);
-    vClipRadii = vec4(data.radii, max(data.radii - data.widths, 0.0));
-    vColorLine = vec4(outer, data.widths.y * -clip_sign.y, data.widths.x * clip_sign.x);
-    vEdgeReference = vec4(edge_reference, edge_reference + data.widths);
+    vClipCenter_Sign = vec4(outer + clip_sign * aRadii, clip_sign);
+    vClipRadii = vec4(aRadii, max(aRadii - aWidths, 0.0));
+    vColorLine = vec4(outer, aWidths.y * -clip_sign.y, aWidths.x * clip_sign.x);
+    vEdgeReference = vec4(edge_reference, edge_reference + aWidths);
     vClipParams1 = aClipParams1;
     vClipParams2 = aClipParams2;
 
@@ -219,13 +236,13 @@ void main(void) {
         // this amount on each side (sqrt(2) * length(dash) would be enough and we
         // compute 2 * approx_length(dash)).
         float dash_length = length(aClipParams1.xy - aClipParams2.xy);
-        float width = max(data.widths.x, data.widths.y);
+        float width = max(aWidths.x, aWidths.y);
         // expand by a small amout for AA just like we do for dots.
         vec2 r = vec2(max(dash_length, width)) + 2.0;
         vPos = clamp(vPos, center - r, center + r);
     }
 
-    gl_Position = uTransform * vec4(aTaskOrigin + data.rect.xy + vPos, 0.0, 1.0);
+    gl_Position = uTransform * vec4(aTaskOrigin + aRect.xy + vPos, 0.0, 1.0);
 }
 #endif
 
