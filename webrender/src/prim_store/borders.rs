@@ -410,7 +410,7 @@ pub struct ImageBorderData {
     #[ignore_malloc_size_of = "Arc"]
     pub request: ImageRequest,
     pub nine_patch: NinePatchDescriptor,
-    pub src_color: Option<RenderTaskId>,
+    pub src_color: Option<(RenderTaskId, DeviceIntSize)>,
     pub frame_id: FrameId,
     pub is_opaque: bool,
 }
@@ -420,9 +420,9 @@ impl ImageBorderData {
     /// times per frame, by each primitive reference that refers to this interned
     /// template. The initial request call to the GPU cache ensures that work is only
     /// done if the cache entry is invalid (due to first use or eviction).
-    pub fn update(
+    pub fn write_brush_gpu_blocks(
         &mut self,
-        common: &mut PrimTemplateCommonData,
+        _common: &mut PrimTemplateCommonData,
         prim_size: LayoutSize,
         brush_segments: &[BrushSegment],
         frame_state: &mut FrameBuildingState,
@@ -430,8 +430,15 @@ impl ImageBorderData {
         let mut writer = frame_state.frame_gpu_data.f32.write_blocks(3 + brush_segments.len() * VECS_PER_SEGMENT);
         self.write_prim_gpu_blocks(&mut writer, &prim_size);
         Self::write_segment_gpu_blocks(&mut writer, brush_segments);
-        let gpu_address = writer.finish();
+        writer.finish()
+    }
 
+
+    pub fn update(
+        &mut self,
+        common: &mut PrimTemplateCommonData,
+        frame_state: &mut FrameBuildingState,
+    ) -> (RenderTaskId, DeviceIntSize) {
         let frame_id = frame_state.rg_builder.frame_id();
         if self.frame_id != frame_id {
             self.frame_id = frame_id;
@@ -445,7 +452,7 @@ impl ImageBorderData {
                 RenderTask::new_image(size, self.request, false)
             );
 
-            self.src_color = Some(task_id);
+            self.src_color = Some((task_id, size));
 
             let image_properties = frame_state
                 .resource_cache
@@ -457,7 +464,8 @@ impl ImageBorderData {
         }
 
         common.opacity = PrimitiveOpacity { is_opaque: self.is_opaque };
-        gpu_address
+
+        self.src_color.unwrap()
     }
 
     fn write_prim_gpu_blocks(
@@ -555,6 +563,6 @@ fn test_struct_sizes() {
     assert_eq!(mem::size_of::<NormalBorderTemplate>(), 156, "NormalBorderTemplate size changed");
     assert_eq!(mem::size_of::<NormalBorderKey>(), 104, "NormalBorderKey size changed");
     assert_eq!(mem::size_of::<ImageBorder>(), 68, "ImageBorder size changed");
-    assert_eq!(mem::size_of::<ImageBorderTemplate>(), 104, "ImageBorderTemplate size changed");
+    assert_eq!(mem::size_of::<ImageBorderTemplate>(), 112, "ImageBorderTemplate size changed");
     assert_eq!(mem::size_of::<ImageBorderKey>(), 72, "ImageBorderKey size changed");
 }
