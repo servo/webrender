@@ -1138,7 +1138,7 @@ impl RenderTask {
         filter_nodes: &[(FilterGraphNode, FilterGraphOp)],
         rg_builder: &mut RenderTaskGraphBuilder,
         gpu_buffer: &mut GpuBufferBuilderF,
-        data_stores: &DataStores,
+        data_stores: &mut DataStores,
         _uv_rect_kind: UvRectKind,
         original_task_id: RenderTaskId,
         source_subregion: LayoutRect,
@@ -2072,8 +2072,8 @@ impl RenderTask {
                 FilterGraphOp::SVGFEComponentTransferInterned { handle, creates_pixels: _ } => {
                     // FIXME: Doing this in prepare_interned_prim_for_render
                     // doesn't seem to be enough, where should it be done?
-                    let filter_data = &data_stores.filter_data[handle];
-                    let filter_data_address = filter_data.data.write_gpu_blocks(gpu_buffer);
+                    let filter_data = &mut data_stores.filter_data[handle];
+                    filter_data.write_gpu_blocks(gpu_buffer);
                     // ComponentTransfer has a gpu buffer address that we need to
                     // pass along
                     task_id = rg_builder.add().init(RenderTask::new_dynamic(
@@ -2089,7 +2089,7 @@ impl RenderTask {
                                 },
                                 op: op.clone(),
                                 content_origin: node_task_rect.min,
-                                extra_gpu_data: Some(filter_data_address),
+                                extra_gpu_data: Some(filter_data.gpu_buffer_address),
                             }
                         ),
                     ).with_uv_rect_kind(node_uv_rect_kind));

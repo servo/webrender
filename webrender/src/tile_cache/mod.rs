@@ -1090,7 +1090,7 @@ impl TileCacheInstance {
                 &mut clip_snapper,
                 shared_clip_leaf_id,
                 frame_context.spatial_tree,
-                &frame_state.data_stores.clip,
+                &mut frame_state.data_stores.clip,
                 &frame_state.clip_tree,
             );
 
@@ -1102,7 +1102,7 @@ impl TileCacheInstance {
                 &mut frame_state.frame_gpu_data.f32,
                 frame_state.resource_cache,
                 &surface.culling_rect,
-                &frame_state.data_stores.clip,
+                &mut frame_state.data_stores.clip,
                 frame_state.rg_builder,
                 true,
             );
