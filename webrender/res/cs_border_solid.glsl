@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include shared,rect,ellipse
+#include shared,rect,border_shared,ellipse
 
 #define DONT_MIX 0
 #define MIX_AA 1
@@ -39,22 +39,7 @@ flat varying highp vec2 vVerticalClipRadii;
 // Local space position
 varying highp vec2 vPos;
 
-#define SEGMENT_TOP_LEFT        0
-#define SEGMENT_TOP_RIGHT       1
-#define SEGMENT_BOTTOM_RIGHT    2
-#define SEGMENT_BOTTOM_LEFT     3
-
 #ifdef WR_VERTEX_SHADER
-
-PER_INSTANCE in vec2 aTaskOrigin;
-PER_INSTANCE in vec4 aRect;
-PER_INSTANCE in vec4 aColor0;
-PER_INSTANCE in vec4 aColor1;
-PER_INSTANCE in int aFlags;
-PER_INSTANCE in vec2 aWidths;
-PER_INSTANCE in vec2 aRadii;
-PER_INSTANCE in vec4 aClipParams1;
-PER_INSTANCE in vec4 aClipParams2;
 
 vec2 get_outer_corner_scale(int segment) {
     vec2 p;
@@ -82,11 +67,13 @@ vec2 get_outer_corner_scale(int segment) {
 }
 
 void main(void) {
+    BorderInstanceGpuData data = fetch_gpu_data(aGpuDataAddress);
+
     int segment = aFlags & 0xff;
     bool do_aa = ((aFlags >> 24) & 0xf0) != 0;
 
     vec2 outer_scale = get_outer_corner_scale(segment);
-    vec2 size = aRect.zw - aRect.xy;
+    vec2 size = data.rect.zw - data.rect.xy;
     vec2 outer = outer_scale * size;
     vec2 clip_sign = 1.0 - 2.0 * outer_scale;
 
@@ -107,11 +94,11 @@ void main(void) {
     vMixColors.x = mix_colors;
     vPos = size * aPosition.xy;
 
-    vColor0 = aColor0;
-    vColor1 = aColor1;
-    vClipCenter_Sign = vec4(outer + clip_sign * aRadii, clip_sign);
-    vClipRadii = vec4(aRadii, max(aRadii - aWidths, 0.0));
-    vColorLine = vec4(outer, aWidths.y * -clip_sign.y, aWidths.x * clip_sign.x);
+    vColor0 = data.color0;
+    vColor1 = data.color1;
+    vClipCenter_Sign = vec4(outer + clip_sign * data.radii, clip_sign);
+    vClipRadii = vec4(data.radii, max(data.radii - data.widths, 0.0));
+    vColorLine = vec4(outer, data.widths.y * -clip_sign.y, data.widths.x * clip_sign.x);
 
     vec2 horizontal_clip_sign = vec2(-clip_sign.x, clip_sign.y);
     vHorizontalClipCenter_Sign = vec4(aClipParams1.xy +
@@ -125,7 +112,7 @@ void main(void) {
                                     vertical_clip_sign);
     vVerticalClipRadii = aClipParams2.zw;
 
-    gl_Position = uTransform * vec4(aTaskOrigin + aRect.xy + vPos, 0.0, 1.0);
+    gl_Position = uTransform * vec4(aTaskOrigin + data.rect.xy + vPos, 0.0, 1.0);
 }
 #endif
 
