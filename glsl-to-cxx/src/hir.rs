@@ -3539,6 +3539,8 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
     declare_function(state, "exp2", None, Type::new(Float), vec![Type::new(Float)]);
     declare_function(state, "log", None, Type::new(Float), vec![Type::new(Float)]);
     declare_function(state, "log2", None, Type::new(Float), vec![Type::new(Float)]);
+    declare_function(state, "isnan", None, Type::new(Bool), vec![Type::new(Float)]);
+    declare_function(state, "isinf", None, Type::new(Bool), vec![Type::new(Float)]);
     for t in &[Float, Vec2] {
         // recip is non-standard
         declare_function(
