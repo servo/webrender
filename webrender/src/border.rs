@@ -2,12 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use euclid::vec2;
 use api::{BorderRadius, BorderSide, BorderStyle, ColorF, ColorU};
 use api::{NormalBorder as ApiNormalBorder, RepeatMode};
 use api::units::*;
 use crate::clip::ClipNodeId;
 use crate::ellipse::Ellipse;
-use euclid::vec2;
 use crate::scene_building::SceneBuilder;
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::gpu_types::{BorderInstance, BorderSegment, BrushFlags};
@@ -1533,9 +1533,11 @@ pub fn compute_border_repetition_1d(
         let remaining_space = (segment_size.width - stretch_size * repetitions).max(0.0);
 
         if repeat_mode == RepeatMode::Round {
-            // Stretch the pattern so that an integer number of repetitions
-            // fill the segment exactly.
-            stretch_size = segment_size.width / repetitions
+            // Rescale the pattern so that the nearest whole number of
+            // repetitions fills the segment exactly. Unlike Repeat and Space,
+            // Round rounds to the closest integer rather than truncating.
+            let round_repetitions = (segment_size.width / stretch_size).round().max(1.0);
+            stretch_size = segment_size.width / round_repetitions
         }
 
         if repeat_mode == RepeatMode::Space {
@@ -1546,12 +1548,15 @@ pub fn compute_border_repetition_1d(
 
 
         if repeat_mode == RepeatMode::Repeat {
-            // Offset the pattern to distribute the overflowing repetitions
-            // equally on both sides. To partially include a repetition on the
-            // left side we have to enlarge the local rect to include a full
-            // repetition and let the local clip rect remove the part we don't
-            // want.
-            *out_offset = (remaining_space - stretch_size) * 0.5;
+            // Center the tiled pattern so that a tile is centered on the
+            // segment's midpoint (matching the CSS "repeat" behavior). We move
+            // the tiling origin back to the tile boundary at or before the
+            // start of the segment; the caller enlarges the local rect to
+            // include that partial repetition and clips it back to the segment.
+            // Reducing modulo stretch_size keeps the offset in
+            // (-stretch_size, 0] so we don't emit unnecessary repetitions.
+            let half_overflow = (segment_size.width - stretch_size) * 0.5;
+            *out_offset = half_overflow - (half_overflow / stretch_size).ceil() * stretch_size;
         }
     }
 
