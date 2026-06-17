@@ -84,7 +84,6 @@ mod telemetry;
 
 mod batch;
 mod border;
-mod border_image;
 mod box_shadow;
 #[cfg(any(feature = "capture", feature = "replay"))]
 mod capture;
