@@ -25,6 +25,7 @@ use crate::api::DEFAULT_TILE_SIZE;
 use crate::api::units::*;
 use crate::api_resources::ApiResources;
 use glyph_rasterizer::SharedFontResources;
+use crate::renderer::PipelineInfo;
 use crate::scene_builder_thread::{SceneBuilderRequest, SceneBuilderResult};
 use crate::intern::InterningMemoryReport;
 use crate::profiler::{self, TransactionProfile};
@@ -1010,6 +1011,8 @@ pub enum ApiMsg {
     DebugCommand(DebugCommand),
     /// Message from the scene builder thread.
     SceneBuilderResult(SceneBuilderResult),
+    /// Request pipeline infos.
+    RequestPipelineInfo(Sender<PipelineInfo>),
 }
 
 impl fmt::Debug for ApiMsg {
@@ -1023,6 +1026,7 @@ impl fmt::Debug for ApiMsg {
             ApiMsg::ReportMemory(..) => "ApiMsg::ReportMemory",
             ApiMsg::DebugCommand(..) => "ApiMsg::DebugCommand",
             ApiMsg::SceneBuilderResult(..) => "ApiMsg::SceneBuilderResult",
+            ApiMsg::RequestPipelineInfo(..) => "ApiMsg::RequestPipelineInfo",
         })
     }
 }
@@ -1453,6 +1457,20 @@ impl RenderApi {
         let _ = self.low_priority_scene_sender.send(
             SceneBuilderRequest::SetParameter(parameter)
         );
+    }
+
+    /// Flush and return the current PipelineInfo.
+    pub fn flush_pipeline_info(&self) -> PipelineInfo {
+        let (tx, rx) = single_msg_channel();
+        self.scene_sender.send(SceneBuilderRequest::FlushPipelineInfo(tx)).unwrap();
+        rx.recv().unwrap()
+    }
+
+    /// Returns the Epoch of the current frame in a pipeline.
+    pub fn current_epoch(&self, document_id: DocumentId, pipeline_id: PipelineId) -> Option<Epoch> {
+        let (tx, rx) = single_msg_channel();
+        self.scene_sender.send(SceneBuilderRequest::CurrentEpoch(document_id, pipeline_id, tx)).unwrap();
+        rx.recv().unwrap()
     }
 }
 

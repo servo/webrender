@@ -498,7 +498,7 @@ fn main() {
             // as required.
             renderer.update();
             renderer.render(device_size, 0).unwrap();
-            let _ = renderer.flush_pipeline_info();
+            let _ = api.flush_pipeline_info();
 
             // Construct a simple display list that can be drawn and composited by DC.
             let mut txn = Transaction::new();

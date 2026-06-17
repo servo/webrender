@@ -10,7 +10,7 @@
 
 use api::{DebugFlags, Parameter, BoolParameter, PrimitiveFlags, MinimapData};
 use api::{DocumentId, ExternalScrollId, HitTestResult};
-use api::{IdNamespace, PipelineId, RenderNotifier, SampledScrollOffset};
+use api::{IdNamespace, RenderNotifier, SampledScrollOffset};
 use api::{NotificationRequest, Checkpoint, QualitySettings};
 use api::{FramePublishId, PrimitiveKeyKind, RenderReasons};
 use api::units::*;
@@ -44,7 +44,7 @@ use crate::prim_store::{PrimitiveInstanceKind, PrimTemplateCommonData};
 use crate::prim_store::interned::*;
 use crate::profiler::{self, TransactionProfile};
 use crate::render_task_graph::RenderTaskGraphBuilder;
-use crate::renderer::{FullFrameStats, PipelineInfo};
+use crate::renderer::{FullFrameStats};
 use crate::resource_cache::ResourceCache;
 #[cfg(feature = "replay")]
 use crate::resource_cache::PlainCacheOwn;
@@ -330,12 +330,9 @@ impl ScratchBuffer {
 }
 
 struct Document {
+    #[allow(dead_code)]
     /// The id of this document
     id: DocumentId,
-
-    /// Temporary list of removed pipelines received from the scene builder
-    /// thread and forwarded to the renderer.
-    removed_pipelines: Vec<(PipelineId, DocumentId)>,
 
     view: DocumentView,
 
@@ -405,7 +402,6 @@ impl Document {
     ) -> Self {
         Document {
             id,
-            removed_pipelines: Vec::new(),
             view: DocumentView {
                 scene: SceneView {
                     device_rect: size.into(),
@@ -648,15 +644,6 @@ impl Document {
         self.hit_tester = Some(Arc::clone(&hit_tester));
         self.shared_hit_tester.update(hit_tester);
         self.hit_tester_is_valid = true;
-    }
-
-    pub fn updated_pipeline_info(&mut self) -> PipelineInfo {
-        let removed_pipelines = self.removed_pipelines.take_and_preallocate();
-        PipelineInfo {
-            epochs: self.scene.pipeline_epochs.iter()
-                .map(|(&pipeline_id, &epoch)| ((pipeline_id, self.id), epoch)).collect(),
-            removed_pipelines,
-        }
     }
 
     /// Returns true if the node actually changed position or false otherwise.
@@ -939,7 +926,6 @@ impl RenderBackend {
            let has_built_scene = txn.built_scene.is_some();
 
             if let Some(doc) = self.documents.get_mut(&txn.document_id) {
-                doc.removed_pipelines.append(&mut txn.removed_pipelines);
                 doc.view.scene = txn.view;
                 doc.profile.merge(&mut txn.profile);
 
@@ -1307,6 +1293,9 @@ impl RenderBackend {
             }
             ApiMsg::SceneBuilderResult(msg) => {
                 return self.process_scene_builder_result(msg, frame_counter);
+            }
+            ApiMsg::RequestPipelineInfo(tx) => {
+                self.send_backend_message(SceneBuilderRequest::RequestPipelineInfo(tx));
             }
         }
 
@@ -1698,9 +1687,6 @@ impl RenderBackend {
             let update_doc_time = profiler::ns_to_ms(zeitstempel::now() - update_doc_start);
             rendered_document.profile.set(profiler::UPDATE_DOCUMENT_TIME, update_doc_time);
 
-            let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
-            self.result_tx.send(msg).unwrap();
-
             // Publish the frame
             self.frame_publish_id.advance();
             let msg = ResultMsg::PublishDocument(
@@ -1709,13 +1695,6 @@ impl RenderBackend {
                 rendered_document,
                 pending_update,
             );
-            self.result_tx.send(msg).unwrap();
-        } else if requested_frame {
-            // WR-internal optimization to avoid doing a bunch of render work if
-            // there's no pixels. We still want to pretend to render and request
-            // a render to make sure that the callbacks (particularly the
-            // new_frame_ready callback below) has the right flags.
-            let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
             self.result_tx.send(msg).unwrap();
         }
 
@@ -2079,7 +2058,6 @@ impl RenderBackend {
                     let doc = Document {
                         id,
                         scene: BuiltScene::empty(),
-                        removed_pipelines: Vec::new(),
                         view,
                         stamp: FrameStamp::first(id),
                         frame_builder: FrameBuilder::new(),

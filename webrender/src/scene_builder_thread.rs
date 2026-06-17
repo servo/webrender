@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AsyncBlobImageRasterizer, BlobImageResult, DebugFlags, Parameter};
-use api::{DocumentId, PipelineId, ExternalEvent, BlobImageRequest};
+use api::{DocumentId, Epoch, PipelineId, ExternalEvent, BlobImageRequest};
 use api::{NotificationRequest, Checkpoint, IdNamespace, QualitySettings};
 use api::{PrimitiveKeyKind, GlyphDimensionRequest, GlyphIndexRequest};
 use api::channel::{unbounded_channel, single_msg_channel, Receiver, Sender};
@@ -18,7 +18,7 @@ use crate::clip::{ClipIntern, PolygonIntern};
 use crate::filterdata::FilterDataIntern;
 use glyph_rasterizer::SharedFontResources;
 use crate::intern::{Internable, Interner, UpdateList};
-use crate::internal_types::{FastHashMap, FastHashSet};
+use crate::internal_types::FastHashMap;
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use crate::prim_store::backdrop::{BackdropCapture, BackdropRender};
 use crate::prim_store::borders::{ImageBorder, NormalBorderPrim};
@@ -34,9 +34,8 @@ use crate::scene::{BuiltScene, Scene, SceneStats};
 use crate::spatial_tree::{SceneSpatialTree, SpatialTreeUpdates};
 use crate::telemetry::Telemetry;
 use crate::SceneBuilderHooks;
-use std::iter;
 use crate::util::drain_filter;
-use std::thread;
+use std::{iter, mem, thread};
 use std::time::Duration;
 
 fn rasterize_blobs(txn: &mut TransactionMsg, is_low_priority: bool, tile_pool: &mut api::BlobTilePool) {
@@ -64,7 +63,6 @@ pub struct BuiltTransaction {
     pub rasterized_blobs: Vec<(BlobImageRequest, BlobImageResult)>,
     pub blob_rasterizer: Option<Box<dyn AsyncBlobImageRasterizer>>,
     pub frame_ops: Vec<FrameMsg>,
-    pub removed_pipelines: Vec<(PipelineId, DocumentId)>,
     pub notifications: Vec<NotificationRequest>,
     pub interner_updates: Option<InternerUpdates>,
     pub spatial_tree_updates: Option<SpatialTreeUpdates>,
@@ -97,8 +95,11 @@ pub struct LoadScene {
 /// Message to the scene builder thread.
 pub enum SceneBuilderRequest {
     Transactions(Vec<Box<TransactionMsg>>),
+    CurrentEpoch(DocumentId, PipelineId, Sender<Option<Epoch>>),
     AddDocument(DocumentId, DeviceIntSize),
     DeleteDocument(DocumentId),
+    RequestPipelineInfo(Sender<PipelineInfo>),
+    FlushPipelineInfo(Sender<PipelineInfo>),
     GetGlyphDimensions(GlyphDimensionRequest),
     GetGlyphIndices(GlyphIndexRequest),
     ClearNamespace(IdNamespace),
@@ -247,7 +248,7 @@ pub struct SceneBuilderThread {
     size_of_ops: Option<MallocSizeOfOps>,
     hooks: Option<Box<dyn SceneBuilderHooks + Send>>,
     simulate_slow_ms: u32,
-    removed_pipelines: FastHashSet<PipelineId>,
+    pipeline_info: PipelineInfo,
     #[cfg(feature = "capture")]
     capture_config: Option<CaptureConfig>,
     debug_flags: DebugFlags,
@@ -294,7 +295,7 @@ impl SceneBuilderThread {
             size_of_ops,
             hooks,
             simulate_slow_ms: 0,
-            removed_pipelines: FastHashSet::default(),
+            pipeline_info: PipelineInfo::default(),
             #[cfg(feature = "capture")]
             capture_config: None,
             debug_flags: DebugFlags::default(),
@@ -344,6 +345,10 @@ impl SceneBuilderThread {
                     self.recycler.recycle_built_scene();
                     self.tile_pool.cleanup();
                 }
+                Ok(SceneBuilderRequest::CurrentEpoch(document_id, pipeline_id, tx)) => {
+                    let current_epoch = self.current_epoch(document_id, pipeline_id);
+                    tx.send(current_epoch).unwrap();
+                }
                 Ok(SceneBuilderRequest::AddDocument(document_id, initial_size)) => {
                     let old = self.documents.insert(document_id, Document::new(
                         initial_size.into(),
@@ -353,6 +358,14 @@ impl SceneBuilderThread {
                 Ok(SceneBuilderRequest::DeleteDocument(document_id)) => {
                     self.documents.remove(&document_id);
                     self.send(SceneBuilderResult::DeleteDocument(document_id));
+                    self.pipeline_info.removed_pipelines.retain(|(_, doc_id)| *doc_id != document_id);
+                }
+                Ok(SceneBuilderRequest::RequestPipelineInfo(tx)) => {
+                    tx.send(self.pipeline_info.clone()).unwrap();
+                }
+                Ok(SceneBuilderRequest::FlushPipelineInfo(tx)) => {
+                    let info = self.flush_pipeline_info();
+                    tx.send(info).unwrap();
                 }
                 Ok(SceneBuilderRequest::ClearNamespace(id)) => {
                     self.documents.retain(|doc_id, _doc| doc_id.namespace_id != id);
@@ -495,7 +508,6 @@ impl SceneBuilderThread {
                 rasterized_blobs: Vec::new(),
                 blob_rasterizer: None,
                 frame_ops: Vec::new(),
-                removed_pipelines: Vec::new(),
                 notifications: Vec::new(),
                 interner_updates,
                 spatial_tree_updates,
@@ -550,7 +562,6 @@ impl SceneBuilderThread {
         let mut profile = txn.profile.take();
 
         let scene_build_start = zeitstempel::now();
-        let mut removed_pipelines = Vec::new();
         let mut rebuild_scene = false;
         let mut frame_stats = FullFrameStats::default();
         let mut offscreen_scenes = Vec::new();
@@ -559,6 +570,7 @@ impl SceneBuilderThread {
             match message {
                 SceneMsg::UpdateEpoch(pipeline_id, epoch) => {
                     scene.update_epoch(pipeline_id, epoch);
+                    self.pipeline_info.epochs.insert((pipeline_id, txn.document_id), epoch);
                 }
                 SceneMsg::SetQualitySettings { settings } => {
                     doc.view.quality_settings = settings;
@@ -584,7 +596,7 @@ impl SceneBuilderThread {
                     frame_stats.gecko_display_list_time = gecko_display_list_time;
                     frame_stats.wr_display_list_time += dl_build_time;
 
-                    if self.removed_pipelines.contains(&pipeline_id) {
+                    if self.pipeline_info.removed_pipelines.contains(&(pipeline_id, txn.document_id)) {
                         continue;
                     }
 
@@ -598,6 +610,7 @@ impl SceneBuilderThread {
                         epoch,
                         display_list,
                     );
+                    self.pipeline_info.epochs.insert((pipeline_id, txn.document_id), epoch);
                 }
                 SceneMsg::RenderOffscreen(pipeline_id) => {
                     let mut interners = Interners::default();
@@ -630,13 +643,10 @@ impl SceneBuilderThread {
                 }
                 SceneMsg::RemovePipeline(pipeline_id) => {
                     scene.remove_pipeline(pipeline_id);
-                    self.removed_pipelines.insert(pipeline_id);
-                    removed_pipelines.push((pipeline_id, txn.document_id));
+                    self.pipeline_info.removed_pipelines.insert((pipeline_id, txn.document_id));
                 }
             }
         }
-
-        self.removed_pipelines.clear();
 
         let mut built_scene = None;
         let mut interner_updates = None;
@@ -711,7 +721,6 @@ impl SceneBuilderThread {
             resource_updates: txn.resource_updates,
             blob_rasterizer: txn.blob_rasterizer,
             frame_ops: txn.frame_ops,
-            removed_pipelines,
             notifications: txn.notifications,
             interner_updates,
             spatial_tree_updates,
@@ -734,9 +743,7 @@ impl SceneBuilderThread {
                                     .zip(iter::repeat(txn.document_id))
                                     .map(|((&pipeline_id, &epoch), document_id)| ((pipeline_id, document_id), epoch))
                             }).flatten().collect(),
-                        removed_pipelines: txns.iter()
-                            .map(|txn| txn.removed_pipelines.clone())
-                            .flatten().collect(),
+                        removed_pipelines: self.pipeline_info.removed_pipelines.clone(),
                     };
 
                     let (tx, rx) = single_msg_channel();
@@ -812,6 +819,15 @@ impl SceneBuilderThread {
         }
 
         report
+    }
+
+    fn flush_pipeline_info(&mut self) -> PipelineInfo {
+        mem::replace(&mut self.pipeline_info, PipelineInfo::default())
+    }
+
+    /// Returns the Epoch of the current frame in a pipeline.
+    fn current_epoch(&self, document_id: DocumentId, pipeline_id: PipelineId) -> Option<Epoch> {
+        self.pipeline_info.epochs.get(&(pipeline_id, document_id)).cloned()
     }
 }
 

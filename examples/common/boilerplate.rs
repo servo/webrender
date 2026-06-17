@@ -312,7 +312,7 @@ pub fn main_wrapper<E: Example>(
 
         renderer.update();
         renderer.render(device_size, 0).unwrap();
-        let _ = renderer.flush_pipeline_info();
+        let _ = api.flush_pipeline_info();
         example.draw_custom(&*gl);
         windowed_context.swap_buffers().ok();
 
