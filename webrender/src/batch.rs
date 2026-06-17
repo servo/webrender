@@ -1646,8 +1646,7 @@ impl BatchBuilder {
                 let ib_scratch = ctx.scratch.frame.image_border[ib_handle];
                 prim_cache_address = ib_scratch.gpu_address;
                 let brush_segments = &ctx.scratch.frame.segments[ib_scratch.brush_segments_range];
-                let src_color = prim_data.kind.src_color.map(|src| src.0);
-                Some((src_color, brush_segments))
+                Some((prim_data.kind.src_color, brush_segments))
             }
             _ => None,
         };

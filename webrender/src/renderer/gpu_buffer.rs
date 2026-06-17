@@ -505,35 +505,16 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
                 // The gpu buffer stores uv rects in device pixels, but the renderer
                 // writes normalized uvs for external images that use them. Scale by the
                 // image size (the external image task's target rect) during the copy.
-                let task_target_rect = render_task.get_target_rect();
                 let uv_scale = if normalized_uvs {
-                    let size = task_target_rect.size();
+                    let size = render_task.get_target_rect().size();
                     [size.width as f32, size.height as f32]
                 } else {
                     [1.0, 1.0]
-                };
-                // External image uvs are resolved by the renderer, so the sub-rect
-                // can't be baked in here as it is for non-external images.
-                // Instead, express it as fractions of the task and apply it in
-                // `apply_deferred_uv_copies` once the uvs are known.
-                let sub_uv = if block.task_id.has_sub_rect() {
-                    let sub = &render_tasks.sub_rects[block.task_id.sub_rect_index as usize];
-                    let w = task_target_rect.width() as f32;
-                    let h = task_target_rect.height() as f32;
-                    [
-                        sub.sub_rect.min.x as f32 / w,
-                        sub.sub_rect.min.y as f32 / h,
-                        sub.sub_rect.max.x as f32 / w,
-                        sub.sub_rect.max.y as f32 / h,
-                    ]
-                } else {
-                    [0.0, 0.0, 1.0, 1.0]
                 };
                 deferred_uv_copies.push(DeferredUvCopy {
                     src: render_task.get_texture_address().as_u32(),
                     dst: block.index as u32,
                     uv_scale,
-                    sub_uv,
                 });
                 continue;
             }
@@ -656,13 +637,6 @@ pub struct DeferredUvCopy {
     /// device pixels that the quad shaders expect. `[1.0, 1.0]` for uvs that
     /// are already in device pixels.
     pub uv_scale: [f32; 2],
-    /// Sub-rect to extract from the copied uv rect, expressed as fractions of
-    /// the source task's extent: `[fx0, fy0, fx1, fy1]`. `[0.0, 0.0, 1.0, 1.0]`
-    /// copies the whole task (the common case). Used for image borders, whose
-    /// segments sample a sub-region of the source image via `add_sub_rect`; the
-    /// sub-rect must be applied on top of the renderer-resolved uvs here because
-    /// external image uvs are not known at `finalize` time.
-    pub sub_uv: [f32; 4],
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -687,17 +661,7 @@ impl GpuBuffer<GpuBufferBlockF> {
             uv[1] *= copy.uv_scale[1];
             uv[2] *= copy.uv_scale[0];
             uv[3] *= copy.uv_scale[1];
-            // Extract the sub-rect (fractions of the resolved uv rect). This is an
-            // identity transform in the common (whole-task) case.
-            let w = uv[2] - uv[0];
-            let h = uv[3] - uv[1];
-            let sub = [
-                uv[0] + copy.sub_uv[0] * w,
-                uv[1] + copy.sub_uv[1] * h,
-                uv[0] + copy.sub_uv[2] * w,
-                uv[1] + copy.sub_uv[3] * h,
-            ];
-            self.data[copy.dst as usize] = sub.into();
+            self.data[copy.dst as usize] = uv.into();
         }
     }
 }
