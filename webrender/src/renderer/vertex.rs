@@ -65,12 +65,8 @@ pub mod desc {
         vertex_attributes: &[VertexAttribute::quad_instance_vertex()],
         instance_attributes: &[
             VertexAttribute::f32x2("aTaskOrigin"),
-            VertexAttribute::f32x4("aRect"),
-            VertexAttribute::f32x4("aColor0"),
-            VertexAttribute::f32x4("aColor1"),
             VertexAttribute::i32("aFlags"),
-            VertexAttribute::f32x2("aWidths"),
-            VertexAttribute::f32x2("aRadii"),
+            VertexAttribute::gpu_buffer_address("aGpuDataAddress"),
             VertexAttribute::f32x4("aClipParams1"),
             VertexAttribute::f32x4("aClipParams2"),
         ],
