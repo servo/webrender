@@ -232,7 +232,7 @@ impl NormalBorderData {
                 &mut frame_state.frame_gpu_data.f32,
                 frame_state.rg_builder,
                 &mut frame_state.surface_builder,
-                &mut |rg_builder, gpu_buffer_builder| {
+                &mut |rg_builder, _| {
                     rg_builder.add().init(RenderTask::new_dynamic(
                         cache_size,
                         RenderTaskKind::new_border_segment(
@@ -241,7 +241,6 @@ impl NormalBorderData {
                                 cache_size,
                                 &self.border,
                                 scale,
-                                gpu_buffer_builder,
                             )
                         ),
                     ))
