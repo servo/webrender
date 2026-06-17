@@ -1613,6 +1613,10 @@ vec3_scalar make_vec3(const vec2_scalar& v, float z) {
   return vec3_scalar{v.x, v.y, z};
 }
 
+vec3_scalar make_vec3(float x, const vec2_scalar& v) {
+  return vec3_scalar{x, v.x, v.y};
+}
+
 vec3_scalar make_vec3(float x, float y, float z) {
   return vec3_scalar{x, y, z};
 }
