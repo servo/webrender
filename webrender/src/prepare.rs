@@ -8,6 +8,7 @@
 
 use api::{BoxShadowClipMode, ColorF, DebugFlags, ExtendMode, ExternalImageData, ExternalImageType, GradientStop, ImageBufferKind, RepeatMode};
 use api::ClipMode;
+use crate::border_image::prepare_border_image_nine_patch;
 use crate::pattern::cutout::Cutout;
 use crate::util::clamp_to_scale_factor;
 use crate::box_shadow::{BoxShadowCacheKey, BLUR_SAMPLE_SCALE};
@@ -291,6 +292,7 @@ fn prepare_prim_for_render(
             | PrimitiveKind::LinearGradient { .. }
             | PrimitiveKind::Image { .. }
             | PrimitiveKind::NormalBorder { .. }
+            | PrimitiveKind::ImageBorder { .. }
             | PrimitiveKind::LineDecoration { .. }
             => {
                 use_legacy_path = false;
@@ -1012,6 +1014,10 @@ fn prepare_interned_prim_for_render(
         PrimitiveKind::ImageBorder { data_handle, .. } => {
             profile_scope!("ImageBorder");
             let prim_data = &mut data_stores.image_border[*data_handle];
+            let aligned_aa_edges = prim_data.common.aligned_aa_edges;
+            let transformed_aa_edges = prim_data.common.transformed_aa_edges;
+            let common_data = &mut prim_data.common;
+            let border_data = &mut prim_data.kind;
 
             // The per-frame brush segments were allocated in
             // prepare_prim_for_render before update_clip_task; the
@@ -1022,17 +1028,49 @@ fn prepare_interned_prim_for_render(
                 .unwrap_image_border();
             let brush_segments_range =
                 scratch.frame.image_border[ib_handle].brush_segments_range;
-            let brush_segments = &scratch.frame.segments[brush_segments_range];
 
-            // Update the template this instance references, which may refresh the GPU
-            // cache with any shared template data.
-            let gpu_address = prim_data.kind.update(
-                &mut prim_data.common,
-                prim_info.snapped_local_rect.size(),
-                brush_segments,
-                frame_state,
-            );
-            scratch.frame.image_border[ib_handle].gpu_address = gpu_address;
+            let (task_id, size) = border_data.update(common_data, frame_state);
+
+            if !use_legacy_path {
+                let prim_rect = prim_info.snapped_local_rect;
+
+                let src_image = ImagePattern {
+                    src_task_id: task_id,
+                    src_is_opaque: false,
+                    premultiplied: true,
+                    sampler_kind: ImageBufferKind::Texture2D,
+                    color: ColorF::WHITE,
+                };
+
+                prepare_border_image_nine_patch(
+                    &border_data.nine_patch,
+                    &src_image,
+                    size,
+                    &prim_rect,
+                    aligned_aa_edges,
+                    transformed_aa_edges,
+                    prim_instance_index,
+                    &prim_info.clip_chain,
+                    quad_transform,
+                    frame_context,
+                    pic_context,
+                    targets,
+                    &data_stores.clip,
+                    frame_state,
+                    scratch,
+                );
+
+                return;
+            } else {
+                let brush_segments = &scratch.frame.segments[brush_segments_range];
+                let gpu_address = border_data.write_brush_gpu_blocks(
+                    common_data,
+                    prim_info.snapped_local_rect.size(),
+                    brush_segments,
+                    frame_state,
+                );
+                scratch.frame.image_border[ib_handle].gpu_address = gpu_address;
+            }
         }
         PrimitiveKind::Rectangle { data_handle, .. } => {
             profile_scope!("Rectangle");
@@ -1231,7 +1269,7 @@ fn prepare_interned_prim_for_render(
             );
 
             if let Some(nine_patch) = &prim_data.border_nine_patch {
-                quad::prepare_border_image_nine_patch(
+                quad::prepare_border_nine_patch(
                     &*nine_patch,
                     prim_data,
                     &prim_rect,
@@ -1379,7 +1417,7 @@ fn prepare_interned_prim_for_render(
             );
 
             if let Some(nine_patch) = &prim_data.border_nine_patch {
-                quad::prepare_border_image_nine_patch(
+                quad::prepare_border_nine_patch(
                     &*nine_patch,
                     prim_data,
                     &local_rect,
@@ -1430,7 +1468,7 @@ fn prepare_interned_prim_for_render(
             );
 
             if let Some(nine_patch) = &prim_data.border_nine_patch {
-                quad::prepare_border_image_nine_patch(
+                quad::prepare_border_nine_patch(
                     &*nine_patch,
                     prim_data,
                     &prim_rect,

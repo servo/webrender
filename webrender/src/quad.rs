@@ -2,14 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{units::*, ClipMode, ColorF};
+use api::{ClipMode, ColorF, units::*};
 use euclid::{Scale, point2};
 
 use crate::ItemUid;
 use crate::border::NinePatchDescriptorExt;
 use crate::gpu_types::ClipSpace;
 use crate::pattern::repeat::RepeatedPattern;
-use crate::render_task::{SubTask, RectangleClipSubTask, ImageClipSubTask};
+use crate::render_task::{ImageClipSubTask, RectangleClipSubTask, SubTask};
 use crate::transform::TransformPalette;
 use crate::batch::{BatchKey, BatchKind, BatchTextures};
 use crate::clip::{clamped_radius, ClipChainInstance, ClipIntern, ClipItemKind, ClipNodeRange, ClipStore, ClipNodeInstance, ClipItem};
@@ -474,7 +474,7 @@ pub fn prepare_repeatable_quad(
     }
 }
 
-pub fn prepare_border_image_nine_patch(
+pub fn prepare_border_nine_patch(
     nine_patch: &NinePatchDescriptor,
     pattern_builder: &dyn PatternBuilder,
     local_rect: &LayoutRect,
@@ -658,6 +658,8 @@ fn prepare_quad_impl(
         transfomed_aa_edges
     };
 
+    let local_clip_rect = local_clip_rect.intersection_unchecked(&clip_chain.local_clip_rect);
+
     // We round the coordinates of non-antialiased edges of the primitive.
     // This allows us to ensure that indirect axis-aligned primitives cover the render
     // task exactly. Since we do this for indirect primitives, we have to also do it for
@@ -671,7 +673,7 @@ fn prepare_quad_impl(
 
         let quad = create_quad_primitive(
             local_rect,
-            local_clip_rect,
+            &local_clip_rect,
             &DeviceRect::max_rect(),
             transform.as_2d_scale_offset(),
             round_edges,
@@ -731,7 +733,7 @@ fn prepare_quad_impl(
     let mut clipped_surface_rect = (clipped_raster_rect * device_scale).round();
 
     if let Some(t) = transform.as_2d_scale_offset() {
-        let clipped_local_rect = local_rect.intersection_unchecked(local_clip_rect);
+        let clipped_local_rect = local_rect.intersection_unchecked(&local_clip_rect);
         clipped_surface_rect = clipped_surface_rect.intersection_unchecked(
             &t.map_rect(&clipped_local_rect).round_out(),
         );
@@ -749,7 +751,7 @@ fn prepare_quad_impl(
                 transform.prim_spatial_node_index(),
                 transform.raster_spatial_node_index(),
                 local_rect,
-                local_clip_rect,
+                &local_clip_rect,
                 &clipped_surface_rect,
                 transform.as_2d_scale_offset(),
                 transform.device_pixel_scale(),
@@ -779,7 +781,7 @@ fn prepare_quad_impl(
             prepare_tiles(
                 prim_instance_index,
                 local_rect,
-                local_clip_rect,
+                &local_clip_rect,
                 &clipped_surface_rect,
                 pattern,
                 quad_flags,
@@ -799,7 +801,7 @@ fn prepare_quad_impl(
             prepare_nine_patch(
                 prim_instance_index,
                 local_rect,
-                local_clip_rect,
+                &local_clip_rect,
                 &clipped_surface_rect,
                 &clip_rect,
                 radius,
