@@ -1601,6 +1601,13 @@ struct vec3 {
     z += a.z;
     return *this;
   }
+
+  vec3& operator*=(Float a) {
+    x *= a;
+    y *= a;
+    z *= a;
+    return *this;
+  }
 };
 
 vec3_scalar force_scalar(const vec3& v) {
