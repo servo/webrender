@@ -207,6 +207,42 @@ SI Float sqrt(Float v) {
 #endif
 }
 
+// NOTE: the Bool type is actually int under the hood,
+// and is used for bitwise return value masking in the
+// generated code ("ret_mask" variable).
+//
+// The ret_mask is initialized to -1 (0xffffffff), and
+// is then subsequently masked with condition results.
+//
+// If we use the boolean result directly here (0 or 1),
+// the bitwise AND ends up removing just one bit from
+// the mask, and it doesn't work.
+//
+// Taking the negative transforms 1 (single bit) into -1
+// (all bits 1), and correctly broadcasts the boolean
+// result into all bits of the ret_mask.
+//
+// If the condition is false, 0 becomes -0 which is the
+// same bit pattern for integers (all bits 0).
+
+SI Bool isnan(Float v) {
+  return (Bool){
+    -(fpclassify(v.x) == FP_NAN),
+    -(fpclassify(v.y) == FP_NAN),
+    -(fpclassify(v.z) == FP_NAN),
+    -(fpclassify(v.w) == FP_NAN)
+  };
+}
+
+SI Bool isinf(Float v) {
+  return (Bool){
+    -(fpclassify(v.x) == FP_INFINITE),
+    -(fpclassify(v.y) == FP_INFINITE),
+    -(fpclassify(v.z) == FP_INFINITE),
+    -(fpclassify(v.w) == FP_INFINITE)
+  };
+}
+
 SI float recip(float x) {
 #if USE_SSE2
   return _mm_cvtss_f32(_mm_rcp_ss(_mm_set_ss(x)));
