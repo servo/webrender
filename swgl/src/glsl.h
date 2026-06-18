@@ -471,6 +471,11 @@ struct vec2_scalar_ref {
     y = a.y;
     return *this;
   }
+  vec2_scalar_ref& operator+=(vec2_scalar a) {
+    x += a.x;
+    y += a.y;
+    return *this;
+  }
   vec2_scalar_ref& operator*=(vec2_scalar a) {
     x *= a.x;
     y *= a.y;
