@@ -35,14 +35,13 @@ use crate::renderer::{GpuBufferAddress, GpuBufferWriterF};
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::clip::{clamped_radius, ClipNodeFlags, ClipChainInstance, ClipItemKind};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
-use crate::gpu_types::{BrushFlags, BlurEdgeMode};
+use crate::gpu_types::{BrushFlags, BlurEdgeMode, UvRectKind};
 use crate::render_target::RenderTargetKind;
 use crate::internal_types::{FastHashMap, PlaneSplitAnchor, Filter};
 use crate::picture::{ClusterFlags, PictureCompositeMode, PictureInstance, PictureScratch};
 use crate::picture::{PrimitiveList, PrimitiveCluster, SurfaceIndex, SubpixelMode, Picture3DContext};
 use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::prim_store::*;
-use crate::prim_store::backdrop::BackdropRenderScratch;
 use crate::prim_store::borders::{ImageBorderScratch, NormalBorderScratch};
 use crate::quad::{self, QuadTransformState};
 use crate::render_backend::DataStores;
@@ -1783,83 +1782,99 @@ fn prepare_interned_prim_for_render(
                         frame_state.rg_builder,
                     );
 
-                    if !use_legacy_path {
-                        // Compute the four homogeneous screen-space uv corners that map
-                        // the primitive rect into the captured backdrop. This mirrors the
-                        // legacy brush path in batch.rs.
-                        let pic_task = frame_state.rg_builder.get_task(sub_graph_output_id);
-                        let RenderTaskKind::Picture(info) = &pic_task.kind else {
-                            unreachable!("bug: backdrop sub-graph output is not a picture");
-                        };
-                        let backdrop_rect = DeviceRect::from_origin_and_size(
-                            info.content_origin,
-                            pic_task.get_target_size().to_f32(),
-                        );
-                        let device_pixel_scale = info.device_pixel_scale;
-                        let surface_spatial_node_index = info.surface_spatial_node_index;
-
-                        let map_prim_to_backdrop = SpaceMapper::new_with_target(
-                            surface_spatial_node_index,
-                            prim_spatial_node_index,
-                            WorldRect::max_rect(),
-                            frame_context.spatial_tree,
-                        );
-
-                        let prim_rect = prim_info.snapped_local_rect;
-                        let points = [
-                            map_prim_to_backdrop.map_point(prim_rect.top_left()),
-                            map_prim_to_backdrop.map_point(prim_rect.top_right()),
-                            map_prim_to_backdrop.map_point(prim_rect.bottom_left()),
-                            map_prim_to_backdrop.map_point(prim_rect.bottom_right()),
-                        ];
-
-                        if points.iter().any(|p| p.is_none()) {
-                            scratch.frame.draws[prim_instance_index.0 as usize].reset();
-                            return;
+                    // Compute the four homogeneous screen-space uv corners that map
+                    // the primitive rect into the captured backdrop. This mirrors the
+                    // legacy brush path in batch.rs.
+                    let pic_task = frame_state.rg_builder.get_task(sub_graph_output_id);
+                    let uv_rect_kind = pic_task.uv_rect_kind();
+                    let RenderTaskKind::Picture(info) = &pic_task.kind else {
+                        unreachable!("bug: backdrop sub-graph output is not a picture");
+                    };
+                    // The shader maps the bilinearly-interpolated screen uv into the
+                    // backdrop's texture-cache rect (the segment uv rect), which is
+                    // resolved from the source task honoring its uv_rect_kind. When the
+                    // backdrop surface is clipped (e.g. by the viewport), that uv rect
+                    // is the projection of the *unclipped* surface rect. The screen uvs
+                    // must therefore be normalized over the unclipped device rect so the
+                    // two are consistent. We reconstruct the unclipped rect from the
+                    // clipped rect (content_origin + target size) and the uv_rect_kind.
+                    let clipped_origin = info.content_origin;
+                    let clipped_size = pic_task.get_target_size().to_f32();
+                    let backdrop_rect = match uv_rect_kind {
+                        UvRectKind::Rect => {
+                            DeviceRect::from_origin_and_size(clipped_origin, clipped_size)
                         }
+                        UvRectKind::Quad { top_left, bottom_right, .. } => {
+                            DeviceRect {
+                                min: clipped_origin + DeviceVector2D::new(
+                                    top_left.x * clipped_size.width,
+                                    top_left.y * clipped_size.height,
+                                ),
+                                max: clipped_origin + DeviceVector2D::new(
+                                    bottom_right.x * clipped_size.width,
+                                    bottom_right.y * clipped_size.height,
+                                ),
+                            }
+                        }
+                    };
+                    let device_pixel_scale = info.device_pixel_scale;
+                    let surface_spatial_node_index = info.surface_spatial_node_index;
 
-                        let uvs = [
-                            calculate_screen_uv(points[0].unwrap() * device_pixel_scale, backdrop_rect),
-                            calculate_screen_uv(points[1].unwrap() * device_pixel_scale, backdrop_rect),
-                            calculate_screen_uv(points[2].unwrap() * device_pixel_scale, backdrop_rect),
-                            calculate_screen_uv(points[3].unwrap() * device_pixel_scale, backdrop_rect),
-                        ];
+                    let map_prim_to_backdrop = SpaceMapper::new_with_target(
+                        surface_spatial_node_index,
+                        prim_spatial_node_index,
+                        WorldRect::max_rect(),
+                        frame_context.spatial_tree,
+                    );
 
-                        let prim_data = &data_stores.backdrop_render[*data_handle];
-                        let aligned_aa_edges = prim_data.common.aligned_aa_edges;
-                        let transformed_aa_edges = prim_data.common.transformed_aa_edges;
+                    let prim_rect = prim_info.snapped_local_rect;
+                    let points = [
+                        map_prim_to_backdrop.map_point(prim_rect.top_left()),
+                        map_prim_to_backdrop.map_point(prim_rect.top_right()),
+                        map_prim_to_backdrop.map_point(prim_rect.bottom_left()),
+                        map_prim_to_backdrop.map_point(prim_rect.bottom_right()),
+                    ];
 
-                        let pattern = BackdropPattern {
-                            src_task_id: sub_graph_output_id,
-                            uvs,
-                        };
-
-                        quad::prepare_quad(
-                            &pattern,
-                            &prim_info.snapped_local_rect,
-                            &prim_info.clip_chain.local_clip_rect,
-                            aligned_aa_edges,
-                            transformed_aa_edges,
-                            prim_instance_index,
-                            &None,
-                            &prim_info.clip_chain,
-                            quad_transform,
-                            frame_context,
-                            pic_context,
-                            targets,
-                            &data_stores.clip,
-                            frame_state,
-                            scratch,
-                        );
-
+                    if points.iter().any(|p| p.is_none()) {
+                        scratch.frame.draws[prim_instance_index.0 as usize].reset();
                         return;
                     }
 
-                    let backdrop_handle = scratch.frame.backdrop_render.push(BackdropRenderScratch {
+                    let uvs = [
+                        calculate_screen_uv(points[0].unwrap() * device_pixel_scale, backdrop_rect),
+                        calculate_screen_uv(points[1].unwrap() * device_pixel_scale, backdrop_rect),
+                        calculate_screen_uv(points[2].unwrap() * device_pixel_scale, backdrop_rect),
+                        calculate_screen_uv(points[3].unwrap() * device_pixel_scale, backdrop_rect),
+                    ];
+
+                    let prim_data = &data_stores.backdrop_render[*data_handle];
+                    let aligned_aa_edges = prim_data.common.aligned_aa_edges;
+                    let transformed_aa_edges = prim_data.common.transformed_aa_edges;
+
+                    let pattern = BackdropPattern {
                         src_task_id: sub_graph_output_id,
-                    });
-                    scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
-                        KindScratchHandle::BackdropRender(backdrop_handle);
+                        uvs,
+                    };
+
+                    quad::prepare_quad(
+                        &pattern,
+                        &prim_info.snapped_local_rect,
+                        &prim_info.clip_chain.local_clip_rect,
+                        aligned_aa_edges,
+                        transformed_aa_edges,
+                        prim_instance_index,
+                        &None,
+                        &prim_info.clip_chain,
+                        quad_transform,
+                        frame_context,
+                        pic_context,
+                        targets,
+                        &data_stores.clip,
+                        frame_state,
+                        scratch,
+                    );
+
+                    return;
                 }
                 None => {
                     // Backdrop capture was found not visible, didn't produce a sub-graph
