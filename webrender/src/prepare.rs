@@ -11,6 +11,7 @@ use api::ClipMode;
 use crate::border_image::prepare_border_image_nine_patch;
 use crate::pattern::cutout::Cutout;
 use crate::util::clamp_to_scale_factor;
+use crate::util::MaxRect;
 use crate::box_shadow::{BoxShadowCacheKey, BLUR_SAMPLE_SCALE};
 use crate::pattern::box_shadow::BoxShadowPatternData;
 use crate::pattern::gradient::linear_gradient_pattern;
@@ -26,6 +27,9 @@ use crate::border;
 use crate::clip::{ClipStore, ClipNodeRange};
 use crate::pattern::image::ImagePattern;
 use crate::pattern::yuv::YuvPattern;
+use crate::pattern::backdrop::BackdropPattern;
+use crate::picture::calculate_screen_uv;
+use crate::space::SpaceMapper;
 use crate::render_task_graph::RenderTaskId;
 use crate::renderer::{GpuBufferAddress, GpuBufferWriterF};
 use crate::spatial_tree::SpatialNodeIndex;
@@ -294,6 +298,7 @@ fn prepare_prim_for_render(
             | PrimitiveKind::NormalBorder { .. }
             | PrimitiveKind::ImageBorder { .. }
             | PrimitiveKind::LineDecoration { .. }
+            | PrimitiveKind::BackdropRender { .. }
             => {
                 use_legacy_path = false;
             }
@@ -314,6 +319,7 @@ fn prepare_prim_for_render(
             | PrimitiveKind::YuvImage { .. }
             | PrimitiveKind::NormalBorder { .. }
             | PrimitiveKind::LineDecoration { .. }
+            | PrimitiveKind::BackdropRender { .. }
             => {
                 use_legacy_path |= !can_use_clip_chain_for_quad_path(
                     &scratch.frame.draws[prim_instance_index].clip_chain,
@@ -1769,13 +1775,86 @@ fn prepare_interned_prim_for_render(
                 }
             }
         }
-        PrimitiveKind::BackdropRender { pic_index, .. } => {
+        PrimitiveKind::BackdropRender { pic_index, data_handle, .. } => {
             match frame_state.surface_builder.sub_graph_output_map.get(pic_index).cloned() {
                 Some(sub_graph_output_id) => {
                     frame_state.surface_builder.add_child_render_task(
                         sub_graph_output_id,
                         frame_state.rg_builder,
                     );
+
+                    if !use_legacy_path {
+                        // Compute the four homogeneous screen-space uv corners that map
+                        // the primitive rect into the captured backdrop. This mirrors the
+                        // legacy brush path in batch.rs.
+                        let pic_task = frame_state.rg_builder.get_task(sub_graph_output_id);
+                        let RenderTaskKind::Picture(info) = &pic_task.kind else {
+                            unreachable!("bug: backdrop sub-graph output is not a picture");
+                        };
+                        let backdrop_rect = DeviceRect::from_origin_and_size(
+                            info.content_origin,
+                            pic_task.get_target_size().to_f32(),
+                        );
+                        let device_pixel_scale = info.device_pixel_scale;
+                        let surface_spatial_node_index = info.surface_spatial_node_index;
+
+                        let map_prim_to_backdrop = SpaceMapper::new_with_target(
+                            surface_spatial_node_index,
+                            prim_spatial_node_index,
+                            WorldRect::max_rect(),
+                            frame_context.spatial_tree,
+                        );
+
+                        let prim_rect = prim_info.snapped_local_rect;
+                        let points = [
+                            map_prim_to_backdrop.map_point(prim_rect.top_left()),
+                            map_prim_to_backdrop.map_point(prim_rect.top_right()),
+                            map_prim_to_backdrop.map_point(prim_rect.bottom_left()),
+                            map_prim_to_backdrop.map_point(prim_rect.bottom_right()),
+                        ];
+
+                        if points.iter().any(|p| p.is_none()) {
+                            scratch.frame.draws[prim_instance_index.0 as usize].reset();
+                            return;
+                        }
+
+                        let uvs = [
+                            calculate_screen_uv(points[0].unwrap() * device_pixel_scale, backdrop_rect),
+                            calculate_screen_uv(points[1].unwrap() * device_pixel_scale, backdrop_rect),
+                            calculate_screen_uv(points[2].unwrap() * device_pixel_scale, backdrop_rect),
+                            calculate_screen_uv(points[3].unwrap() * device_pixel_scale, backdrop_rect),
+                        ];
+
+                        let prim_data = &data_stores.backdrop_render[*data_handle];
+                        let aligned_aa_edges = prim_data.common.aligned_aa_edges;
+                        let transformed_aa_edges = prim_data.common.transformed_aa_edges;
+
+                        let pattern = BackdropPattern {
+                            src_task_id: sub_graph_output_id,
+                            uvs,
+                        };
+
+                        quad::prepare_quad(
+                            &pattern,
+                            &prim_info.snapped_local_rect,
+                            &prim_info.clip_chain.local_clip_rect,
+                            aligned_aa_edges,
+                            transformed_aa_edges,
+                            prim_instance_index,
+                            &None,
+                            &prim_info.clip_chain,
+                            quad_transform,
+                            frame_context,
+                            pic_context,
+                            targets,
+                            &data_stores.clip,
+                            frame_state,
+                            scratch,
+                        );
+
+                        return;
+                    }
+
                     let backdrop_handle = scratch.frame.backdrop_render.push(BackdropRenderScratch {
                         src_task_id: sub_graph_output_id,
                     });
