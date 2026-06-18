@@ -634,7 +634,6 @@ pub struct Shaders {
     ps_quad_yuv_external: Option<ShaderHandle>,
     ps_quad_yuv_external_bt709: Option<ShaderHandle>,
     ps_quad_yuv_rect: Option<ShaderHandle>,
-    ps_quad_backdrop: ShaderHandle,
     ps_mask: ShaderHandle,
     ps_mask_fast: ShaderHandle,
     ps_clear: ShaderHandle,
@@ -940,19 +939,12 @@ impl Shaders {
             None
         };
 
-        let ps_quad_backdrop = loader.create_shader(
+        let ps_split_composite = loader.create_shader(
             ShaderKind::Primitive,
-            "ps_quad_backdrop",
-            &["TEXTURE_2D"],
+            "ps_split_composite",
+            &[],
             &shader_list,
         )?;
-
-        let ps_split_composite = loader.create_shader(
-        ShaderKind::Primitive,
-        "ps_split_composite",
-        &[],
-        &shader_list,
-    )?;
 
         let ps_clear = loader.create_shader(
             ShaderKind::Clear,
@@ -1123,7 +1115,6 @@ impl Shaders {
             ps_quad_yuv_external,
             ps_quad_yuv_external_bt709,
             ps_quad_yuv_rect,
-            ps_quad_backdrop,
             ps_mask,
             ps_mask_fast,
             ps_split_composite,
@@ -1204,8 +1195,7 @@ impl Shaders {
                 .expect("bug: ps_quad_yuv TEXTURE_EXTERNAL_BT709 variant not loaded"),
             PatternKind::YuvTextureRect => self.ps_quad_yuv_rect
                 .expect("bug: ps_quad_yuv TEXTURE_RECT variant not loaded"),
-            PatternKind::Backdrop => self.ps_quad_backdrop,
-            PatternKind::Mask => unreachable!("clip mask pattern is not a quad shader"),
+            PatternKind::Mask => unreachable!(),
         };
         self.loader.get(shader_handle)
     }
@@ -1268,12 +1258,9 @@ impl Shaders {
                 self.ps_quad_yuv_rect
                     .expect("bug: ps_quad_yuv TEXTURE_RECT variant not loaded")
             }
-            BatchKind::Quad(PatternKind::Backdrop) => {
-                self.ps_quad_backdrop
-            }
             BatchKind::Quad(PatternKind::Mask) => {
-            unreachable!();
-        }
+                unreachable!();
+            }
             BatchKind::SplitComposite => {
                 self.ps_split_composite
             }

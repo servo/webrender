@@ -24,6 +24,7 @@ use crate::picture::{PictureScratch, SurfaceIndex, RasterConfig};
 use crate::tile_cache::SubSliceIndex;
 use crate::prim_store::{ClipTaskIndex, PictureIndex, PrimitiveKind, SegmentInstanceIndex};
 use crate::prim_store::{PrimitiveStore, PrimitiveInstance, PrimitiveInstanceIndex};
+use crate::prim_store::backdrop::BackdropRenderScratch;
 use crate::prim_store::borders::{ImageBorderScratch, NormalBorderScratch};
 use crate::prim_store::image::ImageScratch;
 use crate::prim_store::storage;
@@ -127,6 +128,7 @@ pub enum KindScratchHandle {
     Image(storage::Index<ImageScratch>),
     TextRun(storage::Index<TextRunScratch>),
     Picture(storage::Index<PictureScratch>),
+    BackdropRender(storage::Index<BackdropRenderScratch>),
 }
 
 impl KindScratchHandle {
@@ -161,6 +163,12 @@ impl KindScratchHandle {
         match *self {
             KindScratchHandle::Picture(h) => h,
             _ => panic!("kind_scratch mismatch: expected Picture, got {:?}", self),
+        }
+    }
+    pub fn unwrap_backdrop_render(&self) -> storage::Index<BackdropRenderScratch> {
+        match *self {
+            KindScratchHandle::BackdropRender(h) => h,
+            _ => panic!("kind_scratch mismatch: expected BackdropRender, got {:?}", self),
         }
     }
 }

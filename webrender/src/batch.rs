@@ -11,14 +11,14 @@ use crate::composite::CompositorSurfaceKind;
 use crate::pattern::PatternKind;
 use crate::spatial_tree::{SpatialTree, SpatialNodeIndex, CoordinateSystemId};
 use glyph_rasterizer::{GlyphFormat, SubpixelDirection};
-use crate::gpu_types::{BrushFlags, BrushInstance, PrimitiveHeaders, ZBufferId, ZBufferIdGenerator};
+use crate::gpu_types::{BrushFlags, BrushInstance, ImageSource, PrimitiveHeaders, UvRectKind, ZBufferId, ZBufferIdGenerator};
 use crate::gpu_types::SplitCompositeInstance;
 use crate::gpu_types::{PrimitiveInstanceData, RasterizationSpace, GlyphInstance};
 use crate::gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex};
 use crate::gpu_types::{ImageBrushUserData, get_shader_opacity, MaskInstance};
 use crate::gpu_types::{ClipMaskInstanceCommon, ClipMaskInstanceRect};
 use crate::internal_types::{FastHashMap, Filter, FrameAllocator, FrameMemory, FrameVec, Swizzle, TextureSource};
-use crate::picture::{Picture3DContext, PictureCompositeMode};
+use crate::picture::{Picture3DContext, PictureCompositeMode, calculate_screen_uv};
 use crate::prim_store::{PrimitiveKind, ClipData};
 use crate::prim_store::{PrimitiveInstance, PrimitiveOpacity, SegmentInstanceIndex};
 use crate::prim_store::{BrushSegment, ClipMaskKind, ClipTaskIndex};
@@ -26,7 +26,7 @@ use crate::prim_store::VECS_PER_SEGMENT;
 use crate::quad;
 use crate::render_target::RenderTargetContext;
 use crate::render_task_graph::{RenderTaskId, RenderTaskGraph};
-use crate::render_task::RenderTaskAddress;
+use crate::render_task::{RenderTaskAddress, RenderTaskKind};
 use crate::renderer::{BlendMode, GpuBufferAddress, GpuBufferBlockF, GpuBufferBuilder, ShaderColorMode};
 use crate::renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use crate::resource_cache::{GlyphFetchResult, ImageProperties};
@@ -2221,7 +2221,107 @@ impl BatchBuilder {
                 unreachable!("BUG: linear gradients should always use quad path");
             }
             PrimitiveKind::BackdropCapture { .. } => {}
-            PrimitiveKind::BackdropRender { .. } => {}
+            PrimitiveKind::BackdropRender { .. } => {
+                let scratch_handle = prim_info.kind_scratch.unwrap_backdrop_render();
+                let blend_mode = BlendMode::PremultipliedAlpha;
+                let pic_task_id = Some(ctx.scratch.frame.backdrop_render[scratch_handle].src_task_id);
+
+                let (clip_task_address, clip_mask_texture_id) = ctx.get_prim_clip_task_and_texture(
+                    prim_info.clip_task_index,
+                    render_tasks,
+                ).unwrap();
+
+                let kind = BatchKind::Brush(
+                    BrushBatchKind::Image(ImageBufferKind::Texture2D)
+                );
+                let (_, texture) = render_tasks.resolve_location(pic_task_id).unwrap();
+                let textures = BatchTextures::prim_textured(
+                    texture,
+                    clip_mask_texture_id,
+                );
+                let key = BatchKey::new(
+                    kind,
+                    blend_mode,
+                    textures,
+                );
+
+                let prim_header = PrimitiveHeader {
+                    specific_prim_address: ctx.globals.default_image_data.as_int(),
+                    user_data: ImageBrushUserData {
+                        color_mode: ShaderColorMode::Image,
+                        alpha_type: AlphaType::PremultipliedAlpha,
+                        raster_space: RasterizationSpace::Screen,
+                        opacity: 1.0,
+                    }.encode(),
+                    ..base_prim_header
+                };
+                let prim_header_index = prim_headers.push(&prim_header);
+
+                let pic_task = &render_tasks[pic_task_id.unwrap()];
+                let pic_info = match pic_task.kind {
+                    RenderTaskKind::Picture(ref info) => info,
+                    _ => panic!("bug: not a picture"),
+                };
+                let target_rect = pic_task.get_target_rect();
+
+                let backdrop_rect = DeviceRect::from_origin_and_size(
+                    pic_info.content_origin,
+                    target_rect.size().to_f32(),
+                );
+
+                let map_prim_to_backdrop = SpaceMapper::new_with_target(
+                    pic_info.surface_spatial_node_index,
+                    prim_spatial_node_index,
+                    WorldRect::max_rect(),
+                    ctx.spatial_tree,
+                );
+
+                let points = [
+                    map_prim_to_backdrop.map_point(prim_rect.top_left()),
+                    map_prim_to_backdrop.map_point(prim_rect.top_right()),
+                    map_prim_to_backdrop.map_point(prim_rect.bottom_left()),
+                    map_prim_to_backdrop.map_point(prim_rect.bottom_right()),
+                ];
+
+                if points.iter().any(|p| p.is_none()) {
+                    return;
+                }
+
+                let uvs = [
+                    calculate_screen_uv(points[0].unwrap() * pic_info.device_pixel_scale, backdrop_rect),
+                    calculate_screen_uv(points[1].unwrap() * pic_info.device_pixel_scale, backdrop_rect),
+                    calculate_screen_uv(points[2].unwrap() * pic_info.device_pixel_scale, backdrop_rect),
+                    calculate_screen_uv(points[3].unwrap() * pic_info.device_pixel_scale, backdrop_rect),
+                ];
+
+                let source = ImageSource {
+                    p0: target_rect.min.to_f32(),
+                    p1: target_rect.max.to_f32(),
+                    user_data: [0.0; 4],
+                    uv_rect_kind: UvRectKind::Quad {
+                        top_left: uvs[0],
+                        top_right: uvs[1],
+                        bottom_left: uvs[2],
+                        bottom_right: uvs[3],
+                    },
+                };
+
+                let uv_rect_handle = source.write_gpu_blocks(&mut gpu_buffer_builder.f32);
+                let uv_rect_address = gpu_buffer_builder.f32.resolve_handle(uv_rect_handle);
+
+                self.add_brush_instance_to_batches(
+                    key,
+                    batch_features,
+                    bounding_rect,
+                    z_id,
+                    INVALID_SEGMENT_INDEX,
+                    EdgeMask::all(),
+                    clip_task_address,
+                    brush_flags,
+                    prim_header_index,
+                    uv_rect_address.as_int(),
+                );
+            }
         }
     }
 

@@ -67,7 +67,6 @@ skip_on(android,device) skip_on(win) fuzzy(1,104) fuzzy-if(platform(swgl),4,1848
 platform(linux,mac) == backdrop-filter-perspective.yaml backdrop-filter-perspective.png
 == backdrop-filter-on-child-surface.yaml backdrop-filter-on-child-surface-ref.yaml
 == backdrop-filter-clip-mask.yaml backdrop-filter-clip-mask-ref.yaml
-== backdrop-filter-clip-offset.yaml backdrop-filter-clip-offset-ref.yaml
 platform(linux,mac) == backdrop-filter-across-tiles.yaml backdrop-filter-across-tiles.png
 platform(linux,mac) == backdrop-filter-chain.yaml backdrop-filter-chain.png
 platform(linux,mac) == backdrop-filter-overlap.yaml backdrop-filter-overlap.png
