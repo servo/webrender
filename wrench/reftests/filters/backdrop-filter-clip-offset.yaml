@@ -1,0 +1,23 @@
+# Backdrop-filter element extends past the top-left viewport edge so the
+# captured surface is clipped (non-trivial Quad uv_rect_kind). The backdrop root
+# contains a small magenta square so an incorrect uv mapping is visible: the
+# inverted (green) square must land exactly on the magenta square.
+---
+root:
+  items:
+    - type: rect
+      bounds: 0 0 800 800
+      color: yellow
+    - type: stacking-context
+      backdrop-root: true
+      bounds: 0 0 0 0
+      items:
+      - type: rect
+        color: [255, 0, 255, 1]
+        bounds: 50 50 100 100
+      - type: stacking-context
+        bounds: 0 0 0 0
+        items:
+        - type: backdrop-filter
+          bounds: -100 -100 400 400
+          filters: invert(1)
