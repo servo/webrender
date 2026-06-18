@@ -194,18 +194,36 @@ pub enum BorderSegment {
     Bottom,
 }
 
+pub struct BorderInstanceGpuData {
+    pub local_rect: DeviceRect,
+    pub color0: PremultipliedColorF,
+    pub color1: PremultipliedColorF,
+    pub widths: DeviceSize,
+    pub radius: DeviceSize,
+    pub shape: f32,
+}
+
+impl BorderInstanceGpuData {
+    pub fn write(&self, gpu_buffer_builder: &mut GpuBufferBuilderF) -> GpuBufferAddress {
+        let mut writer = gpu_buffer_builder.write_blocks(5);
+        writer.push_one(self.local_rect);
+        writer.push_one(self.color0);
+        writer.push_one(self.color1);
+        writer.push_one([self.widths.width, self.widths.height, self.radius.width, self.radius.height]);
+        writer.push_one([self.shape, 0.0, 0.0, 0.0]);
+
+        writer.finish()
+    }
+}
+
 #[derive(Debug, Clone)]
 #[repr(C)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BorderInstance {
     pub task_origin: DevicePoint,
-    pub local_rect: DeviceRect,
-    pub color0: PremultipliedColorF,
-    pub color1: PremultipliedColorF,
     pub flags: i32,
-    pub widths: DeviceSize,
-    pub radius: DeviceSize,
+    pub gpu_data_address: GpuBufferAddress,
     pub clip_params: [f32; 8],
 }
 
