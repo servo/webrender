@@ -64,6 +64,9 @@ impl<'a> FeatureList<'a> {
 pub fn get_shader_features(flags: ShaderFeatureFlags) -> ShaderFeatures {
     let mut shaders = ShaderFeatures::new();
 
+    // Clip shaders
+    shaders.insert("cs_clip_rectangle", vec![String::new(), "FAST_PATH".to_string()]);
+
     // Cache shaders
     shaders.insert("cs_blur", vec!["ALPHA_TARGET".to_string(), "COLOR_TARGET".to_string()]);
 

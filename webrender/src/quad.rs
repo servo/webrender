@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadius, ClipMode, ColorF, units::*};
+use api::{ClipMode, ColorF, units::*};
 use euclid::{Scale, point2};
 
 use crate::ItemUid;
@@ -1725,56 +1725,6 @@ pub fn prepare_clip_range(
         .set_sub_tasks(sub_tasks);
 }
 
-/// Write the GPU buffer blocks describing a (rounded) rectangle clip, in the
-/// format consumed by ps_quad_mask. Returns the clip's address along with
-/// whether the uniform-radius fast path can be used.
-pub fn write_rounded_rect_clip_blocks(
-    gpu_buffer: &mut GpuBufferBuilderF,
-    clip_rect: LayoutRect,
-    radius: &BorderRadius,
-    mode: ClipMode,
-) -> (GpuBufferAddress, bool) {
-    let radius = clamped_radius(radius, clip_rect.size());
-
-    if radius.can_use_fast_path_in(&clip_rect) {
-        let mut writer = gpu_buffer.write_blocks(3);
-        writer.push_one(clip_rect);
-        writer.push_one([
-            radius.bottom_right.width,
-            radius.top_right.width,
-            radius.bottom_left.width,
-            radius.top_left.width,
-        ]);
-        writer.push_one([mode as i32 as f32, 0.0, 0.0, 0.0]);
-
-        (writer.finish(), true)
-    } else {
-        let mut writer = gpu_buffer.write_blocks(5);
-        writer.push_one(clip_rect);
-        writer.push_one([
-            radius.top_left.width,
-            radius.top_left.height,
-            radius.top_right.width,
-            radius.top_right.height,
-        ]);
-        writer.push_one([
-            radius.bottom_left.width,
-            radius.bottom_left.height,
-            radius.bottom_right.width,
-            radius.bottom_right.height,
-        ]);
-        writer.push_one([mode as i32 as f32, 0.0, 0.0, 0.0]);
-        writer.push_one([
-            radius.shape_top_left,
-            radius.shape_top_right,
-            radius.shape_bottom_right,
-            radius.shape_bottom_left,
-        ]);
-
-        (writer.finish(), false)
-    }
-}
-
 pub fn prepare_clip_task(
     clip_instance: &ClipNodeInstance,
     clip_item: &ClipItem,
@@ -1792,12 +1742,48 @@ pub fn prepare_clip_task(
 ) {
     let (clip_address, fast_path) = match clip_item.kind {
         ClipItemKind::RoundedRectangle { radius, mode } => {
-            write_rounded_rect_clip_blocks(
-                gpu_buffer,
-                clip_instance.clip_rect,
-                &radius,
-                mode,
-            )
+            let radius = clamped_radius(&radius, clip_instance.clip_rect.size());
+            let (fast_path, clip_address) = if radius.can_use_fast_path_in(&clip_instance.clip_rect) {
+                let mut writer = gpu_buffer.write_blocks(3);
+                writer.push_one(clip_instance.clip_rect);
+                writer.push_one([
+                    radius.bottom_right.width,
+                    radius.top_right.width,
+                    radius.bottom_left.width,
+                    radius.top_left.width,
+                ]);
+                writer.push_one([mode as i32 as f32, 0.0, 0.0, 0.0]);
+                let clip_address = writer.finish();
+
+                (true, clip_address)
+            } else {
+                let mut writer = gpu_buffer.write_blocks(5);
+                writer.push_one(clip_instance.clip_rect);
+                writer.push_one([
+                    radius.top_left.width,
+                    radius.top_left.height,
+                    radius.top_right.width,
+                    radius.top_right.height,
+                ]);
+                writer.push_one([
+                    radius.bottom_left.width,
+                    radius.bottom_left.height,
+                    radius.bottom_right.width,
+                    radius.bottom_right.height,
+                ]);
+                writer.push_one([mode as i32 as f32, 0.0, 0.0, 0.0]);
+                writer.push_one([
+                    radius.shape_top_left,
+                    radius.shape_top_right,
+                    radius.shape_bottom_right,
+                    radius.shape_bottom_left,
+                ]);
+                let clip_address = writer.finish();
+
+                (false, clip_address)
+            };
+
+            (clip_address, fast_path)
         }
         ClipItemKind::Rectangle { mode, .. } => {
             let mut writer = gpu_buffer.write_blocks(3);
