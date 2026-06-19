@@ -3537,9 +3537,10 @@ impl<'a> SceneBuilder<'a> {
     ) {
         let format = yuv_data.get_format();
         let yuv_key = match yuv_data {
-            YuvData::NV12(plane_0, plane_1) => [plane_0, plane_1, ImageKey::DUMMY],
-            YuvData::P010(plane_0, plane_1) => [plane_0, plane_1, ImageKey::DUMMY],
-            YuvData::P210(plane_0, plane_1) => [plane_0, plane_1, ImageKey::DUMMY],
+            YuvData::NV12(plane_0, plane_1)
+            | YuvData::P010(plane_0, plane_1)
+            | YuvData::NV16(plane_0, plane_1)
+            | YuvData::P210(plane_0, plane_1) => [plane_0, plane_1, ImageKey::DUMMY],
             YuvData::PlanarYCbCr(plane_0, plane_1, plane_2) => [plane_0, plane_1, plane_2],
             YuvData::InterleavedYCbCr(plane_0) => [plane_0, ImageKey::DUMMY, ImageKey::DUMMY],
         };

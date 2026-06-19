@@ -6,16 +6,17 @@
 
 #define YUV_FORMAT_NV12             0
 #define YUV_FORMAT_P010             1
-#define YUV_FORMAT_P210             2
-#define YUV_FORMAT_PLANAR           3
-#define YUV_FORMAT_INTERLEAVED      4
+#define YUV_FORMAT_NV16             2
+#define YUV_FORMAT_P210             3
+#define YUV_FORMAT_PLANAR           4
+#define YUV_FORMAT_INTERLEAVED      5
 
 //#define YUV_PRECISION mediump
 #define YUV_PRECISION highp
 
 bool yuv_format_is_biplanar(int format) {
     return format == YUV_FORMAT_NV12 || format == YUV_FORMAT_P010 ||
-           format == YUV_FORMAT_P210;
+           format == YUV_FORMAT_NV16 || format == YUV_FORMAT_P210;
 }
 
 #ifdef WR_VERTEX_SHADER

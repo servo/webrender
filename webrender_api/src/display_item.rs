@@ -2001,6 +2001,7 @@ impl YuvColorSpace {
 pub enum YuvData {
     NV12(ImageKey, ImageKey), // (Y channel, CbCr interleaved channel)
     P010(ImageKey, ImageKey), // (Y channel, CbCr interleaved channel)
+    NV16(ImageKey, ImageKey), // (Y channel, CbCr interleaved channel)
     P210(ImageKey, ImageKey), // (Y channel, CbCr interleaved channel)
     PlanarYCbCr(ImageKey, ImageKey, ImageKey), // (Y channel, Cb channel, Cr Channel)
     InterleavedYCbCr(ImageKey), // (YCbCr interleaved channel)
@@ -2011,6 +2012,7 @@ impl YuvData {
         match *self {
             YuvData::NV12(..) => YuvFormat::NV12,
             YuvData::P010(..) => YuvFormat::P010,
+            YuvData::NV16(..) => YuvFormat::NV16,
             YuvData::P210(..) => YuvFormat::P210,
             YuvData::PlanarYCbCr(..) => YuvFormat::PlanarYCbCr,
             YuvData::InterleavedYCbCr(..) => YuvFormat::InterleavedYCbCr,
@@ -2023,15 +2025,19 @@ pub enum YuvFormat {
     // These enum values need to be kept in sync with yuv.glsl.
     NV12 = 0,
     P010 = 1,
-    P210 = 2,
-    PlanarYCbCr = 3,
-    InterleavedYCbCr = 4,
+    NV16 = 2,
+    P210 = 3,
+    PlanarYCbCr = 4,
+    InterleavedYCbCr = 5,
 }
 
 impl YuvFormat {
     pub fn get_plane_num(self) -> usize {
         match self {
-            YuvFormat::NV12 | YuvFormat::P010 | YuvFormat::P210 => 2,
+            YuvFormat::NV12
+            | YuvFormat::P010
+            | YuvFormat::NV16
+            | YuvFormat::P210 => 2,
             YuvFormat::PlanarYCbCr => 3,
             YuvFormat::InterleavedYCbCr => 1,
         }
@@ -2039,7 +2045,10 @@ impl YuvFormat {
 
     pub fn is_msb_aligned(self) -> bool {
         match self {
-            YuvFormat::NV12 | YuvFormat::PlanarYCbCr | YuvFormat::InterleavedYCbCr => false,
+            YuvFormat::NV12
+            | YuvFormat::NV16
+            | YuvFormat::PlanarYCbCr
+            | YuvFormat::InterleavedYCbCr => false,
             YuvFormat::P010 | YuvFormat::P210 => true,
         }
     }
