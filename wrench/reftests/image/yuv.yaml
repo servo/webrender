@@ -1,19 +1,43 @@
 root:
   items:
     - type: yuv-image
+      external: true
       format: planar
-      src-y: spacex-y.png
-      src-u: spacex-u.png
-      src-v: spacex-v.png
+      src-y: spacex-y-8.png
+      src-u: spacex-u-8.png
+      src-v: spacex-v-8.png
       bounds: [10, 10, 427, 640]
 
     - type: yuv-image
+      external: true
       format: interleaved
-      src: spacex-yuv.png
+      src: spacex-yuv-8.png
       bounds: [447, 10, 427, 640]
 
     - type: yuv-image
+      external: true
       format: nv12
-      src-y: spacex-y.png
-      src-uv: spacex-uv.png
+      src-y: spacex-y-8.png
+      src-uv: spacex-uv-420-8.png
       bounds: [887, 10, 427, 640]
+
+    - type: yuv-image
+      external: true
+      format: p010
+      src-y: spacex-y-10msb.png
+      src-uv: spacex-uv-420-10msb.png
+      bounds: [10, 660, 427, 640]
+
+    - type: yuv-image
+      external: true
+      format: nv16
+      src-y: spacex-y-8.png
+      src-uv: spacex-uv-422-8.png
+      bounds: [447, 660, 427, 640]
+
+    - type: yuv-image
+      external: true
+      format: p210
+      src-y: spacex-y-10msb.png
+      src-uv: spacex-uv-422-10msb.png
+      bounds: [887, 660, 427, 640]

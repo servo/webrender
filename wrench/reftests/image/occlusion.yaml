@@ -9,7 +9,7 @@ root:
 
     - type: yuv-image
       format: interleaved
-      src: spacex-yuv.png
+      src: spacex-yuv-8.png
       bounds: [50, 50, 200, 200]
       prefer-compositor-surface: true
       clip-rect: [75, 75, 150, 150]

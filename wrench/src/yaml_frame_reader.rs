@@ -601,6 +601,9 @@ impl YamlFrameReader {
                     image::DynamicImage::ImageLuma8(_) => {
                         (ImageFormat::R8, image.to_bytes())
                     }
+                    image::DynamicImage::ImageLumaA8(_) => {
+                        (ImageFormat::RG8, image.to_bytes())
+                    }
                     image::DynamicImage::ImageRgba8(_) => {
                         let mut pixels = image.to_bytes();
                         premultiply(pixels.as_mut_slice());
@@ -618,6 +621,12 @@ impl YamlFrameReader {
                             ]);
                         }
                         (ImageFormat::BGRA8, pixels)
+                    }
+                    image::DynamicImage::ImageLuma16(_) => {
+                        (ImageFormat::R16, image.to_bytes())
+                    }
+                    image::DynamicImage::ImageLumaA16(_) => {
+                        (ImageFormat::RG16, image.to_bytes())
                     }
                     _ => panic!("We don't support whatever your crazy image type is, come on"),
                 };
@@ -1260,8 +1269,7 @@ impl YamlFrameReader {
         item: &Yaml,
         info: &mut CommonItemProperties,
     ) {
-        // TODO(gw): Support other YUV color depth and spaces.
-        let color_depth = ColorDepth::Color8;
+        // TODO(gw): Support other YUV color spaces.
         let color_space = YuvColorSpace::Rec709;
         let color_range = ColorRange::Limited;
 
@@ -1323,6 +1331,15 @@ impl YamlFrameReader {
             _ => {
                 panic!("unexpected yuv format");
             }
+        };
+
+        let color_depth = match yuv_data.get_format() {
+            YuvFormat::NV12 |
+            YuvFormat::NV16 |
+            YuvFormat::PlanarYCbCr |
+            YuvFormat::InterleavedYCbCr => ColorDepth::Color8,
+            YuvFormat::P010 |
+            YuvFormat::P210 => ColorDepth::Color10,
         };
 
         let bounds = item["bounds"].as_vec_f32().unwrap();
