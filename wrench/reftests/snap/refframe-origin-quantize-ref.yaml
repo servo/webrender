@@ -1,0 +1,23 @@
+# Same scene, but the reference frame origin reconstitutes to exactly 100.5 from
+# an integer external scroll offset (1024.0) + origin (-923.5), so the f32
+# round-trip is exact and no quantize is needed. The stuck green rect lands one
+# row lower (row 31) than the un-quantized test would.
+root:
+  items:
+    - type: scroll-frame
+      bounds: [0, 0, 200, 400]
+      content-size: [200, 4000]
+      external-scroll-offset: [0, 1024.0]
+      items:
+        - type: stacking-context
+          bounds: [0, -923.5, 200, 2000]
+          transform: translate(0, 0)
+          items:
+            - type: sticky-frame
+              bounds: [0, 100, 200, 20]
+              margin-top: 30
+              vertical-offset-bounds: [0, 2000]
+              items:
+                - type: rect
+                  bounds: [0, 100, 200, 20]
+                  color: green

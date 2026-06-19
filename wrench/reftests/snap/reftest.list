@@ -6,3 +6,5 @@ platform(linux,mac) == fractional-filter.yaml fractional-filter-ref.yaml
 max_surface_size(256) == 1761299.yaml 1761299.yaml
 == content-offset.yaml content-offset-ref.yaml
 == fractional-root-frame.yaml fractional-root-frame-ref.yaml
+
+== refframe-origin-quantize.yaml refframe-origin-quantize-ref.yaml

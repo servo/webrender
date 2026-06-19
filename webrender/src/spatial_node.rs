@@ -73,6 +73,18 @@ pub struct SceneSpatialNode {
     pub is_root_coord_system: bool,
 }
 
+/// Grid that reference-frame origins are quantized to (see
+/// `SceneSpatialNode::new_reference_frame`). The display-list builder
+/// reconstitutes an origin as a scrolled-space value plus a re-added (fractional)
+/// external scroll offset; at large scroll magnitudes that f32 round-trip can
+/// leave the origin slightly off its intended sub-pixel position (a few of the
+/// smallest representable float increments, e.g. 201.49994 vs 201.5). That tiny
+/// error sits on the device-pixel snap tie and flips snapped content +/-1px
+/// frame-to-frame while scrolling. 1/128 px is far above that float noise yet far
+/// below a device pixel (about half Gecko's app-unit granularity), so quantizing
+/// removes the noise without disturbing genuine sub-pixel placement.
+const REFERENCE_FRAME_ORIGIN_QUANTUM: f32 = 1.0 / 128.0;
+
 impl SceneSpatialNode {
     pub fn new_reference_frame(
         parent_index: Option<SpatialNodeIndex>,
@@ -84,6 +96,17 @@ impl SceneSpatialNode {
         is_root_coord_system: bool,
         is_pipeline_root: bool,
     ) -> Self {
+        // Quantize the reference-frame origin to REFERENCE_FRAME_ORIGIN_QUANTUM to
+        // strip the tiny float noise the builder's scrolled-space ESO round-trip
+        // can introduce (e.g. 201.49994 vs 201.5), which otherwise straddles the
+        // device-pixel snap tie and jitters snapped content +/-1px while scrolling.
+        let origin_in_parent_reference_frame = {
+            let q = REFERENCE_FRAME_ORIGIN_QUANTUM;
+            LayoutVector2D::new(
+                (origin_in_parent_reference_frame.x / q).round() * q,
+                (origin_in_parent_reference_frame.y / q).round() * q,
+            )
+        };
         let info = ReferenceFrameInfo {
             transform_style,
             source_transform,

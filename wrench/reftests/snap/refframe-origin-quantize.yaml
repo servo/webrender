@@ -1,0 +1,30 @@
+# Regression test for sub-pixel scroll jitter (sticky-in-fractional-reference-frame).
+# A scroll frame with a large fractional external scroll offset contains a reference
+# frame authored in scrolled space (origin -923.57). The display-list builder
+# reconstitutes its origin as origin + external_scroll_offset in f32; at this
+# magnitude that round-trip drops a few low bits, yielding 100.49994 instead of the
+# intended 100.5 - pure float noise (exact arithmetic gives 100.5). A position:sticky
+# frame inside reads that origin through its viewport, so the noise survives into the
+# sticky offset (a plain prim would have it cancelled back out by the scroll). With
+# the noise the stuck rect's edge sits at device y 30.49994 and snaps to row 30;
+# REFERENCE_FRAME_ORIGIN_QUANTUM restores the origin to 100.5 so it snaps to row 31,
+# matching the reference (which reconstitutes 100.5 exactly from an integer offset).
+root:
+  items:
+    - type: scroll-frame
+      bounds: [0, 0, 200, 400]
+      content-size: [200, 4000]
+      external-scroll-offset: [0, 1024.07]
+      items:
+        - type: stacking-context
+          bounds: [0, -923.57, 200, 2000]
+          transform: translate(0, 0)
+          items:
+            - type: sticky-frame
+              bounds: [0, 100, 200, 20]
+              margin-top: 30
+              vertical-offset-bounds: [0, 2000]
+              items:
+                - type: rect
+                  bounds: [0, 100, 200, 20]
+                  color: green
