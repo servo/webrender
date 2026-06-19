@@ -2036,6 +2036,13 @@ impl YuvFormat {
             YuvFormat::InterleavedYCbCr => 1,
         }
     }
+
+    pub fn is_msb_aligned(self) -> bool {
+        match self {
+            YuvFormat::NV12 | YuvFormat::PlanarYCbCr | YuvFormat::InterleavedYCbCr => false,
+            YuvFormat::P010 | YuvFormat::P210 => true,
+        }
+    }
 }
 
 #[repr(C)]

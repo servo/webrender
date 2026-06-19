@@ -57,7 +57,7 @@ void brush_vs(
     // also needs to know how many bits of scaling are required to normalize
     // HDR textures. Note that MSB HDR formats don't need renormalization.
     vRescaleFactor = 0;
-    if (prim.channel_bit_depth > 8 && prim.yuv_format != YUV_FORMAT_P010) {
+    if (prim.channel_bit_depth > 8 && !yuv_format_is_msb_aligned(prim.yuv_format)) {
         vRescaleFactor = 16 - prim.channel_bit_depth;
     }
 #endif
@@ -76,7 +76,7 @@ void brush_vs(
         write_uv_rect(res_y.uv_rect.p0, res_y.uv_rect.p1, f, TEX_SIZE_YUV(sColor0), vUv_Y, vUvBounds_Y);
         write_uv_rect(res_u.uv_rect.p0, res_u.uv_rect.p1, f, TEX_SIZE_YUV(sColor1), vUv_U, vUvBounds_U);
         write_uv_rect(res_v.uv_rect.p0, res_v.uv_rect.p1, f, TEX_SIZE_YUV(sColor2), vUv_V, vUvBounds_V);
-    } else if (vFormat.x == YUV_FORMAT_NV12 || vFormat.x == YUV_FORMAT_P010) {
+    } else if (yuv_format_is_biplanar(vFormat.x)) {
         ImageSource res_y = fetch_image_source(prim_user_data.x);
         ImageSource res_u = fetch_image_source(prim_user_data.y);
         write_uv_rect(res_y.uv_rect.p0, res_y.uv_rect.p1, f, TEX_SIZE_YUV(sColor0), vUv_Y, vUvBounds_Y);
@@ -122,7 +122,7 @@ void swgl_drawSpanRGBA8() {
                                     vYcbcrBias,
                                     vRgbFromDebiasedYcbcr,
                                     vRescaleFactor);
-    } else if (vFormat.x == YUV_FORMAT_NV12 || vFormat.x == YUV_FORMAT_P010) {
+    } else if (yuv_format_is_biplanar(vFormat.x)) {
         swgl_commitTextureLinearYUV(sColor0, vUv_Y, vUvBounds_Y,
                                     sColor1, vUv_U, vUvBounds_U,
                                     vYcbcrBias,

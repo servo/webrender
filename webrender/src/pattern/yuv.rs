@@ -35,11 +35,13 @@ const RGB_FROM_YUV_GBR_IDENTITY: [[f32; 3]; 3] = [
 
 fn channel_max(bit_depth: u32, format: YuvFormat) -> f32 {
     if bit_depth > 8 {
-        if format == YuvFormat::P010 {
-            // This is an MSB format.
+        if format.is_msb_aligned() {
+            // MSB aligned >8bpc, we get the high bits, not the low bits:
+            // 10bpc(1.0): 0b1111_1111_1100_0000
             ((1u32 << bit_depth) - 1) as f32
         } else {
-            // For >8bpc, we get the low bits, not the high bits.
+            // LSB aligned >8bpc, we get the low bits, not the high bits:
+            // 10bpc(1.0): 0b0000_0011_1111_1111
             65535.0
         }
     } else {
@@ -117,7 +119,7 @@ impl YuvColorMatrix {
 
         // swgl_commitTextureLinearYUV needs to know how many bits of scaling are
         // required to normalize HDR textures. MSB HDR formats don't need it.
-        let rescale_factor = if bit_depth > 8 && format != YuvFormat::P010 {
+        let rescale_factor = if bit_depth > 8 && !format.is_msb_aligned() {
             16 - bit_depth as i32
         } else {
             0

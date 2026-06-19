@@ -13,6 +13,11 @@
 //#define YUV_PRECISION mediump
 #define YUV_PRECISION highp
 
+bool yuv_format_is_biplanar(int format) {
+    return format == YUV_FORMAT_NV12 || format == YUV_FORMAT_P010 ||
+           format == YUV_FORMAT_P210;
+}
+
 #ifdef WR_VERTEX_SHADER
 
 #ifdef WR_FEATURE_TEXTURE_RECT
@@ -78,6 +83,10 @@ struct YuvColorMatrixInfo {
 
 // -
 
+bool yuv_format_is_msb_aligned(int format) {
+    return format == YUV_FORMAT_P010 || format == YUV_FORMAT_P210;
+}
+
 vec4 yuv_channel_zero_one_identity(int bit_depth, float channel_max) {
     float all_ones_normalized = float((1 << bit_depth) - 1) / channel_max;
     return vec4(0.0, 0.0, all_ones_normalized, all_ones_normalized);
@@ -98,11 +107,12 @@ vec4 yuv_channel_zero_one_full_range(int bit_depth, float channel_max) {
 YuvColorSamplingInfo get_yuv_color_info(YuvPrimitive prim) {
     float channel_max = 255.0;
     if (prim.channel_bit_depth > 8) {
-        if (prim.yuv_format == YUV_FORMAT_P010) {
-            // This is an MSB format.
+        if (yuv_format_is_msb_aligned(prim.yuv_format)) {
+            // MSB aligned >8bpc, we get the high bits, not the low bits:
+            // 10bpc(1.0): 0b1111_1111_1100_0000
             channel_max = float((1 << prim.channel_bit_depth) - 1);
         } else {
-            // For >8bpc, we get the low bits, not the high bits:
+            // LSB aligned >8bpc, we get the low bits, not the high bits:
             // 10bpc(1.0): 0b0000_0011_1111_1111
             channel_max = 65535.0;
         }
@@ -186,43 +196,27 @@ vec4 sample_yuv(
 ) {
     YUV_PRECISION vec3 ycbcr_sample;
 
-    switch (format) {
-        case YUV_FORMAT_PLANAR:
-            {
-                // The yuv_planar format should have this third texture coordinate.
-                vec2 uv_y = clamp(in_uv_y, uv_bounds_y.xy, uv_bounds_y.zw);
-                vec2 uv_u = clamp(in_uv_u, uv_bounds_u.xy, uv_bounds_u.zw);
-                vec2 uv_v = clamp(in_uv_v, uv_bounds_v.xy, uv_bounds_v.zw);
-                ycbcr_sample.x = TEX_SAMPLE(sColor0, uv_y).r;
-                ycbcr_sample.y = TEX_SAMPLE(sColor1, uv_u).r;
-                ycbcr_sample.z = TEX_SAMPLE(sColor2, uv_v).r;
-            }
-            break;
-
-        case YUV_FORMAT_NV12:
-        case YUV_FORMAT_P010:
-        case YUV_FORMAT_P210:
-            {
-                vec2 uv_y = clamp(in_uv_y, uv_bounds_y.xy, uv_bounds_y.zw);
-                vec2 uv_uv = clamp(in_uv_u, uv_bounds_u.xy, uv_bounds_u.zw);
-                ycbcr_sample.x = TEX_SAMPLE(sColor0, uv_y).r;
-                ycbcr_sample.yz = TEX_SAMPLE(sColor1, uv_uv).rg;
-            }
-            break;
-
-        case YUV_FORMAT_INTERLEAVED:
-            {
-                // "The Y, Cb and Cr color channels within the 422 data are mapped into
-                // the existing green, blue and red color channels."
-                // https://www.khronos.org/registry/OpenGL/extensions/APPLE/APPLE_rgb_422.txt
-                vec2 uv_y = clamp(in_uv_y, uv_bounds_y.xy, uv_bounds_y.zw);
-                ycbcr_sample = TEX_SAMPLE(sColor0, uv_y).gbr;
-            }
-            break;
-
-        default:
-            ycbcr_sample = vec3(0.0);
-            break;
+    if (format == YUV_FORMAT_PLANAR) {
+        // The yuv_planar format should have this third texture coordinate.
+        vec2 uv_y = clamp(in_uv_y, uv_bounds_y.xy, uv_bounds_y.zw);
+        vec2 uv_u = clamp(in_uv_u, uv_bounds_u.xy, uv_bounds_u.zw);
+        vec2 uv_v = clamp(in_uv_v, uv_bounds_v.xy, uv_bounds_v.zw);
+        ycbcr_sample.x = TEX_SAMPLE(sColor0, uv_y).r;
+        ycbcr_sample.y = TEX_SAMPLE(sColor1, uv_u).r;
+        ycbcr_sample.z = TEX_SAMPLE(sColor2, uv_v).r;
+    } else if (yuv_format_is_biplanar(format)) {
+        vec2 uv_y = clamp(in_uv_y, uv_bounds_y.xy, uv_bounds_y.zw);
+        vec2 uv_uv = clamp(in_uv_u, uv_bounds_u.xy, uv_bounds_u.zw);
+        ycbcr_sample.x = TEX_SAMPLE(sColor0, uv_y).r;
+        ycbcr_sample.yz = TEX_SAMPLE(sColor1, uv_uv).rg;
+    } else if (format == YUV_FORMAT_INTERLEAVED) {
+        // "The Y, Cb and Cr color channels within the 422 data are mapped into
+        // the existing green, blue and red color channels."
+        // https://www.khronos.org/registry/OpenGL/extensions/APPLE/APPLE_rgb_422.txt
+        vec2 uv_y = clamp(in_uv_y, uv_bounds_y.xy, uv_bounds_y.zw);
+        ycbcr_sample = TEX_SAMPLE(sColor0, uv_y).gbr;
+    } else {
+        ycbcr_sample = vec3(0.0);
     }
     //if (true) return vec4(ycbcr_sample, 1.0);
 
