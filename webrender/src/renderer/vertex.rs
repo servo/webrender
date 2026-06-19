@@ -81,28 +81,6 @@ pub mod desc {
         ],
     };
 
-    pub const CLIP_RECT: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[VertexAttribute::quad_instance_vertex()],
-        instance_attributes: &[
-            // common clip attributes
-            VertexAttribute::f32x4("aClipDeviceArea"),
-            VertexAttribute::f32x4("aClipOrigins"),
-            VertexAttribute::f32("aDevicePixelScale"),
-            VertexAttribute::i32x2("aTransformIds"),
-            // specific clip attributes
-            VertexAttribute::f32x2("aClipLocalPos"),
-            VertexAttribute::f32x4("aClipLocalRect"),
-            VertexAttribute::f32("aClipMode"),
-            VertexAttribute::f32x4("aClipRect_TL"),
-            VertexAttribute::f32x4("aClipRadii_TL"),
-            VertexAttribute::f32x4("aClipRect_TR"),
-            VertexAttribute::f32x4("aClipRadii_TR"),
-            VertexAttribute::f32x4("aClipRect_BL"),
-            VertexAttribute::f32x4("aClipRadii_BL"),
-            VertexAttribute::f32x4("aClipRect_BR"),
-            VertexAttribute::f32x4("aClipRadii_BR"),
-        ],
-    };
 
     pub const SVG_FILTER_NODE: VertexDescriptor = VertexDescriptor {
         vertex_attributes: &[VertexAttribute::quad_instance_vertex()],
@@ -164,7 +142,6 @@ pub mod desc {
 pub enum VertexArrayKind {
     Primitive,
     Blur,
-    ClipRect,
     Border,
     Scale,
     LineDecoration,
@@ -382,7 +359,6 @@ impl VertexDataTextures {
 pub struct RendererVAOs {
     prim_vao: VAO,
     blur_vao: VAO,
-    clip_rect_vao: VAO,
     border_vao: VAO,
     line_vao: VAO,
     scale_vao: VAO,
@@ -422,7 +398,6 @@ impl RendererVAOs {
 
         RendererVAOs {
             blur_vao: device.create_vao_with_new_instances(&desc::BLUR, &prim_vao),
-            clip_rect_vao: device.create_vao_with_new_instances(&desc::CLIP_RECT, &prim_vao),
             border_vao: device.create_vao_with_new_instances(&desc::BORDER, &prim_vao),
             scale_vao: device.create_vao_with_new_instances(&desc::SCALE, &prim_vao),
             line_vao: device.create_vao_with_new_instances(&desc::LINE, &prim_vao),
@@ -437,7 +412,6 @@ impl RendererVAOs {
 
     pub fn deinit(self, device: &mut Device) {
         device.delete_vao(self.prim_vao);
-        device.delete_vao(self.clip_rect_vao);
         device.delete_vao(self.blur_vao);
         device.delete_vao(self.line_vao);
         device.delete_vao(self.border_vao);
@@ -455,7 +429,6 @@ impl ops::Index<VertexArrayKind> for RendererVAOs {
     fn index(&self, kind: VertexArrayKind) -> &VAO {
         match kind {
             VertexArrayKind::Primitive => &self.prim_vao,
-            VertexArrayKind::ClipRect => &self.clip_rect_vao,
             VertexArrayKind::Blur => &self.blur_vao,
             VertexArrayKind::Border => &self.border_vao,
             VertexArrayKind::Scale => &self.scale_vao,

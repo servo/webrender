@@ -6,7 +6,7 @@
 use api::units::*;
 use api::{ClipMode, ColorF, LineOrientation, BorderStyle};
 use crate::batch::{AlphaBatchBuilder, AlphaBatchContainer, BatchTextures, TextureSet};
-use crate::batch::{ClipBatcher, BatchBuilder, INVALID_SEGMENT_INDEX, ClipMaskInstanceList};
+use crate::batch::{BatchBuilder, INVALID_SEGMENT_INDEX, ClipMaskInstanceList};
 use crate::render_task::{SubTask, RectangleClipSubTask, ImageClipSubTask};
 use crate::command_buffer::{CommandBufferList, QuadFlags};
 use crate::pattern::{Pattern, PatternKind, PatternShaderInput};
@@ -173,8 +173,6 @@ pub struct RenderTarget {
     pub border_segments_solid: FrameVec<BorderInstance>,
     pub line_decorations: FrameVec<LineDecorationJob>,
 
-    pub clip_batcher: ClipBatcher,
-
     // Clearing render targets has a fair amount of special cases.
     // The general rules are:
     // - Depth (for at least the used potion of the target) is always cleared if it
@@ -210,7 +208,6 @@ impl RenderTarget {
         cached: bool,
         texture_id: CacheTextureId,
         screen_size: DeviceIntSize,
-        gpu_supports_fast_clears: bool,
         used_rect: Option<DeviceIntRect>,
         memory: &FrameMemory,
     ) -> Self {
@@ -232,7 +229,6 @@ impl RenderTarget {
             prim_instances: std::array::from_fn(|_| FastHashMap::default()),
             prim_instances_with_scissor: FastHashMap::default(),
             clip_masks: ClipMaskInstanceList::new(memory),
-            clip_batcher: ClipBatcher::new(gpu_supports_fast_clears, memory),
             border_segments_complex: memory.new_vec(),
             border_segments_solid: memory.new_vec(),
             clears: memory.new_vec(),
