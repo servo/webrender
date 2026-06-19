@@ -6,7 +6,7 @@
 
 #define YUV_FORMAT_NV12             0
 #define YUV_FORMAT_P010             1
-#define YUV_FORMAT_NV16             2
+#define YUV_FORMAT_P210             2
 #define YUV_FORMAT_PLANAR           3
 #define YUV_FORMAT_INTERLEAVED      4
 
@@ -201,7 +201,7 @@ vec4 sample_yuv(
 
         case YUV_FORMAT_NV12:
         case YUV_FORMAT_P010:
-        case YUV_FORMAT_NV16:
+        case YUV_FORMAT_P210:
             {
                 vec2 uv_y = clamp(in_uv_y, uv_bounds_y.xy, uv_bounds_y.zw);
                 vec2 uv_uv = clamp(in_uv_u, uv_bounds_u.xy, uv_bounds_u.zw);

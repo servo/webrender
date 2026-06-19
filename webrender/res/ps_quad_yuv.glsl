@@ -80,7 +80,7 @@ void pattern_vertex(PrimitiveInfo info) {
         write_uv_rect(uv_rect_y.p0, uv_rect_y.p1, f, TEX_SIZE_YUV(sColor0), vUv_Y, vUvBounds_Y);
         write_uv_rect(yuv.uv_rect_u.p0, yuv.uv_rect_u.p1, f, TEX_SIZE_YUV(sColor1), vUv_U, vUvBounds_U);
         write_uv_rect(yuv.uv_rect_v.p0, yuv.uv_rect_v.p1, f, TEX_SIZE_YUV(sColor2), vUv_V, vUvBounds_V);
-    } else if (vFormat.x == YUV_FORMAT_NV12 || vFormat.x == YUV_FORMAT_P010 || vFormat.x == YUV_FORMAT_NV16) {
+    } else if (vFormat.x == YUV_FORMAT_NV12 || vFormat.x == YUV_FORMAT_P010 || vFormat.x == YUV_FORMAT_P210) {
         write_uv_rect(uv_rect_y.p0, uv_rect_y.p1, f, TEX_SIZE_YUV(sColor0), vUv_Y, vUvBounds_Y);
         write_uv_rect(yuv.uv_rect_u.p0, yuv.uv_rect_u.p1, f, TEX_SIZE_YUV(sColor1), vUv_U, vUvBounds_U);
     } else if (vFormat.x == YUV_FORMAT_INTERLEAVED) {
@@ -117,7 +117,7 @@ void swgl_drawSpanRGBA8() {
                                     vYcbcrBias,
                                     vRgbFromDebiasedYcbcr,
                                     vRescaleFactor);
-    } else if (vFormat.x == YUV_FORMAT_NV12 || vFormat.x == YUV_FORMAT_P010 || vFormat.x == YUV_FORMAT_NV16) {
+    } else if (vFormat.x == YUV_FORMAT_NV12 || vFormat.x == YUV_FORMAT_P010 || vFormat.x == YUV_FORMAT_P210) {
         swgl_commitTextureLinearYUV(sColor0, vUv_Y, vUvBounds_Y,
                                     sColor1, vUv_U, vUvBounds_U,
                                     vYcbcrBias,
