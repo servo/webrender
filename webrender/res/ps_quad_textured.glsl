@@ -49,19 +49,34 @@ vec4 pattern_fragment(vec4 color) {
 
 #if defined(SWGL_DRAW_SPAN)
 void swgl_drawSpanRGBA8() {
-    if (v_flags_mode == SHADER_MODE_TEXTURE) {
-        if (v_flags_is_mask != 0) {
-            // Fall back to fragment shader as we don't specialize for mask yet. Perhaps
-            // we can use an existing swgl commit or add a new one though?
-        } else {
+    if (v_flags_mode != SHADER_MODE_TEXTURE) {
+        swgl_commitSolidRGBA8(v_color);
+        return;
+    }
+
+    if (v_flags_is_mask != 0) {
+        // The fragment path broadcasts the output's r channel to all channels
+        // (output_color.rrrr in ps_quad.glsl). expand_mask in swgl produces the
+        // same broadcast from an R8 sample, so the R8ToRGBA8 commits match the
+        // mask semantics. RGBA8 + mask still falls back to the fragment shader
+        // since no swgl commit broadcasts a single channel of an RGBA8 sample.
+        if (swgl_isTextureR8(sColor0)) {
             if (v_color != vec4(1.0)) {
-                swgl_commitTextureColorRGBA8(sColor0, v_uv0, v_uv0_sample_bounds, v_color);
+                swgl_commitTextureLinearColorR8ToRGBA8(sColor0, v_uv0, v_uv0_sample_bounds, v_color);
             } else {
-                swgl_commitTextureRGBA8(sColor0, v_uv0, v_uv0_sample_bounds);
+                swgl_commitTextureLinearR8ToRGBA8(sColor0, v_uv0, v_uv0_sample_bounds);
             }
         }
+        return;
+    }
+
+    if (!swgl_isTextureRGBA8(sColor0)) {
+        return;
+    }
+    if (v_color != vec4(1.0)) {
+        swgl_commitTextureColorRGBA8(sColor0, v_uv0, v_uv0_sample_bounds, v_color);
     } else {
-        swgl_commitSolidRGBA8(v_color);
+        swgl_commitTextureRGBA8(sColor0, v_uv0, v_uv0_sample_bounds);
     }
 }
 #endif
