@@ -797,7 +797,6 @@ impl FrameBuilder {
                     &mut transform_palette,
                     &mut prim_headers,
                     &mut z_generator,
-                    scene.config.gpu_supports_fast_clears,
                     &scene.prim_instances,
                     &cmd_buffers,
                 );
@@ -1147,7 +1146,6 @@ pub fn build_render_pass(
     transforms: &mut TransformPalette,
     prim_headers: &mut PrimitiveHeaders,
     z_generator: &mut ZBufferIdGenerator,
-    gpu_supports_fast_clears: bool,
     prim_instances: &[PrimitiveInstance],
     cmd_buffers: &CommandBufferList,
 ) -> RenderPass {
@@ -1169,7 +1167,6 @@ pub fn build_render_pass(
                             false,
                             texture_id,
                             screen_size,
-                            gpu_supports_fast_clears,
                             Some(used_rect),
                             &ctx.frame_memory,
                         );
@@ -1193,7 +1190,6 @@ pub fn build_render_pass(
                             false,
                             texture_id,
                             screen_size,
-                            gpu_supports_fast_clears,
                             Some(used_rect),
                             &ctx.frame_memory,
                         );
@@ -1329,7 +1325,6 @@ pub fn build_render_pass(
                             true,
                             texture,
                             screen_size,
-                            gpu_supports_fast_clears,
                             None,
                             &ctx.frame_memory
                         )
