@@ -1875,7 +1875,7 @@ impl ClipItemKind {
     /// Returns true if this clip mask can run through the fast path
     /// for the given clip item type.
     ///
-    /// Note: this logic has to match `write_rounded_rect_clip_blocks` behavior.
+    /// Note: this logic has to match `ClipBatcher::add` behavior.
     fn supports_fast_path_rendering(&self, clip_rect: LayoutRect) -> bool {
         match *self {
             ClipItemKind::Rectangle { .. } |
