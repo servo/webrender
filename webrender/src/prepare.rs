@@ -2040,7 +2040,7 @@ fn update_clip_task_for_brush(
                     &mut frame_state.frame_gpu_data.f32,
                     frame_state.resource_cache,
                     &dirty_rect,
-                    &mut data_stores.clip,
+                    &data_stores.clip,
                     frame_state.rg_builder,
                     false,
                 );
