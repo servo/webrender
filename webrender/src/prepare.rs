@@ -840,7 +840,6 @@ fn prepare_interned_prim_for_render(
             let prim_data = &mut data_stores.normal_border[*data_handle];
             let aligned_aa_edges = prim_data.common.aligned_aa_edges;
             let transformed_aa_edges = prim_data.common.transformed_aa_edges;
-            let common_data = &mut prim_data.common;
             let border_data = &mut prim_data.kind;
 
             // The per-frame brush + border segments and task-id slot
@@ -1010,7 +1009,6 @@ fn prepare_interned_prim_for_render(
             
             let brush_segments = &scratch.frame.segments[nb_scratch.brush_segments_range];
             let gpu_address = border_data.write_brush_gpu_blocks(
-                common_data,
                 prim_info.snapped_local_rect.size(),
                 brush_segments,
                 frame_state,
@@ -1022,7 +1020,6 @@ fn prepare_interned_prim_for_render(
             let prim_data = &mut data_stores.image_border[*data_handle];
             let aligned_aa_edges = prim_data.common.aligned_aa_edges;
             let transformed_aa_edges = prim_data.common.transformed_aa_edges;
-            let common_data = &mut prim_data.common;
             let border_data = &mut prim_data.kind;
 
             // The per-frame brush segments were allocated in
@@ -1035,7 +1032,7 @@ fn prepare_interned_prim_for_render(
             let brush_segments_range =
                 scratch.frame.image_border[ib_handle].brush_segments_range;
 
-            let (task_id, size) = border_data.update(common_data, frame_state);
+            let (task_id, size) = border_data.update(frame_state);
 
             if !use_legacy_path {
                 let prim_rect = prim_info.snapped_local_rect;
@@ -1070,7 +1067,6 @@ fn prepare_interned_prim_for_render(
             } else {
                 let brush_segments = &scratch.frame.segments[brush_segments_range];
                 let gpu_address = border_data.write_brush_gpu_blocks(
-                    common_data,
                     prim_info.snapped_local_rect.size(),
                     brush_segments,
                     frame_state,
@@ -1086,12 +1082,13 @@ fn prepare_interned_prim_for_render(
 
                 // Update the template this instane references, which may refresh the GPU
                 // cache with any shared template data.
-                let gpu_address = prim_data.update(
+                let (gpu_address, opacity) = prim_data.update(
                     frame_state,
                     frame_context.scene_properties,
                 );
                 let rect_handle = scratch.frame.rectangle.push(RectangleScratch {
                     gpu_address,
+                    opacity,
                 });
                 scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
                     KindScratchHandle::Rectangle(rect_handle);
@@ -1134,7 +1131,7 @@ fn prepare_interned_prim_for_render(
         PrimitiveKind::YuvImage { data_handle, .. } => {
             profile_scope!("YuvImage");
             let prim_data = &mut data_stores.yuv_image[*data_handle];
-            let common_data = &mut prim_data.common;
+            let common_data = &prim_data.common;
             let yuv_image_data = &mut prim_data.kind;
 
             if prim_info.compositor_surface_kind == CompositorSurfaceKind::Underlay {
@@ -1197,7 +1194,7 @@ fn prepare_interned_prim_for_render(
             profile_scope!("Image");
 
             let prim_data = &mut data_stores.image[*data_handle];
-            let common_data = &mut prim_data.common;
+            let common_data = &prim_data.common;
             let image_data = &mut prim_data.kind;
 
             if !use_legacy_path {
@@ -1246,7 +1243,6 @@ fn prepare_interned_prim_for_render(
             // Update the template this instance references, which may refresh the GPU
             // cache with any shared template data.
             let img_scratch_handle = image_data.update(
-                common_data,
                 prim_instance_index,
                 prim_spatial_node_index,
                 frame_state,

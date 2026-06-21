@@ -25,6 +25,7 @@ use std::ops;
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct RectangleScratch {
     pub gpu_address: GpuBufferAddress,
+    pub opacity: PrimitiveOpacity,
 }
 
 #[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
@@ -136,14 +137,13 @@ impl RectangleTemplate {
         &mut self,
         frame_state: &mut FrameBuildingState,
         scene_properties: &SceneProperties,
-    ) -> GpuBufferAddress {
+    ) -> (GpuBufferAddress, PrimitiveOpacity) {
+        let color = scene_properties.resolve_color(&self.kind.color);
         let mut writer = frame_state.frame_gpu_data.f32.write_blocks(1);
-        writer.push_one(scene_properties.resolve_color(&self.kind.color).premultiplied());
+        writer.push_one(color.premultiplied());
         let gpu_address = writer.finish();
-        self.opacity = PrimitiveOpacity::from_alpha(
-            scene_properties.resolve_color(&self.kind.color).a
-        );
-        gpu_address
+        let opacity = PrimitiveOpacity::from_alpha(color.a);
+        (gpu_address, opacity)
     }
 }
 

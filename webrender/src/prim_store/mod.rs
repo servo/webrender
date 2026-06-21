@@ -262,7 +262,6 @@ pub struct PrimKey<T: MallocSizeOf> {
 #[derive(Debug)]
 pub struct PrimTemplateCommonData {
     pub flags: PrimitiveFlags,
-    pub opacity: PrimitiveOpacity,
     pub aligned_aa_edges: EdgeMask,
     pub transformed_aa_edges: EdgeMask,
 }
@@ -271,7 +270,6 @@ impl PrimTemplateCommonData {
     pub fn with_key_common(common: PrimKeyCommonData) -> Self {
         PrimTemplateCommonData {
             flags: common.flags,
-            opacity: PrimitiveOpacity::translucent(),
             aligned_aa_edges: common.aligned_aa_edges,
             transformed_aa_edges: common.transformed_aa_edges,
         }
