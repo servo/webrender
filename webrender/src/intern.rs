@@ -202,19 +202,15 @@ impl<I: Internable> DataStore<I> {
     }
 }
 
-/// Retrieve an item from the store via handle
+/// Retrieve an item from the store via handle.
+///
+/// Interned templates are immutable at frame-build time: all per-frame
+/// state has been relocated to per-frame scratch, so the store only ever
+/// hands out shared references. There is intentionally no `IndexMut` impl.
 impl<I: Internable> ops::Index<Handle<I>> for DataStore<I> {
     type Output = I::StoreData;
     fn index(&self, handle: Handle<I>) -> &I::StoreData {
         self.items[handle.index as usize].as_ref().expect("Bad datastore lookup")
-    }
-}
-
-/// Retrieve a mutable item from the store via handle
-/// Retrieve an item from the store via handle
-impl<I: Internable> ops::IndexMut<Handle<I>> for DataStore<I> {
-    fn index_mut(&mut self, handle: Handle<I>) -> &mut I::StoreData {
-        self.items[handle.index as usize].as_mut().expect("Bad datastore lookup")
     }
 }
 
