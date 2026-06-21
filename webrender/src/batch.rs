@@ -1614,25 +1614,10 @@ impl BatchBuilder {
             BlendMode::None
         };
 
-        let segment_instance_index = match prim_instance.kind {
-            PrimitiveKind::Rectangle { .. }
-            | PrimitiveKind::YuvImage { .. } => prim_info.segment_instance_index,
-            _ => SegmentInstanceIndex::UNUSED,
-        };
-
-        let (prim_cache_address, segments) = if segment_instance_index == SegmentInstanceIndex::UNUSED {
-            (common_data.gpu_buffer_address, None)
-        } else {
-            let segment_instance = &ctx.scratch.frame.segment_instances[segment_instance_index];
-            let segments = Some(&ctx.scratch.frame.segments[segment_instance.segments_range]);
-            (segment_instance.gpu_data, segments)
-        };
-
         // The following primitives lower to the image brush shader in the same way.
-        // For ImageBorder, the GPU block lives on per-instance scratch
-        // (`ImageBorderScratch.gpu_address`), so override
-        // `prim_cache_address` here.
-        let mut prim_cache_address = prim_cache_address;
+        // Each kind sources its per-instance GPU block address from its own
+        // per-frame scratch (or segment instance); ImageBorder reads it from
+        // `ImageBorderScratch.gpu_address`.
         let img_brush_data = match prim_instance.kind {
             PrimitiveKind::RadialGradient { .. } => {
                 unreachable!("BUG: radial gradients should always use quad path");
@@ -1644,15 +1629,13 @@ impl BatchBuilder {
                 let prim_data = &ctx.data_stores.image_border[data_handle];
                 let ib_handle = prim_info.kind_scratch.unwrap_image_border();
                 let ib_scratch = ctx.scratch.frame.image_border[ib_handle];
-                prim_cache_address = ib_scratch.gpu_address;
                 let brush_segments = &ctx.scratch.frame.segments[ib_scratch.brush_segments_range];
-                let src_color = prim_data.kind.src_color.map(|src| src.0);
-                Some((src_color, brush_segments))
+                Some((ib_scratch.gpu_address, prim_data.kind.src_color.map(|src| src.0), brush_segments))
             }
             _ => None,
         };
 
-        if let Some((src_color, brush_segments)) = img_brush_data {
+        if let Some((prim_cache_address, src_color, brush_segments)) = img_brush_data {
             let src_color = render_tasks.resolve_location(src_color);
 
             let (uv_rect_address, texture_source) = match src_color {
@@ -2010,6 +1993,15 @@ impl BatchBuilder {
                 );
             }
             PrimitiveKind::Rectangle { .. } => {
+                let (prim_cache_address, segments) = if prim_info.segment_instance_index == SegmentInstanceIndex::UNUSED {
+                    let rect_scratch = prim_info.kind_scratch.unwrap_rectangle();
+                    (ctx.scratch.frame.rectangle[rect_scratch].gpu_address, None)
+                } else {
+                    let segment_instance = &ctx.scratch.frame.segment_instances[prim_info.segment_instance_index];
+                    let segments = Some(&ctx.scratch.frame.segments[segment_instance.segments_range]);
+                    (segment_instance.gpu_data, segments)
+                };
+
                 let batch_params = BrushBatchParameters::shared(
                     BrushBatchKind::Solid,
                     TextureSet::UNTEXTURED,

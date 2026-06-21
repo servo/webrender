@@ -1039,9 +1039,9 @@ fn test_struct_sizes() {
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<Image>(), 36, "Image size changed");
-    assert_eq!(mem::size_of::<ImageTemplate>(), 56, "ImageTemplate size changed");
+    assert_eq!(mem::size_of::<ImageTemplate>(), 52, "ImageTemplate size changed");
     assert_eq!(mem::size_of::<ImageKey>(), 40, "ImageKey size changed");
     assert_eq!(mem::size_of::<YuvImage>(), 32, "YuvImage size changed");
-    assert_eq!(mem::size_of::<YuvImageTemplate>(), 76, "YuvImageTemplate size changed");
+    assert_eq!(mem::size_of::<YuvImageTemplate>(), 72, "YuvImageTemplate size changed");
     assert_eq!(mem::size_of::<YuvImageKey>(), 36, "YuvImageKey size changed");
 }

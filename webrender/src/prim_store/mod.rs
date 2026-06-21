@@ -43,7 +43,7 @@ use gradient::{LinearGradientDataHandle, RadialGradientDataHandle, ConicGradient
 use image::{ImageDataHandle, ImageScratch, VisibleImageTile, YuvImageDataHandle};
 use line_dec::LineDecorationDataHandle;
 use picture::PictureDataHandle;
-use rectangle::RectangleDataHandle;
+use rectangle::{RectangleDataHandle, RectangleScratch};
 use text_run::{TextRunDataHandle, TextRunScratch};
 use crate::box_shadow::BoxShadowDataHandle;
 
@@ -263,12 +263,6 @@ pub struct PrimKey<T: MallocSizeOf> {
 pub struct PrimTemplateCommonData {
     pub flags: PrimitiveFlags,
     pub opacity: PrimitiveOpacity,
-    /// Address of the per-primitive data in the GPU cache.
-    ///
-    /// TODO: This is only valid during the current frame and must
-    /// be overwritten each frame. We should move this out of the
-    /// common data to avoid accidental reuse.
-    pub gpu_buffer_address: GpuBufferAddress,
     pub aligned_aa_edges: EdgeMask,
     pub transformed_aa_edges: EdgeMask,
 }
@@ -277,7 +271,6 @@ impl PrimTemplateCommonData {
     pub fn with_key_common(common: PrimKeyCommonData) -> Self {
         PrimTemplateCommonData {
             flags: common.flags,
-            gpu_buffer_address: GpuBufferAddress::INVALID,
             opacity: PrimitiveOpacity::translucent(),
             aligned_aa_edges: common.aligned_aa_edges,
             transformed_aa_edges: common.transformed_aa_edges,
@@ -719,6 +712,11 @@ pub struct PrimitiveFrameScratch {
     /// visible primitive.
     pub draws: Vec<PrimitiveDrawHeader>,
 
+    /// Per-frame scratch for legacy-path Rectangle primitives. Holds the
+    /// per-instance GPU block address. Indexed by `kind_scratch` on
+    /// `PrimitiveKind::Rectangle`.
+    pub rectangle: storage::Storage<RectangleScratch>,
+
     /// Per-frame scratch for NormalBorder primitives.
     pub normal_border: storage::Storage<NormalBorderScratch>,
 
@@ -796,6 +794,7 @@ impl Default for PrimitiveFrameScratch {
     fn default() -> Self {
         PrimitiveFrameScratch {
             draws: Vec::new(),
+            rectangle: storage::Storage::new(0),
             normal_border: storage::Storage::new(0),
             pictures: storage::Storage::new(0),
             images: storage::Storage::new(0),
@@ -819,6 +818,7 @@ impl Default for PrimitiveFrameScratch {
 impl PrimitiveFrameScratch {
     pub fn recycle(&mut self, recycler: &mut Recycler) {
         recycler.recycle_vec(&mut self.draws);
+        self.rectangle.recycle(recycler);
         self.normal_border.recycle(recycler);
         self.pictures.recycle(recycler);
         self.images.recycle(recycler);
@@ -837,6 +837,7 @@ impl PrimitiveFrameScratch {
     }
 
     pub fn begin_frame(&mut self) {
+        self.rectangle.clear();
         self.normal_border.clear();
         self.pictures.clear();
         self.images.clear();

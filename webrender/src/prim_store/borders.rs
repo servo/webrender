@@ -561,7 +561,7 @@ fn test_struct_sizes() {
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<NormalBorderPrim>(), 100, "NormalBorderPrim size changed");
-    assert_eq!(mem::size_of::<NormalBorderTemplate>(), 156, "NormalBorderTemplate size changed");
+    assert_eq!(mem::size_of::<NormalBorderTemplate>(), 152, "NormalBorderTemplate size changed");
     assert_eq!(mem::size_of::<NormalBorderKey>(), 104, "NormalBorderKey size changed");
     assert_eq!(mem::size_of::<ImageBorder>(), 68, "ImageBorder size changed");
     assert_eq!(mem::size_of::<ImageBorderTemplate>(), 112, "ImageBorderTemplate size changed");
