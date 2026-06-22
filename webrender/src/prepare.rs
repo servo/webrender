@@ -1016,10 +1016,10 @@ fn prepare_interned_prim_for_render(
         }
         PrimitiveKind::ImageBorder { data_handle, .. } => {
             profile_scope!("ImageBorder");
-            let prim_data = &mut data_stores.image_border[*data_handle];
+            let prim_data = &data_stores.image_border[*data_handle];
             let aligned_aa_edges = prim_data.common.aligned_aa_edges;
             let transformed_aa_edges = prim_data.common.transformed_aa_edges;
-            let border_data = &mut prim_data.kind;
+            let border_data = &prim_data.kind;
 
             // The per-frame brush segments were allocated in
             // prepare_prim_for_render before update_clip_task; the
@@ -1031,7 +1031,16 @@ fn prepare_interned_prim_for_render(
             let brush_segments_range =
                 scratch.frame.image_border[ib_handle].brush_segments_range;
 
-            let (task_id, size) = border_data.update(frame_state);
+            let (task_id, size, is_opaque) = border_data.update(frame_state);
+
+            // Store the per-instance source task and opacity on the per-
+            // frame scratch (the template is now immutable); batch reads
+            // them from there.
+            {
+                let ib_scratch = &mut scratch.frame.image_border[ib_handle];
+                ib_scratch.src_color = Some(task_id);
+                ib_scratch.is_opaque = is_opaque;
+            }
 
             if !use_legacy_path {
                 let prim_rect = prim_info.snapped_local_rect;

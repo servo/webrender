@@ -1608,8 +1608,8 @@ impl BatchBuilder {
             }
             PrimitiveKind::YuvImage { .. } => PrimitiveOpacity::opaque(),
             PrimitiveKind::NormalBorder { .. } => PrimitiveOpacity::translucent(),
-            PrimitiveKind::ImageBorder { data_handle, .. } => {
-                PrimitiveOpacity { is_opaque: ctx.data_stores.image_border[data_handle].kind.is_opaque }
+            PrimitiveKind::ImageBorder { .. } => {
+                PrimitiveOpacity { is_opaque: ctx.scratch.frame.image_border[prim_info.kind_scratch.unwrap_image_border()].is_opaque }
             }
             _ => PrimitiveOpacity::translucent(),
         };
@@ -1636,12 +1636,11 @@ impl BatchBuilder {
             PrimitiveKind::ConicGradient { .. } => {
                 unreachable!("BUG: conic gradients should always use quad path");
             }
-            PrimitiveKind::ImageBorder { data_handle, .. } => {
-                let prim_data = &ctx.data_stores.image_border[data_handle];
+            PrimitiveKind::ImageBorder { .. } => {
                 let ib_handle = prim_info.kind_scratch.unwrap_image_border();
                 let ib_scratch = ctx.scratch.frame.image_border[ib_handle];
                 let brush_segments = &ctx.scratch.frame.segments[ib_scratch.brush_segments_range];
-                Some((ib_scratch.gpu_address, prim_data.kind.src_color.map(|src| src.0), brush_segments))
+                Some((ib_scratch.gpu_address, ib_scratch.src_color, brush_segments))
             }
             _ => None,
         };
