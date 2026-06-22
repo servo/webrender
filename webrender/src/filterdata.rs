@@ -108,14 +108,12 @@ impl intern::InternDebug for SFilterDataKey {}
 #[derive(MallocSizeOf)]
 pub struct SFilterDataTemplate {
     pub data: SFilterData,
-    pub gpu_buffer_address: GpuBufferAddress,
 }
 
 impl From<SFilterDataKey> for SFilterDataTemplate {
     fn from(item: SFilterDataKey) -> Self {
         SFilterDataTemplate {
             data: item.data,
-            gpu_buffer_address: GpuBufferAddress::INVALID,
         }
     }
 }
@@ -139,18 +137,6 @@ impl SFilterData {
     }
 }
 
-impl SFilterDataTemplate {
-    /// Update the GPU cache for a given filter data template. This may be called multiple
-    /// times per frame, by each primitive reference that refers to this interned
-    /// template. The initial request call to the GPU cache ensures that work is only
-    /// done if the cache entry is invalid (due to first use or eviction).
-    pub fn write_gpu_blocks(
-        &mut self,
-        gpu_buffer: &mut GpuBufferBuilderF,
-    ) {
-        self.gpu_buffer_address = self.data.write_gpu_blocks(gpu_buffer);
-    }
-}
 
 #[derive(Copy, Clone, Debug, MallocSizeOf)]
 #[cfg_attr(any(feature = "serde"), derive(Deserialize, Serialize))]

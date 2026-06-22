@@ -171,7 +171,7 @@ impl PictureCompositeMode {
         &self,
         surface: &SurfaceInfo,
         gpu_buffers: &mut GpuBufferBuilder,
-        data_stores: &mut DataStores,
+        data_stores: &DataStores,
         extra_gpu_data: &mut SmallVec<[GpuBufferAddress; 1]>,
     ) {
         // TODO(gw): Almost all of the composite modes below use extra_gpu_data
@@ -242,23 +242,19 @@ impl PictureCompositeMode {
                 }
             }
             PictureCompositeMode::ComponentTransferFilter(handle) => {
-                let filter_data = &mut data_stores.filter_data[handle];
-                filter_data.write_gpu_blocks(&mut gpu_buffers.f32);
+                if extra_gpu_data.is_empty() {
+                    extra_gpu_data.push(GpuBufferAddress::INVALID);
+                }
+                let filter_data = &data_stores.filter_data[handle];
+                extra_gpu_data[0] = filter_data.data.write_gpu_blocks(&mut gpu_buffers.f32);
             }
             PictureCompositeMode::MixBlend(..) |
             PictureCompositeMode::Blit(_) |
             PictureCompositeMode::IntermediateSurface => {}
-            PictureCompositeMode::SVGFEGraph(ref filters) => {
-                // Update interned filter data
-                for (_node, op) in filters {
-                    match op {
-                        FilterGraphOp::SVGFEComponentTransferInterned { handle, creates_pixels: _ } => {
-                            let filter_data = &mut data_stores.filter_data[*handle];
-                            filter_data.write_gpu_blocks(&mut gpu_buffers.f32);
-                        }
-                        _ => {}
-                    }
-                }
+            PictureCompositeMode::SVGFEGraph(..) => {
+                // SVGFE component-transfer filter data GPU blocks are written
+                // per-node in RenderTask::new_svg_filter_graph, which is the
+                // authoritative consumer of the resulting addresses.
             }
         }
     }
