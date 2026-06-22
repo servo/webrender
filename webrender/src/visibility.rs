@@ -26,7 +26,6 @@ use crate::prim_store::{ClipTaskIndex, PictureIndex, PrimitiveKind, SegmentInsta
 use crate::prim_store::{PrimitiveStore, PrimitiveInstance, PrimitiveInstanceIndex};
 use crate::prim_store::borders::{ImageBorderScratch, NormalBorderScratch};
 use crate::prim_store::image::ImageScratch;
-use crate::prim_store::rectangle::RectangleScratch;
 use crate::prim_store::storage;
 use crate::prim_store::text_run::TextRunScratch;
 use crate::render_backend::{DataStores, ScratchBuffer};
@@ -50,7 +49,7 @@ pub struct FrameVisibilityState<'a> {
     pub clip_store: &'a mut ClipStore,
     pub resource_cache: &'a mut ResourceCache,
     pub frame_gpu_data: &'a mut GpuBufferBuilder,
-    pub data_stores: &'a DataStores,
+    pub data_stores: &'a mut DataStores,
     pub clip_tree: &'a mut ClipTree,
     pub composite_state: &'a mut CompositeState,
     pub rg_builder: &'a mut RenderTaskGraphBuilder,
@@ -123,7 +122,6 @@ pub enum DrawState {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub enum KindScratchHandle {
     None,
-    Rectangle(storage::Index<RectangleScratch>),
     NormalBorder(storage::Index<NormalBorderScratch>),
     ImageBorder(storage::Index<ImageBorderScratch>),
     Image(storage::Index<ImageScratch>),
@@ -135,13 +133,7 @@ impl KindScratchHandle {
     /// Extract the specific scratch index. Panics if the variant
     /// doesn't match — readers in the specific arm of the
     /// PrimitiveKind match know the variant by construction.
-   pub fn unwrap_rectangle(&self) -> storage::Index<RectangleScratch> {
-        match *self {
-            KindScratchHandle::Rectangle(h) => h,
-            _ => panic!("kind_scratch mismatch: expected Rectangle, got {:?}", self),
-        }
-    }
-    pub fn unwrap_normal_border(&self) -> storage::Index<NormalBorderScratch> {
+   pub fn unwrap_normal_border(&self) -> storage::Index<NormalBorderScratch> {
         match *self {
             KindScratchHandle::NormalBorder(h) => h,
             _ => panic!("kind_scratch mismatch: expected NormalBorder, got {:?}", self),
@@ -467,7 +459,7 @@ pub fn update_prim_visibility(
                     &mut frame_state.frame_gpu_data.f32,
                     frame_state.resource_cache,
                     &surface_culling_rect,
-                    &frame_state.data_stores.clip,
+                    &mut frame_state.data_stores.clip,
                     frame_state.rg_builder,
                     true,
                 );

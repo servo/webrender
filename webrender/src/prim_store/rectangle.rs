@@ -11,22 +11,8 @@ use crate::prim_store::{
     PrimTemplate, PrimTemplateCommonData, PrimitiveOpacity,
 };
 use crate::frame_builder::FrameBuildingState;
-use crate::renderer::GpuBufferAddress;
 use crate::scene::SceneProperties;
 use std::ops;
-
-/// Per-frame scratch data for a legacy-path Rectangle primitive. Holds
-/// the per-instance GPU block address produced by `RectangleTemplate::update`.
-/// Lives here (rather than on the now-immutable template's common data)
-/// so many instances can share one template. Pushed during prepare and
-/// read by batch (for the non-segmented case; segmented draws source the
-/// address from their segment instance instead).
-#[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-pub struct RectangleScratch {
-    pub gpu_address: GpuBufferAddress,
-    pub opacity: PrimitiveOpacity,
-}
 
 #[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -134,16 +120,16 @@ impl From<RectangleKey> for RectangleTemplate {
 
 impl RectangleTemplate {
     pub fn update(
-        &self,
+        &mut self,
         frame_state: &mut FrameBuildingState,
         scene_properties: &SceneProperties,
-    ) -> (GpuBufferAddress, PrimitiveOpacity) {
-        let color = scene_properties.resolve_color(&self.kind.color);
+    ) {
         let mut writer = frame_state.frame_gpu_data.f32.write_blocks(1);
-        writer.push_one(color.premultiplied());
-        let gpu_address = writer.finish();
-        let opacity = PrimitiveOpacity::from_alpha(color.a);
-        (gpu_address, opacity)
+        writer.push_one(scene_properties.resolve_color(&self.kind.color).premultiplied());
+        self.common.gpu_buffer_address = writer.finish();
+        self.opacity = PrimitiveOpacity::from_alpha(
+            scene_properties.resolve_color(&self.kind.color).a
+        );
     }
 }
 
@@ -152,6 +138,6 @@ impl RectangleTemplate {
 fn test_struct_sizes() {
     use std::mem;
     assert_eq!(mem::size_of::<RectanglePrim>(), 16, "RectanglePrim size changed");
-    assert_eq!(mem::size_of::<RectangleTemplate>(), 32, "RectangleTemplate size changed");
+    assert_eq!(mem::size_of::<RectangleTemplate>(), 36, "RectangleTemplate size changed");
     assert_eq!(mem::size_of::<RectangleKey>(), 20, "RectangleKey size changed");
 }
