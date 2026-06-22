@@ -134,7 +134,7 @@ impl From<RectangleKey> for RectangleTemplate {
 
 impl RectangleTemplate {
     pub fn update(
-        &mut self,
+        &self,
         frame_state: &mut FrameBuildingState,
         scene_properties: &SceneProperties,
     ) -> (GpuBufferAddress, PrimitiveOpacity) {

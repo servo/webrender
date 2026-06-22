@@ -836,10 +836,10 @@ fn prepare_interned_prim_for_render(
         }
         PrimitiveKind::NormalBorder { data_handle } => {
             profile_scope!("NormalBorder");
-            let prim_data = &mut data_stores.normal_border[*data_handle];
+            let prim_data = &data_stores.normal_border[*data_handle];
             let aligned_aa_edges = prim_data.common.aligned_aa_edges;
             let transformed_aa_edges = prim_data.common.transformed_aa_edges;
-            let border_data = &mut prim_data.kind;
+            let border_data = &prim_data.kind;
 
             // The per-frame brush + border segments and task-id slot
             // were allocated in prepare_prim_for_render before
@@ -1077,7 +1077,7 @@ fn prepare_interned_prim_for_render(
             profile_scope!("Rectangle");
 
             if use_legacy_path {
-                let prim_data = &mut data_stores.prim[*data_handle];
+                let prim_data = &data_stores.prim[*data_handle];
 
                 // Update the template this instane references, which may refresh the GPU
                 // cache with any shared template data.
@@ -1129,9 +1129,9 @@ fn prepare_interned_prim_for_render(
         }
         PrimitiveKind::YuvImage { data_handle, .. } => {
             profile_scope!("YuvImage");
-            let prim_data = &mut data_stores.yuv_image[*data_handle];
+            let prim_data = &data_stores.yuv_image[*data_handle];
             let common_data = &prim_data.common;
-            let yuv_image_data = &mut prim_data.kind;
+            let yuv_image_data = &prim_data.kind;
 
             if prim_info.compositor_surface_kind == CompositorSurfaceKind::Underlay {
                 quad::prepare_quad(
@@ -1192,9 +1192,9 @@ fn prepare_interned_prim_for_render(
         PrimitiveKind::Image { data_handle, .. } => {
             profile_scope!("Image");
 
-            let prim_data = &mut data_stores.image[*data_handle];
+            let prim_data = &data_stores.image[*data_handle];
             let common_data = &prim_data.common;
-            let image_data = &mut prim_data.kind;
+            let image_data = &prim_data.kind;
 
             if !use_legacy_path {
                 let prim_rect = prim_info.snapped_local_rect;
@@ -1415,7 +1415,7 @@ fn prepare_interned_prim_for_render(
         }
         PrimitiveKind::RadialGradient { data_handle, .. } => {
             profile_scope!("RadialGradient");
-            let prim_data = &mut data_stores.radial_grad[*data_handle];
+            let prim_data = &data_stores.radial_grad[*data_handle];
             let local_rect = prim_info.snapped_local_rect;
             let stretch_size = LayoutSize::new(
                 prim_data.stretch_ratio.width * local_rect.size().width,
@@ -1466,7 +1466,7 @@ fn prepare_interned_prim_for_render(
         }
         PrimitiveKind::ConicGradient { data_handle, .. } => {
             profile_scope!("ConicGradient");
-            let prim_data = &mut data_stores.conic_grad[*data_handle];
+            let prim_data = &data_stores.conic_grad[*data_handle];
             let prim_rect = prim_info.snapped_local_rect;
             let stretch_size = LayoutSize::new(
                 prim_data.stretch_ratio.width * prim_rect.size().width,
