@@ -11,7 +11,7 @@ use crate::quad::LayoutOrDeviceRect;
 use crate::segment::EdgeMask;
 use crate::transform::GpuTransformId;
 use crate::internal_types::{FrameVec, FrameMemory};
-use crate::prim_store::{ClipData, VECS_PER_SEGMENT};
+use crate::prim_store::VECS_PER_SEGMENT;
 use crate::render_task::RenderTaskAddress;
 use crate::render_task_graph::RenderTaskId;
 use crate::renderer::{GpuBufferAddress, GpuBufferBuilderF, GpuBufferHandle, GpuBufferWriterF, GpuBufferDataF, GpuBufferDataI, GpuBufferWriterI, ShaderColorMode};
@@ -225,29 +225,6 @@ pub struct BorderInstance {
     pub flags: i32,
     pub gpu_data_address: GpuBufferAddress,
     pub clip_params: [f32; 8],
-}
-
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[repr(C)]
-pub struct ClipMaskInstanceCommon {
-    pub sub_rect: DeviceRect,
-    pub task_origin: DevicePoint,
-    pub screen_origin: DevicePoint,
-    pub device_pixel_scale: f32,
-    pub clip_transform_id: GpuTransformId,
-    pub prim_transform_id: GpuTransformId,
-}
-
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[repr(C)]
-pub struct ClipMaskInstanceRect {
-    pub common: ClipMaskInstanceCommon,
-    pub local_pos: LayoutPoint,
-    pub clip_data: ClipData,
 }
 
 // 16 bytes per instance should be enough for anyone!
