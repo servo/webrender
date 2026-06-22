@@ -371,6 +371,7 @@ fn prepare_prim_for_render(
                 prim_instance,
                 PrimitiveInstanceIndex(prim_instance_index as u32),
                 &prim_rect.min,
+                prim_rect,
                 cluster.spatial_node_index,
                 pic_context.raster_spatial_node_index,
                 pic_context.visibility_spatial_node_index,
@@ -585,15 +586,13 @@ fn prepare_interned_prim_for_render(
                 device_pixel_scale: Au::from_f32_px(content_scale.0),
             };
 
-            let clip_data = ClipData::rounded_rect(
-                src_rect_size,
-                &shadow_radius,
-                ClipMode::Clip,
-            );
-
             // The shadow shape is offset by blur_region within the alloc task (local pixels).
             // device_pixel_scale_for_task scales it to the mask resolution.
             let minimal_shadow_rect_origin = LayoutPoint::new(blur_region, blur_region);
+            let minimal_shadow_rect = LayoutRect::from_origin_and_size(
+                minimal_shadow_rect_origin,
+                src_rect_size,
+            );
             let device_pixel_scale_for_task = DevicePixelScale::new(content_scale.0);
 
             let task_id = frame_state.resource_cache.request_render_task(
@@ -611,10 +610,10 @@ fn prepare_interned_prim_for_render(
                     let mask_task_id = rg_builder.add().init(RenderTask::new_dynamic(
                         cache_size,
                         RenderTaskKind::new_rounded_rect_mask(
-                            minimal_shadow_rect_origin,
-                            clip_data.clone(),
+                            minimal_shadow_rect,
+                            shadow_radius,
+                            ClipMode::Clip,
                             device_pixel_scale_for_task,
-                            frame_context.fb_config,
                         ),
                     ));
 
@@ -2008,7 +2007,9 @@ fn update_clip_task_for_brush(
             &segments[0],
             Some(prim_clip_chain),
             root_spatial_node_index,
+            prim_spatial_node_index,
             pic_context.surface_index,
+            data_stores,
             frame_context,
             frame_state,
             device_pixel_scale,
@@ -2047,7 +2048,9 @@ fn update_clip_task_for_brush(
                 &segment,
                 segment_clip_chain.as_ref(),
                 root_spatial_node_index,
+                prim_spatial_node_index,
                 pic_context.surface_index,
+                data_stores,
                 frame_context,
                 frame_state,
                 device_pixel_scale,
@@ -2059,10 +2062,56 @@ fn update_clip_task_for_brush(
     Some(clip_task_index)
 }
 
+/// Create a clip-mask render task by accumulating the clip chain into a blank
+/// (white-cleared) alpha target as quad sub-tasks.
+fn add_clip_mask_render_task(
+    device_rect: DeviceIntRect,
+    clip_node_range: ClipNodeRange,
+    prim_local_rect: LayoutRect,
+    prim_spatial_node_index: SpatialNodeIndex,
+    raster_spatial_node_index: SpatialNodeIndex,
+    device_pixel_scale: DevicePixelScale,
+    data_stores: &DataStores,
+    frame_context: &FrameBuildingContext,
+    frame_state: &mut FrameBuildingState,
+) -> RenderTaskId {
+    // A blank render task that just clears its target to white. The clip chain
+    // is multiply-blended on top of it by the sub-tasks below.
+    let clip_task_id = frame_state.rg_builder.add().init(RenderTask::new_dynamic(
+        device_rect.size(),
+        RenderTaskKind::Empty(EmptyTask {
+            content_origin: device_rect.min.to_f32(),
+            device_pixel_scale,
+            raster_spatial_node_index,
+        }),
+    ));
+
+    let task_rect = device_rect.to_f32();
+
+    quad::prepare_clip_range(
+        clip_node_range,
+        clip_task_id,
+        &task_rect,
+        &prim_local_rect,
+        prim_spatial_node_index,
+        raster_spatial_node_index,
+        device_pixel_scale,
+        &data_stores.clip,
+        frame_state.clip_store,
+        frame_context.spatial_tree,
+        frame_state.rg_builder,
+        &mut frame_state.frame_gpu_data.f32,
+        frame_state.transforms,
+    );
+
+    clip_task_id
+}
+
 pub fn update_clip_task(
     instance: &mut PrimitiveInstance,
     prim_instance_index: PrimitiveInstanceIndex,
     prim_origin: &LayoutPoint,
+    prim_local_rect: LayoutRect,
     prim_spatial_node_index: SpatialNodeIndex,
     root_spatial_node_index: SpatialNodeIndex,
     visibility_spatial_node_index: SpatialNodeIndex,
@@ -2150,13 +2199,16 @@ pub fn update_clip_task(
             return false;
         }
 
-        let clip_task_id = RenderTaskKind::new_mask(
+        let clip_task_id = add_clip_mask_render_task(
             device_rect,
             scratch.frame.draws[prim_instance_index.0 as usize].clip_chain.clips_range,
+            prim_local_rect,
+            prim_spatial_node_index,
             root_spatial_node_index,
-            frame_state.rg_builder,
             device_pixel_scale,
-            frame_context.fb_config,
+            data_stores,
+            frame_context,
+            frame_state,
         );
         // Set the global clip mask instance for this primitive.
         let clip_task_index = ClipTaskIndex(scratch.frame.clip_mask_instances.len() as _);
@@ -2180,7 +2232,9 @@ pub fn update_brush_segment_clip_task(
     segment: &BrushSegment,
     clip_chain: Option<&ClipChainInstance>,
     root_spatial_node_index: SpatialNodeIndex,
+    prim_spatial_node_index: SpatialNodeIndex,
     surface_index: SurfaceIndex,
+    data_stores: &DataStores,
     frame_context: &FrameBuildingContext,
     frame_state: &mut FrameBuildingState,
     device_pixel_scale: DevicePixelScale,
@@ -2209,13 +2263,16 @@ pub fn update_brush_segment_clip_task(
         return ClipMaskKind::Clipped;
     }
 
-    let clip_task_id = RenderTaskKind::new_mask(
+    let clip_task_id = add_clip_mask_render_task(
         device_rect,
         clip_chain.clips_range,
+        segment.local_rect,
+        prim_spatial_node_index,
         root_spatial_node_index,
-        frame_state.rg_builder,
         device_pixel_scale,
-        frame_context.fb_config,
+        data_stores,
+        frame_context,
+        frame_state,
     );
 
     frame_state.surface_builder.add_child_render_task(

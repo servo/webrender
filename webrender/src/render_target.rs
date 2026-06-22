@@ -12,11 +12,12 @@ use crate::command_buffer::{CommandBufferList, QuadFlags};
 use crate::pattern::{Pattern, PatternKind, PatternShaderInput};
 use crate::segment::EdgeMask;
 use crate::spatial_tree::SpatialTree;
-use crate::clip::ClipStore;
 use crate::frame_builder::FrameGlobalResources;
 use crate::gpu_types::{BorderInstance, SVGFEFilterInstance, BlurDirection, BlurInstance, PrimitiveHeaders, ScalingInstance};
-use crate::gpu_types::{ZBufferIdGenerator, MaskInstance, BlurEdgeMode};
+use crate::gpu_types::{ZBufferIdGenerator, MaskInstance, BlurEdgeMode, ClipSpace};
 use crate::gpu_types::{ZBufferId, PrimitiveInstanceData};
+use crate::transform::GpuTransformId;
+use crate::util::ScaleOffset;
 use crate::internal_types::{CacheTextureId, FastHashMap, FrameAllocator, FrameMemory, FrameVec, TextureSource};
 use crate::svg_filter::FilterGraphOp;
 use crate::picture::{SurfaceInfo, ResolvedSurfaceTexture};
@@ -339,7 +340,6 @@ impl RenderTarget {
         ctx: &RenderTargetContext,
         gpu_buffer_builder: &mut GpuBufferBuilder,
         render_tasks: &RenderTaskGraph,
-        clip_store: &ClipStore,
         transforms: &mut TransformPalette,
     ) {
         profile_scope!("add_task");
@@ -444,36 +444,69 @@ impl RenderTarget {
                 //           prim region with blend disabled.
                 self.clears.push((target_rect, ColorF::WHITE));
             }
-            RenderTaskKind::CacheMask(ref task_info) => {
-                let clear_to_one = self.clip_batcher.add(
-                    task_info.clip_node_range,
-                    task_info.root_spatial_node_index,
-                    clip_store,
-                    transforms,
-                    task_info.actual_rect,
-                    task_info.device_pixel_scale,
-                    target_rect.min.to_f32(),
-                    task_info.actual_rect.min,
-                    ctx,
-                );
-                if task_info.clear_to_one || clear_to_one {
-                    self.clears.push((target_rect, ColorF::WHITE));
-                }
-            }
             RenderTaskKind::ClipRegion(ref region_task) => {
-                if region_task.clear_to_one {
-                    self.clears.push((target_rect, ColorF::WHITE));
-                }
-                let device_rect = DeviceRect::from_size(
-                    target_rect.size().to_f32(),
+                // The mask is accumulated with multiply blending in handle_clips,
+                // so the target must be initialized to one.
+                self.clears.push((target_rect, ColorF::WHITE));
+
+                let device_rect = DeviceRect::from_size(target_rect.size().to_f32());
+
+                let (clip_address, fast_path) = quad::write_rounded_rect_clip_blocks(
+                    &mut gpu_buffer_builder.f32,
+                    region_task.clip_rect,
+                    &region_task.radius,
+                    region_task.mode,
                 );
-                self.clip_batcher.add_clip_region(
-                    region_task.local_pos,
-                    device_rect,
-                    region_task.clip_data.clone(),
-                    target_rect.min.to_f32(),
-                    DevicePoint::zero(),
-                    region_task.device_pixel_scale.0,
+
+                let quad_address = quad::write_device_prim_blocks(
+                    &mut gpu_buffer_builder.f32,
+                    &device_rect,
+                    &device_rect,
+                    ColorF::WHITE,
+                    RenderTaskId::INVALID,
+                    &[],
+                    ScaleOffset::identity(),
+                );
+
+                // The clip parameters are in the clip's local space whereas the quad
+                // is positioned directly in device space, so the shader maps from
+                // device to clip space with the inverse device pixel scale.
+                let inv_scale = region_task.device_pixel_scale.inverse().get();
+                let clip_transform_id = transforms.gpu.get_custom(
+                    LayoutToPictureTransform::scale(inv_scale, inv_scale, 1.0),
+                );
+
+                let task_address = task_id.into();
+
+                quad::add_to_batch(
+                    PatternKind::Mask,
+                    PatternShaderInput::default(),
+                    task_address,
+                    GpuTransformId::IDENTITY,
+                    quad_address,
+                    QuadFlags::IS_MASK | QuadFlags::APPLY_RENDER_TASK_CLIP,
+                    EdgeMask::empty(),
+                    INVALID_SEGMENT_INDEX as u8,
+                    [RenderTaskId::INVALID; 3],
+                    ZBufferId(0),
+                    BlendMode::None, // This parameter is ignored.
+                    render_tasks,
+                    gpu_buffer_builder,
+                    |_, prim| {
+                        let instance = MaskInstance {
+                            prim,
+                            clip_transform_id,
+                            clip_address: clip_address.as_int(),
+                            clip_space: ClipSpace::Device.as_int(),
+                            unused: 0,
+                        };
+
+                        if fast_path {
+                            self.clip_masks.mask_instances_fast.push(instance);
+                        } else {
+                            self.clip_masks.mask_instances_slow.push(instance);
+                        }
+                    },
                 );
             }
             RenderTaskKind::Scaling(ref info) => {

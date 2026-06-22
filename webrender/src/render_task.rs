@@ -2,25 +2,22 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{LineStyle, LineOrientation, ColorF, FilterOpGraphPictureBufferId};
+use api::{BorderRadius, ClipMode, LineStyle, LineOrientation, ColorF, FilterOpGraphPictureBufferId};
 use api::{MAX_RENDER_TASK_SIZE, SVGFE_GRAPH_MAX};
 use api::units::*;
 use std::time::Duration;
 use crate::box_shadow::BLUR_SAMPLE_SCALE;
 use crate::render_task_graph::SubTaskRange;
-use crate::clip::ClipNodeRange;
 use crate::command_buffer::{CommandBufferIndex, QuadFlags};
 use crate::pattern::{PatternKind, PatternShaderInput};
 use crate::profiler::{add_text_marker};
 use crate::spatial_tree::SpatialNodeIndex;
-use crate::frame_builder::FrameBuilderConfig;
 use crate::gpu_types::{BorderInstance, UvRectKind, BlurEdgeMode, ClipSpace};
 use crate::internal_types::{CacheTextureId, FastHashMap, TextureSource, Swizzle};
 use crate::svg_filter::{FilterGraphNode, FilterGraphOp, FilterGraphPictureReference, SVGFE_CONVOLVE_VALUES_LIMIT};
 use crate::picture::ResolvedSurfaceTexture;
 use crate::tile_cache::MAX_SURFACE_SIZE;
 use crate::transform::GpuTransformId;
-use crate::prim_store::ClipData;
 use crate::resource_cache::ImageRequest;
 use std::{usize, f32, i32, u32};
 use crate::renderer::{GpuBufferAddress, GpuBufferBuilder, GpuBufferBuilderF};
@@ -170,22 +167,11 @@ pub struct ImageRequestTask {
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct CacheMaskTask {
-    pub actual_rect: DeviceRect,
-    pub root_spatial_node_index: SpatialNodeIndex,
-    pub clip_node_range: ClipNodeRange,
-    pub device_pixel_scale: DevicePixelScale,
-    pub clear_to_one: bool,
-}
-
-#[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipRegionTask {
-    pub local_pos: LayoutPoint,
+    pub clip_rect: LayoutRect,
+    pub radius: BorderRadius,
+    pub mode: ClipMode,
     pub device_pixel_scale: DevicePixelScale,
-    pub clip_data: ClipData,
-    pub clear_to_one: bool,
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -356,7 +342,6 @@ pub enum RenderTaskKind {
     Image(ImageRequestTask),
     Cached(CachedTask),
     Picture(PictureTask),
-    CacheMask(CacheMaskTask),
     ClipRegion(ClipRegionTask),
     VerticalBlur(BlurTask),
     HorizontalBlur(BlurTask),
@@ -403,7 +388,6 @@ impl RenderTaskKind {
             RenderTaskKind::Image(..) => "Image",
             RenderTaskKind::Cached(..) => "Cached",
             RenderTaskKind::Picture(..) => "Picture",
-            RenderTaskKind::CacheMask(..) => "CacheMask",
             RenderTaskKind::ClipRegion(..) => "ClipRegion",
             RenderTaskKind::VerticalBlur(..) => "VerticalBlur",
             RenderTaskKind::HorizontalBlur(..) => "HorizontalBlur",
@@ -438,7 +422,6 @@ impl RenderTaskKind {
             }
 
             RenderTaskKind::ClipRegion(..) |
-            RenderTaskKind::CacheMask(..) |
             RenderTaskKind::Empty(..) => {
                 RenderTargetKind::Alpha
             }
@@ -565,41 +548,17 @@ impl RenderTaskKind {
     }
 
     pub fn new_rounded_rect_mask(
-        local_pos: LayoutPoint,
-        clip_data: ClipData,
+        clip_rect: LayoutRect,
+        radius: BorderRadius,
+        mode: ClipMode,
         device_pixel_scale: DevicePixelScale,
-        fb_config: &FrameBuilderConfig,
     ) -> Self {
         RenderTaskKind::ClipRegion(ClipRegionTask {
-            local_pos,
+            clip_rect,
+            radius,
+            mode,
             device_pixel_scale,
-            clip_data,
-            clear_to_one: fb_config.gpu_supports_fast_clears,
         })
-    }
-
-    pub fn new_mask(
-        outer_rect: DeviceIntRect,
-        clip_node_range: ClipNodeRange,
-        root_spatial_node_index: SpatialNodeIndex,
-        rg_builder: &mut RenderTaskGraphBuilder,
-        device_pixel_scale: DevicePixelScale,
-        fb_config: &FrameBuilderConfig,
-    ) -> RenderTaskId {
-        let task_size = outer_rect.size();
-
-        rg_builder.add().init(
-            RenderTask::new_dynamic(
-                task_size,
-                RenderTaskKind::CacheMask(CacheMaskTask {
-                    actual_rect: outer_rect.to_f32(),
-                    clip_node_range,
-                    root_spatial_node_index,
-                    device_pixel_scale,
-                    clear_to_one: fb_config.gpu_supports_fast_clears,
-                }),
-            )
-        )
     }
 
     // Write (up to) 8 floats of data specific to the type
@@ -642,14 +601,6 @@ impl RenderTaskKind {
                     task.device_pixel_scale.0,
                     task.content_origin.x,
                     task.content_origin.y,
-                    0.0,
-                ]
-            }
-            RenderTaskKind::CacheMask(ref task) => {
-                [
-                    task.device_pixel_scale.0,
-                    task.actual_rect.min.x,
-                    task.actual_rect.min.y,
                     0.0,
                 ]
             }

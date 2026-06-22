@@ -793,7 +793,6 @@ impl FrameBuilder {
                     &mut ctx,
                     &mut gpu_buffer_builder,
                     &render_tasks,
-                    &scene.clip_store,
                     &mut transform_palette,
                     &mut prim_headers,
                     &mut z_generator,
@@ -1143,7 +1142,6 @@ pub fn build_render_pass(
     ctx: &mut RenderTargetContext,
     gpu_buffer_builder: &mut GpuBufferBuilder,
     render_tasks: &RenderTaskGraph,
-    clip_store: &ClipStore,
     transforms: &mut TransformPalette,
     prim_headers: &mut PrimitiveHeaders,
     z_generator: &mut ZBufferIdGenerator,
@@ -1180,7 +1178,6 @@ pub fn build_render_pass(
                                 ctx,
                                 gpu_buffer_builder,
                                 render_tasks,
-                                clip_store,
                                 transforms,
                             );
                         }
@@ -1204,7 +1201,6 @@ pub fn build_render_pass(
                                 ctx,
                                 gpu_buffer_builder,
                                 render_tasks,
-                                clip_store,
                                 transforms,
                             );
                         }
@@ -1340,7 +1336,6 @@ pub fn build_render_pass(
                         ctx,
                         gpu_buffer_builder,
                         render_tasks,
-                        clip_store,
                         transforms,
                     );
                 }
