@@ -43,6 +43,7 @@ use crate::picture::{PrimitiveList, PrimitiveCluster, SurfaceIndex, SubpixelMode
 use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::prim_store::*;
 use crate::prim_store::borders::{ImageBorderScratch, NormalBorderScratch};
+use crate::prim_store::rectangle::RectangleScratch;
 use crate::quad::{self, QuadTransformState};
 use crate::render_backend::DataStores;
 use crate::render_task_cache::RenderTaskCacheKeyKind;
@@ -1084,10 +1085,15 @@ fn prepare_interned_prim_for_render(
 
                 // Update the template this instane references, which may refresh the GPU
                 // cache with any shared template data.
-                prim_data.update(
+                let gpu_address = prim_data.update(
                     frame_state,
                     frame_context.scene_properties,
                 );
+                let rect_handle = scratch.frame.rectangle.push(RectangleScratch {
+                    gpu_address,
+                });
+                scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
+                    KindScratchHandle::Rectangle(rect_handle);
 
                 write_segment(
                     prim_info.segment_instance_index,
