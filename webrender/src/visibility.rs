@@ -467,7 +467,7 @@ pub fn update_prim_visibility(
                     &mut frame_state.frame_gpu_data.f32,
                     frame_state.resource_cache,
                     &surface_culling_rect,
-                    &mut frame_state.data_stores.clip,
+                    &frame_state.data_stores.clip,
                     frame_state.rg_builder,
                     true,
                 );

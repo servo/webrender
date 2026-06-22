@@ -1602,7 +1602,7 @@ impl ClipStore {
         gpu_buffer: &mut GpuBufferBuilderF,
         resource_cache: &mut ResourceCache,
         culling_rect: &VisRect,
-        clip_data_store: &mut ClipDataStore,
+        clip_data_store: &ClipDataStore,
         rg_builder: &mut RenderTaskGraphBuilder,
         request_resources: bool,
     ) -> Option<ClipChainInstance> {
@@ -1628,7 +1628,7 @@ impl ClipStore {
 
         // For each potential clip node
         for node_info in self.active_clip_node_info.drain(..) {
-            let node = &mut clip_data_store[node_info.handle];
+            let node = &clip_data_store[node_info.handle];
 
             // See how this clip affects the prim region.
             let clip_result = match node_info.conversion {
