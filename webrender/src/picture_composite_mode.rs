@@ -299,7 +299,7 @@ pub fn prepare_composite_mode(
     can_use_shared_surface: bool,
     frame_context: &FrameBuildingContext,
     frame_state: &mut FrameBuildingState,
-    data_stores: &mut DataStores,
+    data_stores: &DataStores,
     extra_gpu_data: &mut SmallVec<[GpuBufferAddress; 1]>,
 ) -> (SurfaceDescriptor, [Option<RenderTaskId>; 2]) {
     let surface = &frame_state.surfaces[surface_index.0];

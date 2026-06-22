@@ -1089,7 +1089,7 @@ impl RenderTask {
         filter_nodes: &[(FilterGraphNode, FilterGraphOp)],
         rg_builder: &mut RenderTaskGraphBuilder,
         gpu_buffer: &mut GpuBufferBuilderF,
-        data_stores: &mut DataStores,
+        data_stores: &DataStores,
         _uv_rect_kind: UvRectKind,
         original_task_id: RenderTaskId,
         source_subregion: LayoutRect,
