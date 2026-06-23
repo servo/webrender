@@ -22,10 +22,10 @@
 /// |    edge flags               |   +--------------------+  |                   |              | | |
 /// |    part index               |   |     Picture task   |  | bounds            | rect         | | |
 /// |    segment index            |   |                    |  | clip              | uv rect      | | |
-/// | w: picture task address    +--> | task rect          |  | pattern transform |              | | |
-/// +-----------------------------+   | device pixel scale |  | color             |              | | |
-///                                   | content origin     |  +-------------------+--------------+-+-+
-///                                   +--------------------+
+/// | w: picture task address    +--> | task rect          |  | uv rect           |              | | |
+/// +-----------------------------+   | device pixel scale |  | pattern transform |              | | |
+///                                   | content origin     |  | color             |              | | |
+///                                   +--------------------+  +-------------------+--------------+-+-+
 ///
 /// To use the quad infrastructure, a shader must define the following entry
 /// points in the corresponding shader stages:
