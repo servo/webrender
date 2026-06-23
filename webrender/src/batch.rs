@@ -958,10 +958,6 @@ impl BatchBuilder {
                 let idx = prim_info.kind_scratch.unwrap_image();
                 ctx.scratch.frame.images[idx].may_need_repetition
             }
-            PrimitiveKind::NormalBorder { .. } => {
-                let idx = prim_info.kind_scratch.unwrap_normal_border();
-                ctx.scratch.frame.normal_border[idx].may_need_repetition
-            }
             // Image borders always go through brush_image and may tile
             // their mid sections, so request the repetition-capable
             // shader.
