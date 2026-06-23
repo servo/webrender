@@ -195,30 +195,6 @@ fn prepare_primitives(
     }
 }
 
-fn can_use_clip_chain_for_quad_path(
-    clip_chain: &ClipChainInstance,
-    clip_store: &ClipStore,
-    data_stores: &DataStores,
-) -> bool {
-    if !clip_chain.needs_mask {
-        return true;
-    }
-
-    for i in 0 .. clip_chain.clips_range.count {
-        let clip_instance = clip_store.get_instance_from_range(&clip_chain.clips_range, i);
-        let clip_node = &data_stores.clip[clip_instance.handle];
-
-        match clip_node.item.kind {
-            ClipItemKind::RoundedRectangle { .. } | ClipItemKind::Rectangle { .. } => {}
-            ClipItemKind::Image { .. } => {
-                panic!("bug: image-masks not expected on rect/quads");
-            }
-        }
-    }
-
-    true
-}
-
 /// Returns the texture sampler kind used by a YUV image's planes, which selects
 /// the matching ps_quad_yuv shader variant. All planes are expected to share the
 /// same kind. Texture-cache backed images (raw/blob/buffer) are always Texture2D.
@@ -299,39 +275,19 @@ fn prepare_prim_for_render(
             | PrimitiveKind::ImageBorder { .. }
             | PrimitiveKind::LineDecoration { .. }
             | PrimitiveKind::BackdropRender { .. }
+            | PrimitiveKind::BoxShadow { .. }
             => {
                 use_legacy_path = false;
             }
             _ => {}
         };
 
-        // In this initial patch, we only support non-masked primitives through the new
-        // quad rendering path. Follow up patches will extend this to support masks, and
-        // then use by other primitives. In the new quad rendering path, we'll still want
-        // to skip the entry point to `update_clip_task` as that does old-style segmenting
-        // and mask generation.
+        // In the new quad rendering path, want to skip the entry point to
+        // `update_clip_task` as that does old-style segmenting and mask
+        // generation.
         let should_update_clip_task = match &mut prim_instance.kind {
-            PrimitiveKind::Rectangle { .. }
-            | PrimitiveKind::RadialGradient { .. }
-            | PrimitiveKind::ConicGradient { .. }
-            | PrimitiveKind::LinearGradient { .. }
-            | PrimitiveKind::Image { .. }
-            | PrimitiveKind::YuvImage { .. }
-            | PrimitiveKind::NormalBorder { .. }
-            | PrimitiveKind::LineDecoration { .. }
-            | PrimitiveKind::BackdropRender { .. }
-            => {
-                use_legacy_path |= !can_use_clip_chain_for_quad_path(
-                    &scratch.frame.draws[prim_instance_index].clip_chain,
-                    frame_state.clip_store,
-                    data_stores,
-                );
-
-                use_legacy_path
-            }
-            PrimitiveKind::BoxShadow { .. } |
             PrimitiveKind::Picture { .. } => false,
-            _ => true,
+            _ => use_legacy_path,
         };
 
         // Per-frame, per-kind segment construction that has to run
@@ -389,43 +345,8 @@ fn prepare_prim_for_render(
         }
     }
 
-    prepare_interned_prim_for_render(
-        store,
-        use_legacy_path,
-        PrimitiveInstanceIndex(prim_instance_index as u32),
-        prim_instance,
-        cluster,
-        plane_split_anchor,
-        quad_transform,
-        pic_context,
-        pic_state,
-        frame_context,
-        frame_state,
-        data_stores,
-        scratch,
-        targets,
-    )
-}
+    let prim_instance_index = PrimitiveInstanceIndex(prim_instance_index as u32);
 
-/// Prepare an interned primitive for rendering, by requesting
-/// resources, render tasks etc. This is equivalent to the
-/// prepare_prim_for_render_inner call for old style primitives.
-fn prepare_interned_prim_for_render(
-    store: &mut PrimitiveStore,
-    use_legacy_path: bool,
-    prim_instance_index: PrimitiveInstanceIndex,
-    prim_instance: &mut PrimitiveInstance,
-    cluster: &mut PrimitiveCluster,
-    plane_split_anchor: PlaneSplitAnchor,
-    quad_transform: &mut QuadTransformState,
-    pic_context: &PictureContext,
-    pic_state: &mut PictureState,
-    frame_context: &FrameBuildingContext,
-    frame_state: &mut FrameBuildingState,
-    data_stores: &DataStores,
-    scratch: &mut PrimitiveScratchBuffer,
-    targets: &[CommandBufferIndex],
-) {
     let prim_spatial_node_index = cluster.spatial_node_index;
     let device_pixel_scale = frame_state.surfaces[pic_context.surface_index.0].device_pixel_scale;
     // Snapshot of the per-frame draw header for this prim. Copy is fine here
