@@ -31,7 +31,6 @@ use crate::resource_cache::{GlyphFetchResult, ImageProperties};
 use crate::space::SpaceMapper;
 use crate::transform::{GpuTransformId, TransformPalette, TransformMetadata};
 use crate::visibility::{PrimitiveVisibilityFlags, DrawState};
-use smallvec::SmallVec;
 use std::{f32, i32, usize};
 use crate::util::{MaxRect, ScaleOffset};
 use crate::segment::EdgeMask;
@@ -1718,66 +1717,7 @@ impl BatchBuilder {
             PrimitiveKind::BoxShadow { .. } => {
                 unreachable!("BUG: Should not hit box-shadow here as they are handled by quad infra");
             }
-            PrimitiveKind::NormalBorder { .. } => {
-                let scratch_handle = prim_info.kind_scratch.unwrap_normal_border();
-                let nb_scratch = ctx.scratch.frame.normal_border[scratch_handle];
-                let prim_cache_address = nb_scratch.gpu_address;
-                let task_ids = &ctx.scratch.frame.border_task_ids[nb_scratch.task_ids];
-                let mut segment_data: SmallVec<[SegmentInstanceData; 8]> = SmallVec::new();
-
-                // Collect the segment instance data from each render
-                // task for each valid edge / corner of the border.
-
-                for task_id in task_ids {
-                    if let Some((uv_rect_address, texture)) = render_tasks.resolve_location(*task_id) {
-                        segment_data.push(
-                            SegmentInstanceData {
-                                textures: TextureSet::prim_textured(texture),
-                                specific_resource_address: uv_rect_address.as_int(),
-                            }
-                        );
-                    }
-                }
-
-                // TODO: it would be less error-prone to get this info from the texture cache.
-                let image_buffer_kind = ImageBufferKind::Texture2D;
-
-                let batch_params = BrushBatchParameters::instanced(
-                    BrushBatchKind::Image(image_buffer_kind),
-                    ImageBrushUserData {
-                        color_mode: ShaderColorMode::Image,
-                        alpha_type: AlphaType::PremultipliedAlpha,
-                        raster_space: RasterizationSpace::Local,
-                        opacity: 1.0,
-                    }.encode(),
-                    segment_data,
-                );
-
-                let prim_header = PrimitiveHeader {
-                    specific_prim_address: prim_cache_address.as_int(),
-                    user_data: batch_params.prim_user_data,
-                    ..base_prim_header
-                };
-                let prim_header_index = prim_headers.push(&prim_header);
-
-                let brush_segments = &ctx.scratch.frame.segments[nb_scratch.brush_segments_range];
-                self.add_segmented_prim_to_batch(
-                    Some(brush_segments),
-                    opacity,
-                    &batch_params,
-                    blend_mode,
-                    batch_features,
-                    brush_flags,
-                    common_data.transformed_aa_edges,
-                    prim_header_index,
-                    bounding_rect,
-                    transform_metadata,
-                    z_id,
-                    prim_info.clip_task_index,
-                    ctx,
-                    render_tasks,
-                );
-            }
+            PrimitiveKind::NormalBorder { .. } => {}
             PrimitiveKind::TextRun { data_handle, .. } => {
                 let text_run_scratch_handle = prim_info.kind_scratch.unwrap_text_run();
                 let run_scratch = &ctx.scratch.frame.text_runs[text_run_scratch_handle];
@@ -2368,35 +2308,6 @@ impl BatchBuilder {
         render_tasks: &RenderTaskGraph,
     ) {
         match (brush_segments, &params.segment_data) {
-            (Some(ref brush_segments), SegmentDataKind::Instanced(ref segment_data)) => {
-                // In this case, we have both a list of segments, and a list of
-                // per-segment instance data. Zip them together to build batches.
-                debug_assert_eq!(brush_segments.len(), segment_data.len());
-                for (segment_index, (segment, segment_data)) in brush_segments
-                    .iter()
-                    .zip(segment_data.iter())
-                    .enumerate()
-                {
-                    self.add_segment_to_batch(
-                        segment,
-                        segment_data,
-                        segment_index as i32,
-                        params.batch_kind,
-                        prim_header_index,
-                        blend_mode,
-                        features,
-                        brush_flags,
-                        edge_aa_mask,
-                        bounding_rect,
-                        transform_metadata,
-                        z_id,
-                        prim_opacity,
-                        clip_task_index,
-                        ctx,
-                        render_tasks,
-                    );
-                }
-            }
             (Some(ref brush_segments), SegmentDataKind::Shared(ref segment_data)) => {
                 // A list of segments, but the per-segment data is common
                 // between all segments.
@@ -2457,11 +2368,6 @@ impl BatchBuilder {
                     segment_data.specific_resource_address,
                 );
             }
-            (None, SegmentDataKind::Instanced(..)) => {
-                // We should never hit the case where there are no segments,
-                // but a list of segment instance data.
-                unreachable!();
-            }
         }
     }
 }
@@ -2470,7 +2376,6 @@ impl BatchBuilder {
 /// or a list of one per segment.
 enum SegmentDataKind {
     Shared(SegmentInstanceData),
-    Instanced(SmallVec<[SegmentInstanceData; 8]>),
 }
 
 /// The parameters that are specific to a kind of brush,
@@ -2482,20 +2387,6 @@ struct BrushBatchParameters {
 }
 
 impl BrushBatchParameters {
-    /// This brush instance has a list of per-segment
-    /// instance data.
-    fn instanced(
-        batch_kind: BrushBatchKind,
-        prim_user_data: [i32; 4],
-        segment_data: SmallVec<[SegmentInstanceData; 8]>,
-    ) -> Self {
-        BrushBatchParameters {
-            batch_kind,
-            prim_user_data,
-            segment_data: SegmentDataKind::Instanced(segment_data),
-        }
-    }
-
     /// This brush instance shares the per-segment data
     /// across all segments.
     fn shared(

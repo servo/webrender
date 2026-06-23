@@ -792,152 +792,142 @@ fn prepare_prim_for_render(
                 &mut border_task_ids[nb_scratch.task_ids],
             );
 
-            if !use_legacy_path {
-                let offset = prim_info.snapped_local_rect.min.to_vector();
-                // TODO: as soon as the legacy path is removed we can remove the scratch handles
-                // and hoops we get through to access them here.
-                let task_ids: SmallVec<[RenderTaskId; 8]> = SmallVec::from_slice(
-                    &scratch.frame.border_task_ids[nb_scratch.task_ids],
-                );
-                let brush_segments: SmallVec<[BrushSegment; 8]> =
-                    scratch.frame.segments[nb_scratch.brush_segments_range]
-                        .iter()
-                        .cloned()
-                        .collect();
-                for (task_id, segment) in task_ids.iter().zip(brush_segments.iter()) {
-                    let pattern = ImagePattern {
-                        src_task_id: *task_id,
-                        src_is_opaque: false,
-                        premultiplied: true,
-                        sampler_kind: api::ImageBufferKind::Texture2D,
-                        color: ColorF::WHITE,
-                    };
+            let offset = prim_info.snapped_local_rect.min.to_vector();
+            // TODO: as soon as the legacy path is removed we can remove the scratch handles
+            // and hoops we get through to access them here.
+            let task_ids: SmallVec<[RenderTaskId; 8]> = SmallVec::from_slice(
+                &scratch.frame.border_task_ids[nb_scratch.task_ids],
+            );
+            let brush_segments: SmallVec<[BrushSegment; 8]> =
+                scratch.frame.segments[nb_scratch.brush_segments_range]
+                    .iter()
+                    .cloned()
+                    .collect();
+            for (task_id, segment) in task_ids.iter().zip(brush_segments.iter()) {
+                let pattern = ImagePattern {
+                    src_task_id: *task_id,
+                    src_is_opaque: false,
+                    premultiplied: true,
+                    sampler_kind: api::ImageBufferKind::Texture2D,
+                    color: ColorF::WHITE,
+                };
 
-                    // TODO: Dealing with brush flags and more generally brush segments here
-                    // is awkward. We'll be able to clean this up once the brush code path
-                    // is removed.
-                    let flags = segment.brush_flags;
-                    let repeat_x = if flags.contains(BrushFlags::SEGMENT_REPEAT_X_ROUND) {
-                        RepeatMode::Round
-                    } else if flags.contains(BrushFlags::SEGMENT_REPEAT_X) {
-                        RepeatMode::Repeat
-                    } else {
-                        RepeatMode::Stretch
-                    };
+                // TODO: Dealing with brush flags and more generally brush segments here
+                // is awkward. We'll be able to clean this up once the brush code path
+                // is removed.
+                let flags = segment.brush_flags;
+                let repeat_x = if flags.contains(BrushFlags::SEGMENT_REPEAT_X_ROUND) {
+                    RepeatMode::Round
+                } else if flags.contains(BrushFlags::SEGMENT_REPEAT_X) {
+                    RepeatMode::Repeat
+                } else {
+                    RepeatMode::Stretch
+                };
 
-                    let repeat_y = if flags.contains(BrushFlags::SEGMENT_REPEAT_Y_ROUND) {
-                        RepeatMode::Round
-                    } else if flags.contains(BrushFlags::SEGMENT_REPEAT_Y) {
-                        RepeatMode::Repeat
-                    } else {
-                        RepeatMode::Stretch
-                    };
+                let repeat_y = if flags.contains(BrushFlags::SEGMENT_REPEAT_Y_ROUND) {
+                    RepeatMode::Round
+                } else if flags.contains(BrushFlags::SEGMENT_REPEAT_Y) {
+                    RepeatMode::Repeat
+                } else {
+                    RepeatMode::Stretch
+                };
 
-                    let src_size = frame_state.rg_builder
-                        .get_task(*task_id)
-                        .get_target_size()
-                        .to_f32();
+                let src_size = frame_state.rg_builder
+                    .get_task(*task_id)
+                    .get_target_size()
+                    .to_f32();
 
-                    let mut segment_local_rect = segment.local_rect.translate(offset);
-                    let mut local_clip_rect = prim_info.clip_chain.local_clip_rect;
+                let mut segment_local_rect = segment.local_rect.translate(offset);
+                let mut local_clip_rect = prim_info.clip_chain.local_clip_rect;
 
-                    // Corner segments have SEGMENT_TEXEL_RECT set. In that case the
-                    // source render task contains the full corner texture (image_rect)
-                    // while segment.local_rect is only the visible (non-overlapping)
-                    // part. extra_data carries the normalized texture sub-rect
-                    // that segment.local_rect maps to. Reconstruct image_rect so
-                    // the texture is drawn at its natural size, and clip the
-                    // output to segment.local_rect.
-                    if flags.contains(BrushFlags::SEGMENT_TEXEL_RECT) {
-                        let tex_rect = segment.extra_data;
-                        let tex_w = tex_rect[2] - tex_rect[0];
-                        let tex_h = tex_rect[3] - tex_rect[1];
-                        if tex_w > 0.0 && tex_h > 0.0 {
-                            let image_size = LayoutSize::new(
-                                segment_local_rect.width() / tex_w,
-                                segment_local_rect.height() / tex_h,
-                            );
-                            let image_min = LayoutPoint::new(
-                                segment_local_rect.min.x - tex_rect[0] * image_size.width,
-                                segment_local_rect.min.y - tex_rect[1] * image_size.height,
-                            );
-                            local_clip_rect = local_clip_rect
-                                .intersection(&segment_local_rect)
-                                .unwrap_or(LayoutRect::zero());
-                            segment_local_rect = LayoutRect::from_origin_and_size(
-                                image_min,
-                                image_size,
-                            );
-                        }
+                // Corner segments have SEGMENT_TEXEL_RECT set. In that case the
+                // source render task contains the full corner texture (image_rect)
+                // while segment.local_rect is only the visible (non-overlapping)
+                // part. extra_data carries the normalized texture sub-rect
+                // that segment.local_rect maps to. Reconstruct image_rect so
+                // the texture is drawn at its natural size, and clip the
+                // output to segment.local_rect.
+                if flags.contains(BrushFlags::SEGMENT_TEXEL_RECT) {
+                    let tex_rect = segment.extra_data;
+                    let tex_w = tex_rect[2] - tex_rect[0];
+                    let tex_h = tex_rect[3] - tex_rect[1];
+                    if tex_w > 0.0 && tex_h > 0.0 {
+                        let image_size = LayoutSize::new(
+                            segment_local_rect.width() / tex_w,
+                            segment_local_rect.height() / tex_h,
+                        );
+                        let image_min = LayoutPoint::new(
+                            segment_local_rect.min.x - tex_rect[0] * image_size.width,
+                            segment_local_rect.min.y - tex_rect[1] * image_size.height,
+                        );
+                        local_clip_rect = local_clip_rect
+                            .intersection(&segment_local_rect)
+                            .unwrap_or(LayoutRect::zero());
+                        segment_local_rect = LayoutRect::from_origin_and_size(
+                            image_min,
+                            image_size,
+                        );
                     }
-
-                    let mut stretch_size = segment_local_rect.size();
-                    let mut spacing = LayoutSize::zero();
-                    let mut _repeat_offset = LayoutVector2D::zero();
-                    crate::border::compute_border_repetition(
-                        segment_local_rect.size(),
-                        src_size,
-                        repeat_x,
-                        repeat_y,
-                        &mut stretch_size,
-                        &mut spacing,
-                        &mut _repeat_offset,
-                    );
-
-                    // The positioning and size of the dashesdots is not specified
-                    // but browsers are encouraged to make the pattern symetrical.
-                    // One way to do this is to apply the repeat offset computed
-                    // by compute_border_repetition. However the pattern that we
-                    // are repeating is meant to be instead stretched to so that
-                    // an integer number of repetitions fills the space.
-
-                    if repeat_x == RepeatMode::Repeat {
-                        let w = segment_local_rect.width();
-                        let sw = stretch_size.width;
-                        let scale = w / ((w / sw).round() * sw);
-
-                        stretch_size.width *= scale;
-                    }
-
-                    if repeat_y == RepeatMode::Repeat {
-                        let h = segment_local_rect.height();
-                        let sh = stretch_size.height;
-                        let scale = h / ((h / sh).round() * sh);
-
-                        stretch_size.height *= scale;
-                    }
-
-                    quad::prepare_repeatable_quad(
-                        &pattern,
-                        &segment_local_rect,
-                        &local_clip_rect,
-                        stretch_size,
-                        spacing,
-                        segment.edge_flags & aligned_aa_edges,
-                        segment.edge_flags & transformed_aa_edges,
-                        prim_instance_index,
-                        &None,
-                        &prim_info.clip_chain,
-                        quad_transform,
-                        frame_context,
-                        pic_context,
-                        targets,
-                        &data_stores.clip,
-                        frame_state,
-                        scratch,
-                    );
                 }
 
-                return;
+                let mut stretch_size = segment_local_rect.size();
+                let mut spacing = LayoutSize::zero();
+                let mut _repeat_offset = LayoutVector2D::zero();
+                crate::border::compute_border_repetition(
+                    segment_local_rect.size(),
+                    src_size,
+                    repeat_x,
+                    repeat_y,
+                    &mut stretch_size,
+                    &mut spacing,
+                    &mut _repeat_offset,
+                );
+
+                // The positioning and size of the dashesdots is not specified
+                // but browsers are encouraged to make the pattern symetrical.
+                // One way to do this is to apply the repeat offset computed
+                // by compute_border_repetition. However the pattern that we
+                // are repeating is meant to be instead stretched to so that
+                // an integer number of repetitions fills the space.
+
+                if repeat_x == RepeatMode::Repeat {
+                    let w = segment_local_rect.width();
+                    let sw = stretch_size.width;
+                    let scale = w / ((w / sw).round() * sw);
+
+                    stretch_size.width *= scale;
+                }
+
+                if repeat_y == RepeatMode::Repeat {
+                    let h = segment_local_rect.height();
+                    let sh = stretch_size.height;
+                    let scale = h / ((h / sh).round() * sh);
+
+                    stretch_size.height *= scale;
+                }
+
+                quad::prepare_repeatable_quad(
+                    &pattern,
+                    &segment_local_rect,
+                    &local_clip_rect,
+                    stretch_size,
+                    spacing,
+                    segment.edge_flags & aligned_aa_edges,
+                    segment.edge_flags & transformed_aa_edges,
+                    prim_instance_index,
+                    &None,
+                    &prim_info.clip_chain,
+                    quad_transform,
+                    frame_context,
+                    pic_context,
+                    targets,
+                    &data_stores.clip,
+                    frame_state,
+                    scratch,
+                );
             }
-            
-            let brush_segments = &scratch.frame.segments[nb_scratch.brush_segments_range];
-            let gpu_address = border_data.write_brush_gpu_blocks(
-                prim_info.snapped_local_rect.size(),
-                brush_segments,
-                frame_state,
-            );
-            scratch.frame.normal_border[nb_handle].gpu_address = gpu_address;
+        
+            return;
         }
         PrimitiveKind::ImageBorder { data_handle, .. } => {
             profile_scope!("ImageBorder");
