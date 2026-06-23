@@ -936,66 +936,37 @@ fn prepare_prim_for_render(
             let transformed_aa_edges = prim_data.common.transformed_aa_edges;
             let border_data = &prim_data.kind;
 
-            // The per-frame brush segments were allocated in
-            // prepare_prim_for_render before update_clip_task; the
-            // kind_scratch handle on this prim's PrimitiveDrawHeader
-            // points to the ImageBorderScratch.
-            let ib_handle = scratch.frame.draws[prim_instance_index.0 as usize]
-                .kind_scratch
-                .unwrap_image_border();
-            let brush_segments_range =
-                scratch.frame.image_border[ib_handle].brush_segments_range;
-
             let (task_id, size, is_opaque) = border_data.update(frame_state);
 
-            // Store the per-instance source task and opacity on the per-
-            // frame scratch (the template is now immutable); batch reads
-            // them from there.
-            {
-                let ib_scratch = &mut scratch.frame.image_border[ib_handle];
-                ib_scratch.src_color = Some(task_id);
-                ib_scratch.is_opaque = is_opaque;
-            }
+            let prim_rect = prim_info.snapped_local_rect;
 
-            if !use_legacy_path {
-                let prim_rect = prim_info.snapped_local_rect;
+            let src_image = ImagePattern {
+                src_task_id: task_id,
+                src_is_opaque: is_opaque,
+                premultiplied: true,
+                sampler_kind: ImageBufferKind::Texture2D,
+                color: ColorF::WHITE,
+            };
 
-                let src_image = ImagePattern {
-                    src_task_id: task_id,
-                    src_is_opaque: false,
-                    premultiplied: true,
-                    sampler_kind: ImageBufferKind::Texture2D,
-                    color: ColorF::WHITE,
-                };
+            prepare_border_image_nine_patch(
+                &border_data.nine_patch,
+                &src_image,
+                size,
+                &prim_rect,
+                aligned_aa_edges,
+                transformed_aa_edges,
+                prim_instance_index,
+                &prim_info.clip_chain,
+                quad_transform,
+                frame_context,
+                pic_context,
+                targets,
+                &data_stores.clip,
+                frame_state,
+                scratch,
+            );
 
-                prepare_border_image_nine_patch(
-                    &border_data.nine_patch,
-                    &src_image,
-                    size,
-                    &prim_rect,
-                    aligned_aa_edges,
-                    transformed_aa_edges,
-                    prim_instance_index,
-                    &prim_info.clip_chain,
-                    quad_transform,
-                    frame_context,
-                    pic_context,
-                    targets,
-                    &data_stores.clip,
-                    frame_state,
-                    scratch,
-                );
-
-                return;
-            } else {
-                let brush_segments = &scratch.frame.segments[brush_segments_range];
-                let gpu_address = border_data.write_brush_gpu_blocks(
-                    prim_info.snapped_local_rect.size(),
-                    brush_segments,
-                    frame_state,
-                );
-                scratch.frame.image_border[ib_handle].gpu_address = gpu_address;
-            }
+            return;
         }
         PrimitiveKind::Rectangle { data_handle, .. } => {
             profile_scope!("Rectangle");
