@@ -584,6 +584,10 @@ fn prepare_interned_prim_for_render(
                 br_top_right: (shadow_radius.top_right * content_scale).round().to_i32(),
                 br_bottom_right: (shadow_radius.bottom_right * content_scale).round().to_i32(),
                 br_bottom_left: (shadow_radius.bottom_left * content_scale).round().to_i32(),
+                shape_top_left: shadow_radius.shape_top_left.to_bits(),
+                shape_top_right: shadow_radius.shape_top_right.to_bits(),
+                shape_bottom_right: shadow_radius.shape_bottom_right.to_bits(),
+                shape_bottom_left: shadow_radius.shape_bottom_left.to_bits(),
                 device_pixel_scale: Au::from_f32_px(content_scale.0),
             };
 

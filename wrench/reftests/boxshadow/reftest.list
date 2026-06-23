@@ -15,6 +15,7 @@ platform(linux,mac) fuzzy(1,84) == box-shadow-suite-blur.yaml box-shadow-suite-b
 fuzzy(1,8) == box-shadow-large-blur-radius.yaml box-shadow-large-blur-radius-ref.yaml
 fuzzy(1,6388) == rounding.yaml rounding-ref.yaml
 platform(linux,mac) == box-shadow-border-radii.yaml box-shadow-border-radii.png
+platform(linux,mac) == box-shadow-corner-shape.yaml box-shadow-corner-shape.png
 skip_on(android) fuzzy-if(platform(swgl),9,34) == box-shadow-spread.yaml box-shadow-spread.png  # Too wide for Android
 == box-shadow-spread-radii.yaml box-shadow-spread-radii-ref.yaml
 == invalid.yaml invalid-ref.yaml

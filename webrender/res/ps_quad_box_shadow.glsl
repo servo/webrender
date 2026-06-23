@@ -49,6 +49,8 @@ flat varying highp vec4 vElemCenter_Radius_TR;
 flat varying highp vec4 vElemCenter_Radius_BR;
 flat varying highp vec4 vElemCenter_Radius_BL;
 
+flat varying highp vec4 vElemShape;
+
 #ifdef WR_VERTEX_SHADER
 
 void pattern_vertex(PrimitiveInfo info) {
@@ -57,6 +59,7 @@ void pattern_vertex(PrimitiveInfo info) {
     vec4 data2 = fetch_from_gpu_buffer_1f(info.pattern_input.x + 2);
     vec4 data3 = fetch_from_gpu_buffer_1f(info.pattern_input.x + 3);
     vec4 data4 = fetch_from_gpu_buffer_1f(info.pattern_input.x + 4);
+    vec4 data5 = fetch_from_gpu_buffer_1f(info.pattern_input.x + 5);
 
     vec2 alloc_size     = data0.xy;
     vec2 dest_rect_size = data0.zw;
@@ -97,6 +100,8 @@ void pattern_vertex(PrimitiveInfo info) {
     vElemCenter_Radius_TR = vec4(elem_p1.x - r_tr.x, elem_p0.y + r_tr.y, r_tr);
     vElemCenter_Radius_BR = vec4(elem_p1 - r_br, r_br);
     vElemCenter_Radius_BL = vec4(elem_p0.x + r_bl.x, elem_p1.y - r_bl.y, r_bl);
+
+    vElemShape = data5;
 }
 
 #endif
@@ -156,14 +161,29 @@ vec4 pattern_fragment(vec4 base_color) {
     // Reconstruct the element rect bounds from the TL and BR corner data.
     vec4 elem_bounds = vec4(c_tl - r_tl, c_br + r_br);
 
-    float elem_dist = distance_to_rounded_rect(
-        local_pos,
-        elem_plane_tl, vec4(c_tl, inverse_radii_squared(r_tl)),
-        elem_plane_tr, vec4(c_tr, inverse_radii_squared(r_tr)),
-        elem_plane_br, vec4(c_br, inverse_radii_squared(r_br)),
-        elem_plane_bl, vec4(c_bl, inverse_radii_squared(r_bl)),
-        elem_bounds
-    );
+    vec4 elem_shape = vElemShape;
+
+    float elem_dist;
+    if (elem_shape == vec4(1.0)) {
+        elem_dist = distance_to_rounded_rect(
+            local_pos,
+            elem_plane_tl, vec4(c_tl, inverse_radii_squared(r_tl)),
+            elem_plane_tr, vec4(c_tr, inverse_radii_squared(r_tr)),
+            elem_plane_br, vec4(c_br, inverse_radii_squared(r_br)),
+            elem_plane_bl, vec4(c_bl, inverse_radii_squared(r_bl)),
+            elem_bounds
+        );
+    } else {
+        elem_dist = distance_to_shaped_rect(
+            local_pos,
+            vec4(c_tl, inverse_radii(r_tl)),
+            vec4(c_tr, inverse_radii(r_tr)),
+            vec4(c_br, inverse_radii(r_br)),
+            vec4(c_bl, inverse_radii(r_bl)),
+            elem_bounds,
+            elem_shape
+        );
+    }
 
     // Outset (inset=0): dist < 0 = inside element → should be clipped out → use -elem_dist.
     // Inset (inset=1): dist < 0 = inside element → should be kept → use elem_dist.

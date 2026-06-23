@@ -38,7 +38,7 @@ impl PatternBuilder for BoxShadowPatternData {
         _ctx: &PatternBuilderContext,
         state: &mut PatternBuilderState,
     ) -> Pattern {
-        let mut writer = state.frame_gpu_data.f32.write_blocks(5);
+        let mut writer = state.frame_gpu_data.f32.write_blocks(6);
         writer.push_one([
             self.shadow_rect_alloc_size.width,
             self.shadow_rect_alloc_size.height,
@@ -68,6 +68,12 @@ impl PatternBuilder for BoxShadowPatternData {
             self.element_radius.bottom_right.height,
             self.element_radius.bottom_left.width,
             self.element_radius.bottom_left.height,
+        ]);
+        writer.push_one([
+            self.element_radius.shape_top_left,
+            self.element_radius.shape_top_right,
+            self.element_radius.shape_bottom_right,
+            self.element_radius.shape_bottom_left,
         ]);
         let addr = writer.finish();
 

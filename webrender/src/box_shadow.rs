@@ -143,6 +143,10 @@ pub struct BoxShadowCacheKey {
     pub br_top_right: DeviceIntSize,
     pub br_bottom_right: DeviceIntSize,
     pub br_bottom_left: DeviceIntSize,
+    pub shape_top_left: u32,
+    pub shape_top_right: u32,
+    pub shape_bottom_left: u32,
+    pub shape_bottom_right: u32,
     pub device_pixel_scale: Au,
 }
 
