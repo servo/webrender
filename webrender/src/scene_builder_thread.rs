@@ -79,7 +79,6 @@ pub struct BuiltTransaction {
 
 pub struct OffscreenBuiltScene {
     pub scene: BuiltScene,
-    pub interner_updates: InternerUpdates,
     pub spatial_tree_updates: SpatialTreeUpdates,
 }
 
@@ -601,7 +600,23 @@ impl SceneBuilderThread {
                     );
                 }
                 SceneMsg::RenderOffscreen(pipeline_id) => {
-                    let mut interners = Interners::default();
+                    // Intern the one-shot offscreen scene into the document's
+                    // interners so it dedups against existing items and its
+                    // handles are valid against the document's data store
+                    // (immutable at frame-build time), which the offscreen
+                    // frame build borrows rather than allocating a throwaway
+                    // store. The interned items are not flushed here; the main
+                    // scene's end_frame below emits a single combined delta
+                    // (main + offscreen) which the backend applies to the
+                    // document data store before processing the offscreen
+                    // scene. The transient offscreen items are evicted by a
+                    // later end_frame GC once the temporary pipeline is gone.
+                    //
+                    // This relies on a main scene rebuild happening in the same
+                    // transaction; the Gecko caller always issues a
+                    // SetDisplayList immediately before RenderOffscreen (see
+                    // WebRenderBridgeParent), and the debug_assert after this
+                    // loop enforces it.
                     let mut spatial_tree = SceneSpatialTree::new();
                     let built = SceneBuilder::build(
                         &scene,
@@ -609,17 +624,15 @@ impl SceneBuilderThread {
                         self.fonts.clone(),
                         &doc.view,
                         &self.config,
-                        &mut interners,
+                        &mut doc.interners,
                         &mut spatial_tree,
                         &mut self.recycler,
                         &doc.stats,
                         self.debug_flags,
                     );
-                    let interner_updates = interners.end_frame_and_get_pending_updates();
                     let spatial_tree_updates = spatial_tree.end_frame_and_get_pending_updates();
                     offscreen_scenes.push(OffscreenBuiltScene {
                         scene: built,
-                        interner_updates,
                         spatial_tree_updates,
                     });
                 }
@@ -672,6 +685,16 @@ impl SceneBuilderThread {
 
             built_scene = Some(built);
         }
+
+        // Offscreen scenes intern into the document interners but don't flush
+        // their own delta; they rely on the main scene rebuild above emitting
+        // a combined delta that materializes their items into the document
+        // data store. The Gecko caller guarantees a SetDisplayList (hence a
+        // rebuild) accompanies every RenderOffscreen.
+        debug_assert!(
+            offscreen_scenes.is_empty() || interner_updates.is_some(),
+            "RenderOffscreen without a main scene rebuild to flush its interned items",
+        );
 
         let scene_build_time_ms =
             profiler::ns_to_ms(zeitstempel::now() - scene_build_start);

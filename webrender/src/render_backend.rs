@@ -573,8 +573,12 @@ impl Document {
         let mut profile = TransactionProfile::new();
         self.stamp.advance();
 
-        let mut data_stores = DataStores::default();
-        data_stores.apply_updates(txn.interner_updates, &mut profile);
+        // The offscreen scene was interned into this document's interners, so
+        // its items have already been materialized into the document data store
+        // (whose templates are immutable at frame-build time) by the combined
+        // interner-update delta applied earlier in this transaction. The frame
+        // build below simply borrows that store; the transient offscreen items
+        // are GC'd by a later end_frame once the temporary pipeline is gone.
 
         let mut spatial_tree = SpatialTree::new();
         spatial_tree.apply_updates(txn.spatial_tree_updates);
@@ -596,7 +600,7 @@ impl Document {
             self.stamp, // TODO(nical)
             self.view.scene.device_rect.min,
             &self.dynamic_properties,
-            &mut data_stores,
+            &self.data_stores,
             &mut self.scratch,
             debug_flags,
             &mut tile_caches,
