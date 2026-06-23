@@ -80,11 +80,6 @@ pub struct FrameGlobalResources {
     /// The image shader block for the most common / default
     /// set of image parameters (color white, stretch == rect.size).
     pub default_image_data: GpuBufferAddress,
-
-    /// A GPU cache config for drawing cut-out rectangle primitives.
-    /// This is used to 'cut out' overlay tiles where a compositor
-    /// surface exists.
-    pub default_black_rect_address: GpuBufferAddress,
 }
 
 impl FrameGlobalResources {
@@ -98,13 +93,8 @@ impl FrameGlobalResources {
         });
         let default_image_data = writer.finish();
 
-        let mut writer = gpu_buffers.f32.write_blocks(1);
-        writer.push_one(PremultipliedColorF::BLACK);
-        let default_black_rect_address = writer.finish();
-
         FrameGlobalResources {
             default_image_data,
-            default_black_rect_address,
         }
     }
 }

@@ -87,6 +87,7 @@ pub struct CopyInstance {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 pub enum RasterizationSpace {
+    #[allow(unused)]
     Local = 0,
     Screen = 1,
 }

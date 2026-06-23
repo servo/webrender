@@ -1091,37 +1091,18 @@ fn prepare_prim_for_render(
             let common_data = &prim_data.common;
             let image_data = &prim_data.kind;
 
-            if !use_legacy_path {
-                let prim_rect = prim_info.snapped_local_rect;
+            let prim_rect = prim_info.snapped_local_rect;
 
-                if prim_info.compositor_surface_kind == CompositorSurfaceKind::Underlay {
-                    quad::prepare_quad(
-                        &Cutout,
-                        &prim_rect,
-                        &prim_info.clip_chain.local_clip_rect,
-                        common_data.aligned_aa_edges,
-                        common_data.transformed_aa_edges,
-                        prim_instance_index,
-                        &None,
-                        &prim_info.clip_chain,
-                        quad_transform,
-                        frame_context,
-                        pic_context,
-                        targets,
-                        &data_stores.clip,
-                        frame_state,
-                        scratch,
-                    );
-
-                    return;
-                }
-
-                crate::prim_store::image::prepare_image_quads(
+            if prim_info.compositor_surface_kind == CompositorSurfaceKind::Underlay {
+                quad::prepare_quad(
+                    &Cutout,
                     &prim_rect,
-                    common_data,
-                    image_data,
-                    &prim_info.clip_chain,
+                    &prim_info.clip_chain.local_clip_rect,
+                    common_data.aligned_aa_edges,
+                    common_data.transformed_aa_edges,
                     prim_instance_index,
+                    &None,
+                    &prim_info.clip_chain,
                     quad_transform,
                     frame_context,
                     pic_context,
@@ -1134,31 +1115,22 @@ fn prepare_prim_for_render(
                 return;
             }
 
-            // Update the template this instance references, which may refresh the GPU
-            // cache with any shared template data.
-            let img_scratch_handle = image_data.update(
+            crate::prim_store::image::prepare_image_quads(
+                &prim_rect,
+                common_data,
+                image_data,
+                &prim_info.clip_chain,
                 prim_instance_index,
-                prim_spatial_node_index,
-                frame_state,
+                quad_transform,
                 frame_context,
-                prim_info.snapped_local_rect,
+                pic_context,
+                targets,
+                &data_stores.clip,
+                frame_state,
                 scratch,
             );
-            scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
-                KindScratchHandle::Image(img_scratch_handle);
-            let image_adjustment = scratch.frame.images[img_scratch_handle].adjustment;
-            let effective_stretch_size =
-                image_data.stretch_size.resolve(&prim_info.snapped_local_rect);
 
-            write_segment(
-                prim_info.segment_instance_index,
-                frame_state,
-                &mut scratch.frame.segments,
-                &mut scratch.frame.segment_instances,
-                |request| {
-                    image_data.write_prim_gpu_blocks(&image_adjustment, effective_stretch_size, request);
-                },
-            );
+            return;
         }
         PrimitiveKind::LinearGradient { data_handle, .. } => {
             profile_scope!("LinearGradient");
