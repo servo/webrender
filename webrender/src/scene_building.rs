@@ -49,6 +49,7 @@ use api::{FilterOpGraphPictureBufferId, SVGFE_GRAPH_MAX};
 use api::channel::{unbounded_channel, Receiver, Sender};
 use api::units::*;
 use crate::image_tiling::simplify_repeated_primitive;
+use api::prim_geometry::{process_repeat_size, compute_stretch_ratio};
 use crate::box_shadow::BLUR_SAMPLE_SCALE;
 use crate::clip::{ClipIntern, ClipItemKey, ClipItemKeyKind, ClipItemEntry, ClipStore};
 use crate::clip::{ClipInternData, ClipNodeId, ClipLeafId};
@@ -4620,33 +4621,6 @@ fn process_image_stretch_size(
     }
 }
 
-fn process_repeat_size(
-    snapped_rect: &LayoutRect,
-    unsnapped_rect: &LayoutRect,
-    repeat_size: LayoutSize,
-) -> LayoutSize {
-    // FIXME(aosmond): The tile size is calculated based on several parameters
-    // during display list building. It may produce a slightly different result
-    // than the bounds due to floating point error accumulation, even though in
-    // theory they should be the same. We do a fuzzy check here to paper over
-    // that. It may make more sense to push the original parameters into scene
-    // building and let it do a saner calculation with more information (e.g.
-    // the snapped values).
-    const EPSILON: f32 = 0.001;
-    LayoutSize::new(
-        if repeat_size.width.approx_eq_eps(&unsnapped_rect.width(), &EPSILON) {
-            snapped_rect.width()
-        } else {
-            repeat_size.width
-        },
-        if repeat_size.height.approx_eq_eps(&unsnapped_rect.height(), &EPSILON) {
-            snapped_rect.height()
-        } else {
-            repeat_size.height
-        },
-    )
-}
-
 /// Encode a gradient's per-tile stretch as a fraction of its prim_size.
 /// Per-axis: ratio = stretch_size / prim_size, clamped to [0, 1] (the upper
 /// bound matches the old `stretch_size.min(prim_size)` clamp on the radial
@@ -4659,19 +4633,6 @@ fn process_repeat_size(
 /// image_tiling::repetitions's `stride > 0` assertion (NaN width passes the
 /// finite-height needs_repetition check and reaches the assert before the
 /// NaN-aware intersection short-circuit fires).
-fn compute_stretch_ratio(stretch_size: LayoutSize, prim_size: LayoutSize) -> LayoutSize {
-    let prim_ok = prim_size.width.is_finite()
-        && prim_size.width > 0.0
-        && prim_size.height.is_finite()
-        && prim_size.height > 0.0;
-    if !prim_ok {
-        return LayoutSize::new(1.0, 1.0);
-    }
-    let w = (stretch_size.width / prim_size.width).min(1.0);
-    let h = (stretch_size.height / prim_size.height).min(1.0);
-    LayoutSize::new(w, h)
-}
-
 fn read_gradient_stops(stops: ItemRange<GradientStop>) -> Vec<GradientStopKey> {
     stops.iter().map(|stop| {
         GradientStopKey {
