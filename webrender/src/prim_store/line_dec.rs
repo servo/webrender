@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{
-    ColorF, RasterSpace,
+    ColorF, ColorU, RasterSpace,
     LineOrientation, LineStyle, Shadow,
 };
 use api::units::*;
@@ -36,9 +36,20 @@ pub struct LineDecorationCacheKey {
     pub size: LayoutSizeAu,
 }
 
-// `LineDecoration` now lives in `webrender_api::interned_prims` so content-process
-// interning can hold it. Re-exported to keep existing references working.
-pub use api::interned_prims::LineDecoration;
+/// Identifying key for a line decoration. The mask tile size
+/// (`LineDecorationCacheKey`) is intentionally not part of the intern
+/// key — it is a deterministic function of `style`, `orientation`,
+/// `wavy_line_thickness`, and the prim's per-frame local rect, and is
+/// rebuilt during frame building.
+#[derive(Clone, Debug, Hash, MallocSizeOf, PartialEq, Eq)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct LineDecoration {
+    pub style: LineStyle,
+    pub orientation: LineOrientation,
+    pub wavy_line_thickness: Au,
+    pub color: ColorU,
+}
 
 pub type LineDecorationKey = PrimKey<LineDecoration>;
 

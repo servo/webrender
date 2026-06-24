@@ -17,11 +17,12 @@ use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuil
 use crate::scene_building::IsVisible;
 use crate::intern::{Internable, InternDebug, Handle as InternHandle};
 use crate::internal_types::LayoutPrimitiveInfo;
+use crate::image_tiling::simplify_repeated_primitive;
 use crate::prim_store::{PrimitiveKind, PrimitiveOpacity};
 use crate::prim_store::{PrimKeyCommonData, PrimTemplateCommonData, PrimitiveStore};
 use crate::prim_store::{NinePatchDescriptor, PointKey, SizeKey, InternablePrimitive};
 use crate::segment::EdgeMask;
-use super::{stops_and_min_alpha, GradientStopKey};
+use super::{stops_and_min_alpha, GradientStopKey, apply_gradient_local_clip};
 use std::ops::{Deref, DerefMut};
 use std::mem::swap;
 
@@ -136,10 +137,47 @@ impl DerefMut for LinearGradientTemplate {
 /// gradient is eligible. Doing the decomposition at frame-build keeps adjacent
 /// segments phase-aligned with the snapped outer prim, even when the frame-time
 /// snap pass nudges the outer rect.
-// `optimize_linear_gradient` now lives in `webrender_api::prim_geometry` so
-// content-process interning can share it. Re-exported here to keep existing
-// references working.
-pub use api::prim_geometry::optimize_linear_gradient;
+pub fn optimize_linear_gradient(
+    prim_rect: &mut LayoutRect,
+    tile_size: &mut LayoutSize,
+    mut tile_spacing: LayoutSize,
+    clip_rect: &LayoutRect,
+    start: &mut LayoutPoint,
+    end: &mut LayoutPoint,
+) {
+    simplify_repeated_primitive(&tile_size, &mut tile_spacing, prim_rect);
+
+    let vertical = start.x.approx_eq(&end.x);
+    let horizontal = start.y.approx_eq(&end.y);
+
+    let horizontally_tiled = prim_rect.width() > tile_size.width;
+    let vertically_tiled = prim_rect.height() > tile_size.height;
+
+    // Check whether the tiling is equivalent to stretching on either axis.
+    // Stretching the gradient is more efficient than repeating it.
+    if vertically_tiled && horizontal && tile_spacing.height == 0.0 {
+        tile_size.height = prim_rect.height();
+    }
+
+    if horizontally_tiled && vertical && tile_spacing.width == 0.0 {
+        tile_size.width = prim_rect.width();
+    }
+
+    let offset = apply_gradient_local_clip(
+        prim_rect,
+        &tile_size,
+        &tile_spacing,
+        &clip_rect
+    );
+
+    // The size of gradient render tasks depends on the tile_size. No need to generate
+    // large stretch sizes that will be clipped to the bounds of the primitive.
+    tile_size.width = tile_size.width.min(prim_rect.width());
+    tile_size.height = tile_size.height.min(prim_rect.height());
+
+    *start += offset;
+    *end += offset;
+}
 
 /// Whether a linear gradient is eligible for the fast-path two-stop-per-segment
 /// decomposition at prepare time. Inputs are the values produced by

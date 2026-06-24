@@ -8,7 +8,8 @@
 //!
 //! Radial gradients are rendered via cached render tasks and composited with the image brush.
 
-use api::{ExtendMode, GradientStop};
+use euclid::{vec2, size2};
+use api::{ColorU, ExtendMode, GradientStop};
 use api::units::*;
 use crate::pattern::gradient::{radial_gradient_pattern};
 use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState};
@@ -19,14 +20,33 @@ use crate::prim_store::{InternablePrimitive};
 use crate::prim_store::{PrimitiveKind, PrimitiveOpacity};
 use crate::prim_store::{PrimKeyCommonData, PrimTemplateCommonData, PrimitiveStore};
 use crate::prim_store::{NinePatchDescriptor, PointKey, SizeKey};
+use crate::segment::EdgeMask;
 
-use std::ops::{Deref, DerefMut};
-use super::{stops_and_min_alpha, GradientStopKey};
+use std::{hash, ops::{Deref, DerefMut}};
+use super::{
+    stops_and_min_alpha, GradientStopKey,
+    apply_gradient_local_clip,
+};
 
-// `RadialGradientParams` now lives in `webrender_api::key_types` so builder-side
-// interning keys can reference it. Re-exported to keep existing references
-// working.
-pub use api::key_types::RadialGradientParams;
+/// Hashable radial gradient parameters, for use during prim interning.
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, MallocSizeOf, PartialEq)]
+pub struct RadialGradientParams {
+    pub start_radius: f32,
+    pub end_radius: f32,
+    pub ratio_xy: f32,
+}
+
+impl Eq for RadialGradientParams {}
+
+impl hash::Hash for RadialGradientParams {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.start_radius.to_bits().hash(state);
+        self.end_radius.to_bits().hash(state);
+        self.ratio_xy.to_bits().hash(state);
+    }
+}
 
 /// Identifying key for a radial gradient.
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -155,9 +175,20 @@ impl From<RadialGradientKey> for RadialGradientTemplate {
 
 pub type RadialGradientDataHandle = InternHandle<RadialGradient>;
 
-// `RadialGradient` now lives in `webrender_api::interned_prims` so content-process
-// interning can hold it. Re-exported to keep existing references working.
-pub use api::interned_prims::RadialGradient;
+#[derive(Debug, MallocSizeOf)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct RadialGradient {
+    pub extend_mode: ExtendMode,
+    pub center: PointKey,
+    pub params: RadialGradientParams,
+    /// Per-axis tile size encoded as a fraction of the prim's size. See
+    /// [`RadialGradientKey::stretch_ratio`].
+    pub stretch_ratio: SizeKey,
+    pub stops: Vec<GradientStopKey>,
+    pub tile_spacing: SizeKey,
+    pub nine_patch: Option<Box<NinePatchDescriptor>>,
+}
 
 impl Internable for RadialGradient {
     type Key = RadialGradientKey;
@@ -192,7 +223,191 @@ impl IsVisible for RadialGradient {
 }
 
 
-// `optimize_radial_gradient` now lives in `webrender_api::prim_geometry` so
-// content-process interning can share it. Re-exported here to keep existing
-// references working.
-pub use api::prim_geometry::optimize_radial_gradient;
+/// Avoid invoking the radial gradient shader on large areas where the color is
+/// constant.
+///
+/// If the extend mode is set to clamp, the "interesting" part
+/// of the gradient is only in the bounds of the gradient's ellipse, and the rest
+/// is the color of the last gradient stop.
+///
+/// Sometimes we run into radial gradient with a small radius compared to the
+/// primitive bounds, which means a large area of the primitive is a constant color
+/// This function tries to detect that, potentially shrink the gradient primitive to only
+/// the useful part and if needed insert solid color primitives around the gradient where
+/// parts of it have been removed.
+///
+/// If the radial gradient is split into multiple primitives, we must prevent anti-aliasing
+/// from being appplied at the edges connecting these primitives to prevent seams. This is
+/// done by masking out sides in `aa_mask` for the central gradient primitive and providing
+/// an edge mask for each extracted solid primitive.
+pub fn optimize_radial_gradient(
+    prim_rect: &mut LayoutRect,
+    stretch_size: &mut LayoutSize,
+    center: &mut LayoutPoint,
+    tile_spacing: &mut LayoutSize,
+    aa_mask: &mut EdgeMask,
+    clip_rect: &LayoutRect,
+    radius: LayoutSize,
+    end_offset: f32,
+    extend_mode: ExtendMode,
+    stops: &[GradientStopKey],
+    solid_parts: &mut dyn FnMut(&LayoutRect, ColorU, EdgeMask),
+) {
+    let offset = apply_gradient_local_clip(
+        prim_rect,
+        stretch_size,
+        tile_spacing,
+        clip_rect
+    );
+
+    *center += offset;
+
+    if extend_mode != ExtendMode::Clamp || stops.is_empty() {
+        return;
+    }
+
+    // Bounding box of the "interesting" part of the gradient.
+    let min = prim_rect.min + center.to_vector() - radius.to_vector() * end_offset;
+    let max = prim_rect.min + center.to_vector() + radius.to_vector() * end_offset;
+
+    // The (non-repeated) gradient primitive rect.
+    let gradient_rect = LayoutRect::from_origin_and_size(
+        prim_rect.min,
+        *stretch_size,
+    );
+
+    // How much internal margin between the primitive bounds and the gradient's
+    // bounding rect (areas that are a constant color).
+    let mut l = (min.x - gradient_rect.min.x).max(0.0).floor();
+    let mut t = (min.y - gradient_rect.min.y).max(0.0).floor();
+    let mut r = (gradient_rect.max.x - max.x).max(0.0).floor();
+    let mut b = (gradient_rect.max.y - max.y).max(0.0).floor();
+
+    let is_tiled = prim_rect.width() > stretch_size.width + tile_spacing.width
+        || prim_rect.height() > stretch_size.height + tile_spacing.height;
+
+    let bg_color = stops.last().unwrap().color;
+
+    if bg_color.a != 0 && is_tiled {
+        // If the primitive has repetitions, it's not enough to insert solid rects around it,
+        // so bail out.
+        return;
+    }
+
+    // If the background is fully transparent, shrinking the primitive bounds as much as possible
+    // is always a win. If the background is not transparent, we have to insert solid rectangles
+    // around the shrunk parts.
+    // If the background is transparent and the primitive is tiled, the optimization may introduce
+    // tile spacing which forces the tiling to be manually decomposed.
+    // Either way, don't bother optimizing unless it saves a significant amount of pixels.
+    if bg_color.a != 0 || (is_tiled && tile_spacing.is_empty()) {
+        let threshold = 128.0;
+        if l < threshold { l = 0.0 }
+        if t < threshold { t = 0.0 }
+        if r < threshold { r = 0.0 }
+        if b < threshold { b = 0.0 }
+    }
+
+    if l + t + r + b == 0.0 {
+        // No adjustment to make;
+        return;
+    }
+
+    // Insert solid rectangles around the gradient, in the places where the primitive will be
+    // shrunk.
+    if bg_color.a != 0 {
+        if l != 0.0 && t != 0.0 {
+            let solid_rect = LayoutRect::from_origin_and_size(
+                gradient_rect.min,
+                size2(l, t),
+            );
+            solid_parts(&solid_rect, bg_color, EdgeMask::LEFT | EdgeMask::TOP);
+        }
+
+        if l != 0.0 && b != 0.0 {
+            let solid_rect = LayoutRect::from_origin_and_size(
+                gradient_rect.bottom_left() - vec2(0.0, b),
+                size2(l, b),
+            );
+            solid_parts(&solid_rect, bg_color, EdgeMask::LEFT | EdgeMask::BOTTOM);
+        }
+
+        if t != 0.0 && r != 0.0 {
+            let solid_rect = LayoutRect::from_origin_and_size(
+                gradient_rect.top_right() - vec2(r, 0.0),
+                size2(r, t),
+            );
+            solid_parts(&solid_rect, bg_color, EdgeMask::TOP | EdgeMask::RIGHT);
+        }
+
+        if r != 0.0 && b != 0.0 {
+            let solid_rect = LayoutRect::from_origin_and_size(
+                gradient_rect.bottom_right() - vec2(r, b),
+                size2(r, b),
+            );
+            solid_parts(&solid_rect, bg_color, EdgeMask::RIGHT | EdgeMask::BOTTOM);
+        }
+
+        if l != 0.0 {
+            let solid_rect = LayoutRect::from_origin_and_size(
+                gradient_rect.min + vec2(0.0, t),
+                size2(l, gradient_rect.height() - t - b),
+            );
+            let mut solid_aa = EdgeMask::LEFT;
+            solid_aa.set(EdgeMask::TOP, t == 0.0);
+            solid_aa.set(EdgeMask::BOTTOM, b == 0.0);
+            solid_parts(&solid_rect, bg_color, solid_aa);
+            aa_mask.remove(EdgeMask::LEFT);
+        }
+
+        if r != 0.0 {
+            let solid_rect = LayoutRect::from_origin_and_size(
+                gradient_rect.top_right() + vec2(-r, t),
+                size2(r, gradient_rect.height() - t - b),
+            );
+            let mut solid_aa = EdgeMask::RIGHT;
+            solid_aa.set(EdgeMask::TOP, t == 0.0);
+            solid_aa.set(EdgeMask::BOTTOM, b == 0.0);
+            solid_parts(&solid_rect, bg_color, solid_aa);
+            aa_mask.remove(EdgeMask::RIGHT);
+        }
+
+        if t != 0.0 {
+            let solid_rect = LayoutRect::from_origin_and_size(
+                gradient_rect.min + vec2(l, 0.0),
+                size2(gradient_rect.width() - l - r, t),
+            );
+            let mut solid_aa = EdgeMask::TOP;
+            solid_aa.set(EdgeMask::LEFT, l == 0.0);
+            solid_aa.set(EdgeMask::RIGHT, r == 0.0);
+            solid_parts(&solid_rect, bg_color, solid_aa);
+            aa_mask.remove(EdgeMask::TOP);
+        }
+
+        if b != 0.0 {
+            let solid_rect = LayoutRect::from_origin_and_size(
+                gradient_rect.bottom_left() + vec2(l, -b),
+                size2(gradient_rect.width() - l - r, b),
+            );
+            let mut solid_aa = EdgeMask::BOTTOM;
+            solid_aa.set(EdgeMask::LEFT, l == 0.0);
+            solid_aa.set(EdgeMask::RIGHT, r == 0.0);
+            solid_parts(&solid_rect, bg_color, solid_aa);
+            aa_mask.remove(EdgeMask::BOTTOM);
+        }
+    }
+
+    // Shrink the gradient primitive.
+
+    prim_rect.min.x += l;
+    prim_rect.min.y += t;
+
+    stretch_size.width -= l + r;
+    stretch_size.height -= b + t;
+
+    center.x -= l;
+    center.y -= t;
+
+    tile_spacing.width += l + r;
+    tile_spacing.height += t + b;
+}

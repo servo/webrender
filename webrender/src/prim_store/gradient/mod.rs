@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{ColorF, GradientStop};
+use api::units::{LayoutRect, LayoutSize, LayoutVector2D};
 
 mod linear;
 mod radial;
@@ -39,10 +40,47 @@ fn stops_and_min_alpha(stop_keys: &[GradientStopKey]) -> (Vec<GradientStop>, f32
 // render and cache. We do this optimization separately on each axis.
 // Returns the offset between the new and old primitive rect origin, to apply to the
 // gradient parameters that are relative to the primitive origin.
-// `apply_gradient_local_clip` now lives in `webrender_api::prim_geometry` so
-// content-process interning can share it. Re-exported here to keep existing
-// references working.
-pub use api::prim_geometry::apply_gradient_local_clip;
+pub fn apply_gradient_local_clip(
+    prim_rect: &mut LayoutRect,
+    stretch_size: &LayoutSize,
+    tile_spacing: &LayoutSize,
+    clip_rect: &LayoutRect,
+) -> LayoutVector2D {
+    let w = prim_rect.max.x.min(clip_rect.max.x) - prim_rect.min.x;
+    let h = prim_rect.max.y.min(clip_rect.max.y) - prim_rect.min.y;
+    let is_tiled_x = w > stretch_size.width + tile_spacing.width;
+    let is_tiled_y = h > stretch_size.height + tile_spacing.height;
+
+    let mut offset = LayoutVector2D::new(0.0, 0.0);
+
+    if !is_tiled_x {
+        let diff = (clip_rect.min.x - prim_rect.min.x).min(prim_rect.width());
+        if diff > 0.0 {
+            prim_rect.min.x += diff;
+            offset.x = -diff;
+        }
+
+        let diff = prim_rect.max.x - clip_rect.max.x;
+        if diff > 0.0 {
+            prim_rect.max.x -= diff;
+        }
+    }
+
+    if !is_tiled_y {
+        let diff = (clip_rect.min.y - prim_rect.min.y).min(prim_rect.height());
+        if diff > 0.0 {
+            prim_rect.min.y += diff;
+            offset.y = -diff;
+        }
+
+        let diff = prim_rect.max.y - clip_rect.max.y;
+        if diff > 0.0 {
+            prim_rect.max.y -= diff;
+        }
+    }
+
+    offset
+}
 
 #[test]
 #[cfg(target_pointer_width = "64")]

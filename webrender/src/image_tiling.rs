@@ -14,10 +14,22 @@ use std::ops::Range;
 /// treat the primitive as not repeated.
 /// This can let us avoid unnecessary work later to handle some
 /// of the parameters.
-// `simplify_repeated_primitive` now lives in `webrender_api::prim_geometry` so
-// content-process interning can share it. Re-exported here to keep existing
-// references working.
-pub use api::prim_geometry::simplify_repeated_primitive;
+pub fn simplify_repeated_primitive(
+    stretch_size: &LayoutSize,
+    tile_spacing: &mut LayoutSize,
+    prim_rect: &mut LayoutRect,
+) {
+    let stride = *stretch_size + *tile_spacing;
+
+    if stride.width >= prim_rect.width() {
+        tile_spacing.width = 0.0;
+        prim_rect.max.x = f32::min(prim_rect.min.x + stretch_size.width, prim_rect.max.x);
+    }
+    if stride.height >= prim_rect.height() {
+        tile_spacing.height = 0.0;
+        prim_rect.max.y = f32::min(prim_rect.min.y + stretch_size.height, prim_rect.max.y);
+    }
+}
 
 pub struct Repetition {
     pub origin: LayoutPoint,

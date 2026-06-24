@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{
-    AlphaType, ColorDepth, ColorF, ColorRange, ExternalImageData, ExternalImageType, ImageBufferKind, ImageKey as ApiImageKey, ImageRendering, PremultipliedColorF, RasterSpace, Shadow, YuvColorSpace, YuvFormat
+    AlphaType, ColorDepth, ColorF, ColorRange, ColorU, ExternalImageData, ExternalImageType, ImageBufferKind, ImageKey as ApiImageKey, ImageRendering, PremultipliedColorF, RasterSpace, Shadow, YuvColorSpace, YuvFormat
 };
 use api::units::*;
 use euclid::point2;
@@ -18,7 +18,7 @@ use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureCont
 use crate::intern::{DataStore, Handle as InternHandle, InternDebug, Internable};
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
-    EdgeMask, InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveKind, PrimitiveOpacity, PrimitiveScratchBuffer, PrimitiveStore
+    EdgeMask, InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveKind, PrimitiveOpacity, PrimitiveScratchBuffer, PrimitiveStore, SizeKey
 };
 use crate::prim_store::storage;
 use crate::render_target::RenderTargetKind;
@@ -109,11 +109,33 @@ impl ImageScratch {
     }
 }
 
-// `StretchSizeKey` now lives in `webrender_api::key_types` so builder-side
-// interning keys can reference it. The resolved `StretchSize` below (and its
-// frame-build `resolve`) stay here. Re-exported to keep existing references
-// working.
-pub use api::key_types::StretchSizeKey;
+/// How to compute the effective stretch size for an image primitive, per
+/// axis. `FillsPrim` resolves to the (snapped) prim-rect extent at
+/// frame-build so the value sent to the GPU lands on the snapped pixel
+/// grid. `Explicit` keeps the gecko-specified value verbatim. Per-axis
+/// because gecko can specify a background tile that fills the prim on
+/// one axis but tiles on the other (e.g. `background-repeat: repeat-y`
+/// with `background-size: 116.8px 0.8px`).
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, MallocSizeOf)]
+pub struct StretchSizeKey {
+    pub size: SizeKey,
+    pub fills_width: bool,
+    pub fills_height: bool,
+}
+
+impl StretchSizeKey {
+    /// Both axes fill the prim. The stored size is unused; normalised
+    /// to zero so different prim sizes still intern to the same key.
+    pub fn fills_prim() -> Self {
+        StretchSizeKey {
+            size: LayoutSize::zero().into(),
+            fills_width: true,
+            fills_height: true,
+        }
+    }
+}
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -147,9 +169,17 @@ impl StretchSize {
     }
 }
 
-// `Image` now lives in `webrender_api::interned_prims` so content-process
-// interning can hold it. Re-exported to keep existing references working.
-pub use api::interned_prims::Image;
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Eq, PartialEq, MallocSizeOf, Hash)]
+pub struct Image {
+    pub key: ApiImageKey,
+    pub stretch_size: StretchSizeKey,
+    pub tile_spacing: SizeKey,
+    pub color: ColorU,
+    pub image_rendering: ImageRendering,
+    pub alpha_type: AlphaType,
+}
 
 pub type ImageKey = PrimKey<Image>;
 
@@ -856,9 +886,17 @@ impl AdjustedImageSource {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// `YuvImage` now lives in `webrender_api::interned_prims` so content-process
-// interning can hold it. Re-exported to keep existing references working.
-pub use api::interned_prims::YuvImage;
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
+pub struct YuvImage {
+    pub color_depth: ColorDepth,
+    pub yuv_key: [ApiImageKey; 3],
+    pub format: YuvFormat,
+    pub color_space: YuvColorSpace,
+    pub color_range: ColorRange,
+    pub image_rendering: ImageRendering,
+}
 
 pub type YuvImageKey = PrimKey<YuvImage>;
 

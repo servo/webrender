@@ -6,7 +6,7 @@ use api::{ColorF, NormalBorder, PremultipliedColorF, RasterSpace, RepeatMode, Sh
 use api::units::*;
 use smallvec::SmallVec;
 use crate::border::{build_border_instances, NormalBorderSegment, MAX_BORDER_RESOLUTION};
-use crate::border::NinePatchDescriptorExt;
+use crate::border::{NormalBorderAu, NinePatchDescriptorExt};
 use crate::clip::{ClipChainInstance, ClipIntern};
 use crate::command_buffer::CommandBufferIndex;
 use crate::gpu_types::ImageBrushPrimitiveData;
@@ -32,9 +32,13 @@ use crate::visibility::KindScratchHandle;
 
 use crate::prim_store::storage;
 
-// `NormalBorderPrim` now lives in `webrender_api::interned_prims` so content-process
-// interning can hold it. Re-exported to keep existing references working.
-pub use api::interned_prims::NormalBorderPrim;
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
+pub struct NormalBorderPrim {
+    pub border: NormalBorderAu,
+    pub widths: LayoutSideOffsetsAu,
+}
 
 pub type NormalBorderKey = PrimKey<NormalBorderPrim>;
 
