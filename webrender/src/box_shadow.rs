@@ -1,13 +1,12 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-use api::{BorderRadius, BoxShadowClipMode, ClipMode, ColorF, ColorU, PropertyBinding};
+use api::{BorderRadius, BoxShadowClipMode, ClipMode, ColorF, PropertyBinding};
 use api::units::*;
-use crate::border::{BorderRadiusAu};
 use crate::clip::{ClipItemEntry, ClipItemKey, ClipItemKeyKind, ClipNodeId};
 use crate::intern::{Handle as InternHandle, InternDebug, Internable};
 use crate::prim_store::{InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData};
-use crate::prim_store::{PrimitiveKind, PrimitiveStore, VectorKey};
+use crate::prim_store::{PrimitiveKind, PrimitiveStore};
 use crate::prim_store::rectangle::RectanglePrim;
 use crate::scene_building::{SceneBuilder, IsVisible};
 use crate::spatial_tree::SpatialNodeIndex;
@@ -29,22 +28,9 @@ impl BoxShadowKey {
 
 impl InternDebug for BoxShadowKey {}
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, MallocSizeOf, Hash, Eq, PartialEq)]
-pub struct BoxShadow {
-    pub color: ColorU,
-    pub blur_radius: Au,
-    pub clip_mode: BoxShadowClipMode,
-    pub shadow_radius: BorderRadiusAu,
-    pub element_radius: BorderRadiusAu,
-    /// `box-shadow` offset of the shadow relative to the element, in
-    /// local space.
-    pub box_offset: VectorKey,
-    /// Signed spread radius. Positive for Outset, negative for Inset
-    /// (matches the convention in `add_box_shadow`).
-    pub spread_amount: Au,
-}
+// `BoxShadow` now lives in `webrender_api::interned_prims` so content-process
+// interning can hold it. Re-exported to keep existing references working.
+pub use api::interned_prims::BoxShadow;
 
 impl IsVisible for BoxShadow {
     fn is_visible(&self) -> bool {

@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{PropertyBinding, ColorU, ColorF, Shadow, RasterSpace};
+use api::{PropertyBinding, ColorF, Shadow, RasterSpace};
 use crate::scene_building::{CreateShadow, IsVisible};
 use crate::intern;
 use crate::internal_types::LayoutPrimitiveInfo;
@@ -28,12 +28,9 @@ pub struct RectangleScratch {
     pub opacity: PrimitiveOpacity,
 }
 
-#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct RectanglePrim {
-    pub color: PropertyBinding<ColorU>,
-}
+// `RectanglePrim` now lives in `webrender_api::interned_prims` so content-process
+// interning can hold it. Re-exported to keep existing references working.
+pub use api::interned_prims::RectanglePrim;
 
 pub type RectangleKey = PrimKey<RectanglePrim>;
 
