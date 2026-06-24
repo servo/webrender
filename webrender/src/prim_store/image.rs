@@ -109,33 +109,11 @@ impl ImageScratch {
     }
 }
 
-/// How to compute the effective stretch size for an image primitive, per
-/// axis. `FillsPrim` resolves to the (snapped) prim-rect extent at
-/// frame-build so the value sent to the GPU lands on the snapped pixel
-/// grid. `Explicit` keeps the gecko-specified value verbatim. Per-axis
-/// because gecko can specify a background tile that fills the prim on
-/// one axis but tiles on the other (e.g. `background-repeat: repeat-y`
-/// with `background-size: 116.8px 0.8px`).
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, MallocSizeOf)]
-pub struct StretchSizeKey {
-    pub size: SizeKey,
-    pub fills_width: bool,
-    pub fills_height: bool,
-}
-
-impl StretchSizeKey {
-    /// Both axes fill the prim. The stored size is unused; normalised
-    /// to zero so different prim sizes still intern to the same key.
-    pub fn fills_prim() -> Self {
-        StretchSizeKey {
-            size: LayoutSize::zero().into(),
-            fills_width: true,
-            fills_height: true,
-        }
-    }
-}
+// `StretchSizeKey` now lives in `webrender_api::key_types` so builder-side
+// interning keys can reference it. The resolved `StretchSize` below (and its
+// frame-build `resolve`) stay here. Re-exported to keep existing references
+// working.
+pub use api::key_types::StretchSizeKey;
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
