@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::vec2;
-use api::{BorderRadius, BorderSide, BorderStyle, ColorF, ColorU};
+use api::{BorderSide, BorderStyle, ColorF};
 use api::{NormalBorder as ApiNormalBorder, RepeatMode};
 use api::units::*;
 use crate::clip::ClipNodeId;
@@ -40,85 +40,11 @@ pub const MAX_DASH_COUNT: u32 = 2048;
 // can reference it. Re-exported here to keep existing references working.
 pub use api::key_types::BorderRadiusAu;
 
-#[derive(Clone, Debug, Hash, MallocSizeOf, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct BorderSideAu {
-    pub color: ColorU,
-    pub style: BorderStyle,
-}
-
-impl From<BorderSide> for BorderSideAu {
-    fn from(side: BorderSide) -> Self {
-        BorderSideAu {
-            color: side.color.into(),
-            style: side.style,
-        }
-    }
-}
-
-impl From<BorderSideAu> for BorderSide {
-    fn from(side: BorderSideAu) -> Self {
-        BorderSide {
-            color: side.color.into(),
-            style: side.style,
-        }
-    }
-}
-
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Hash, Eq, MallocSizeOf, PartialEq)]
-pub struct NormalBorderAu {
-    pub left: BorderSideAu,
-    pub right: BorderSideAu,
-    pub top: BorderSideAu,
-    pub bottom: BorderSideAu,
-    pub radius: BorderRadiusAu,
-    /// Whether to apply anti-aliasing on the border corners.
-    ///
-    /// Note that for this to be `false` and work, this requires the borders to
-    /// be solid, and no border-radius.
-    pub do_aa: bool,
-}
-
-impl NormalBorderAu {
-    // Construct a border based upon self with color
-    pub fn with_color(&self, color: ColorU) -> Self {
-        let mut b = self.clone();
-        b.left.color = color;
-        b.right.color = color;
-        b.top.color = color;
-        b.bottom.color = color;
-        b
-    }
-}
-
-impl From<ApiNormalBorder> for NormalBorderAu {
-    fn from(border: ApiNormalBorder) -> Self {
-        NormalBorderAu {
-            left: border.left.into(),
-            right: border.right.into(),
-            top: border.top.into(),
-            bottom: border.bottom.into(),
-            radius: border.radius.into(),
-            do_aa: border.do_aa,
-        }
-    }
-}
-
-impl From<NormalBorderAu> for ApiNormalBorder {
-    fn from(border: NormalBorderAu) -> Self {
-        ApiNormalBorder {
-            left: border.left.into(),
-            right: border.right.into(),
-            top: border.top.into(),
-            bottom: border.bottom.into(),
-            radius: border.radius.into(),
-            do_aa: border.do_aa,
-        }
-    }
-}
+// `BorderSideAu` and `NormalBorderAu` (with their `From` conversions to/from the
+// api border types) now live in `webrender_api::key_types` so builder-side
+// interning keys can reference them. Re-exported to keep existing references
+// working.
+pub use api::key_types::{BorderSideAu, NormalBorderAu};
 
 /// Cache key that uniquely identifies a border
 /// segment in the render task cache.
@@ -139,54 +65,10 @@ pub struct BorderSegmentCacheKey {
     pub v_adjacent_corner_radius: LayoutSizeAu,
 }
 
-pub fn ensure_no_corner_overlap(
-    radius: &mut BorderRadius,
-    size: LayoutSize,
-) {
-    let mut ratio = 1.0;
-    let top_left_radius = &mut radius.top_left;
-    let top_right_radius = &mut radius.top_right;
-    let bottom_right_radius = &mut radius.bottom_right;
-    let bottom_left_radius = &mut radius.bottom_left;
-
-    if size.width > 0.0 {
-        let sum = top_left_radius.width + top_right_radius.width;
-        if size.width < sum {
-            ratio = f32::min(ratio, size.width / sum);
-        }
-
-        let sum = bottom_left_radius.width + bottom_right_radius.width;
-        if size.width < sum {
-            ratio = f32::min(ratio, size.width / sum);
-        }
-    }
-
-    if size.height > 0.0 {
-        let sum = top_left_radius.height + bottom_left_radius.height;
-        if size.height < sum {
-            ratio = f32::min(ratio, size.height / sum);
-        }
-
-        let sum = top_right_radius.height + bottom_right_radius.height;
-        if size.height < sum {
-            ratio = f32::min(ratio, size.height / sum);
-        }
-    }
-
-    if ratio < 1. {
-        top_left_radius.width *= ratio;
-        top_left_radius.height *= ratio;
-
-        top_right_radius.width *= ratio;
-        top_right_radius.height *= ratio;
-
-        bottom_left_radius.width *= ratio;
-        bottom_left_radius.height *= ratio;
-
-        bottom_right_radius.width *= ratio;
-        bottom_right_radius.height *= ratio;
-    }
-}
+// `ensure_no_corner_overlap` now lives in `webrender_api::key_types` so
+// builder-side interning can build a stable normal-border key. Re-exported to
+// keep existing references working.
+pub use api::key_types::ensure_no_corner_overlap;
 
 impl<'a> SceneBuilder<'a> {
     pub fn add_normal_border(

@@ -22,31 +22,16 @@ use crate::prim_store::{PrimKeyCommonData, PrimTemplateCommonData, PrimitiveStor
 use crate::prim_store::{NinePatchDescriptor, PointKey, SizeKey};
 use crate::segment::EdgeMask;
 
-use std::{hash, ops::{Deref, DerefMut}};
+use std::ops::{Deref, DerefMut};
 use super::{
     stops_and_min_alpha, GradientStopKey,
     apply_gradient_local_clip,
 };
 
-/// Hashable radial gradient parameters, for use during prim interning.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, MallocSizeOf, PartialEq)]
-pub struct RadialGradientParams {
-    pub start_radius: f32,
-    pub end_radius: f32,
-    pub ratio_xy: f32,
-}
-
-impl Eq for RadialGradientParams {}
-
-impl hash::Hash for RadialGradientParams {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.start_radius.to_bits().hash(state);
-        self.end_radius.to_bits().hash(state);
-        self.ratio_xy.to_bits().hash(state);
-    }
-}
+// `RadialGradientParams` now lives in `webrender_api::key_types` so builder-side
+// interning keys can reference it. Re-exported to keep existing references
+// working.
+pub use api::key_types::RadialGradientParams;
 
 /// Identifying key for a radial gradient.
 #[cfg_attr(feature = "capture", derive(Serialize))]
