@@ -155,20 +155,9 @@ impl From<RadialGradientKey> for RadialGradientTemplate {
 
 pub type RadialGradientDataHandle = InternHandle<RadialGradient>;
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct RadialGradient {
-    pub extend_mode: ExtendMode,
-    pub center: PointKey,
-    pub params: RadialGradientParams,
-    /// Per-axis tile size encoded as a fraction of the prim's size. See
-    /// [`RadialGradientKey::stretch_ratio`].
-    pub stretch_ratio: SizeKey,
-    pub stops: Vec<GradientStopKey>,
-    pub tile_spacing: SizeKey,
-    pub nine_patch: Option<Box<NinePatchDescriptor>>,
-}
+// `RadialGradient` now lives in `webrender_api::interned_prims` so content-process
+// interning can hold it. Re-exported to keep existing references working.
+pub use api::interned_prims::RadialGradient;
 
 impl Internable for RadialGradient {
     type Key = RadialGradientKey;

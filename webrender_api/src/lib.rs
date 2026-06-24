@@ -55,6 +55,10 @@ mod image;
 /// `webrender` crate. Not part of the public API surface.
 #[doc(hidden)]
 pub mod key_types;
+/// Internal: interned primitive scene-description structs, shared with the
+/// `webrender` crate. Not part of the public API surface.
+#[doc(hidden)]
+pub mod interned_prims;
 /// Internal: primitive geometry simplification / gradient optimization helpers,
 /// shared with the `webrender` crate. Not part of the public API surface.
 #[doc(hidden)]

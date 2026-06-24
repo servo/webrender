@@ -152,20 +152,9 @@ impl From<ConicGradientKey> for ConicGradientTemplate {
 
 pub type ConicGradientDataHandle = InternHandle<ConicGradient>;
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct ConicGradient {
-    pub extend_mode: ExtendMode,
-    pub center: PointKey,
-    pub params: ConicGradientParams,
-    /// Per-axis tile size encoded as a fraction of the prim's size. See
-    /// [`ConicGradientKey::stretch_ratio`].
-    pub stretch_ratio: SizeKey,
-    pub stops: Vec<GradientStopKey>,
-    pub tile_spacing: SizeKey,
-    pub nine_patch: Option<Box<NinePatchDescriptor>>,
-}
+// `ConicGradient` now lives in `webrender_api::interned_prims` so content-process
+// interning can hold it. Re-exported to keep existing references working.
+pub use api::interned_prims::ConicGradient;
 
 impl Internable for ConicGradient {
     type Key = ConicGradientKey;

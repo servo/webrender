@@ -40,11 +40,11 @@ pub const MAX_DASH_COUNT: u32 = 2048;
 // can reference it. Re-exported here to keep existing references working.
 pub use api::key_types::BorderRadiusAu;
 
-// `BorderSideAu` and `NormalBorderAu` (with their `From` conversions to/from the
-// api border types) now live in `webrender_api::key_types` so builder-side
-// interning keys can reference them. Re-exported to keep existing references
-// working.
-pub use api::key_types::{BorderSideAu, NormalBorderAu};
+// `BorderSideAu` (with its `From` conversions to/from the api border types) now
+// lives in `webrender_api::key_types` so builder-side interning keys can
+// reference it. Re-exported to keep existing references working. (`NormalBorderAu`
+// also lives there but is now referenced only through `interned_prims`.)
+pub use api::key_types::BorderSideAu;
 
 /// Cache key that uniquely identifies a border
 /// segment in the render task cache.
