@@ -475,6 +475,26 @@ pub fn update_prim_visibility(
                 }
             };
 
+            let is_mix_blend_picture = |prim_instance: &PrimitiveInstance| {
+                if let PrimitiveKind::Picture { pic_index, .. } = prim_instance.kind {
+                    let pic = &store.pictures[pic_index.0];
+
+                    matches!(
+                        pic.composite_mode,
+                        Some(PictureCompositeMode::MixBlend(_))
+                    )
+                } else {
+                    false
+                }
+            };
+
+            if is_root_tile_cache && is_mix_blend_picture(prim_instance) {
+                let prim_clip_chain = &frame_state.scratch.primitive.frame.draws[prim_instance_index].clip_chain;
+                if let Some(tile_cache) = tile_cache {
+                    tile_cache.mix_blend_pic_rects.push(prim_clip_chain.pic_coverage_rect);
+                }
+            }
+
             {
                 let prim_surface_index = frame_state.surface_stack.last().unwrap().1;
                 let prim_clip_chain = &frame_state.scratch.primitive.frame.draws[prim_instance_index].clip_chain;

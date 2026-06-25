@@ -815,6 +815,8 @@ pub struct TileCacheInstance {
     /// A list of extra dirty invalidation tests that can only be checked once we
     /// know the dirty rect of all tiles
     deferred_dirty_tests: Vec<DeferredDirtyTest>,
+    /// A list of pic_coverage_rect of Picture with mix blend that could affect to underlays.
+    pub mix_blend_pic_rects: Vec<PictureRect>,
     /// Is there a backdrop associated with this cache
     pub found_prims_after_backdrop: bool,
     pub backdrop_surface: Option<BackdropSurface>,
@@ -886,6 +888,7 @@ impl TileCacheInstance {
             current_raster_scale: 1.0,
             current_surface_traversal_depth: 0,
             deferred_dirty_tests: Vec::new(),
+            mix_blend_pic_rects: Vec::new(),
             found_prims_after_backdrop: false,
             backdrop_surface: None,
             underlays: Vec::new(),
@@ -1040,6 +1043,7 @@ impl TileCacheInstance {
         self.local_rect = pic_rect;
         self.local_clip_rect = PictureRect::max_rect();
         self.deferred_dirty_tests.clear();
+        self.mix_blend_pic_rects.clear();
         self.underlays.clear();
         self.overlay_region = PictureRect::zero();
         self.yuv_images_remaining = self.yuv_images_count;
@@ -3009,7 +3013,7 @@ impl TileCacheInstance {
             surface.used_this_frame
         });
 
-        if !self.underlays.is_empty() && !self.deferred_dirty_tests.is_empty() {
+        if !self.underlays.is_empty() && (!self.deferred_dirty_tests.is_empty() || !self.mix_blend_pic_rects.is_empty()) {
             let is_yuv_8bit = |desc: &ExternalSurfaceDescriptor| {
                 matches!(
                     desc.dependency,
@@ -3026,13 +3030,20 @@ impl TileCacheInstance {
                     .any(|dirty_test| dirty_test.prim_rect.intersects(&desc.local_rect))
             };
 
-            // Cancel underlay if underlay intersects with backdrop filter and bit depth is 8 bits
+            let intersects_with_mix_blend = |desc: &ExternalSurfaceDescriptor| {
+                self.mix_blend_pic_rects
+                    .iter()
+                    .any(|rect| rect.intersects(&desc.local_rect))
+            };
+
+            // Cancel underlay if underlay intersects with backdrop filter or mix-blend-mode and bit depth is 8 bits
             // XXX WebRender does not support full HDR yet. HDR requires external composite to show correct colors.
             let (underlays, cancel_underlays): (Vec<_>, Vec<_>) =
                 self.underlays
                     .iter()
                     .partition(|desc| {
-                        !is_yuv_8bit(desc) || !intersects_with_dirty_tests(desc)
+                        !is_yuv_8bit(desc) ||
+                        (!intersects_with_dirty_tests(desc) && !intersects_with_mix_blend(desc))
                     });
 
             if !cancel_underlays.is_empty() {
