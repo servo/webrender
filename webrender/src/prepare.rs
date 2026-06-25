@@ -1451,6 +1451,72 @@ fn prepare_prim_for_render(
                 &mut scratch.frame.pictures[pic_scratch_handle],
             );
 
+            if let Some(raster_config) = &pic.raster_config {
+                // Pictures that are rasterized in a different spatial node than
+                // they are composited in need a dedicated compositing transform
+                // on the quad path; they are handled in a followup patch.
+                let is_same_coord_system = {
+                    let surface = &frame_state.surfaces[raster_config.surface_index.0];
+                    surface.surface_spatial_node_index == surface.raster_spatial_node_index
+                };
+
+                let mut opacity = 1.0;
+                let use_quads = if is_same_coord_system && matches!(pic.context_3d, Picture3DContext::Out) {
+                    match raster_config.composite_mode {
+                        PictureCompositeMode::Filter(Filter::Blur { .. })
+                        | PictureCompositeMode::SVGFEGraph(..) => true,
+                        PictureCompositeMode::Filter(Filter::Opacity(_, amount)) => {
+                            opacity = amount;
+                            true
+                        }
+                        _ => false,
+                    }
+                } else {
+                    false
+                };
+
+                if use_quads {
+                    // Detached snapshot pictures are not composited.
+                    let detached = pic.snapshot.map_or(false, |s| s.detached);
+                    if !detached {
+                        let pic_task_id = scratch.frame.pictures[pic_scratch_handle]
+                            .primary_render_task_id
+                            .expect("bug: no render task for composited picture");
+
+                        let surface = &frame_state.surfaces[raster_config.surface_index.0];
+                        let pic_local_rect = raster_config.composite_mode.get_rect(surface, None);
+
+                        let pattern = ImagePattern {
+                            src_task_id: pic_task_id,
+                            src_is_opaque: false,
+                            premultiplied: true,
+                            sampler_kind: ImageBufferKind::Texture2D,
+                            color: ColorF::new(1.0, 1.0, 1.0, opacity),
+                        };
+
+                        quad::prepare_quad(
+                            &pattern,
+                            &pic_local_rect,
+                            &prim_info.clip_chain.local_clip_rect,
+                            EdgeMask::empty(),
+                            EdgeMask::all(),
+                            prim_instance_index,
+                            &None,
+                            &prim_info.clip_chain,
+                            quad_transform,
+                            frame_context,
+                            pic_context,
+                            targets,
+                            &data_stores.clip,
+                            frame_state,
+                            scratch,
+                        );
+                    }
+
+                    return;
+                }
+            }
+
             if let Picture3DContext::In { root_data: None, plane_splitter_index, ancestor_index, .. } = pic.context_3d {
                 let dirty_rect = frame_state.current_dirty_region().combined;
                 let visibility_spatial_node = frame_state.current_dirty_region().visibility_spatial_node;
