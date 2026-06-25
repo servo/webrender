@@ -13,7 +13,7 @@ use crate::gpu_types::UvRectKind;
 use crate::internal_types::{FrameId, FrameMemory, FrameVec, TextureSource, TextureSourceExternal};
 use crate::renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use crate::util::ScaleOffset;
-use api::units::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceRect, LayoutRect, PictureRect};
+use api::units::{DeviceIntRect, DeviceIntSize, DevicePoint, DeviceRect, LayoutRect, PictureRect};
 use api::{PremultipliedColorF, ImageFormat};
 use crate::device::Texel;
 use crate::render_task::{RenderTaskLocation, StaticRenderTaskSurface};
@@ -222,14 +222,27 @@ impl Into<GpuBufferBlockF> for PictureRect {
     }
 }
 
-impl Into<GpuBufferBlockF> for DeviceRect {
-    fn into(self) -> GpuBufferBlockF {
+impl From<DeviceRect> for GpuBufferBlockF {
+    fn from(rect: DeviceRect) -> Self {
         GpuBufferBlockF {
             data: [
-                self.min.x,
-                self.min.y,
-                self.max.x,
-                self.max.y,
+                rect.min.x,
+                rect.min.y,
+                rect.max.x,
+                rect.max.y,
+            ],
+        }
+    }
+}
+
+impl From<DeviceRect> for GpuBufferBlockI {
+    fn from(rect: DeviceRect) -> Self {
+        GpuBufferBlockI {
+            data: [
+                rect.min.x as i32,
+                rect.min.y as i32,
+                rect.max.x as i32,
+                rect.max.y as i32,
             ],
         }
     }
@@ -411,7 +424,7 @@ pub struct GpuBufferBuilderImpl<T> {
     epoch: u32,
 }
 
-impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRect> {
+impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRect> + std::convert::From<DeviceRect> {
     pub fn new(memory: &FrameMemory, capacity: usize, frame_id: FrameId) -> Self {
         // Pick the first 8 bits of the frame id and store them in the upper bits
         // of the handles.
@@ -546,6 +559,7 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
                     .intersection_unchecked(&target_rect);
             }
 
+            let target_rect = target_rect.to_f32();
             let uv_rect = match render_task.uv_rect_kind() {
                 UvRectKind::Rect => {
                     target_rect
@@ -553,14 +567,14 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
                 UvRectKind::Quad { top_left, bottom_right, .. } => {
                     let size = target_rect.size();
 
-                    DeviceIntRect::new(
-                        DeviceIntPoint::new(
-                            target_rect.min.x + (top_left.x * size.width as f32).round() as i32,
-                            target_rect.min.y + (top_left.y * size.height as f32).round() as i32,
+                    DeviceRect::new(
+                        DevicePoint::new(
+                            target_rect.min.x + top_left.x * size.width,
+                            target_rect.min.y + top_left.y * size.height,
                         ),
-                        DeviceIntPoint::new(
-                            target_rect.min.x + (bottom_right.x * size.width as f32).round() as i32,
-                            target_rect.min.y + (bottom_right.y * size.height as f32).round() as i32,
+                        DevicePoint::new(
+                            target_rect.min.x + bottom_right.x * size.width,
+                            target_rect.min.y + bottom_right.y * size.height,
                         ),
                     )
                 }
