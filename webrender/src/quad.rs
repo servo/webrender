@@ -2021,7 +2021,7 @@ fn write_prim_blocks(
                 .intersection_unchecked(&device_clip_rect)
                 .to_untyped();
         prim_rect = round_edges.select(prim_rect.round(), prim_rect);
-        prim_clip_rect = round_edges.select(prim_rect.round(), prim_clip_rect);
+        prim_clip_rect = round_edges.select(prim_clip_rect.round(), prim_clip_rect);
         pattern_transform = local_to_device.inverse();
     } else {
         prim_rect = local_rect.to_untyped();
