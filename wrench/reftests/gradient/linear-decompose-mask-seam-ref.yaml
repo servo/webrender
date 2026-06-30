@@ -1,0 +1,31 @@
+# Reference for linear-decompose-mask-seam.yaml. Identical gradient and nested
+# rounded clips, but with `repeat: true` to skip the fast-path segment decomposition.
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 600, 360]
+      color: white
+    - type: clip
+      id: 2
+      complex:
+        - rect: [20, 20, 552, 311]
+          radius: 12
+    - type: clip
+      id: 3
+      complex:
+        - rect: [22, 22, 548, 307]
+          radius: 12
+    - type: gradient
+      bounds: 20 20 552 311
+      start: 276 0
+      end: 276 311
+      repeat: true
+      stops: [0.0, [0, 0, 0, 0],
+              0.36, [0, 0, 0, 0.06],
+              0.5, [0, 0, 0, 0.15],
+              0.6, [0, 0, 0, 0.3],
+              0.65, [0, 0, 0, 0.4],
+              0.75, [0, 0, 0, 0.62],
+              1.0, [0, 0, 0, 0.9]]
+      clip-chain: [2, 3]

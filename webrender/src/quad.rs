@@ -853,13 +853,15 @@ fn prepare_indirect_pattern(
 
     let mut clipped_surface_rect = *clipped_surface_rect;
     if local_to_device_scale_offset.is_some() && aa_flags.is_empty() {
-        // If the primitive has a simple transform, then quad.clip is in device space
-        // and is a strict subset of clipped_surface_rect. If there is no anti-aliasing,
-        // and the pattern is opaque, we want to ensure that the primitive covers the
-        // entire render task so that we can safely skip clearing it.
-        // In this situation, create_quad_primitive has rounded the edges of quad.clip
-        // so we are not introducing a fractional offset in clipped_surface_rect.
-        clipped_surface_rect = quad.clip.cast_unit();
+        // If the primitive has a simple transform, then quad.bounds is in device
+        // space and is a subset of clipped_surface_rect (the clip rect is folded
+        // into the bounds). If there is no anti-aliasing, and the pattern is
+        // opaque, we want to ensure that the primitive covers the entire render
+        // task so that we can safely skip clearing it.
+        // In this situation, create_quad_primitive has rounded the edges of
+        // quad.bounds so we are not introducing a fractional offset in
+        // clipped_surface_rect.
+        clipped_surface_rect = quad.bounds.cast_unit();
     }
 
     let task_size = clipped_surface_rect.size().to_i32();
@@ -1971,6 +1973,7 @@ fn create_quad_primitive(
 ) -> QuadPrimitive {
     let mut prim_rect;
     let mut prim_clip_rect;
+    let pattern_rect;
     let pattern_transform;
     if let Some(local_to_device) = local_to_device {
         prim_rect = local_to_device.map_rect(local_rect);
@@ -1978,6 +1981,9 @@ fn create_quad_primitive(
                 .map_rect(&local_clip_rect)
                 .intersection_unchecked(device_clip_rect)
                 .to_untyped();
+        // Capture the pattern rect before rounding: rounding is only meant to
+        // snap vertex coverage to the device grid, not to move the samples.
+        pattern_rect = prim_rect;
         prim_rect = round_edges.select(prim_rect.round(), prim_rect);
         prim_clip_rect = round_edges.select(prim_clip_rect.round(), prim_clip_rect);
 
@@ -1985,12 +1991,14 @@ fn create_quad_primitive(
     } else {
         prim_rect = local_rect.to_untyped();
         prim_clip_rect = local_clip_rect.to_untyped();
+        pattern_rect = prim_rect;
         pattern_transform = ScaleOffset::identity();
     };
 
     QuadPrimitive {
-        bounds: prim_rect,
-        clip: prim_clip_rect,
+        // Fold the clip rect into the bounds: a single coverage rect.
+        bounds: prim_rect.intersection_unchecked(&prim_clip_rect),
+        pattern_rect,
         input_task: pattern.texture_input.task_id(),
         pattern_scale_offset: pattern_transform,
         color: pattern.base_color.premultiplied(),
@@ -2013,6 +2021,7 @@ fn write_prim_blocks(
 ) -> GpuBufferAddress {
     let mut prim_rect;
     let mut prim_clip_rect;
+    let pattern_rect;
     let pattern_transform;
     if let Some(local_to_device) = local_to_device {
         prim_rect = local_to_device.map_rect(&local_rect);
@@ -2020,19 +2029,24 @@ fn write_prim_blocks(
                 .map_rect(&local_clip_rect)
                 .intersection_unchecked(&device_clip_rect)
                 .to_untyped();
+        // Capture the pattern rect before rounding: rounding is only meant to
+        // snap vertex coverage to the device grid, not to move the samples.
+        pattern_rect = prim_rect;
         prim_rect = round_edges.select(prim_rect.round(), prim_rect);
         prim_clip_rect = round_edges.select(prim_clip_rect.round(), prim_clip_rect);
         pattern_transform = local_to_device.inverse();
     } else {
         prim_rect = local_rect.to_untyped();
         prim_clip_rect = local_clip_rect.to_untyped();
+        pattern_rect = prim_rect;
         pattern_transform = ScaleOffset::identity();
     };
 
     write_prim_blocks_impl(
         builder,
-        prim_rect,
-        prim_clip_rect,
+        // Fold the clip rect into the bounds: a single coverage rect.
+        prim_rect.intersection_unchecked(&prim_clip_rect),
+        pattern_rect,
         pattern.base_color,
         pattern.texture_input.task_id(),
         &[],
@@ -2052,8 +2066,12 @@ pub fn write_device_prim_blocks(
 ) -> GpuBufferAddress {
     write_prim_blocks_impl(
         builder,
+        // Fold the clip rect into the bounds: a single coverage rect.
+        prim_rect.to_untyped().intersection_unchecked(&clip_rect.to_untyped()),
+        // These device-space rects are already pixel-aligned (or sampled via
+        // segment uv rects with MAP_TO_SEGMENT), so the pattern rect matches the
+        // (unclipped) bounds.
         prim_rect.to_untyped(),
-        clip_rect.to_untyped(),
         pattern_base_color,
         pattern_texture_input,
         segments,
@@ -2072,8 +2090,11 @@ pub fn write_layout_prim_blocks(
 ) -> GpuBufferAddress {
     write_prim_blocks_impl(
         builder,
+        // Fold the clip rect into the bounds: a single coverage rect.
+        prim_rect.to_untyped().intersection_unchecked(&clip_rect.to_untyped()),
+        // Layout-space prims are not rounded, so the pattern rect matches the
+        // (unclipped) bounds.
         prim_rect.to_untyped(),
-        clip_rect.to_untyped(),
         pattern_base_color,
         pattern_texture_input,
         segments,
@@ -2083,8 +2104,10 @@ pub fn write_layout_prim_blocks(
 
 fn write_prim_blocks_impl(
     builder: &mut GpuBufferBuilderF,
+    // The (clipped) coverage rect: the caller has already folded the clip rect
+    // into this.
     prim_rect: LayoutOrDeviceRect,
-    clip_rect: LayoutOrDeviceRect,
+    pattern_rect: LayoutOrDeviceRect,
     pattern_base_color: ColorF,
     pattern_texture_input: RenderTaskId,
     segments: &[QuadSegment],
@@ -2094,7 +2117,7 @@ fn write_prim_blocks_impl(
 
     writer.push(&QuadPrimitive {
         bounds: prim_rect,
-        clip: clip_rect,
+        pattern_rect,
         input_task: pattern_texture_input,
         pattern_scale_offset,
         color: pattern_base_color.premultiplied(),
