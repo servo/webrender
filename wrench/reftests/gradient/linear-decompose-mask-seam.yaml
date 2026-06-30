@@ -1,0 +1,44 @@
+# Bug 2050216: a semi-transparent multi-stop vertical gradient under a
+# mask-forcing clip used to decompose into per-segment quads whose surface
+# rects were snapped incorrectly, causing overlap with adjacent segments at
+# fractional device boundaries.
+#
+# Two distinct nested rounded clips are used so the gradient prim needs a mask
+# and takes the tiled/indirect quad strategy (the round_out path) rather than
+# the single-rounded-clip nine-patch fast path, which does not overlap. The stop
+# offsets (36/50/60/65/75% over 311px) land on fractional device rows, which is
+# required to trigger the round_out() overlap.
+#
+# The reference draws the identical gradient with `repeat: true`, which is never
+# eligible for the fast-path decomposition and so is always seam-free; the
+# gradient spans exactly [0,1] over its bounds, so repeat is visually identical
+# to clamp here. The two match only when the clamp gradient also avoids the
+# buggy decomposition.
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 600, 360]
+      color: white
+    - type: clip
+      id: 2
+      complex:
+        - rect: [20, 20, 552, 311]
+          radius: 12
+    - type: clip
+      id: 3
+      complex:
+        - rect: [22, 22, 548, 307]
+          radius: 12
+    - type: gradient
+      bounds: 20 20 552 311
+      start: 276 0
+      end: 276 311
+      stops: [0.0, [0, 0, 0, 0],
+              0.36, [0, 0, 0, 0.06],
+              0.5, [0, 0, 0, 0.15],
+              0.6, [0, 0, 0, 0.3],
+              0.65, [0, 0, 0, 0.4],
+              0.75, [0, 0, 0, 0.62],
+              1.0, [0, 0, 0, 0.9]]
+      clip-chain: [2, 3]
