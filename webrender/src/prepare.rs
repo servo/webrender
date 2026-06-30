@@ -11,7 +11,7 @@ use api::ClipMode;
 use crate::border_image::prepare_border_image_nine_patch;
 use crate::pattern::cutout::Cutout;
 use crate::render_task_graph::RenderTaskId;
-use crate::util::clamp_to_scale_factor;
+use crate::util::{ScaleOffset, clamp_to_scale_factor};
 use crate::util::MaxRect;
 use crate::box_shadow::{BoxShadowCacheKey, BLUR_SAMPLE_SCALE};
 use crate::pattern::box_shadow::BoxShadowPatternData;
@@ -1427,16 +1427,18 @@ fn prepare_prim_for_render(
             );
 
             if let Some(raster_config) = &pic.raster_config {
-                // Pictures that are rasterized in a different spatial node than
-                // they are composited in need a dedicated compositing transform
-                // on the quad path; they are handled in a followup patch.
                 let is_same_coord_system = {
                     let surface = &frame_state.surfaces[raster_config.surface_index.0];
                     surface.surface_spatial_node_index == surface.raster_spatial_node_index
                 };
 
+                // Masked pictures in a different coordinate space additionally
+                // need the masked compositing path to account for the coordinate
+                // system, which is not handled on the quad path yet.
+                let supported = is_same_coord_system || !prim_info.clip_chain.needs_mask;
+
                 let mut opacity = 1.0;
-                let use_quads = if is_same_coord_system && matches!(pic.context_3d, Picture3DContext::Out) {
+                let use_quads = if supported && matches!(pic.context_3d, Picture3DContext::Out) {
                     match raster_config.composite_mode {
                         PictureCompositeMode::Filter(Filter::Blur { .. })
                         | PictureCompositeMode::SVGFEGraph(..) => true,
@@ -1460,6 +1462,7 @@ fn prepare_prim_for_render(
 
                         let surface = &frame_state.surfaces[raster_config.surface_index.0];
                         let pic_local_rect = raster_config.composite_mode.get_rect(surface, None);
+                        let surface_spatial_node_index = surface.surface_spatial_node_index;
 
                         let pattern = ImagePattern {
                             src_task_id: pic_task_id,
@@ -1469,16 +1472,51 @@ fn prepare_prim_for_render(
                             color: ColorF::new(1.0, 1.0, 1.0, opacity),
                         };
 
+                        let mut local_transform;
+                        let (local_clip_rect, transform) = if is_same_coord_system {
+                            (prim_info.clip_chain.local_clip_rect, quad_transform)
+                        } else {
+                            let map_local_to_raster = SpaceMapper::new_with_target(
+                                pic_context.raster_spatial_node_index,
+                                surface_spatial_node_index,
+                                LayoutRect::max_rect(),
+                                frame_context.spatial_tree,
+                            );
+
+                            let raster_rect = map_local_to_raster.map(&pic_local_rect).unwrap();
+
+                            // TODO(nical): This matches what the brush code does in batch.rs but
+                            // it does not make sense to me.
+                            let sx = raster_rect.width() / pic_local_rect.width();
+                            let sy = raster_rect.height() / pic_local_rect.height();
+                            let tx = raster_rect.min.x - sx * pic_local_rect.min.x;
+                            let ty = raster_rect.min.y - sy * pic_local_rect.min.y;
+                            let local_to_raster_so = ScaleOffset::new(sx, sy, tx, ty);
+
+                            let local_clip_rect = prim_info.clip_chain.local_clip_rect;
+                            let raster_clip_rect = map_local_to_raster.map(&local_clip_rect).unwrap();
+                            let adjusted_clip_rect = local_to_raster_so.unmap_rect(&raster_clip_rect);
+
+                            local_transform = QuadTransformState::from_scale_offset(
+                                local_to_raster_so,
+                                prim_spatial_node_index,
+                                pic_context.raster_spatial_node_index,
+                                quad_transform.device_pixel_scale(),
+                            );
+
+                            (adjusted_clip_rect, &mut local_transform)
+                        };
+
                         quad::prepare_quad(
                             &pattern,
                             &pic_local_rect,
-                            &prim_info.clip_chain.local_clip_rect,
+                            &local_clip_rect,
                             EdgeMask::empty(),
                             EdgeMask::all(),
                             prim_instance_index,
                             &None,
                             &prim_info.clip_chain,
-                            quad_transform,
+                            transform,
                             frame_context,
                             pic_context,
                             targets,
