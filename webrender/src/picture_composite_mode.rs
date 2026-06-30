@@ -805,35 +805,8 @@ fn request_render_task(
 
     let task_id = match snapshot {
         Some(info) => {
-            // `info.area` is the snapshot's (un-snapped) reference area, but the
-            // image primitive this adjustment is later applied to has already
-            // been snapped to the device pixel grid. Snap the reference to that
-            // same grid first, so the adjustment maps snapped-reference ->
-            // rasterized-area; otherwise it re-applies the (already-performed)
-            // snap delta to the snapped prim, pushing the 1:1 snapshot paint off
-            // the texture grid and blurring it. The surface's `clipped_local ->
-            // clipped_notsnapped` rects give the local->device mapping.
-            let cl = surface_rects.clipped_local;
-            let cd = surface_rects.clipped_notsnapped;
-            let reference = if cl.width() > 0.0 && cl.height() > 0.0 {
-                let sx = cd.width() / cl.width();
-                let sy = cd.height() / cl.height();
-                let ox = cd.min.x - cl.min.x * sx;
-                let oy = cd.min.y - cl.min.y * sy;
-                let snap = |x: f32, y: f32| {
-                    let dx = (x * sx + ox).round();
-                    let dy = (y * sy + oy).round();
-                    LayoutPoint::new((dx - ox) / sx, (dy - oy) / sy)
-                };
-                LayoutRect::new(
-                    snap(info.area.min.x, info.area.min.y),
-                    snap(info.area.max.x, info.area.max.y),
-                )
-            } else {
-                info.area
-            };
             let adjustment = AdjustedImageSource::from_rects(
-                &reference,
+                &info.area,
                 &surface_rects.clipped_local.cast_unit()
             );
             let task_id = frame_state.resource_cache.render_as_image(

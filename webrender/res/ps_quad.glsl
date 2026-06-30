@@ -98,10 +98,8 @@ struct PrimitiveInfo {
 };
 
 struct QuadPrimitive {
-    // The (clipped) coverage rect.
     RectWithEndpoint bounds;
-    // The rect that situates the source pattern.
-    RectWithEndpoint pattern_rect;
+    RectWithEndpoint clip;
     RectWithEndpoint uv_rect;
     vec4 pattern_scale_offset;
     vec4 color;
@@ -124,7 +122,7 @@ QuadPrimitive fetch_primitive(int index) {
     vec4 texels[5] = fetch_from_gpu_buffer_5f(index);
 
     prim.bounds = RectWithEndpoint(texels[0].xy, texels[0].zw);
-    prim.pattern_rect = RectWithEndpoint(texels[1].xy, texels[1].zw);
+    prim.clip = RectWithEndpoint(texels[1].xy, texels[1].zw);
     prim.uv_rect = RectWithEndpoint(texels[2].xy, texels[2].zw);
     prim.pattern_scale_offset = texels[3];
     prim.color = texels[4];
@@ -263,11 +261,9 @@ PrimitiveInfo quad_primive_info(void) {
     //  - Expanded for AA edges where appropriate
     RectWithEndpoint local_coverage_rect = seg.rect;
 
-    // Clamp the (possibly per-segment) coverage rect to the primitive bounds.
-    // Note: if we ensure on the CPU side that segments are contained in the
-    // prim bounds we can get rif of this here.
-    local_coverage_rect.p0 = max(local_coverage_rect.p0, prim.bounds.p0);
-    local_coverage_rect.p1 = min(local_coverage_rect.p1, prim.bounds.p1);
+    // Apply local clip rect
+    local_coverage_rect.p0 = max(local_coverage_rect.p0, prim.clip.p0);
+    local_coverage_rect.p1 = min(local_coverage_rect.p1, prim.clip.p1);
     local_coverage_rect.p1 = max(local_coverage_rect.p0, local_coverage_rect.p1);
 
     float aa_left   = (qi.edge_flags & EDGE_AA_LEFT)   != 0 ? 1.0 : 0.0;
@@ -353,8 +349,8 @@ PrimitiveInfo quad_primive_info(void) {
 
     return PrimitiveInfo(
         scale_offset_map_point(pattern_tx, vi.local_pos),
-        scale_offset_map_rect(pattern_tx, prim.pattern_rect),
         scale_offset_map_rect(pattern_tx, prim.bounds),
+        scale_offset_map_rect(pattern_tx, prim.clip),
         seg,
         qi.edge_flags,
         qi.quad_flags,

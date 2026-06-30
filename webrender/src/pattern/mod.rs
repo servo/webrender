@@ -9,7 +9,6 @@ pub mod image;
 pub mod cutout;
 pub mod yuv;
 pub mod backdrop;
-pub mod filter;
 
 use api::units::*;
 use api::ColorF;
@@ -48,12 +47,10 @@ pub enum PatternKind {
     YuvTextureRect = 11,
     // Samples a captured backdrop texture using a (bilerp) 4-corner uv quad.
     Backdrop = 12,
-    // Applies a filter to a sampled source texture; see ps_quad_blend.glsl.
-    Blend = 13,
     // When adding patterns, don't forget to update the NUM_PATTERNS constant.
 }
 
-pub const NUM_PATTERNS: u32 = 14;
+pub const NUM_PATTERNS: u32 = 13;
 
 impl PatternKind {
     pub fn from_u32(val: u32) -> Self {
