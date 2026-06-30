@@ -640,11 +640,8 @@ impl GpuBufferDataI for QuadHeader {
 
 /// Matches QuadPrimitive in ps_quad.glsl
 pub struct QuadPrimitive {
-    /// The (clipped) coverage rect: the local rect intersected with the local
-    /// clip rect. There is no separate clip rect; it is folded in here.
     pub bounds: LayoutOrDeviceRect,
-    /// The rect that situates the source pattern.
-    pub pattern_rect: LayoutOrDeviceRect,
+    pub clip: LayoutOrDeviceRect,
     // TODO: This gets translated into a Rect just before upload.
     // It would be better to send the gpu buffer address to the shader.
     pub input_task: RenderTaskId,
@@ -657,7 +654,7 @@ impl GpuBufferDataF for QuadPrimitive {
     const NUM_BLOCKS: usize = 5;
     fn write(&self, writer: &mut GpuBufferWriterF) {
         writer.push_one(self.bounds);
-        writer.push_one(self.pattern_rect);
+        writer.push_one(self.clip);
         writer.push_render_task(self.input_task);
         writer.push_one(self.pattern_scale_offset);
         writer.push_one(self.color);
