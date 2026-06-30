@@ -77,6 +77,22 @@ impl QuadTransformState {
         }
     }
 
+    pub fn from_scale_offset(
+        local_to_raster: ScaleOffset,
+        prim_node: SpatialNodeIndex,
+        raster_node: SpatialNodeIndex,
+        scale: DevicePixelScale,
+    ) -> QuadTransformState {
+        QuadTransformState {
+            map_prim_to_raster: CoordinateSpaceMapping::ScaleOffset(local_to_raster),
+            as_scale_offset: Some(local_to_raster.then_scale(scale.0)),
+            is_2d_axis_aligned: true,
+            prim_spatial_node: prim_node,
+            raster_spatial_node: raster_node,
+            device_pixel_scale: scale,
+        }
+    }
+
     pub fn set(
         &mut self,
         src_node: SpatialNodeIndex,
