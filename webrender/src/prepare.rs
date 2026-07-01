@@ -27,6 +27,7 @@ use crate::command_buffer::{CommandBufferIndex, PrimitiveCommand};
 use crate::border;
 use crate::clip::{ClipStore, ClipNodeRange};
 use crate::pattern::image::ImagePattern;
+use crate::pattern::filter::BlendFilterPattern;
 use crate::pattern::yuv::YuvPattern;
 use crate::pattern::backdrop::BackdropPattern;
 use crate::picture::calculate_screen_uv;
@@ -212,6 +213,30 @@ fn yuv_planes_sampler_kind(
     }
     ImageBufferKind::Texture2D
 }
+
+/// Maps a filter to the (filter_mode, parameter) pair consumed by the
+/// blend shader.
+fn blend_filter_param(filter: &Filter, extra_gpu_data: &[GpuBufferAddress]) -> Option<(i32, i32)> {
+    let param = match filter {
+        Filter::Contrast(amount)
+        | Filter::Grayscale(amount)
+        | Filter::Invert(amount)
+        | Filter::Saturate(amount)
+        | Filter::Sepia(amount)
+        | Filter::Brightness(amount)
+        => (amount * 65536.0) as i32,
+        Filter::HueRotate(angle) => (0.01745329251 * angle * 65536.0) as i32,
+        Filter::ColorMatrix(..)
+        | Filter::Flood(..)
+        => extra_gpu_data[0].as_int(),
+        Filter::SrgbToLinear
+        | Filter::LinearToSrgb
+        => 0,
+        // Component transfer is handled separately.
+        _ => return None,
+    };
+    Some((filter.as_int(), param))
+ }
 
 fn prepare_prim_for_render(
     store: &mut PrimitiveStore,
@@ -1441,6 +1466,9 @@ fn prepare_prim_for_render(
                 };
 
                 let mut opacity = 1.0;
+                // Set for CSS/SVG filters that map to the ps_quad_blend shader:
+                // (filter_mode, amount-or-gpu-address).
+                let mut filter = None;
                 let use_quads = if all_masks_in_source && matches!(pic.context_3d, Picture3DContext::Out) {
                     match raster_config.composite_mode {
                         PictureCompositeMode::Filter(Filter::Blur { .. })
@@ -1448,6 +1476,29 @@ fn prepare_prim_for_render(
                         | PictureCompositeMode::Blit(..) => true,
                         PictureCompositeMode::Filter(Filter::Opacity(_, amount)) => {
                             opacity = amount;
+                            true
+                        }
+                        PictureCompositeMode::Filter(ref f) => {
+                            let extra_gpu_data = scratch.frame
+                                .pictures[pic_scratch_handle]
+                                .extra_gpu_data
+                                .as_slice();
+                            filter = blend_filter_param(f, extra_gpu_data);
+                            filter.is_some()
+                        }
+                        PictureCompositeMode::ComponentTransferFilter(handle) => {
+                            let filter_data = &data_stores.filter_data[handle];
+                            let filter_mode: i32 = Filter::ComponentTransfer.as_int()
+                                | ((filter_data.data.r_func.to_int() << 28
+                                    | filter_data.data.g_func.to_int() << 24
+                                    | filter_data.data.b_func.to_int() << 20
+                                    | filter_data.data.a_func.to_int() << 16)
+                                    as i32);
+                            let addr = scratch.frame
+                                .pictures[pic_scratch_handle]
+                                .extra_gpu_data[0]
+                                .as_int();
+                            filter = Some((filter_mode, addr));
                             true
                         }
                         _ => false,
@@ -1468,12 +1519,27 @@ fn prepare_prim_for_render(
                         let pic_local_rect = raster_config.composite_mode.get_rect(surface, None);
                         let surface_spatial_node_index = surface.surface_spatial_node_index;
 
-                        let pattern = ImagePattern {
-                            src_task_id: pic_task_id,
-                            src_is_opaque: false,
-                            premultiplied: true,
-                            sampler_kind: ImageBufferKind::Texture2D,
-                            color: ColorF::new(1.0, 1.0, 1.0, opacity),
+                        let image_pattern;
+                        let filter_pattern;
+                        let pattern: &dyn PatternBuilder = match filter {
+                            Some((filter_mode, param)) => {
+                                filter_pattern = BlendFilterPattern {
+                                    src_task_id: pic_task_id,
+                                    filter_mode,
+                                    param,
+                                };
+                                &filter_pattern
+                            }
+                            None => {
+                                image_pattern = ImagePattern {
+                                    src_task_id: pic_task_id,
+                                    src_is_opaque: false,
+                                    premultiplied: true,
+                                    sampler_kind: ImageBufferKind::Texture2D,
+                                    color: ColorF::new(1.0, 1.0, 1.0, opacity),
+                                };
+                                &image_pattern
+                            }
                         };
 
                         let mut local_transform;
@@ -1518,7 +1584,7 @@ fn prepare_prim_for_render(
                         composite_clip_chain.needs_mask = false;
 
                         quad::prepare_quad(
-                            &pattern,
+                            pattern,
                             &pic_local_rect,
                             &local_clip_rect,
                             EdgeMask::empty(),
