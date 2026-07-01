@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, FontInstanceFlags, GlyphInstance, RasterSpace, Shadow};
+use api::{ColorF, FontInstanceFlags, GlyphInstance, RasterSpace, ReferenceFrameKind, Shadow};
 use api::units::{LayoutToWorldTransform, DevicePixelScale};
 use api::units::*;
 use crate::scene_building::{CreateShadow, IsVisible};
@@ -17,6 +17,7 @@ use crate::resource_cache::ResourceCache;
 use crate::util::MatrixHelpers;
 use crate::prim_store::{InternablePrimitive, PrimitiveKind};
 use crate::spatial_tree::{SpatialTree, SpatialNodeIndex};
+use crate::spatial_node::SpatialNodeType;
 use std::ops;
 
 use super::storage;
@@ -509,36 +510,43 @@ impl TextRunTemplate {
             // Device mode.
             let anchor_device = anchor_world * dps;
 
-            // Snap the *reference frame* origin (the prim spatial node's local
-            // origin) to the device grid against the ROOT, and shift all glyphs
-            // by that delta. We snap the frame origin rather than the prim rect
-            // origin so the prim's own sub-pixel layout offset stays as content
-            // within the frame, while a fractional transform on the frame — a
-            // fractionally placed offscreen surface, or fractional scrolling —
-            // snaps away consistently (e.g. translate(7.49) and translate(7.0)
-            // produce the same aligned frame).
-            //
-            // We snap against root rather than the surface's own raster space.
-            // Device-mode text always sits in a root-coordinate-system surface
-            // (rotated / scaled raster roots make their text local-raster,
-            // handled above), so root is the correct device grid: this aligns
-            // glyphs even when the surface is a non-root tile cache (sticky /
-            // scrolled / fixed) that composites at a fractional device offset,
-            // where snapping against the cache's own node would be a no-op. The
-            // full relative transform handles a rotation between the prim's node
-            // and root (e.g. doubly-rotated upright text).
-            let root_index = spatial_tree.root_reference_frame_index();
-            let snap_shift = match spatial_tree
-                .get_relative_transform(spatial_node_index, root_index)
-                .into_transform()
-                .transform_point2d(LayoutPoint::zero())
-            {
-                Some(p) => {
-                    let reference_device = DevicePoint::new(p.x * dps.0, p.y * dps.0);
-                    reference_device.round() - reference_device
+            // Snap the run's reference point to the device grid and shift all
+            // glyphs by that delta. Baseline snaps the full reference-frame origin
+            // (origin-to-root), which aligns scaled/transformed content and keeps a
+            // fractional transform consistent (e.g. translate(7.49) and
+            // translate(7.0) produce the same aligned frame). But an offset-only
+            // reference frame merely positions content (an nsIFrame layout offset or
+            // an identity transform such as translateZ(0)); it moves no content, so
+            // the full-origin snap would fold in the frame's static layout position
+            // and shift the text ~1px off where the same content renders unframed
+            // (bug 2050692: clipped Slack channel names). For such a frame the static
+            // origin must stay sub-pixel, matching unframed text - so the reference is
+            // zero and only the per-glyph device snap applies. The offset-only flag is
+            // set by the embedder (Gecko / wrench synthesize these frames explicitly),
+            // stating that intent directly instead of inferring it from the matrix
+            // shape. Frames that genuinely scale or rotate content have no unframed
+            // equivalent and keep the full-origin snap (e.g.
+            // layout/reftests/bugs/637852-1).
+            let reference = match &spatial_tree.get_spatial_node(spatial_node_index).node_type {
+                SpatialNodeType::ReferenceFrame(info)
+                    if matches!(
+                        info.kind,
+                        ReferenceFrameKind::Transform { is_offset_only: true, .. }
+                    ) =>
+                {
+                    LayoutPoint::zero()
                 }
-                None => DeviceVector2D::zero(),
+                _ => {
+                    let root = spatial_tree.root_reference_frame_index();
+                    spatial_tree
+                        .get_relative_transform(spatial_node_index, root)
+                        .into_transform()
+                        .transform_point2d(LayoutPoint::zero())
+                        .unwrap_or(LayoutPoint::zero())
+                }
             };
+            let reference_device = DevicePoint::new(reference.x * dps.0, reference.y * dps.0);
+            let snap_shift = reference_device.round() - reference_device;
             glyph_offsets.reserve(self.glyphs.len());
 
             scratch.frame.glyph_keys.extend(self.glyphs.iter().map(|src| {

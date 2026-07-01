@@ -765,6 +765,13 @@ pub enum ReferenceFrameKind {
         /// a perspective. In this case, backface visibility takes this perspective into
         /// account.
         paired_with_perspective: bool,
+        /// Marks a reference frame that carries only a layout offset (its `origin`) with
+        /// no real transform - i.e. a positioning frame synthesized for an nsIFrame
+        /// offset or an identity transform such as `translateZ(0)`. Such a frame moves
+        /// no content, so its content must be snapped like unframed content (its static
+        /// origin stays sub-pixel) rather than having the origin snapped to the device
+        /// grid the way a genuine transform or zoom is. See bug 2050692.
+        is_offset_only: bool,
     },
     /// A perspective transform, that optionally scrolls relative to a specific scroll node
     Perspective {
@@ -2394,6 +2401,7 @@ impl_default_for_enums! {
         is_2d_scale_translation: false,
         should_snap: false,
         paired_with_perspective: false,
+        is_offset_only: false,
     },
     Rotation => Degree0,
     TransformStyle => Flat,

@@ -1,0 +1,12 @@
+# Reference for bug 2050692: the same glyphs at the same absolute position
+# (100.5, 110), drawn directly in the root with no reference frame, so they snap
+# straight against root. A correct build renders the test (identity reference
+# frame at fractional origin) identically to this.
+root:
+  items:
+    - type: text
+      text: "XXXXXXXX"
+      origin: [100.5, 110]
+      size: 32
+      color: [0, 0, 0, 1]
+      font: "Ahem.ttf"

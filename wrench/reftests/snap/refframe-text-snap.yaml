@@ -1,0 +1,23 @@
+# Regression test for bug 2050692 (regressed by bug 2004666 patch 1).
+#
+# A text run inside an *offset-only* reference frame whose origin is at a
+# fractional position. A stacking context with an offset but no transform
+# synthesizes such a frame (the same path Gecko uses for an nsIFrame offset /
+# translateZ(0)). After bug 2004666, device-mode text runs snapped their
+# reference-frame origin against ROOT, so glyphs inside a fractional-origin frame
+# picked up that fraction and landed ~1px off (the Slack channel-name clipping /
+# sidebar text shift). An offset-only frame moves no content, so the only
+# difference vs the reference is the presence of the fractional-origin reference
+# frame; the reference draws the same glyphs at the same absolute position with no
+# frame. A correct build renders them identically.
+root:
+  items:
+    - type: stacking-context
+      bounds: [100.5, 80, 300, 100]
+      items:
+        - type: text
+          text: "XXXXXXXX"
+          origin: [0, 30]
+          size: 32
+          color: [0, 0, 0, 1]
+          font: "Ahem.ttf"

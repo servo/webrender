@@ -1561,6 +1561,7 @@ impl DisplayListBuilder {
                     is_2d_scale_translation: false,
                     should_snap: false,
                     paired_with_perspective: false,
+                    is_offset_only: false,
                 },
                 id,
             },

@@ -1953,6 +1953,7 @@ impl YamlFrameReader {
                 is_2d_scale_translation: is_2d,
                 should_snap,
                 paired_with_perspective: yaml["paired-with-perspective"].as_bool().unwrap_or(false),
+                is_offset_only: false,
             }
         };
 
@@ -2077,6 +2078,7 @@ impl YamlFrameReader {
                         is_2d_scale_translation: true,
                         should_snap: false,
                         paired_with_perspective: false,
+                        is_offset_only: true,
                     },
                 )
             };

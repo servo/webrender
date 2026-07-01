@@ -8,3 +8,5 @@ max_surface_size(256) == 1761299.yaml 1761299.yaml
 == fractional-root-frame.yaml fractional-root-frame-ref.yaml
 
 == refframe-origin-quantize.yaml refframe-origin-quantize-ref.yaml
+
+== refframe-text-snap.yaml refframe-text-snap-ref.yaml
