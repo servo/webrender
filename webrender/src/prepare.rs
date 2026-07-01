@@ -26,7 +26,7 @@ use crate::composite::CompositorSurfaceKind;
 use crate::command_buffer::{CommandBufferIndex, PrimitiveCommand};
 use crate::border;
 use crate::clip::{ClipStore, ClipNodeRange};
-use crate::pattern::image::ImagePattern;
+use crate::pattern::image::{ImagePattern, ShadowPattern};
 use crate::pattern::filter::BlendFilterPattern;
 use crate::pattern::yuv::YuvPattern;
 use crate::pattern::backdrop::BackdropPattern;
@@ -1472,6 +1472,7 @@ fn prepare_prim_for_render(
                 let use_quads = if all_masks_in_source && matches!(pic.context_3d, Picture3DContext::Out) {
                     match raster_config.composite_mode {
                         PictureCompositeMode::Filter(Filter::Blur { .. })
+                        | PictureCompositeMode::Filter(Filter::DropShadows(..))
                         | PictureCompositeMode::SVGFEGraph(..)
                         | PictureCompositeMode::Blit(..) => true,
                         PictureCompositeMode::Filter(Filter::Opacity(_, amount)) => {
@@ -1519,29 +1520,10 @@ fn prepare_prim_for_render(
                         let pic_local_rect = raster_config.composite_mode.get_rect(surface, None);
                         let surface_spatial_node_index = surface.surface_spatial_node_index;
 
-                        let image_pattern;
-                        let filter_pattern;
-                        let pattern: &dyn PatternBuilder = match filter {
-                            Some((filter_mode, param)) => {
-                                filter_pattern = BlendFilterPattern {
-                                    src_task_id: pic_task_id,
-                                    filter_mode,
-                                    param,
-                                };
-                                &filter_pattern
-                            }
-                            None => {
-                                image_pattern = ImagePattern {
-                                    src_task_id: pic_task_id,
-                                    src_is_opaque: false,
-                                    premultiplied: true,
-                                    sampler_kind: ImageBufferKind::Texture2D,
-                                    color: ColorF::new(1.0, 1.0, 1.0, opacity),
-                                };
-                                &image_pattern
-                            }
-                        };
-
+                        // For a raster root, the baked raster transform must not
+                        // be applied again at composite time, so use a dedicated
+                        // local-to-raster scale-offset transform (and the clip
+                        // rect it implies) rather than the cluster's transform.
                         let mut local_transform;
                         let (local_clip_rect, transform) = if is_same_coord_system {
                             (prim_info.clip_chain.local_clip_rect, quad_transform)
@@ -1583,23 +1565,106 @@ fn prepare_prim_for_render(
                         let mut composite_clip_chain = prim_info.clip_chain;
                         composite_clip_chain.needs_mask = false;
 
-                        quad::prepare_quad(
-                            pattern,
-                            &pic_local_rect,
-                            &local_clip_rect,
-                            EdgeMask::empty(),
-                            EdgeMask::all(),
-                            prim_instance_index,
-                            &None,
-                            &composite_clip_chain,
-                            transform,
-                            frame_context,
-                            pic_context,
-                            targets,
-                            &data_stores.clip,
-                            frame_state,
-                            scratch,
-                        );
+                        if let PictureCompositeMode::Filter(Filter::DropShadows(ref shadows)) =
+                            raster_config.composite_mode
+                        {
+                            // Draw each shadow (the blurred source tinted by the
+                            // shadow color, sampled through its alpha) and then
+                            // the unblurred content on top.
+                            for shadow in shadows {
+                                let shadow_rect = pic_local_rect.translate(shadow.offset);
+                                let shadow_pattern = ShadowPattern {
+                                    src_task_id: pic_task_id,
+                                    color: shadow.color,
+                                };
+                                quad::prepare_quad(
+                                    &shadow_pattern,
+                                    &shadow_rect,
+                                    &local_clip_rect,
+                                    EdgeMask::empty(),
+                                    EdgeMask::all(),
+                                    prim_instance_index,
+                                    &None,
+                                    &composite_clip_chain,
+                                    transform,
+                                    frame_context,
+                                    pic_context,
+                                    targets,
+                                    &data_stores.clip,
+                                    frame_state,
+                                    scratch,
+                                );
+                            }
+
+                            let content_task_id = scratch.frame.pictures[pic_scratch_handle]
+                                .secondary_render_task_id
+                                .expect("bug: no content task for drop shadow");
+                            let content_pattern = ImagePattern {
+                                src_task_id: content_task_id,
+                                src_is_opaque: false,
+                                premultiplied: true,
+                                sampler_kind: ImageBufferKind::Texture2D,
+                                color: ColorF::WHITE,
+                            };
+                            quad::prepare_quad(
+                                &content_pattern,
+                                &pic_local_rect,
+                                &local_clip_rect,
+                                EdgeMask::empty(),
+                                EdgeMask::all(),
+                                prim_instance_index,
+                                &None,
+                                &composite_clip_chain,
+                                transform,
+                                frame_context,
+                                pic_context,
+                                targets,
+                                &data_stores.clip,
+                                frame_state,
+                                scratch,
+                            );
+                        } else {
+                            let image_pattern;
+                            let filter_pattern;
+                            let pattern: &dyn PatternBuilder = match filter {
+                                Some((filter_mode, param)) => {
+                                    filter_pattern = BlendFilterPattern {
+                                        src_task_id: pic_task_id,
+                                        filter_mode,
+                                        param,
+                                    };
+                                    &filter_pattern
+                                }
+                                None => {
+                                    image_pattern = ImagePattern {
+                                        src_task_id: pic_task_id,
+                                        src_is_opaque: false,
+                                        premultiplied: true,
+                                        sampler_kind: ImageBufferKind::Texture2D,
+                                        color: ColorF::new(1.0, 1.0, 1.0, opacity),
+                                    };
+                                    &image_pattern
+                                }
+                            };
+
+                            quad::prepare_quad(
+                                pattern,
+                                &pic_local_rect,
+                                &local_clip_rect,
+                                EdgeMask::empty(),
+                                EdgeMask::all(),
+                                prim_instance_index,
+                                &None,
+                                &composite_clip_chain,
+                                transform,
+                                frame_context,
+                                pic_context,
+                                targets,
+                                &data_stores.clip,
+                                frame_state,
+                                scratch,
+                            );
+                        }
                     }
 
                     return;

@@ -11,6 +11,8 @@
 // See constants in src/pattern/mod.rs.
 #define SHADER_MODE_COLOR 0
 #define SHADER_MODE_TEXTURE 1
+// Read only the input texture's alpha channel.
+#define SHADER_MODE_TEXTURE_ALPHA 2
 #define MAP_TO_PRIMITIVE 0
 #define MAP_TO_SEGMENT 1
 
@@ -19,8 +21,8 @@
 void pattern_vertex(PrimitiveInfo info) {
     // Note: Since the uv rect is passed via segments, This shader cannot sample from a
     // texture if no segments are provided
-    if (info.pattern_input.x == SHADER_MODE_TEXTURE) {
-        // Textured
+    if (info.pattern_input.x != SHADER_MODE_COLOR) {
+        // Textured (or alpha-only)
 
         RectWithEndpoint pattern_rect = info.local_prim_rect;
         if (info.pattern_input.y == MAP_TO_SEGMENT) {
@@ -39,8 +41,13 @@ void pattern_vertex(PrimitiveInfo info) {
 #ifdef WR_FRAGMENT_SHADER
 
 vec4 pattern_fragment(vec4 color) {
-    if (v_flags_mode == SHADER_MODE_TEXTURE) {
+    if (v_flags_mode != SHADER_MODE_COLOR) {
         vec4 texel = fs_sample_color0();
+
+        if (v_flags_mode == SHADER_MODE_TEXTURE_ALPHA) {
+            texel = vec4(texel.a);
+        }
+
         color *= texel;
     }
 
@@ -49,8 +56,12 @@ vec4 pattern_fragment(vec4 color) {
 
 #if defined(SWGL_DRAW_SPAN)
 void swgl_drawSpanRGBA8() {
-    if (v_flags_mode != SHADER_MODE_TEXTURE) {
+    if (v_flags_mode == SHADER_MODE_COLOR) {
         swgl_commitSolidRGBA8(v_color);
+        return;
+    }
+
+    if (v_flags_mode == SHADER_MODE_TEXTURE_ALPHA) {
         return;
     }
 
@@ -67,6 +78,7 @@ void swgl_drawSpanRGBA8() {
                 swgl_commitTextureLinearR8ToRGBA8(sColor0, v_uv0, v_uv0_sample_bounds);
             }
         }
+
         return;
     }
 
