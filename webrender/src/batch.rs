@@ -215,6 +215,14 @@ impl BatchTextures {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct InlineReadback {
+    pub src_task_id: RenderTaskId,
+    pub readback_task_id: RenderTaskId,
+}
+
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -222,6 +230,9 @@ pub struct BatchKey {
     pub kind: BatchKind,
     pub blend_mode: BlendMode,
     pub textures: BatchTextures,
+    // Prevent instances with different readback sources from going into the
+    // same batch. We could relax this if we ensure that they do not overlap.
+    pub readback: RenderTaskId,
 }
 
 impl BatchKey {
@@ -230,11 +241,15 @@ impl BatchKey {
             kind,
             blend_mode,
             textures,
+            readback: RenderTaskId::INVALID,
         }
     }
 
     pub fn is_compatible_with(&self, other: &BatchKey) -> bool {
-        self.kind == other.kind && self.blend_mode == other.blend_mode && self.textures.is_compatible_with(&other.textures)
+        self.kind == other.kind
+            && self.blend_mode == other.blend_mode
+            && self.textures.is_compatible_with(&other.textures)
+            && self.readback == other.readback
     }
 }
 
@@ -334,7 +349,7 @@ impl AlphaBatchList {
         // multiple primitive segments coming with the same `z_id`.
         z_bounding_rect: &PictureRect,
         z_id: ZBufferId,
-    ) -> &mut FrameVec<PrimitiveInstanceData> {
+    ) -> &mut PrimitiveBatch {
         if z_id != self.current_z_id ||
            self.current_batch_index == usize::MAX ||
            !self.batches[self.current_batch_index].key.is_compatible_with(&key)
@@ -392,7 +407,7 @@ impl AlphaBatchList {
         batch.features |= features;
         batch.key.textures.merge(&key.textures);
 
-        &mut batch.instances
+        batch
     }
 }
 
@@ -429,7 +444,7 @@ impl OpaqueBatchList {
         // multiple primitive segments produced by a primitive, which we allow to check
         // `current_batch_index` instead of iterating the batches.
         z_bounding_rect: &PictureRect,
-    ) -> &mut FrameVec<PrimitiveInstanceData> {
+    ) -> &mut PrimitiveBatch {
         // If the area of this primitive is larger than the given threshold,
         // then it is large enough to warrant breaking a batch for. In this
         // case we just see if it can be added to the existing batch or
@@ -471,7 +486,7 @@ impl OpaqueBatchList {
         batch.features |= features;
         batch.key.textures.merge(&key.textures);
 
-        &mut batch.instances
+        batch
     }
 
     fn finalize(&mut self) {
@@ -492,6 +507,7 @@ impl OpaqueBatchList {
 pub struct PrimitiveBatch {
     pub key: BatchKey,
     pub instances: FrameVec<PrimitiveInstanceData>,
+    pub readback: Option<InlineReadback>,
     pub features: BatchFeatures,
 }
 
@@ -521,6 +537,7 @@ impl PrimitiveBatch {
         PrimitiveBatch {
             key,
             instances: FrameVec::new_in(allocator),
+            readback: None,
             features: BatchFeatures::empty(),
         }
     }
@@ -677,7 +694,7 @@ impl AlphaBatchBuilder {
         z_id: ZBufferId,
         instance: PrimitiveInstanceData,
     ) {
-        self.set_params_and_get_batch(key, features, bounding_rect, z_id)
+        self.set_params_and_get_batch(key, features, None, bounding_rect, z_id)
             .push(instance);
     }
 
@@ -685,27 +702,35 @@ impl AlphaBatchBuilder {
         &mut self,
         key: BatchKey,
         features: BatchFeatures,
+        readback: Option<&InlineReadback>,
         bounding_rect: &PictureRect,
         z_id: ZBufferId,
     ) -> &mut FrameVec<PrimitiveInstanceData> {
-        match key.blend_mode {
-            BlendMode::None => {
+        let batch = match key.blend_mode {
+            BlendMode::None if readback.is_none() => {
                 self.opaque_batch_list
                     .set_params_and_get_batch(key, features, bounding_rect)
             }
-            BlendMode::Alpha |
-            BlendMode::PremultipliedAlpha |
-            BlendMode::PremultipliedDestOut |
-            BlendMode::SubpixelDualSource |
-            BlendMode::Advanced(_) |
-            BlendMode::MultiplyDualSource |
-            BlendMode::Screen |
-            BlendMode::Exclusion |
-            BlendMode::PlusLighter => {
-                self.alpha_batch_list
-                    .set_params_and_get_batch(key, features, bounding_rect, z_id)
+            _ => {
+                let batch = self.alpha_batch_list
+                    .set_params_and_get_batch(key, features, bounding_rect, z_id);
+
+                if let Some(readback) = readback {
+                    // Sanity check. A batch can only have a one or no inline readback.
+                    debug_assert!(
+                        // Either it doesn't have one (a new batch)...
+                        (batch.readback.is_none() && batch.instances.is_empty())
+                        // ... or it has one and it is the same.
+                        || batch.readback == Some(*readback)
+                    );
+                    batch.readback = Some(*readback);
+                }
+
+                batch
             }
-        }
+        };
+
+        &mut batch.instances
     }
 }
 
@@ -833,6 +858,14 @@ impl BatchBuilder {
                 let bounding_rect = &prim_info.clip_chain.pic_coverage_rect;
                 let render_task_address = self.batcher.render_task_address;
 
+                let mut readback = None;
+                if pattern.requires_backdrop_readback() {
+                    readback = Some(InlineReadback {
+                        src_task_id: self.batcher.render_task_id,
+                        readback_task_id: src_color_task_ids[0],
+                    })
+                }
+
                 if segments.is_empty() {
                     let z_id = z_generator.next();
 
@@ -848,12 +881,14 @@ impl BatchBuilder {
                         *src_color_task_ids,
                         z_id,
                         *blend_mode,
+                        readback.map(|rb| rb.readback_task_id),
                         render_tasks,
                         gpu_buffer_builder,
                         |key, instance| {
                             let batch = self.batcher.set_params_and_get_batch(
                                 key,
                                 BatchFeatures::empty(),
+                                readback.as_ref(),
                                 bounding_rect,
                                 z_id,
                             );
@@ -879,12 +914,14 @@ impl BatchBuilder {
                             [*task_id, src_color_task_ids[1], src_color_task_ids[2]],
                             z_id,
                             *blend_mode,
+                            readback.map(|rb| rb.readback_task_id),
                             render_tasks,
                             gpu_buffer_builder,
                             |key, instance| {
                                 let batch = self.batcher.set_params_and_get_batch(
                                     key,
                                     BatchFeatures::empty(),
+                                    readback.as_ref(),
                                     bounding_rect,
                                     z_id,
                                 );
@@ -1830,12 +1867,12 @@ impl BatchBuilder {
 
                         let key = BatchKey::new(kind, blend_mode, textures);
 
-                        let batch = batcher.alpha_batch_list.set_params_and_get_batch(
+                        let batch = &mut batcher.alpha_batch_list.set_params_and_get_batch(
                             key,
                             batch_features,
                             &tight_bounding_rect,
                             z_id,
-                        );
+                        ).instances;
 
                         batch.reserve(glyphs.len());
                         for glyph in glyphs {
@@ -1955,6 +1992,7 @@ impl BatchBuilder {
                 blend_mode: if needs_blending { alpha_blend_mode } else { BlendMode::None },
                 kind: BatchKind::Brush(batch_kind),
                 textures,
+                readback: RenderTaskId::INVALID,
             };
 
             self.add_brush_instance_to_batches(
@@ -2041,6 +2079,7 @@ impl BatchBuilder {
                     blend_mode,
                     kind: BatchKind::Brush(params.batch_kind),
                     textures,
+                    readback: RenderTaskId::INVALID,
                 };
 
                 self.add_brush_instance_to_batches(

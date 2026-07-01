@@ -2158,6 +2158,7 @@ pub fn add_to_batch<F>(
     src_task_ids: [RenderTaskId; 3],
     z_id: ZBufferId,
     blend_mode: BlendMode,
+    readback: Option<RenderTaskId>,
     render_tasks: &RenderTaskGraph,
     gpu_buffer_builder: &mut GpuBufferBuilder,
     mut f: F,
@@ -2216,16 +2217,20 @@ pub fn add_to_batch<F>(
 
     let edge_flags_bits = edge_flags.bits();
 
+    let readback = readback.unwrap_or(RenderTaskId::INVALID);
+
     let prim_batch_key = BatchKey {
         blend_mode: prim_blend_mode,
         kind: BatchKind::Quad(kind),
         textures,
+        readback,
     };
 
     let aa_batch_key = BatchKey {
         blend_mode,
         kind: BatchKind::Quad(kind),
         textures,
+        readback,
     };
 
     let mut instance = QuadInstance {

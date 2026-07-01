@@ -285,6 +285,7 @@ impl BatchKind {
             BatchKind::Quad(PatternKind::YuvTextureRect) => GPU_TAG_BRUSH_YUV_IMAGE,
             BatchKind::Quad(PatternKind::Backdrop) => GPU_TAG_PRIMITIVE,
             BatchKind::Quad(PatternKind::Blend) => GPU_TAG_PRIMITIVE,
+            BatchKind::Quad(PatternKind::MixBlend) => GPU_TAG_PRIMITIVE,
             BatchKind::Quad(PatternKind::Mask) => GPU_TAG_INDIRECT_MASK,
         }
     }
@@ -3141,6 +3142,16 @@ impl Renderer {
                         uses_scissor,
                         &render_tasks[task_id],
                         &render_tasks[backdrop_id],
+                    );
+                }
+
+                if let Some(readback) = batch.readback {
+                    debug_assert_eq!(batch.instances.len(), 1);
+                    self.handle_readback_composite(
+                        draw_target,
+                        uses_scissor,
+                        &render_tasks[readback.src_task_id],
+                        &render_tasks[readback.readback_task_id],
                     );
                 }
 
