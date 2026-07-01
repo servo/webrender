@@ -245,8 +245,6 @@ pub fn get_shader_features(flags: ShaderFeatureFlags) -> ShaderFeatures {
 
     shaders.insert("ps_quad_blend", vec!["TEXTURE_2D".to_string()]);
 
-    shaders.insert("ps_quad_mix_blend", vec!["TEXTURE_2D".to_string()]);
-
     let mut maybe_dithering = FeatureList::new();
     if flags.contains(ShaderFeatureFlags::DITHERING) {
         maybe_dithering.add("DITHERING");

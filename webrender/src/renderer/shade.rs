@@ -592,7 +592,6 @@ pub struct Shaders {
     ps_quad_yuv_rect: Option<ShaderHandle>,
     ps_quad_backdrop: ShaderHandle,
     ps_quad_blend: ShaderHandle,
-    ps_quad_mix_blend: ShaderHandle,
     ps_mask: ShaderHandle,
     ps_mask_fast: ShaderHandle,
     ps_clear: ShaderHandle,
@@ -898,13 +897,6 @@ impl Shaders {
             &shader_list,
         )?;
 
-        let ps_quad_mix_blend = loader.create_shader(
-            ShaderKind::Primitive,
-            "ps_quad_mix_blend",
-            &["TEXTURE_2D"],
-            &shader_list,
-        )?;
-
         let ps_split_composite = loader.create_shader(
         ShaderKind::Primitive,
         "ps_split_composite",
@@ -1081,7 +1073,6 @@ impl Shaders {
             ps_quad_yuv_rect,
             ps_quad_backdrop,
             ps_quad_blend,
-            ps_quad_mix_blend,
             ps_mask,
             ps_mask_fast,
             ps_split_composite,
@@ -1164,7 +1155,6 @@ impl Shaders {
                 .expect("bug: ps_quad_yuv TEXTURE_RECT variant not loaded"),
             PatternKind::Backdrop => self.ps_quad_backdrop,
             PatternKind::Blend => self.ps_quad_blend,
-            PatternKind::MixBlend => self.ps_quad_mix_blend,
             PatternKind::Mask => unreachable!("clip mask pattern is not a quad shader"),
         };
         self.loader.get(shader_handle)
@@ -1233,9 +1223,6 @@ impl Shaders {
             }
             BatchKind::Quad(PatternKind::Blend) => {
                 self.ps_quad_blend
-            }
-            BatchKind::Quad(PatternKind::MixBlend) => {
-                self.ps_quad_mix_blend
             }
             BatchKind::Quad(PatternKind::Mask) => {
             unreachable!();

@@ -4,11 +4,7 @@
 
 use api::{ImageBufferKind, ColorF, units::*};
 
-use crate::pattern::{
-    Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState, PatternKind,
-    PatternShaderInput, PatternTextureInput, TEXTURED_SHADER_MODE_TEXTURE_ALPHA,
-    TEXTURED_SHADER_MAP_TO_PRIMITIVE,
-};
+use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuilderState, PatternKind};
 use crate::render_task_graph::RenderTaskId;
 use crate::renderer::BlendMode;
 
@@ -46,35 +42,5 @@ impl PatternBuilder for ImagePattern {
         };
 
         pattern
-    }
-}
-
-/// Samples the alpha of a source render task and tints it with a color. Used to
-/// composite drop shadows: the blurred coverage in the source's alpha channel is
-/// multiplied by the (premultiplied) shadow color.
-pub struct ShadowPattern {
-    pub src_task_id: RenderTaskId,
-    pub color: ColorF,
-}
-
-impl PatternBuilder for ShadowPattern {
-    fn build(
-        &self,
-        _sub_rect: Option<DeviceRect>,
-        _offset: LayoutVector2D,
-        _ctx: &PatternBuilderContext,
-        _state: &mut PatternBuilderState,
-    ) -> Pattern {
-        Pattern {
-            kind: PatternKind::ColorOrTexture,
-            shader_input: PatternShaderInput(
-                TEXTURED_SHADER_MODE_TEXTURE_ALPHA,
-                TEXTURED_SHADER_MAP_TO_PRIMITIVE,
-            ),
-            texture_input: PatternTextureInput::new(self.src_task_id),
-            base_color: self.color,
-            is_opaque: false,
-            blend_mode: BlendMode::PremultipliedAlpha,
-        }
     }
 }

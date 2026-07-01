@@ -365,7 +365,6 @@ impl RenderTarget {
                     info.texture_input,
                     ZBufferId(0),
                     BlendMode::None, // This parameter is ignored
-                    None,
                     render_tasks,
                     gpu_buffer_builder,
                     |key, instance| {
@@ -487,7 +486,6 @@ impl RenderTarget {
                     [RenderTaskId::INVALID; 3],
                     ZBufferId(0),
                     BlendMode::None, // This parameter is ignored.
-                    None,
                     render_tasks,
                     gpu_buffer_builder,
                     |_, prim| {
@@ -905,7 +903,6 @@ fn add_rect_clip_task_to_batch(
         [RenderTaskId::INVALID; 3],
         ZBufferId(0),
         BlendMode::None, // This parameter is ignored.
-        None,
         render_tasks,
         gpu_buffers,
         |_, prim| {
@@ -968,7 +965,6 @@ fn add_image_clip_task_to_batch(
         [task.src_task, RenderTaskId::INVALID, RenderTaskId::INVALID],
         ZBufferId(0),
         BlendMode::None, // This parameter is ignored.
-        None,
         render_tasks,
         gpu_buffers,
         |_, prim| {
