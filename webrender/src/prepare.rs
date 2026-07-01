@@ -11,7 +11,7 @@ use api::ClipMode;
 use crate::border_image::prepare_border_image_nine_patch;
 use crate::pattern::cutout::Cutout;
 use crate::render_task_graph::RenderTaskId;
-use crate::util::{ScaleOffset, clamp_to_scale_factor};
+use crate::util::clamp_to_scale_factor;
 use crate::util::MaxRect;
 use crate::box_shadow::{BoxShadowCacheKey, BLUR_SAMPLE_SCALE};
 use crate::pattern::box_shadow::BoxShadowPatternData;
@@ -27,7 +27,6 @@ use crate::command_buffer::{CommandBufferIndex, PrimitiveCommand};
 use crate::border;
 use crate::clip::{ClipStore, ClipNodeRange};
 use crate::pattern::image::ImagePattern;
-use crate::pattern::filter::BlendFilterPattern;
 use crate::pattern::yuv::YuvPattern;
 use crate::pattern::backdrop::BackdropPattern;
 use crate::picture::calculate_screen_uv;
@@ -213,30 +212,6 @@ fn yuv_planes_sampler_kind(
     }
     ImageBufferKind::Texture2D
 }
-
-/// Maps a filter to the (filter_mode, parameter) pair consumed by the
-/// blend shader.
-fn blend_filter_param(filter: &Filter, extra_gpu_data: &[GpuBufferAddress]) -> Option<(i32, i32)> {
-    let param = match filter {
-        Filter::Contrast(amount)
-        | Filter::Grayscale(amount)
-        | Filter::Invert(amount)
-        | Filter::Saturate(amount)
-        | Filter::Sepia(amount)
-        | Filter::Brightness(amount)
-        => (amount * 65536.0) as i32,
-        Filter::HueRotate(angle) => (0.01745329251 * angle * 65536.0) as i32,
-        Filter::ColorMatrix(..)
-        | Filter::Flood(..)
-        => extra_gpu_data[0].as_int(),
-        Filter::SrgbToLinear
-        | Filter::LinearToSrgb
-        => 0,
-        // Component transfer is handled separately.
-        _ => return None,
-    };
-    Some((filter.as_int(), param))
- }
 
 fn prepare_prim_for_render(
     store: &mut PrimitiveStore,
@@ -571,21 +546,46 @@ fn prepare_prim_for_render(
                 }
             );
 
+            // Compensate for the rounding `create_quad_primitive` applies to
+            // prim_rect when `aa_flags` is empty: the shader receives the
+            // rounded p0 as `local_prim_rect.p0` (after the round-trip through
+            // device space and back via `pattern_scale_offset`) and
+            // reconstructs absolute positions via `local_prim_rect.p0 +
+            // offset`. Computing offsets against the un-rounded p0 mismatches
+            // by up to half a device pixel and produces a one-pixel seam on
+            // trailing edges (bug 2035734). The round must be done in device
+            // space to match `create_quad_primitive` for non-identity
+            // transforms (e.g. Gecko at 125% display scaling).
+            let prim_min_rounded = match quad_transform.as_2d_scale_offset() {
+                Some(local_to_device) => {
+                    // Use Point2D::round (euclid's Round trait, defined as
+                    // (n+0.5).floor()) to match what create_quad_primitive
+                    // uses on the rendered quad bounds. f32::round here would
+                    // round half-away-from-zero and disagree at negative
+                    // half-integer device-x values, causing a 1-pixel shift
+                    // when the shader reconstructs dest_rect.min as
+                    // local_prim_rect.p0 + dest_rect_offset.
+                    let dev: DevicePoint = local_to_device.map_point(&prim_rect.min);
+                    local_to_device.unmap_point::<DevicePixel, LayoutPixel>(&dev.round())
+                }
+                None => prim_rect.min,
+            };
+
             // For outset, prim_rect == dest_rect so offset is zero.
             // For inset, prim_rect is the element rect; dest_rect (outer_shadow_rect)
             // may be offset and smaller, so we pass its size and offset separately.
             let dest_rect = outer_shadow_rect;
             let dest_rect_offset = LayoutVector2D::new(
-                dest_rect.min.x - prim_rect.min.x,
-                dest_rect.min.y - prim_rect.min.y,
+                dest_rect.min.x - prim_min_rounded.x,
+                dest_rect.min.y - prim_min_rounded.y,
             );
             let dest_rect_size = dest_rect.size();
 
             let mut element_radius = shadow_data.element_radius;
             border::ensure_no_corner_overlap(&mut element_radius, element_rect.size());
             let element_offset_rel_prim = LayoutVector2D::new(
-                element_rect.min.x - prim_rect.min.x,
-                element_rect.min.y - prim_rect.min.y,
+                element_rect.min.x - prim_min_rounded.x,
+                element_rect.min.y - prim_min_rounded.y,
             );
 
             let pattern = BoxShadowPatternData {
@@ -1268,12 +1268,6 @@ fn prepare_prim_for_render(
             let pic_scratch_handle = prim_info.kind_scratch.unwrap_picture();
             let pic = &mut store.pictures[pic_index.0];
 
-            // Whether the picture's clip mask (if any) is fully handled by
-            // drawing the clips onto the picture's source task below. When true,
-            // the compositing quad must not re-apply the clip. Target masks
-            // (applied when compositing) are not handled by the quad path yet.
-            let mut all_masks_in_source = true;
-
             if prim_info.clip_chain.needs_mask {
                 // TODO(gw): Much of the code in this branch could be moved in to a common
                 //           function as we move more primitives to the new clip-mask paths.
@@ -1311,8 +1305,6 @@ fn prepare_prim_for_render(
                         target_masks.push(i);
                     }
                 }
-
-                all_masks_in_source = target_masks.is_empty();
 
                 let pic_surface_index = pic.raster_config.as_ref().unwrap().surface_index;
                 let prim_local_rect: LayoutRect = frame_state
@@ -1460,45 +1452,21 @@ fn prepare_prim_for_render(
             );
 
             if let Some(raster_config) = &pic.raster_config {
+                // Pictures that are rasterized in a different spatial node than
+                // they are composited in need a dedicated compositing transform
+                // on the quad path; they are handled in a followup patch.
                 let is_same_coord_system = {
                     let surface = &frame_state.surfaces[raster_config.surface_index.0];
                     surface.surface_spatial_node_index == surface.raster_spatial_node_index
                 };
 
                 let mut opacity = 1.0;
-                // Set for CSS/SVG filters that map to the ps_quad_blend shader:
-                // (filter_mode, amount-or-gpu-address).
-                let mut filter = None;
-                let use_quads = if all_masks_in_source && matches!(pic.context_3d, Picture3DContext::Out) {
+                let use_quads = if is_same_coord_system && matches!(pic.context_3d, Picture3DContext::Out) {
                     match raster_config.composite_mode {
                         PictureCompositeMode::Filter(Filter::Blur { .. })
-                        | PictureCompositeMode::SVGFEGraph(..)
-                        | PictureCompositeMode::Blit(..) => true,
+                        | PictureCompositeMode::SVGFEGraph(..) => true,
                         PictureCompositeMode::Filter(Filter::Opacity(_, amount)) => {
                             opacity = amount;
-                            true
-                        }
-                        PictureCompositeMode::Filter(ref f) => {
-                            let extra_gpu_data = scratch.frame
-                                .pictures[pic_scratch_handle]
-                                .extra_gpu_data
-                                .as_slice();
-                            filter = blend_filter_param(f, extra_gpu_data);
-                            filter.is_some()
-                        }
-                        PictureCompositeMode::ComponentTransferFilter(handle) => {
-                            let filter_data = &data_stores.filter_data[handle];
-                            let filter_mode: i32 = Filter::ComponentTransfer.as_int()
-                                | ((filter_data.data.r_func.to_int() << 28
-                                    | filter_data.data.g_func.to_int() << 24
-                                    | filter_data.data.b_func.to_int() << 20
-                                    | filter_data.data.a_func.to_int() << 16)
-                                    as i32);
-                            let addr = scratch.frame
-                                .pictures[pic_scratch_handle]
-                                .extra_gpu_data[0]
-                                .as_int();
-                            filter = Some((filter_mode, addr));
                             true
                         }
                         _ => false,
@@ -1517,82 +1485,25 @@ fn prepare_prim_for_render(
 
                         let surface = &frame_state.surfaces[raster_config.surface_index.0];
                         let pic_local_rect = raster_config.composite_mode.get_rect(surface, None);
-                        let surface_spatial_node_index = surface.surface_spatial_node_index;
 
-                        let image_pattern;
-                        let filter_pattern;
-                        let pattern: &dyn PatternBuilder = match filter {
-                            Some((filter_mode, param)) => {
-                                filter_pattern = BlendFilterPattern {
-                                    src_task_id: pic_task_id,
-                                    filter_mode,
-                                    param,
-                                };
-                                &filter_pattern
-                            }
-                            None => {
-                                image_pattern = ImagePattern {
-                                    src_task_id: pic_task_id,
-                                    src_is_opaque: false,
-                                    premultiplied: true,
-                                    sampler_kind: ImageBufferKind::Texture2D,
-                                    color: ColorF::new(1.0, 1.0, 1.0, opacity),
-                                };
-                                &image_pattern
-                            }
+                        let pattern = ImagePattern {
+                            src_task_id: pic_task_id,
+                            src_is_opaque: false,
+                            premultiplied: true,
+                            sampler_kind: ImageBufferKind::Texture2D,
+                            color: ColorF::new(1.0, 1.0, 1.0, opacity),
                         };
-
-                        let mut local_transform;
-                        let (local_clip_rect, transform) = if is_same_coord_system {
-                            (prim_info.clip_chain.local_clip_rect, quad_transform)
-                        } else {
-                            let map_local_to_raster = SpaceMapper::new_with_target(
-                                pic_context.raster_spatial_node_index,
-                                surface_spatial_node_index,
-                                LayoutRect::max_rect(),
-                                frame_context.spatial_tree,
-                            );
-
-                            let raster_rect = map_local_to_raster.map(&pic_local_rect).unwrap();
-
-                            // TODO(nical): This matches what the brush code does in batch.rs but
-                            // it does not make sense to me.
-                            let sx = raster_rect.width() / pic_local_rect.width();
-                            let sy = raster_rect.height() / pic_local_rect.height();
-                            let tx = raster_rect.min.x - sx * pic_local_rect.min.x;
-                            let ty = raster_rect.min.y - sy * pic_local_rect.min.y;
-                            let local_to_raster_so = ScaleOffset::new(sx, sy, tx, ty);
-
-                            let local_clip_rect = prim_info.clip_chain.local_clip_rect;
-                            let raster_clip_rect = map_local_to_raster.map(&local_clip_rect).unwrap();
-                            let adjusted_clip_rect = local_to_raster_so.unmap_rect(&raster_clip_rect);
-
-                            local_transform = QuadTransformState::from_scale_offset(
-                                local_to_raster_so,
-                                prim_spatial_node_index,
-                                pic_context.raster_spatial_node_index,
-                                quad_transform.device_pixel_scale(),
-                            );
-
-                            (adjusted_clip_rect, &mut local_transform)
-                        };
-
-                        // The clip mask (if any) was drawn onto the picture's
-                        // source task above, so the compositing quad must not
-                        // re-apply it (which would mask twice).
-                        let mut composite_clip_chain = prim_info.clip_chain;
-                        composite_clip_chain.needs_mask = false;
 
                         quad::prepare_quad(
-                            pattern,
+                            &pattern,
                             &pic_local_rect,
-                            &local_clip_rect,
+                            &prim_info.clip_chain.local_clip_rect,
                             EdgeMask::empty(),
                             EdgeMask::all(),
                             prim_instance_index,
                             &None,
-                            &composite_clip_chain,
-                            transform,
+                            &prim_info.clip_chain,
+                            quad_transform,
                             frame_context,
                             pic_context,
                             targets,
