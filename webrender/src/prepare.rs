@@ -30,9 +30,10 @@ use crate::pattern::image::{ImagePattern, ShadowPattern};
 use crate::pattern::filter::BlendFilterPattern;
 use crate::pattern::yuv::YuvPattern;
 use crate::pattern::backdrop::BackdropPattern;
+use crate::pattern::mix_blend::MixBlendPattern;
 use crate::picture::calculate_screen_uv;
 use crate::space::SpaceMapper;
-use crate::renderer::{GpuBufferAddress, GpuBufferWriterF};
+use crate::renderer::{BlendMode, GpuBufferAddress, GpuBufferWriterF};
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::clip::{clamped_radius, ClipNodeFlags, ClipChainInstance, ClipItemKind};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
@@ -1469,12 +1470,28 @@ fn prepare_prim_for_render(
                 // Set for CSS/SVG filters that map to the ps_quad_blend shader:
                 // (filter_mode, amount-or-gpu-address).
                 let mut filter = None;
+                // Set for software mix-blend modes that map to the
+                // ps_quad_mix_blend shader (those that require a backdrop readback).
+                let mut mix_blend = None;
                 let use_quads = if all_masks_in_source && matches!(pic.context_3d, Picture3DContext::Out) {
                     match raster_config.composite_mode {
                         PictureCompositeMode::Filter(Filter::Blur { .. })
                         | PictureCompositeMode::Filter(Filter::DropShadows(..))
                         | PictureCompositeMode::SVGFEGraph(..)
                         | PictureCompositeMode::Blit(..) => true,
+                        // Mix-blend modes that can't be expressed with a GPU blend
+                        // equation use a software readback of the backdrop. The
+                        // hardware variants (from_mix_blend_mode = Some) stay on the
+                        // legacy path for now.
+                        PictureCompositeMode::MixBlend(mode) if BlendMode::from_mix_blend_mode(
+                            mode,
+                            frame_context.fb_config.gpu_supports_advanced_blend,
+                            frame_context.fb_config.advanced_blend_is_coherent,
+                            frame_context.fb_config.dual_source_blending_is_supported,
+                        ).is_none() => {
+                            mix_blend = Some(mode);
+                            true
+                        }
                         PictureCompositeMode::Filter(Filter::Opacity(_, amount)) => {
                             opacity = amount;
                             true
@@ -1565,7 +1582,37 @@ fn prepare_prim_for_render(
                         let mut composite_clip_chain = prim_info.clip_chain;
                         composite_clip_chain.needs_mask = false;
 
-                        if let PictureCompositeMode::Filter(Filter::DropShadows(ref shadows)) =
+                        if let Some(mode) = mix_blend {
+                            // The backdrop was captured into a readback task during
+                            // composite-mode setup; blend the picture (source) over it.
+                            let backdrop_task_id = scratch.frame.pictures[pic_scratch_handle]
+                                .secondary_render_task_id
+                                .expect("bug: no backdrop readback task for mix-blend");
+
+                            let mix_blend_pattern = MixBlendPattern {
+                                backdrop_task_id,
+                                src_task_id: pic_task_id,
+                                mode,
+                            };
+
+                            quad::prepare_quad(
+                                &mix_blend_pattern,
+                                &pic_local_rect,
+                                &local_clip_rect,
+                                EdgeMask::empty(),
+                                EdgeMask::all(),
+                                prim_instance_index,
+                                &None,
+                                &composite_clip_chain,
+                                transform,
+                                frame_context,
+                                pic_context,
+                                targets,
+                                &data_stores.clip,
+                                frame_state,
+                                scratch,
+                            );
+                        } else if let PictureCompositeMode::Filter(Filter::DropShadows(ref shadows)) =
                             raster_config.composite_mode
                         {
                             // Draw each shadow (the blurred source tinted by the
