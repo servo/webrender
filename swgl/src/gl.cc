@@ -904,11 +904,12 @@ static void prepare_texture(Texture& t, const IntRect* skip = nullptr);
 
 template <typename S>
 static inline void init_filter(S* s, Texture& t) {
-  // If the width is not at least 2 pixels, then we can't safely sample the end
-  // of the row with a linear filter. In that case, just punt to using nearest
-  // filtering instead.
-  s->filter = t.width >= 2 ? gl_filter_to_texture_filter(t.mag_filter)
-                           : TextureFilter::NEAREST;
+  // If the width is not at least 2 pixel blocks, then we can't safely sample
+  // the end of the row with a linear filter. In that case, just punt to using
+  // nearest filtering instead.
+  int filterWidth = t.internal_format == GL_RGB_RAW_422_APPLE ? 4 : 2;
+  s->filter = t.width >= filterWidth ? gl_filter_to_texture_filter(t.mag_filter)
+                                     : TextureFilter::NEAREST;
 }
 
 template <typename S>
