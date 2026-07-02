@@ -213,6 +213,8 @@ impl Pattern {
 
 pub const TEXTURED_SHADER_MODE_COLOR: i32 = 0;
 pub const TEXTURED_SHADER_MODE_TEXTURE: i32 = 1;
+// Only read the input texture's alpha.
+pub const TEXTURED_SHADER_MODE_TEXTURE_ALPHA: i32 = 2;
 
 // In the texture mode, whether to map the texture to the primitive's local rect
 // or segment rect.
