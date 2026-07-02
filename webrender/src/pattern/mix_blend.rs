@@ -50,3 +50,24 @@ impl PatternBuilder for MixBlendPattern {
         }
     }
 }
+
+/// A mix-blend-mode patterns that maps to a GPU blend state (potentially using
+/// an advanced blend equation).
+/// The source is drawn as a normal premultiplied image with ps_quad_textured
+/// and the blend mode is applied by the blend stage against the destination.
+pub struct FixedFunctionMixBlendPattern {
+    pub src_task_id: RenderTaskId,
+    pub blend_mode: BlendMode,
+}
+
+impl PatternBuilder for FixedFunctionMixBlendPattern {
+    fn build(
+        &self,
+        _sub_rect: Option<DeviceRect>,
+        _offset: LayoutVector2D,
+        _ctx: &PatternBuilderContext,
+        _state: &mut PatternBuilderState,
+    ) -> Pattern {
+        Pattern::texture(self.src_task_id, false).with_blend_mode(self.blend_mode)
+    }
+}

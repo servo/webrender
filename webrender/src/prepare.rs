@@ -30,7 +30,7 @@ use crate::pattern::image::{ImagePattern, ShadowPattern};
 use crate::pattern::filter::BlendFilterPattern;
 use crate::pattern::yuv::YuvPattern;
 use crate::pattern::backdrop::BackdropPattern;
-use crate::pattern::mix_blend::MixBlendPattern;
+use crate::pattern::mix_blend::{FixedFunctionMixBlendPattern, MixBlendPattern};
 use crate::picture::calculate_screen_uv;
 use crate::space::SpaceMapper;
 use crate::renderer::{BlendMode, GpuBufferAddress, GpuBufferWriterF};
@@ -1291,6 +1291,9 @@ fn prepare_prim_for_render(
             let mut filter = None;
             // Software mix-blend mode mapping to the ps_quad_mix_blend shader.
             let mut mix_blend = None;
+            // GPU-blend-equation mix-blend mode (Screen/Exclusion/PlusLighter)
+            // drawn as a blended image quad.
+            let mut hw_blend = None;
             let use_quads = if let Some(raster_config) = &pic.raster_config {
                  if matches!(pic.context_3d, Picture3DContext::Out) {
                     match raster_config.composite_mode {
@@ -1298,18 +1301,31 @@ fn prepare_prim_for_render(
                         | PictureCompositeMode::Filter(Filter::DropShadows(..))
                         | PictureCompositeMode::SVGFEGraph(..)
                         | PictureCompositeMode::Blit(..) => true,
-                        // Mix-blend modes that can't be expressed with a GPU blend
-                        // equation use a software readback of the backdrop. The
-                        // hardware variants (from_mix_blend_mode = Some) stay on the
-                        // legacy path for now.
-                        PictureCompositeMode::MixBlend(mode) if BlendMode::from_mix_blend_mode(
-                            mode,
-                            frame_context.fb_config.gpu_supports_advanced_blend,
-                            frame_context.fb_config.advanced_blend_is_coherent,
-                            frame_context.fb_config.dual_source_blending_is_supported,
-                        ).is_none() => {
-                            mix_blend = Some(mode);
-                            true
+                        PictureCompositeMode::MixBlend(mode) => {
+                            match BlendMode::from_mix_blend_mode(
+                                mode,
+                                frame_context.fb_config.gpu_supports_advanced_blend,
+                                frame_context.fb_config.advanced_blend_is_coherent,
+                                frame_context.fb_config.dual_source_blending_is_supported,
+                            ) {
+                                // No GPU blend equation available: composite via a
+                                // software readback of the backdrop (ps_quad_mix_blend).
+                                None => {
+                                    mix_blend = Some(mode);
+                                    true
+                                }
+                                // Dual-source blending needs a second shader output
+                                // that the quad textured shader doesn't produce; keep
+                                // these on the legacy brush path.
+                                Some(BlendMode::MultiplyDualSource) => false,
+                                // Advanced blend equation, or a fixed-function blend
+                                // (Screen / Exclusion / PlusLighter): draw the picture
+                                // content as a blended image quad.
+                                Some(bm) => {
+                                    hw_blend = Some(bm);
+                                    true
+                                }
+                            }
                         }
                         PictureCompositeMode::Filter(Filter::Opacity(_, amount)) => {
                             opacity = amount;
@@ -1629,6 +1645,27 @@ fn prepare_prim_for_render(
 
                             quad::prepare_quad(
                                 &mix_blend_pattern,
+                                &pic_local_rect,
+                                &local_clip_rect,
+                                EdgeMask::empty(),
+                                EdgeMask::all(),
+                                prim_instance_index,
+                                &None,
+                                &composite_clip_chain,
+                                transform,
+                                frame_context,
+                                pic_context,
+                                targets,
+                                &data_stores.clip,
+                                frame_state,
+                                scratch,
+                            );
+                        } else if let Some(blend_mode) = hw_blend {
+                            quad::prepare_quad(
+                                &FixedFunctionMixBlendPattern {
+                                    src_task_id: pic_task_id,
+                                    blend_mode,
+                                },
                                 &pic_local_rect,
                                 &local_clip_rect,
                                 EdgeMask::empty(),
