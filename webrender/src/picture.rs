@@ -926,13 +926,33 @@ impl PictureInstance {
             // Add the child prims to the relevant command buffers
             let mut cmd_buffer_targets = Vec::new();
             for child in list {
+                let draw = &scratch.frame.draws[child.anchor.instance_index.0 as usize];
                 if frame_state.surface_builder.get_cmd_buffer_targets_for_prim(
-                    &scratch.frame.draws[child.anchor.instance_index.0 as usize],
+                    draw,
                     &mut cmd_buffer_targets,
                 ) {
-                    let prim_cmd = PrimitiveCommand::complex(
+                    // The picture content this plane samples. Missing when the
+                    // child has no content task (for example a detached snapshot),
+                    // in which case there is nothing to composite.
+                    let pic_scratch_handle = draw.kind_scratch.unwrap_picture();
+                    let src_task_id = match scratch.frame.pictures[pic_scratch_handle].primary_render_task_id {
+                        Some(task_id) => task_id,
+                        None => continue,
+                    };
+
+                    // Maps the plane's local space to the destination raster space.
+                    let transform_id = frame_state.transforms.gpu.get_id(
+                        child.anchor.spatial_node_index,
+                        context.raster_spatial_node_index,
+                        frame_context.spatial_tree,
+                    );
+
+                    let prim_cmd = PrimitiveCommand::split_composite(
                         storage::Index::from_u32(child.anchor.instance_index.0),
-                        child.gpu_address
+                        child.gpu_address,
+                        transform_id,
+                        src_task_id,
+                        child.anchor.local_rect,
                     );
 
                     frame_state.push_prim(
@@ -965,6 +985,11 @@ impl PictureInstance {
         dirty_rect: VisRect,
         plane_split_anchor: PlaneSplitAnchor,
     ) -> bool {
+        let plane_split_anchor = PlaneSplitAnchor {
+            local_rect: original_local_rect,
+            ..plane_split_anchor
+        };
+
         let prim_to_ancestor = spatial_tree.get_relative_transform(
             prim_spatial_node_index,
             ancestor_spatial_node_index

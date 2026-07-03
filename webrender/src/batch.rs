@@ -15,7 +15,7 @@ use crate::gpu_types::{PrimitiveInstanceData, RasterizationSpace, GlyphInstance}
 use crate::gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex};
 use crate::gpu_types::{ImageBrushUserData, get_shader_opacity, MaskInstance};
 use crate::internal_types::{FastHashMap, FrameAllocator, FrameMemory, FrameVec, Swizzle, TextureSource};
-use crate::picture::{Picture3DContext, PictureCompositeMode};
+use crate::picture::PictureCompositeMode;
 use crate::prim_store::PrimitiveKind;
 use crate::prim_store::{PrimitiveInstance, PrimitiveOpacity, SegmentInstanceIndex};
 use crate::prim_store::{BrushSegment, ClipMaskKind, ClipTaskIndex};
@@ -841,15 +841,58 @@ impl BatchBuilder {
         gpu_buffer_builder: &mut GpuBufferBuilder,
         segments: &[RenderTaskId],
     ) {
-        let (draw_index, extra_prim_gpu_address) = match cmd {
+        let draw_index = match cmd {
             PrimitiveCommand::Simple { draw_index } => {
-                (draw_index, None)
+                draw_index
             }
-            PrimitiveCommand::Complex { draw_index, gpu_address } => {
-                (draw_index, Some(gpu_address.as_int()))
+            PrimitiveCommand::SplitComposite { draw_index, polygons_address, transform_id, src_task_id, local_rect } => {
+                let prim_info = &ctx.scratch.frame.draws[draw_index.0 as usize];
+
+                let (clip_task_address, clip_mask_texture_id) = ctx.get_prim_clip_task_and_texture(
+                    prim_info.clip_task_index,
+                    render_tasks,
+                ).unwrap();
+
+                let (uv_rect_address, texture) = render_tasks.resolve_location(*src_task_id).unwrap();
+                let textures = BatchTextures::prim_textured(texture, clip_mask_texture_id);
+
+                let z_id = z_generator.next();
+
+                let prim_header = PrimitiveHeader {
+                    local_rect: *local_rect,
+                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    specific_prim_address: ctx.globals.default_image_data.as_int(),
+                    transform_id: *transform_id,
+                    z: z_id,
+                    render_task_address: self.batcher.render_task_address,
+                    user_data: [
+                        uv_rect_address.as_int(),
+                        BrushFlags::PERSPECTIVE_INTERPOLATION.bits() as i32,
+                        0,
+                        clip_task_address.0 as i32,
+                    ],
+                };
+                let prim_header_index = prim_headers.push(&prim_header);
+
+                let key = BatchKey::new(
+                    BatchKind::SplitComposite,
+                    BlendMode::PremultipliedAlpha,
+                    textures,
+                );
+
+                self.add_split_composite_instance_to_batches(
+                    key,
+                    BatchFeatures::CLIP_MASK,
+                    &prim_info.clip_chain.pic_coverage_rect,
+                    z_id,
+                    prim_header_index,
+                    polygons_address.as_int(),
+                );
+
+                return;
             }
-            PrimitiveCommand::Instance { draw_index, gpu_buffer_address } => {
-                (draw_index, Some(gpu_buffer_address.as_int()))
+            PrimitiveCommand::Instance { draw_index, .. } => {
+                draw_index
             }
             PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_ids, blend_mode } => {
                 let prim_info = &ctx.scratch.frame.draws[draw_index.0 as usize];
@@ -1242,66 +1285,13 @@ impl BatchBuilder {
 
                             return;
                         }
-                        PictureCompositeMode::Blit(_) => {
-                            match picture.context_3d {
-                                Picture3DContext::In { root_data: Some(_), .. } => {
-                                    unreachable!("bug: should not have a raster_config");
-                                }
-                                Picture3DContext::In { root_data: None, .. } => {
-                                    // TODO(gw): Store this inside the split picture so that we
-                                    //           don't need to pass in extra_prim_gpu_address for
-                                    //           every prim instance.
-                                    // TODO(gw): Ideally we'd skip adding 3d child prims to batches
-                                    //           without gpu cache address but it's currently
-                                    //           used by the prepare pass. Refactor this!
-                                    let extra_prim_gpu_address = match extra_prim_gpu_address {
-                                        Some(prim_address) => prim_address,
-                                        None => return,
-                                    };
-
-                                    // Need a new z-id for each child preserve-3d context added
-                                    // by this inner loop.
-                                    let z_id = z_generator.next();
-
-                                    let prim_header = PrimitiveHeader {
-                                        z: z_id,
-                                        transform_id: transforms.gpu.get_id(
-                                            prim_spatial_node_index,
-                                            root_spatial_node_index,
-                                            ctx.spatial_tree,
-                                        ),
-                                        user_data: [
-                                            uv_rect_address.as_int(),
-                                            BrushFlags::PERSPECTIVE_INTERPOLATION.bits() as i32,
-                                            0,
-                                            clip_task_address.0 as i32,
-                                        ],
-                                        ..picture_prim_header
-                                    };
-                                    let prim_header_index = prim_headers.push(&prim_header);
-
-                                    let key = BatchKey::new(
-                                        BatchKind::SplitComposite,
-                                        BlendMode::PremultipliedAlpha,
-                                        textures,
-                                    );
-
-                                    self.add_split_composite_instance_to_batches(
-                                        key,
-                                        BatchFeatures::CLIP_MASK,
-                                        &prim_info.clip_chain.pic_coverage_rect,
-                                        z_id,
-                                        prim_header_index,
-                                        extra_prim_gpu_address,
-                                    );
-
-                                    return;
-                                }
-                                Picture3DContext::Out { .. } => unreachable!(
-                                    "non-3D Blit pictures composite via the quad path"
-                                ),
-                            }
-                        }
+                        // 3D-context (preserve-3d) Blit pictures composite their
+                        // planes via PrimitiveCommand::SplitComposite (handled at
+                        // the top of add_prim_to_batch); non-3D Blit pictures
+                        // composite via the quad path. Neither reaches here.
+                        PictureCompositeMode::Blit(_) => unreachable!(
+                            "Blit pictures composite via the split-composite command or the quad path"
+                        ),
                         PictureCompositeMode::SVGFEGraph(..) => unreachable!(
                             "SVG filter pictures composite via the quad path"
                         ),

@@ -182,6 +182,9 @@ impl FrameStamp {
 pub struct PlaneSplitAnchor {
     pub spatial_node_index: SpatialNodeIndex,
     pub instance_index: PrimitiveInstanceIndex,
+    /// The split picture's unclipped local rect used by the shader to map plane
+    /// positions to texture coordinates.
+    pub local_rect: LayoutRect,
 }
 
 impl PlaneSplitAnchor {
@@ -192,6 +195,7 @@ impl PlaneSplitAnchor {
         PlaneSplitAnchor {
             spatial_node_index,
             instance_index,
+            local_rect: LayoutRect::zero(),
         }
     }
 }
@@ -201,6 +205,7 @@ impl Default for PlaneSplitAnchor {
         PlaneSplitAnchor {
             spatial_node_index: SpatialNodeIndex::INVALID,
             instance_index: PrimitiveInstanceIndex(!0),
+            local_rect: LayoutRect::zero(),
         }
     }
 }
