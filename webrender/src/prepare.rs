@@ -1297,7 +1297,10 @@ fn prepare_prim_for_render(
             let use_quads = if let Some(raster_config) = &pic.raster_config {
                  if matches!(pic.context_3d, Picture3DContext::Out) {
                     match raster_config.composite_mode {
-                        PictureCompositeMode::Filter(Filter::Blur { .. })
+                        // Identity is a no-op filter: composite it as a plain image
+                        // copy (the same emission as Blit).
+                        PictureCompositeMode::Filter(Filter::Identity)
+                        | PictureCompositeMode::Filter(Filter::Blur { .. })
                         | PictureCompositeMode::Filter(Filter::DropShadows(..))
                         | PictureCompositeMode::SVGFEGraph(..)
                         | PictureCompositeMode::Blit(..) => true,
