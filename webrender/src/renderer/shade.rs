@@ -556,11 +556,8 @@ pub struct Shaders {
     brush_solid: BrushShader,
     brush_image: Vec<Option<BrushShader>>,
     brush_fast_image: Vec<Option<BrushShader>>,
-    brush_blend: BrushShader,
     brush_mix_blend: BrushShader,
     brush_yuv_image: Vec<Option<BrushShader>>,
-    brush_opacity: BrushShader,
-    brush_opacity_aa: BrushShader,
 
     // The are "primitive shaders". These shaders draw and blend
     // final results on screen. They are aware of tile boundaries.
@@ -641,35 +638,8 @@ impl Shaders {
             &mut loader,
         )?;
 
-        let brush_blend = BrushShader::new(
-            "brush_blend",
-            &[],
-            &shader_list,
-            false /* advanced blend */,
-            false /* dual source */,
-            &mut loader,
-        )?;
-
         let brush_mix_blend = BrushShader::new(
             "brush_mix_blend",
-            &[],
-            &shader_list,
-            false /* advanced blend */,
-            false /* dual source */,
-            &mut loader,
-        )?;
-
-        let brush_opacity_aa = BrushShader::new(
-            "brush_opacity",
-            &["ANTIALIASING"],
-            &shader_list,
-            false /* advanced blend */,
-            false /* dual source */,
-            &mut loader,
-        )?;
-
-        let brush_opacity = BrushShader::new(
-            "brush_opacity",
             &[],
             &shader_list,
             false /* advanced blend */,
@@ -1061,11 +1031,8 @@ impl Shaders {
             brush_solid,
             brush_image,
             brush_fast_image,
-            brush_blend,
             brush_mix_blend,
             brush_yuv_image,
-            brush_opacity,
-            brush_opacity_aa,
             ps_text_run,
             ps_text_run_dual_source,
             ps_quad_textured,
@@ -1267,9 +1234,6 @@ impl Shaders {
                                 .expect("Unsupported image shader kind")
                         }
                     }
-                    BrushBatchKind::Blend => {
-                        &mut self.brush_blend
-                    }
                     BrushBatchKind::MixBlend { .. } => {
                         &mut self.brush_mix_blend
                     }
@@ -1279,13 +1243,6 @@ impl Shaders {
                         self.brush_yuv_image[shader_index]
                             .as_mut()
                             .expect("Unsupported YUV shader kind")
-                    }
-                    BrushBatchKind::Opacity => {
-                        if features.contains(BatchFeatures::ANTIALIASING) {
-                            &mut self.brush_opacity_aa
-                        } else {
-                            &mut self.brush_opacity
-                        }
                     }
                 };
                 brush_shader.get_handle(key.blend_mode, features, debug_flags)

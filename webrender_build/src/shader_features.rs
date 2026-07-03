@@ -82,26 +82,13 @@ pub fn get_shader_features(flags: ShaderFeatureFlags) -> ShaderFeatures {
 
     // Brush shaders
     let mut brush_alpha_features = base_prim_features.with("ALPHA_PASS");
-    for name in &["brush_solid", "brush_blend", "brush_mix_blend"] {
+    for name in &["brush_solid", "brush_mix_blend"] {
         let features: Vec<String> = vec![
             base_prim_features.finish(),
             brush_alpha_features.finish(),
             "DEBUG_OVERDRAW".to_string(),
         ];
         shaders.insert(name, features);
-    }
-
-
-    {
-        let features: Vec<String> = vec![
-            base_prim_features.finish(),
-            brush_alpha_features.finish(),
-            base_prim_features.with("ANTIALIASING").finish(),
-            brush_alpha_features.with("ANTIALIASING").finish(),
-            "ANTIALIASING,DEBUG_OVERDRAW".to_string(),
-            "DEBUG_OVERDRAW".to_string(),
-        ];
-        shaders.insert("brush_opacity", features);
     }
 
     // Image brush shaders
