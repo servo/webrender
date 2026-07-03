@@ -16,8 +16,18 @@ use crate::util::{MatrixHelpers, ScaleOffset};
 /// Sub-pixel quantization scale: quarter-pixel precision.
 pub const VERT_QUANTIZE_SCALE: f32 = 4.0;
 
+/// Quantize a raster-space coordinate to the invalidation grid.
+///
+/// Truncates toward zero (rather than rounding to nearest) so the 1/4px grid's
+/// bucket boundaries land on every half-integer with the same tie-ownership as
+/// the rasterizer's whole-pixel `round()` (which rounds half away from zero, see
+/// `create_quad_primitive`). This guarantees two corners share a key only if
+/// they round to the same device pixel, so a sub-pixel move that crosses a
+/// pixel boundary always invalidates the tile. `round(v * SCALE)` centered
+/// buckets on the `.5` boundary instead, letting e.g. 20.4 and 20.5 (device 20
+/// vs 21) collide and leaving stale tiles (bug 2052391).
 pub fn quantize(v: f32) -> i32 {
-    (v * VERT_QUANTIZE_SCALE).round() as i32
+    (v * VERT_QUANTIZE_SCALE).trunc() as i32
 }
 
 /// A reference into a per-tile vert_data buffer: offset (in i32 elements) and count.
