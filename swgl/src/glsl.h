@@ -1040,6 +1040,32 @@ ivec2_scalar force_scalar(const ivec2& v) {
   return ivec2_scalar{force_scalar(v.x), force_scalar(v.y)};
 }
 
+struct uvec2_scalar {
+  typedef uint32_t element_type;
+
+  uint32_t x;
+  uint32_t y;
+
+  uvec2_scalar() : uvec2_scalar(0) {}
+  IMPLICIT constexpr uvec2_scalar(uint32_t a) : x(a), y(a) {}
+  constexpr uvec2_scalar(uint32_t x, uint32_t y) : x(x), y(y) {}
+
+  uint32_t& select(XYZW c) {
+    switch (c) {
+      case X:
+        return x;
+      case Y:
+        return y;
+      default:
+        UNREACHABLE;
+    }
+  }
+  uint32_t& sel(XYZW c1) { return select(c1); }
+  uvec2_scalar sel(XYZW c1, XYZW c2) {
+    return uvec2_scalar{select(c1), select(c2)};
+  }
+};
+
 struct ivec3_scalar {
   int32_t x;
   int32_t y;
@@ -3068,6 +3094,17 @@ struct ElementType<I32> {
 };
 
 void put_nth_component(ivec2_scalar& dst, int n, int32_t src) {
+  switch (n) {
+    case 0:
+      dst.x = src;
+      break;
+    case 1:
+      dst.y = src;
+      break;
+  }
+}
+
+void put_nth_component(uvec2_scalar& dst, int n, uint32_t src) {
   switch (n) {
     case 0:
       dst.x = src;

@@ -1950,12 +1950,18 @@ fn is_vector(ty: &Type) -> bool {
         TypeKind::Vec2
         | TypeKind::Vec3
         | TypeKind::Vec4
+        | TypeKind::DVec2
+        | TypeKind::DVec3
+        | TypeKind::DVec4
         | TypeKind::BVec2
         | TypeKind::BVec3
         | TypeKind::BVec4
         | TypeKind::IVec2
         | TypeKind::IVec3
-        | TypeKind::IVec4 => ty.array_sizes == None,
+        | TypeKind::IVec4
+        | TypeKind::UVec2
+        | TypeKind::UVec3
+        | TypeKind::UVec4 => ty.array_sizes == None,
         _ => false,
     }
 }
@@ -2012,13 +2018,6 @@ fn index_matrix(ty: &Type) -> Option<TypeKind> {
         DMat43 => DVec3,
         _ => return None,
     })
-}
-
-fn is_ivec(ty: &Type) -> bool {
-    match ty.kind {
-        TypeKind::IVec2 | TypeKind::IVec3 | TypeKind::IVec4 => ty.array_sizes == None,
-        _ => false,
-    }
 }
 
 fn can_implicitly_convert_to(src: &Type, dst: &Type) -> bool {
@@ -2510,37 +2509,29 @@ fn translate_expression(state: &mut State, e: &syntax::Expr) -> Expr {
         syntax::Expr::Dot(e, i) => {
             let e = Box::new(translate_expression(state, e));
             let ty = e.ty.clone();
-            let ivec = is_ivec(&ty);
             if is_vector(&ty) {
-                let ty = Type::new(match i.as_str().len() {
-                    1 => {
-                        if ivec {
-                            TypeKind::Int
-                        } else {
-                            TypeKind::Float
-                        }
-                    }
-                    2 => {
-                        if ivec {
-                            TypeKind::IVec2
-                        } else {
-                            TypeKind::Vec2
-                        }
-                    }
-                    3 => {
-                        if ivec {
-                            TypeKind::IVec3
-                        } else {
-                            TypeKind::Vec3
-                        }
-                    }
-                    4 => {
-                        if ivec {
-                            TypeKind::IVec4
-                        } else {
-                            TypeKind::Vec4
-                        }
-                    }
+                use TypeKind::*;
+                let ty = Type::new(match (ty.kind.to_scalar(), i.as_str().len()) {
+                    (Bool, 1) => Bool,
+                    (Bool, 2) => BVec2,
+                    (Bool, 3) => BVec3,
+                    (Bool, 4) => BVec4,
+                    (Int, 1) => Int,
+                    (Int, 2) => IVec2,
+                    (Int, 3) => IVec3,
+                    (Int, 4) => IVec4,
+                    (UInt, 1) => UInt,
+                    (UInt, 2) => UVec2,
+                    (UInt, 3) => UVec3,
+                    (UInt, 4) => UVec4,
+                    (Float, 1) => Float,
+                    (Float, 2) => Vec2,
+                    (Float, 3) => Vec3,
+                    (Float, 4) => Vec4,
+                    (Double, 1) => Double,
+                    (Double, 2) => DVec2,
+                    (Double, 3) => DVec3,
+                    (Double, 4) => DVec4,
                     _ => panic!(),
                 });
 
