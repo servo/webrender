@@ -190,14 +190,6 @@ impl VertexAttribute {
         }
     }
 
-    pub const fn u16(name: &'static str) -> Self {
-        VertexAttribute {
-            name,
-            count: 1,
-            kind: VertexAttributeKind::U16,
-        }
-    }
-
     pub const fn u16x2(name: &'static str) -> Self {
         VertexAttribute {
             name,

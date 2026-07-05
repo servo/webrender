@@ -90,8 +90,7 @@ pub mod desc {
             VertexAttribute::f32x4("aFilterInput2ContentScaleAndOffset"),
             VertexAttribute::gpu_buffer_address("aFilterInput1TaskAddress"),
             VertexAttribute::gpu_buffer_address("aFilterInput2TaskAddress"),
-            VertexAttribute::u16("aFilterKind"),
-            VertexAttribute::u16("aFilterInputCount"),
+            VertexAttribute::u16x2("aFilterKindAndInputCount"),
             VertexAttribute::gpu_buffer_address("aFilterExtraDataAddress"),
         ],
     };

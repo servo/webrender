@@ -170,8 +170,9 @@ PER_INSTANCE in vec4 aFilterInput1ContentScaleAndOffset;
 PER_INSTANCE in vec4 aFilterInput2ContentScaleAndOffset;
 PER_INSTANCE in int aFilterInput1TaskAddress;
 PER_INSTANCE in int aFilterInput2TaskAddress;
-PER_INSTANCE in int aFilterKind;
-PER_INSTANCE in int aFilterInputCount;
+// Packed into a uvec2 to ensure all instance attributes have 4 byte alignment.
+// See bug 2052528.
+PER_INSTANCE in uvec2 aFilterKindAndInputCount;
 PER_INSTANCE in int aFilterExtraDataAddress;
 
 // used for feFlood and feDropShadow colors
@@ -202,10 +203,12 @@ vec2 compute_uv(RectWithEndpoint task_rect, vec4 scale_and_offset, vec2 target_s
 }
 
 void main(void) {
+    int filter_kind = int(aFilterKindAndInputCount.x);
+    int input_count = int(aFilterKindAndInputCount.y);
     vec2 pos = mix(aFilterTargetRect.xy, aFilterTargetRect.zw, aPosition.xy);
 
     RectWithEndpoint input_1_task;
-    if (aFilterInputCount > 0) {
+    if (input_count > 0) {
         vec2 texture_size = vec2(TEX_SIZE(sColor0).xy);
         input_1_task = fetch_render_task_rect(aFilterInput1TaskAddress);
         vInput1UvRect = compute_uv_rect(input_1_task, texture_size);
@@ -213,17 +216,17 @@ void main(void) {
     }
 
     RectWithEndpoint input_2_task;
-    if (aFilterInputCount > 1) {
+    if (input_count > 1) {
         vec2 texture_size = vec2(TEX_SIZE(sColor1).xy);
         input_2_task = fetch_render_task_rect(aFilterInput2TaskAddress);
         vInput2UvRect = compute_uv_rect(input_2_task, texture_size);
         vInput2Uv = compute_uv(input_2_task, aFilterInput2ContentScaleAndOffset, aFilterTargetRect.zw - aFilterTargetRect.xy, texture_size);
     }
 
-    vFilterInputCount = aFilterInputCount;
-    vFilterKind = aFilterKind;
+    vFilterInputCount = input_count;
+    vFilterKind = filter_kind;
 
-    switch (aFilterKind) {
+    switch (filter_kind) {
         case FILTER_IDENTITY:
         case FILTER_IDENTITY_CONVERTSRGB:
             break;
