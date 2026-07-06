@@ -112,6 +112,14 @@ pub fn for_each_border_image_segment(
 ) {
     let w = src_image_size.width;
     let h = src_image_size.height;
+
+    if nine_patch.width <= 0
+        || nine_patch.height <= 0
+        || w <= 0
+        || h <= 0 {
+        return;
+    }
+
     // nine_patch.width/height is not always the actual size of the source image
     // despite being expressed in integer device pixels, so a scale factor needs
     // to be introduced to map to the real device pixel space.

@@ -1,0 +1,23 @@
+---
+# A nine-patch descriptor with a zero width/height used to lead to
+# NaN/overflow in for_each_border_image_segment (bug 2052341). The border
+# should now render nothing (see border-image-empty-ref.yaml).
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 500, 500]
+      items:
+        - type: rect
+          bounds: [ 100, 100, 192, 192 ]
+          color: green
+        - type: border
+          bounds: [ 100, 100, 192, 192 ]
+          width: 32
+          border-type: image
+          image-source: "border-image-src.png"
+          image-width: 0
+          image-height: 32
+          slice: [ 3, 3, 3, 3 ]
+          repeat-vertical: stretch
+          repeat-horizontal: stretch
+          fill: true
