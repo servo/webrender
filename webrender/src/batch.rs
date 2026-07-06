@@ -13,12 +13,12 @@ use crate::gpu_types::{BrushFlags, BrushInstance, PrimitiveHeaders, ZBufferId, Z
 use crate::gpu_types::SplitCompositeInstance;
 use crate::gpu_types::{PrimitiveInstanceData, RasterizationSpace, GlyphInstance};
 use crate::gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex};
-use crate::gpu_types::{ImageBrushUserData, get_shader_opacity, MaskInstance};
+use crate::gpu_types::{ImageBrushUserData, MaskInstance};
 use crate::internal_types::{FastHashMap, FrameAllocator, FrameMemory, FrameVec, Swizzle, TextureSource};
 use crate::picture::PictureCompositeMode;
 use crate::prim_store::PrimitiveKind;
-use crate::prim_store::{PrimitiveInstance, PrimitiveOpacity, SegmentInstanceIndex};
-use crate::prim_store::{BrushSegment, ClipMaskKind, ClipTaskIndex};
+use crate::prim_store::PrimitiveInstance;
+use crate::prim_store::{ClipMaskKind, ClipTaskIndex};
 use crate::quad;
 use crate::render_target::RenderTargetContext;
 use crate::render_task_graph::{RenderTaskId, RenderTaskGraph};
@@ -26,7 +26,7 @@ use crate::render_task::RenderTaskAddress;
 use crate::renderer::{BlendMode, GpuBufferAddress, GpuBufferBuilder, ShaderColorMode};
 use crate::resource_cache::GlyphFetchResult;
 use crate::space::SpaceMapper;
-use crate::transform::{TransformPalette, TransformMetadata};
+use crate::transform::TransformPalette;
 use crate::visibility::{PrimitiveVisibilityFlags, DrawState};
 use std::{f32, i32, usize};
 use crate::util::{MaxRect, ScaleOffset};
@@ -618,14 +618,6 @@ impl AlphaBatchContainer {
     }
 }
 
-/// Each segment can optionally specify a per-segment
-/// texture set and one user data field.
-#[derive(Debug, Copy, Clone)]
-struct SegmentInstanceData {
-    textures: TextureSet,
-    specific_resource_address: i32,
-}
-
 /// Encapsulates the logic of building batches for items that are blended.
 pub struct AlphaBatchBuilder {
     pub alpha_batch_list: AlphaBatchList,
@@ -1014,10 +1006,6 @@ impl BatchBuilder {
             ctx.spatial_tree,
         );
 
-        // TODO(gw): Calculating this for every primitive is a bit
-        //           wasteful. We should probably cache this in
-        //           the scroll node...
-        let transform_metadata = transform_id.metadata();
         let prim_info = &ctx.scratch.frame.draws[draw_index.0 as usize];
         let bounding_rect = &prim_info.clip_chain.pic_coverage_rect;
 
@@ -1330,38 +1318,6 @@ impl BatchBuilder {
             user_data: [0; 4], // Will be overridden by most uses
         };
 
-        let common_data = ctx.data_stores.as_common_data(prim_instance);
-
-        // Per-instance opacity. Previously cached on the (now immutable)
-        // prim template; sourced per kind from its per-frame scratch
-        // (Rectangle/Image) or derived directly (constant for YuvImage /
-        // NormalBorder, template flag for ImageBorder).
-        let opacity = match prim_instance.kind {
-            PrimitiveKind::Rectangle { .. } => {
-                ctx.scratch.frame.rectangle[prim_info.kind_scratch.unwrap_rectangle()].opacity
-            }
-            PrimitiveKind::Image { .. } => {
-                ctx.scratch.frame.images[prim_info.kind_scratch.unwrap_image()].opacity
-            }
-            PrimitiveKind::YuvImage { .. } => PrimitiveOpacity::opaque(),
-            PrimitiveKind::NormalBorder { .. } => PrimitiveOpacity::translucent(),
-            PrimitiveKind::ImageBorder { .. } => {
-                PrimitiveOpacity { is_opaque: ctx.scratch.frame.image_border[prim_info.kind_scratch.unwrap_image_border()].is_opaque }
-            }
-            _ => PrimitiveOpacity::translucent(),
-        };
-
-        let needs_blending = !opacity.is_opaque ||
-            prim_info.clip_task_index != ClipTaskIndex::INVALID ||
-            !transform_metadata.is_2d_axis_aligned ||
-            is_anti_aliased;
-
-        let blend_mode = if needs_blending {
-            BlendMode::PremultipliedAlpha
-        } else {
-            BlendMode::None
-        };
-
         match prim_instance.kind {
             // Handled above.
             PrimitiveKind::Picture { .. } => {}
@@ -1599,45 +1555,7 @@ impl BatchBuilder {
                 );
             }
             PrimitiveKind::Rectangle { .. } => {
-                let (prim_cache_address, segments) = if prim_info.segment_instance_index == SegmentInstanceIndex::UNUSED {
-                    let rect_scratch = prim_info.kind_scratch.unwrap_rectangle();
-                    (ctx.scratch.frame.rectangle[rect_scratch].gpu_address, None)
-                } else {
-                    let segment_instance = &ctx.scratch.frame.segment_instances[prim_info.segment_instance_index];
-                    let segments = Some(&ctx.scratch.frame.segments[segment_instance.segments_range]);
-                    (segment_instance.gpu_data, segments)
-                };
-
-                let batch_params = BrushBatchParameters::shared(
-                    BrushBatchKind::Solid,
-                    TextureSet::UNTEXTURED,
-                    [get_shader_opacity(1.0), 0, 0, 0],
-                    0,
-                );
-
-                let prim_header = PrimitiveHeader {
-                    specific_prim_address: prim_cache_address.as_int(),
-                    user_data: batch_params.prim_user_data,
-                    ..base_prim_header
-                };
-                let prim_header_index = prim_headers.push(&prim_header);
-
-                self.add_segmented_prim_to_batch(
-                    segments,
-                    opacity,
-                    &batch_params,
-                    blend_mode,
-                    batch_features,
-                    brush_flags,
-                    common_data.transformed_aa_edges,
-                    prim_header_index,
-                    bounding_rect,
-                    transform_metadata,
-                    z_id,
-                    prim_info.clip_task_index,
-                    ctx,
-                    render_tasks,
-                );
+                unreachable!("BUG: rectangles should always use quad path");
             }
             PrimitiveKind::Image { .. } => {
                 unreachable!("BUG: images should always use quad path");
@@ -1647,198 +1565,6 @@ impl BatchBuilder {
             }
             PrimitiveKind::BackdropCapture { .. } => {}
             PrimitiveKind::BackdropRender { .. } => {}
-        }
-    }
-
-    /// Add a single segment instance to a batch.
-    ///
-    /// `edge_aa_mask` Specifies the edges that are *allowed* to have anti-aliasing, if and only
-    /// if the segments enable it.
-    /// In other words passing EdgeAaSegmentFlags::all() does not necessarily mean all edges will
-    /// be anti-aliased, only that they could be.
-    fn add_segment_to_batch(
-        &mut self,
-        segment: &BrushSegment,
-        segment_data: &SegmentInstanceData,
-        segment_index: i32,
-        batch_kind: BrushBatchKind,
-        prim_header_index: PrimitiveHeaderIndex,
-        alpha_blend_mode: BlendMode,
-        features: BatchFeatures,
-        brush_flags: BrushFlags,
-        edge_aa_mask: EdgeMask,
-        bounding_rect: &PictureRect,
-        transform_metadata: TransformMetadata,
-        z_id: ZBufferId,
-        prim_opacity: PrimitiveOpacity,
-        clip_task_index: ClipTaskIndex,
-        ctx: &RenderTargetContext,
-        render_tasks: &RenderTaskGraph,
-    ) {
-        debug_assert!(clip_task_index != ClipTaskIndex::INVALID);
-
-        // Get GPU address of clip task for this segment, or None if
-        // the entire segment is clipped out.
-        if let Some((clip_task_address, clip_mask)) = ctx.get_clip_task_and_texture(
-            clip_task_index,
-            segment_index,
-            render_tasks,
-        ) {
-            // If a got a valid (or OPAQUE) clip task address, add the segment.
-            let is_inner = segment.edge_flags.is_empty();
-            let needs_blending = !prim_opacity.is_opaque ||
-                                 clip_task_address != OPAQUE_TASK_ADDRESS ||
-                                 (!is_inner && !transform_metadata.is_2d_axis_aligned) ||
-                                 brush_flags.contains(BrushFlags::FORCE_AA);
-
-            let textures = BatchTextures {
-                input: segment_data.textures,
-                clip_mask,
-            };
-
-            let batch_key = BatchKey {
-                blend_mode: if needs_blending { alpha_blend_mode } else { BlendMode::None },
-                kind: BatchKind::Brush(batch_kind),
-                textures,
-                readback: RenderTaskId::INVALID,
-            };
-
-            self.add_brush_instance_to_batches(
-                batch_key,
-                features,
-                bounding_rect,
-                z_id,
-                segment_index,
-                segment.edge_flags & edge_aa_mask,
-                clip_task_address,
-                brush_flags | BrushFlags::PERSPECTIVE_INTERPOLATION | segment.brush_flags,
-                prim_header_index,
-                segment_data.specific_resource_address,
-            );
-        }
-    }
-
-    /// Add any segment(s) from a brush to batches.
-    ///
-    /// `edge_aa_mask` Specifies the edges that are *allowed* to have anti-aliasing, if and only
-    /// if the segments enable it.
-    /// In other words passing EdgeAaSegmentFlags::all() does not necessarily mean all edges will
-    /// be anti-aliased, only that they could be.
-    fn add_segmented_prim_to_batch(
-        &mut self,
-        brush_segments: Option<&[BrushSegment]>,
-        prim_opacity: PrimitiveOpacity,
-        params: &BrushBatchParameters,
-        blend_mode: BlendMode,
-        features: BatchFeatures,
-        brush_flags: BrushFlags,
-        edge_aa_mask: EdgeMask,
-        prim_header_index: PrimitiveHeaderIndex,
-        bounding_rect: &PictureRect,
-        transform_metadata: TransformMetadata,
-        z_id: ZBufferId,
-        clip_task_index: ClipTaskIndex,
-        ctx: &RenderTargetContext,
-        render_tasks: &RenderTaskGraph,
-    ) {
-        match (brush_segments, &params.segment_data) {
-            (Some(ref brush_segments), SegmentDataKind::Shared(ref segment_data)) => {
-                // A list of segments, but the per-segment data is common
-                // between all segments.
-                for (segment_index, segment) in brush_segments
-                    .iter()
-                    .enumerate()
-                {
-                    self.add_segment_to_batch(
-                        segment,
-                        segment_data,
-                        segment_index as i32,
-                        params.batch_kind,
-                        prim_header_index,
-                        blend_mode,
-                        features,
-                        brush_flags,
-                        edge_aa_mask,
-                        bounding_rect,
-                        transform_metadata,
-                        z_id,
-                        prim_opacity,
-                        clip_task_index,
-                        ctx,
-                        render_tasks,
-                    );
-                }
-            }
-            (None, SegmentDataKind::Shared(ref segment_data)) => {
-                // No segments, and thus no per-segment instance data.
-                // Note: the blend mode already takes opacity into account
-
-                let (clip_task_address, clip_mask) = ctx.get_prim_clip_task_and_texture(
-                    clip_task_index,
-                    render_tasks,
-                ).unwrap();
-
-                let textures = BatchTextures {
-                    input: segment_data.textures,
-                    clip_mask,
-                };
-
-                let batch_key = BatchKey {
-                    blend_mode,
-                    kind: BatchKind::Brush(params.batch_kind),
-                    textures,
-                    readback: RenderTaskId::INVALID,
-                };
-
-                self.add_brush_instance_to_batches(
-                    batch_key,
-                    features,
-                    bounding_rect,
-                    z_id,
-                    INVALID_SEGMENT_INDEX,
-                    edge_aa_mask,
-                    clip_task_address,
-                    brush_flags | BrushFlags::PERSPECTIVE_INTERPOLATION,
-                    prim_header_index,
-                    segment_data.specific_resource_address,
-                );
-            }
-        }
-    }
-}
-
-/// Either a single texture / user data for all segments,
-/// or a list of one per segment.
-enum SegmentDataKind {
-    Shared(SegmentInstanceData),
-}
-
-/// The parameters that are specific to a kind of brush,
-/// used by the common method to add a brush to batches.
-struct BrushBatchParameters {
-    batch_kind: BrushBatchKind,
-    prim_user_data: [i32; 4],
-    segment_data: SegmentDataKind,
-}
-
-impl BrushBatchParameters {
-    /// This brush instance shares the per-segment data
-    /// across all segments.
-    fn shared(
-        batch_kind: BrushBatchKind,
-        textures: TextureSet,
-        prim_user_data: [i32; 4],
-        specific_resource_address: i32,
-    ) -> Self {
-        BrushBatchParameters {
-            batch_kind,
-            prim_user_data,
-            segment_data: SegmentDataKind::Shared(
-                SegmentInstanceData {
-                    textures,
-                    specific_resource_address,
-                }
-            ),
         }
     }
 }

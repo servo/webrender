@@ -33,7 +33,7 @@ use crate::pattern::backdrop::BackdropPattern;
 use crate::pattern::mix_blend::{FixedFunctionMixBlendPattern, MixBlendPattern};
 use crate::picture::calculate_screen_uv;
 use crate::space::SpaceMapper;
-use crate::renderer::{BlendMode, GpuBufferAddress, GpuBufferWriterF};
+use crate::renderer::{BlendMode, GpuBufferAddress};
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::clip::{clamped_radius, ClipNodeFlags, ClipChainInstance, ClipItemKind};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
@@ -45,7 +45,6 @@ use crate::picture::{PrimitiveList, PrimitiveCluster, SurfaceIndex, SubpixelMode
 use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::prim_store::*;
 use crate::prim_store::borders::ImageBorderScratch;
-use crate::prim_store::rectangle::RectangleScratch;
 use crate::quad::{self, QuadTransformState};
 use crate::render_backend::DataStores;
 use crate::render_task_cache::RenderTaskCacheKeyKind;
@@ -819,56 +818,29 @@ fn prepare_prim_for_render(
         PrimitiveKind::Rectangle { data_handle, .. } => {
             profile_scope!("Rectangle");
 
-            if use_legacy_path {
-                let prim_data = &data_stores.prim[*data_handle];
+            let prim_data = &data_stores.prim[*data_handle];
+            let prim_rect = prim_info.snapped_local_rect;
+            let color = prim_data.resolve(frame_context.scene_properties);
 
-                // Update the template this instane references, which may refresh the GPU
-                // cache with any shared template data.
-                let (gpu_address, opacity) = prim_data.update(
-                    frame_state,
-                    frame_context.scene_properties,
-                );
-                let rect_handle = scratch.frame.rectangle.push(RectangleScratch {
-                    gpu_address,
-                    opacity,
-                });
-                scratch.frame.draws[prim_instance_index.0 as usize].kind_scratch =
-                    KindScratchHandle::Rectangle(rect_handle);
+            quad::prepare_quad(
+                &color,
+                &prim_rect,
+                &prim_info.clip_chain.local_clip_rect,
+                prim_data.common.aligned_aa_edges,
+                prim_data.common.transformed_aa_edges,
+                prim_instance_index,
+                &None,
+                &prim_info.clip_chain,
+                quad_transform,
+                frame_context,
+                pic_context,
+                targets,
+                &data_stores.clip,
+                frame_state,
+                scratch,
+            );
 
-                write_segment(
-                    prim_info.segment_instance_index,
-                    frame_state,
-                    &mut scratch.frame.segments,
-                    &mut scratch.frame.segment_instances,
-                    |request| {
-                        request.push_one(frame_context.scene_properties.resolve_color(&prim_data.kind.color).premultiplied());
-                    }
-                );
-            } else {
-                let prim_data = &data_stores.prim[*data_handle];
-                let prim_rect = prim_info.snapped_local_rect;
-                let color = prim_data.resolve(frame_context.scene_properties);
-
-                quad::prepare_quad(
-                    &color,
-                    &prim_rect,
-                    &prim_info.clip_chain.local_clip_rect,
-                    prim_data.common.aligned_aa_edges,
-                    prim_data.common.transformed_aa_edges,
-                    prim_instance_index,
-                    &None,
-                    &prim_info.clip_chain,
-                    quad_transform,
-                    frame_context,
-                    pic_context,
-                    targets,
-                    &data_stores.clip,
-                    frame_state,
-                    scratch,
-                );
-
-                return;
-            }
+            return;
         }
         PrimitiveKind::YuvImage { data_handle, .. } => {
             profile_scope!("YuvImage");
@@ -1952,30 +1924,6 @@ fn prepare_prim_for_render(
     }
 }
 
-
-fn write_segment<F>(
-    segment_instance_index: SegmentInstanceIndex,
-    frame_state: &mut FrameBuildingState,
-    segments: &mut SegmentStorage,
-    segment_instances: &mut SegmentInstanceStorage,
-    f: F,
-) where F: Fn(&mut GpuBufferWriterF) {
-    debug_assert_ne!(segment_instance_index, SegmentInstanceIndex::INVALID);
-    if segment_instance_index != SegmentInstanceIndex::UNUSED {
-        let segment_instance = &mut segment_instances[segment_instance_index];
-
-        let segments = &segments[segment_instance.segments_range];
-        let mut writer = frame_state.frame_gpu_data.f32.write_blocks(3 + segments.len() * VECS_PER_SEGMENT);
-
-        f(&mut writer);
-
-        for segment in segments {
-            segment.write_gpu_blocks(&mut writer);
-        }
-
-        segment_instance.gpu_data = writer.finish();
-    }
-}
 
 fn update_clip_task_for_brush(
     instance: &PrimitiveInstance,
