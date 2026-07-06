@@ -395,8 +395,7 @@ impl BrushShader {
             BlendMode::Advanced(_) => {
                 self.advanced_blend.expect("bug: no advanced blend shader loaded")
             }
-            BlendMode::SubpixelDualSource |
-            BlendMode::MultiplyDualSource => {
+            BlendMode::SubpixelDualSource => {
                 self.dual_source.expect("bug: no dual source shader loaded")
             }
         }

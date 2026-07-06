@@ -218,11 +218,10 @@ fn encode_blend_mode(blend_mode: BlendMode) -> u32 {
         BlendMode::PremultipliedAlpha => 2,
         BlendMode::PremultipliedDestOut => 3,
         BlendMode::SubpixelDualSource => 4,
-        BlendMode::MultiplyDualSource => 5,
-        BlendMode::Screen => 6,
-        BlendMode::Exclusion => 7,
-        BlendMode::PlusLighter => 8,
-        BlendMode::Advanced(mode) => 9 + mode as u32,
+        BlendMode::Screen => 5,
+        BlendMode::Exclusion => 6,
+        BlendMode::PlusLighter => 7,
+        BlendMode::Advanced(mode) => 8 + mode as u32,
     }
 }
 
@@ -233,11 +232,10 @@ fn decode_blend_mode(val: u32) -> BlendMode {
         2 => BlendMode::PremultipliedAlpha,
         3 => BlendMode::PremultipliedDestOut,
         4 => BlendMode::SubpixelDualSource,
-        5 => BlendMode::MultiplyDualSource,
-        6 => BlendMode::Screen,
-        7 => BlendMode::Exclusion,
-        8 => BlendMode::PlusLighter,
-        _ => BlendMode::Advanced(unsafe { std::mem::transmute::<u8, MixBlendMode>((val - 9) as u8) }),
+        5 => BlendMode::Screen,
+        6 => BlendMode::Exclusion,
+        7 => BlendMode::PlusLighter,
+        _ => BlendMode::Advanced(unsafe { std::mem::transmute::<u8, MixBlendMode>((val - 8) as u8) }),
     }
 }
 

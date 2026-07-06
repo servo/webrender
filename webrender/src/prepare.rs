@@ -1309,7 +1309,6 @@ fn prepare_prim_for_render(
                                 mode,
                                 frame_context.fb_config.gpu_supports_advanced_blend,
                                 frame_context.fb_config.advanced_blend_is_coherent,
-                                frame_context.fb_config.dual_source_blending_is_supported,
                             ) {
                                 // No GPU blend equation available: composite via a
                                 // software readback of the backdrop (ps_quad_mix_blend).
@@ -1317,10 +1316,6 @@ fn prepare_prim_for_render(
                                     mix_blend = Some(mode);
                                     true
                                 }
-                                // Dual-source blending needs a second shader output
-                                // that the quad textured shader doesn't produce; keep
-                                // these on the legacy brush path.
-                                Some(BlendMode::MultiplyDualSource) => false,
                                 // Advanced blend equation, or a fixed-function blend
                                 // (Screen / Exclusion / PlusLighter): draw the picture
                                 // content as a blended image quad.

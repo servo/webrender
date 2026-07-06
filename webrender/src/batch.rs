@@ -1187,7 +1187,6 @@ impl BatchBuilder {
                             mode,
                             ctx.use_advanced_blending,
                             !ctx.break_advanced_blend_batches,
-                            ctx.use_dual_source_blending,
                         ).is_some() => {
                             let key = BatchKey::new(
                                 BatchKind::Brush(
@@ -1197,16 +1196,12 @@ impl BatchBuilder {
                                     mode,
                                     ctx.use_advanced_blending,
                                     !ctx.break_advanced_blend_batches,
-                                    ctx.use_dual_source_blending,
                                 ).unwrap(),
                                 textures,
                             );
 
                             let prim_user_data = ImageBrushUserData {
-                                color_mode: match key.blend_mode {
-                                    BlendMode::MultiplyDualSource => ShaderColorMode::MultiplyDualSource,
-                                    _ => ShaderColorMode::Image,
-                                },
+                                color_mode: ShaderColorMode::Image,
                                 alpha_type: AlphaType::PremultipliedAlpha,
                                 raster_space: RasterizationSpace::Screen,
                                 opacity: 1.0,
