@@ -82,7 +82,7 @@ pub fn get_shader_features(flags: ShaderFeatureFlags) -> ShaderFeatures {
 
     // Brush shaders
     let mut brush_alpha_features = base_prim_features.with("ALPHA_PASS");
-    for name in &["brush_solid", "brush_mix_blend"] {
+    for name in &["brush_mix_blend"] {
         let features: Vec<String> = vec![
             base_prim_features.finish(),
             brush_alpha_features.finish(),

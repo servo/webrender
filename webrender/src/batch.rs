@@ -44,7 +44,6 @@ pub const INVALID_SEGMENT_INDEX: i32 = 0xffff;
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BrushBatchKind {
-    Solid,
     Image(ImageBufferKind),
     MixBlend {
         task_id: RenderTaskId,
@@ -1030,9 +1029,8 @@ impl BatchBuilder {
             PrimitiveKind::ImageBorder { .. } => true,
             // Patterned line decorations (Dashed / Dotted / Wavy) batch
             // as `BrushBatchKind::Image` over a cached pattern tile and
-            // rely on shader-level repetition to span the segment.
-            // Solid lines batch as `BrushBatchKind::Solid`, where the
-            // REPETITION flag is harmless.
+            // rely on shader-level repetition to span the segment. The
+            // REPETITION flag is harmless for solid lines.
             PrimitiveKind::LineDecoration { .. } => true,
             // Other prim kinds don't reach the brush_image consumer of
             // BatchFeatures::REPETITION; the flag is dead state for

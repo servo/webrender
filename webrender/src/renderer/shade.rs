@@ -552,7 +552,6 @@ pub struct Shaders {
     cs_svg_filter_node: ShaderHandle,
 
     // Brush shaders
-    brush_solid: BrushShader,
     brush_image: Vec<Option<BrushShader>>,
     brush_fast_image: Vec<Option<BrushShader>>,
     brush_mix_blend: BrushShader,
@@ -627,15 +626,6 @@ impl Shaders {
         let shader_list = get_shader_features(shader_flags);
 
         let mut loader = ShaderLoader::new();
-
-        let brush_solid = BrushShader::new(
-            "brush_solid",
-            &[],
-            &shader_list,
-            false /* advanced blend */,
-            false /* dual source */,
-            &mut loader,
-        )?;
 
         let brush_mix_blend = BrushShader::new(
             "brush_mix_blend",
@@ -1027,7 +1017,6 @@ impl Shaders {
             cs_border_solid,
             cs_scale,
             cs_svg_filter_node,
-            brush_solid,
             brush_image,
             brush_fast_image,
             brush_mix_blend,
@@ -1217,9 +1206,6 @@ impl Shaders {
                     features.remove(BatchFeatures::ANTIALIASING);
                 }
                 let brush_shader = match brush_kind {
-                    BrushBatchKind::Solid => {
-                        &mut self.brush_solid
-                    }
                     BrushBatchKind::Image(image_buffer_kind) => {
                         if features.contains(BatchFeatures::ANTIALIASING) ||
                             features.contains(BatchFeatures::REPETITION) {
