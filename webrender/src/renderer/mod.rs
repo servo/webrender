@@ -253,7 +253,6 @@ impl BatchKind {
                 match kind {
                     BrushBatchKind::Image(..) => GPU_TAG_BRUSH_IMAGE,
                     BrushBatchKind::MixBlend { .. } => GPU_TAG_BRUSH_MIXBLEND,
-                    BrushBatchKind::YuvImage(..) => GPU_TAG_BRUSH_YUV_IMAGE,
                 }
             }
             BatchKind::TextRun(_) => GPU_TAG_PRIM_TEXT_RUN,

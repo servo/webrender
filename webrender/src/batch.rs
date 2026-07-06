@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, ImageBufferKind};
-use api::{FontInstanceFlags, YuvColorSpace, YuvFormat, ColorDepth, ColorRange};
+use api::FontInstanceFlags;
 use api::units::*;
 use crate::command_buffer::PrimitiveCommand;
 use crate::pattern::PatternKind;
@@ -49,7 +49,6 @@ pub enum BrushBatchKind {
         task_id: RenderTaskId,
         backdrop_id: RenderTaskId,
     },
-    YuvImage(ImageBufferKind, YuvFormat, ColorDepth, YuvColorSpace, ColorRange),
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]

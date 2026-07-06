@@ -141,8 +141,7 @@ pub fn get_shader_features(flags: ShaderFeatureFlags) -> ShaderFeatures {
     }
     shaders.insert("cs_scale", composite_features.clone());
 
-    // YUV image brush and composite shaders
-    let mut yuv_features: Vec<String> = Vec::new();
+    // YUV composite shaders
     for texture_type in &texture_types {
         let mut list = FeatureList::new();
         if !texture_type.is_empty() {
@@ -150,11 +149,7 @@ pub fn get_shader_features(flags: ShaderFeatureFlags) -> ShaderFeatures {
         }
         list.add("YUV");
         composite_features.push(list.finish());
-        yuv_features.push(list.concat(&base_prim_features).finish());
-        yuv_features.push(list.concat(&brush_alpha_features).finish());
-        yuv_features.push(list.with("DEBUG_OVERDRAW").finish());
     }
-    shaders.insert("brush_yuv_image", yuv_features);
 
     // Fast path composite shaders
     for texture_type in &composite_texture_types {
