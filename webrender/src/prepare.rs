@@ -72,6 +72,11 @@ pub fn prepare_picture(
     tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
     prim_instances: &mut Vec<PrimitiveInstance>,
 ) -> Option<storage::Index<PictureScratch>> {
+    // Only successfully-prepared pictures are cached here, so a cache hit is
+    // always a valid scratch handle. Pictures that yielded no scratch are not
+    // memoized: take_context's only None path (invisible picture) is a cheap,
+    // side-effect-free query that is stable within a frame, so re-consulting it
+    // on a repeat visit is fine and avoids caching an invalid handle.
     if let Some(handle) = frame_state.picture_scratch_handles[pic_index.0] {
         return Some(handle);
     }
@@ -87,10 +92,6 @@ pub fn prepare_picture(
         scratch,
         tile_caches,
     ) else {
-        // Mark as visited-without-scratch so subsequent visits short-circuit
-        // with the same INVALID handle the existing code already exposed via
-        // PictureInstance.primary_render_task_id == None.
-        frame_state.picture_scratch_handles[pic_index.0] = Some(storage::Index::INVALID);
         return None;
     };
 
