@@ -1218,6 +1218,7 @@ impl<'a> SceneBuilder<'a> {
                 is_2d_scale_translation: true,
                 should_snap: true,
                 paired_with_perspective: false,
+                is_offset_only: false,
             },
             origin.to_vector(),
             true,
@@ -1926,7 +1927,6 @@ impl<'a> SceneBuilder<'a> {
                 info,
                 &clip_items,
                 &mut self.interners,
-                P::SNAP_CLIPS,
             );
 
             self.add_prim_to_draw_list(
@@ -2678,6 +2678,7 @@ impl<'a> SceneBuilder<'a> {
                 is_2d_scale_translation: true,
                 should_snap: true,
                 paired_with_perspective: false,
+                is_offset_only: false,
             },
             LayoutVector2D::zero(),
             true,
@@ -3073,7 +3074,6 @@ impl<'a> SceneBuilder<'a> {
             &info,
             &[],
             &mut self.interners,
-            P::SNAP_CLIPS,
         );
 
         // Construct and add a primitive for the given shadow.
@@ -3105,7 +3105,6 @@ impl<'a> SceneBuilder<'a> {
                 &pending_primitive.info,
                 &[],
                 &mut self.interners,
-                P::SNAP_CLIPS,
             );
 
             self.add_prim_to_draw_list(
@@ -3606,7 +3605,6 @@ impl<'a> SceneBuilder<'a> {
             info,
             &[],
             &mut self.interners,
-            true,
         );
 
         // Create the backdrop prim - this is a placeholder which sets the size of resolve

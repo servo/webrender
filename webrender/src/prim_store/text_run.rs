@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, FontInstanceFlags, GlyphInstance, RasterSpace, Shadow};
+use api::{ColorF, FontInstanceFlags, GlyphInstance, RasterSpace, ReferenceFrameKind, Shadow};
 use api::units::{LayoutToWorldTransform, DevicePixelScale};
 use api::units::*;
 use crate::scene_building::{CreateShadow, IsVisible};
@@ -17,6 +17,7 @@ use crate::resource_cache::ResourceCache;
 use crate::util::MatrixHelpers;
 use crate::prim_store::{InternablePrimitive, PrimitiveKind};
 use crate::spatial_tree::{SpatialTree, SpatialNodeIndex};
+use crate::spatial_node::SpatialNodeType;
 use std::ops;
 
 use super::storage;
@@ -185,9 +186,6 @@ impl intern::Internable for TextRun {
 }
 
 impl InternablePrimitive for TextRun {
-    // Text renders in device space; its clips must not snap (bug 2050692).
-    const SNAP_CLIPS: bool = false;
-
     fn into_key(
         self,
         info: &LayoutPrimitiveInfo,
@@ -512,29 +510,62 @@ impl TextRunTemplate {
             // Device mode.
             let anchor_device = anchor_world * dps;
 
-            // No run-level snap. Each glyph is placed at its exact device
-            // position; the per-glyph floor + subpixel GlyphKey carry the
-            // fractional part, so the glyph renders exactly where Gecko put it
-            // (bug 2050692). The run has no single snapped anchor to fold into the
-            // glyphs, so a run never shifts relative to its clip/box. Stability
-            // under scrolling comes from the spatial tree, which already snaps
-            // scroll offsets (and should_snap frame transforms) to the device grid.
+            // Snap the run's reference point to the device grid and shift all
+            // glyphs by that delta. Baseline snaps the full reference-frame origin
+            // (origin-to-root), which aligns scaled/transformed content and keeps a
+            // fractional transform consistent (e.g. translate(7.49) and
+            // translate(7.0) produce the same aligned frame). But an offset-only
+            // reference frame merely positions content (an nsIFrame layout offset or
+            // an identity transform such as translateZ(0)); it moves no content, so
+            // the full-origin snap would fold in the frame's static layout position
+            // and shift the text ~1px off where the same content renders unframed
+            // (bug 2050692: clipped Slack channel names). For such a frame the static
+            // origin must stay sub-pixel, matching unframed text - so the reference is
+            // zero and only the per-glyph device snap applies. The offset-only flag is
+            // set by the embedder (Gecko / wrench synthesize these frames explicitly),
+            // stating that intent directly instead of inferring it from the matrix
+            // shape. Frames that genuinely scale or rotate content have no unframed
+            // equivalent and keep the full-origin snap (e.g.
+            // layout/reftests/bugs/637852-1).
+            let reference = match &spatial_tree.get_spatial_node(spatial_node_index).node_type {
+                SpatialNodeType::ReferenceFrame(info)
+                    if matches!(
+                        info.kind,
+                        ReferenceFrameKind::Transform { is_offset_only: true, .. }
+                    ) =>
+                {
+                    LayoutPoint::zero()
+                }
+                _ => {
+                    let root = spatial_tree.root_reference_frame_index();
+                    spatial_tree
+                        .get_relative_transform(spatial_node_index, root)
+                        .into_transform()
+                        .transform_point2d(LayoutPoint::zero())
+                        .unwrap_or(LayoutPoint::zero())
+                }
+            };
+            let reference_device = DevicePoint::new(reference.x * dps.0, reference.y * dps.0);
+            let snap_shift = reference_device.round() - reference_device;
             glyph_offsets.reserve(self.glyphs.len());
 
             scratch.frame.glyph_keys.extend(self.glyphs.iter().map(|src| {
-                // Exact glyph pen position in absolute device space.
+                // Glyph pen position in absolute device space, with the
+                // reference-frame snap applied.
                 let glyph_world = transform
                     .transform_point2d(local_rect.min + src.point.to_vector())
                     .unwrap_or(anchor_world);
-                let device_pen = glyph_world * dps;
+                let device_pen = glyph_world * dps + snap_shift;
 
-                // Floor to the device grid and store relative to the unsnapped
-                // anchor; the shader re-adds the unsnapped anchor, recovering this
-                // position. The subpixel GlyphKey (fractional part of `device_pen`)
-                // rasterizes the glyph at its exact sub-pixel offset.
+                // Snap the per-glyph device position to the grid and store it
+                // relative to the unsnapped anchor; the shader re-adds the
+                // unsnapped anchor, recovering this snapped position.
                 let snapped = (device_pen + snap_bias).floor();
                 glyph_offsets.push(snapped - anchor_device);
 
+                // Subpixel offset comes from the fractional part of `device_pen`
+                // (reference-frame aligned), so it reflects the glyph's position
+                // within the snapped frame.
                 GlyphKey::new(src.index, device_pen, subpx_dir)
             }))
         } else {
