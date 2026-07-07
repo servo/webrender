@@ -2,7 +2,7 @@ root:
   items:
     - type: stacking-context
       bounds: [0, 0, 1920, 1200]
-      transform: translate(-45, 7)
+      transform: translate(-45, 8)
       items:
       - type: stacking-context
         filters: [opacity(0.9)]

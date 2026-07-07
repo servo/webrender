@@ -860,6 +860,12 @@ impl Default for PrimitiveStore {
 /// Trait for primitives that are directly internable.
 /// see SceneBuilder::add_primitive<P>
 pub trait InternablePrimitive: intern::Internable<InternData = ()> + Sized {
+    /// Whether this primitive snaps its geometry and clips to the device pixel
+    /// grid. Overridden to `false` for device-space content (text runs), whose
+    /// clips must stay at their exact sub-pixel position (bug 2050692). Used
+    /// when building the primitive's clip leaf.
+    const SNAP_CLIPS: bool = true;
+
     /// Build a new key from self with `info`.
     fn into_key(
         self,

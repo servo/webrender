@@ -15,7 +15,7 @@ use crate::composite::CompositeState;
 use crate::profiler::TransactionProfile;
 use crate::renderer::GpuBufferBuilder;
 use crate::spatial_tree::{SpatialTree, SpatialNodeIndex};
-use crate::clip::{ClipChainInstance, ClipTree};
+use crate::clip::{ClipChainInstance, ClipTree, ClipNodeId};
 use crate::composite::CompositorSurfaceKind;
 use crate::frame_builder::FrameBuilderConfig;
 use crate::picture::{PictureCompositeMode, ClusterFlags, SurfaceInfo};
@@ -359,20 +359,40 @@ pub fn update_prim_visibility(
         snapper.set_target_spatial_node(cluster.spatial_node_index, frame_context.spatial_tree);
 
         for prim_instance_index in cluster.prim_range() {
-            let snapped_local_rect = snapper.snap_rect(
-                &frame_state.prim_instances[prim_instance_index].unsnapped_prim_rect,
-            );
+            // A prim's snap policy is folded into its clip leaf: device-space
+            // prims (text) carry the `INVALID` sentinel and snap nothing - their
+            // rect and clips stay at exact sub-pixel positions so a fractional
+            // clip edge is an AA boundary through the glyphs (bug 2050692).
+            // Everyone else snaps their rect and own clips to the device grid.
+            let leaf_id = frame_state.prim_instances[prim_instance_index].clip_leaf_id;
+            let snaps = frame_state.clip_tree.get_leaf(leaf_id).prim_clip_root
+                != ClipNodeId::INVALID;
+
+            let unsnapped_prim_rect =
+                frame_state.prim_instances[prim_instance_index].unsnapped_prim_rect;
+            let snapped_local_rect = if snaps {
+                snapper.snap_rect(&unsnapped_prim_rect)
+            } else {
+                // Device-space prims (text) keep their content at exact sub-pixel
+                // positions, but their bounding rect still lands on the device
+                // grid - rounded *outward* so it stays conservative and never
+                // shifts an edge (which would desync the surface/cluster
+                // footprint from the exact-positioned glyphs). Safe because text
+                // rendering anchors on `unsnapped_prim_rect`, never this rect.
+                snapper.snap_rect_round_out(&unsnapped_prim_rect)
+            };
             frame_state.scratch.primitive.frame.draws[prim_instance_index].snapped_local_rect =
                 snapped_local_rect;
 
-            // Picture / tile-cache leaves carry `max_rect`; snapping `max_rect`
-            // would overflow through the snap transform, so pass those through.
-            let leaf_id = frame_state.prim_instances[prim_instance_index].clip_leaf_id;
+            // Picture / tile-cache leaves carry `max_rect` (snapping it would
+            // overflow the snap transform) and device-space leaves don't snap;
+            // both pass through. Other prims snap their own leaf clip for crisp
+            // fill/border edges.
             let leaf = frame_state.clip_tree.get_leaf_mut(leaf_id);
-            if leaf.unsnapped_local_clip_rect == LayoutRect::max_rect() {
-                leaf.snapped_local_clip_rect = leaf.unsnapped_local_clip_rect;
+            let unsnapped = leaf.unsnapped_local_clip_rect;
+            if unsnapped == LayoutRect::max_rect() || !snaps {
+                leaf.snapped_local_clip_rect = unsnapped;
             } else {
-                let unsnapped = leaf.unsnapped_local_clip_rect;
                 leaf.snapped_local_clip_rect = snapper.snap_rect(&unsnapped);
             }
 
