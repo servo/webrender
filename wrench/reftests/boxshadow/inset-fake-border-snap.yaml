@@ -1,0 +1,27 @@
+---
+# Bug 2052033: an inset, zero-blur box-shadow used as a "fake border" whose
+# element sits at a fractional device position. The ring's outer edge is the
+# (snapped) element rect; its inner edge is a ClipOut derived by insetting the
+# element by the spread. That inner ClipOut must NOT be snapped to the device
+# grid on its own -- if it is, each side rounds independently and the sides
+# thicken at different times as the spread animates.
+#
+# This is the != companion of inset-fake-border-snap-notref.yaml, which builds
+# the same ring with an ordinary (snapped) inner rect. With the fix the inner
+# edge here stays fractional, so the two renders differ; without the fix the
+# inner edge is snapped identically to the notref and the renders match.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 250, 250]
+      items:
+        - type: rect
+          bounds: [0, 0, 250, 250]
+          color: [255, 255, 255]
+        - type: box-shadow
+          bounds: [20.4, 20.3, 200.5, 200.5]
+          color: [0, 0, 0, 1]
+          clip-mode: inset
+          offset: [0, 0]
+          blur-radius: 0
+          spread-radius: 1.3

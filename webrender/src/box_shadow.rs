@@ -186,6 +186,12 @@ impl<'a> SceneBuilder<'a> {
                     }
 
                     // TODO(gw): Add a fast path for ClipOut + zero border radius!
+                    // Anchor the inner ClipOut edge to the snapped element by
+                    // snapping with the spread as the outset (bug 2052033): the
+                    // edge stays a constant `spread` from the snapped element,
+                    // rather than each side rounding on its own (which makes the
+                    // fake-border sides thicken at different times as the spread
+                    // animates, and the ring width breathe under motion).
                     clips.push(ClipItemEntry {
                         key: ClipItemKey {
                             kind: ClipItemKeyKind::rounded_rect(
@@ -195,12 +201,16 @@ impl<'a> SceneBuilder<'a> {
                         },
                         spatial_node_index,
                         clip_rect: prim_info.rect,
+                        snap_outset: Au::from_f32_px(spread_radius),
                     });
 
                     (shadow_rect, shadow_radius)
                 }
                 BoxShadowClipMode::Inset => {
                     if !shadow_rect.is_empty() {
+                        // See the Outset arm: anchor the inner ClipOut edge to
+                        // the snapped element via the spread outset, rather than
+                        // snapping it independently (bug 2052033).
                         clips.push(ClipItemEntry {
                             key: ClipItemKey {
                                 kind: ClipItemKeyKind::rounded_rect(
@@ -210,6 +220,7 @@ impl<'a> SceneBuilder<'a> {
                             },
                             spatial_node_index,
                             clip_rect: shadow_rect,
+                            snap_outset: Au::from_f32_px(spread_radius),
                         });
                     }
 
@@ -217,6 +228,9 @@ impl<'a> SceneBuilder<'a> {
                 }
             };
 
+            // The outer Clip matches the RectanglePrim rect and snaps normally
+            // (both snapped the same way), so the outer edge stays crisp and
+            // aligned; only the inner ClipOut above uses the spread outset.
             clips.push(ClipItemEntry {
                 key: ClipItemKey {
                     kind: ClipItemKeyKind::rounded_rect(
@@ -226,6 +240,7 @@ impl<'a> SceneBuilder<'a> {
                 },
                 spatial_node_index,
                 clip_rect: final_prim_rect,
+                snap_outset: Au(0),
             });
 
             self.add_primitive(

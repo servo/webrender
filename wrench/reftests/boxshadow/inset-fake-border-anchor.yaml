@@ -1,0 +1,28 @@
+---
+# Bug 2052033: anchor companion to inset-fake-border-snap.yaml.
+#
+# A fractional-position element with an INTEGER spread. Because the inner
+# ClipOut is anchored to the snapped element (inner = snap(element) - spread)
+# and the spread is an integer, every ring edge lands on the device grid: a
+# crisp, uniform 4px ring that matches the integer-rect reference exactly.
+#
+# If the inner edge were instead left at the unsnapped element +/- spread (the
+# "no_snap" approach that shimmers under motion), the ring would be soft and
+# non-uniform (~4.4 vs ~4.1 per side) and would NOT match the reference. This
+# guards the anchoring that keeps the ring width stable as the element
+# re-snaps under motion.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 250, 250]
+      items:
+        - type: rect
+          bounds: [0, 0, 250, 250]
+          color: [255, 255, 255]
+        - type: box-shadow
+          bounds: [20.4, 20.3, 200.5, 200.5]
+          color: [0, 0, 0, 1]
+          clip-mode: inset
+          offset: [0, 0]
+          blur-radius: 0
+          spread-radius: 4

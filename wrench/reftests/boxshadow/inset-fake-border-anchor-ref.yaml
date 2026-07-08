@@ -1,0 +1,20 @@
+---
+# == reference for inset-fake-border-anchor.yaml. See that file.
+#
+# The expected crisp, uniform 4px ring, built from integer-aligned rects:
+#   element snapped to (20,20)-(221,221)  [round of 20.4,20.3,220.9,220.8]
+#   inner hole = that inset by the 4px spread -> (24,24)-(217,217)
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 250, 250]
+      items:
+        - type: rect
+          bounds: [0, 0, 250, 250]
+          color: [255, 255, 255]
+        - type: rect
+          bounds: [20, 20, 201, 201]
+          color: [0, 0, 0]
+        - type: rect
+          bounds: [24, 24, 193, 193]
+          color: [255, 255, 255]

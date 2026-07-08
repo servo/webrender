@@ -1,0 +1,23 @@
+---
+# != reference for inset-fake-border-snap.yaml. See that file.
+#
+# The same fake-border ring built from ordinary rects: a black element rect
+# with a white rect punching the inner hole. Both rects go through the normal
+# (snapped) prim path, so the inner hole edge is snapped to the device grid.
+# The inner hole rect is the element inset by the 1.3 spread:
+#   x: 20.4 + 1.3 = 21.7   y: 20.3 + 1.3 = 21.6
+#   w: 200.5 - 2*1.3 = 197.9   h: 200.5 - 2*1.3 = 197.9
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 250, 250]
+      items:
+        - type: rect
+          bounds: [0, 0, 250, 250]
+          color: [255, 255, 255]
+        - type: rect
+          bounds: [20.4, 20.3, 200.5, 200.5]
+          color: [0, 0, 0]
+        - type: rect
+          bounds: [21.7, 21.6, 197.9, 197.9]
+          color: [255, 255, 255]

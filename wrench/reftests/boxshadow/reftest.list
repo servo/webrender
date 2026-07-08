@@ -1,5 +1,7 @@
 != inset-simple.yaml inset-simple-ref.yaml
 != inset-spread.yaml inset-spread-ref.yaml
+!= inset-fake-border-snap.yaml inset-fake-border-snap-notref.yaml
+== inset-fake-border-anchor.yaml inset-fake-border-anchor-ref.yaml
 fuzzy-if(platform(swgl),3,2) == inset-no-blur-radius.yaml inset-no-blur-radius-ref.png
 == inset-spread-large.yaml inset-spread-large-ref.yaml
 platform(linux,mac) == inset-alpha.yaml inset-alpha.png
