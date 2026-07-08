@@ -759,7 +759,18 @@ impl ClipTreeBuilder {
                 }
             }
 
-            let clip_chain_index = self.clip_chain_map[&clip_chain_id];
+            // Bug 1782001: a miss means an item referenced a clip-chain that was never
+            // defined in this scene. Report the id, pipeline and number of defined chains
+            // so crash reports can tell a builder bug (small, in-range id) from a corrupt
+            // display list (garbage id / near-empty map) rather than "no entry found for key".
+            let clip_chain_index = match self.clip_chain_map.get(&clip_chain_id) {
+                Some(index) => *index,
+                None => panic!(
+                    "webrender: missing clip-chain {:?} in build_clip_set (defined_chains={})",
+                    clip_chain_id,
+                    self.clip_chain_map.len(),
+                ),
+            };
 
             self.clip_handles_buffer.clear();
 
@@ -818,7 +829,14 @@ impl ClipTreeBuilder {
         clip_chain_id: ClipChainId,
         interners: &Interners,
     ) -> bool {
-        let clip_chain_index = self.clip_chain_map[&clip_chain_id];
+        let clip_chain_index = match self.clip_chain_map.get(&clip_chain_id) {
+            Some(index) => *index,
+            None => panic!(
+                "webrender: missing clip-chain {:?} in clip_chain_has_complex_clips (defined_chains={})",
+                clip_chain_id,
+                self.clip_chain_map.len(),
+            ),
+        };
         self.has_complex_clips_impl(clip_chain_index, interners)
     }
 
@@ -832,7 +850,14 @@ impl ClipTreeBuilder {
         interners: &Interners,
         spatial_tree: &SceneSpatialTree,
     ) -> bool {
-        let clip_chain_index = self.clip_chain_map[&clip_chain_id];
+        let clip_chain_index = match self.clip_chain_map.get(&clip_chain_id) {
+            Some(index) => *index,
+            None => panic!(
+                "webrender: missing clip-chain {:?} in clip_chain_complex_clips_are_promotable (defined_chains={})",
+                clip_chain_id,
+                self.clip_chain_map.len(),
+            ),
+        };
         self.complex_clips_are_promotable_impl(clip_chain_index, interners, spatial_tree)
     }
 
