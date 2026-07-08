@@ -1,0 +1,22 @@
+# Expected: every line snapped to a stable whole-pixel thickness at its
+# rounded position (1px for the sub-pixel/~1px lines, 2px for the genuine 2px
+# line). Drawn as rects at integer device coordinates, which snapping leaves
+# unchanged.
+---
+root:
+  items:
+    - type: rect
+      bounds: [20, 20, 200, 1]
+      color: black
+    - type: rect
+      bounds: [20, 40, 200, 1]
+      color: black
+    - type: rect
+      bounds: [20, 60, 200, 2]
+      color: black
+    - type: rect
+      bounds: [20, 90, 1, 200]
+      color: black
+    - type: rect
+      bounds: [40, 90, 1, 200]
+      color: black

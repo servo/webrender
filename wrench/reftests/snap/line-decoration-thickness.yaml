@@ -1,0 +1,47 @@
+# Bug 1783779: a decoration line thinner than a device pixel must not vanish
+# or double in thickness depending on the sub-pixel position it lands at.
+# Snapping the two thin-axis edges independently rounds a sub-pixel line to
+# either 0 (it disappears) or 2 device pixels; the snap must instead round the
+# thickness once, floored at 1, so every line below renders as a stable 1px
+# (or a genuine 2px) line matching the reference. The fractional coordinates
+# stand in for the fractional device positions a `scale()` transform produces.
+---
+root:
+  items:
+    # Horizontal, sub-pixel thick at a phase that collapses to zero without the
+    # fix (round(20.1) == round(20.4)).
+    - type: line
+      bounds: [20, 20.1, 200, 0.3]
+      orientation: horizontal
+      color: black
+      style: solid
+
+    # Horizontal, ~1px thick at a phase that inflates to 2px without the fix
+    # (round(40.45) == 40, round(41.55) == 42).
+    - type: line
+      bounds: [20, 40.45, 200, 1.1]
+      orientation: horizontal
+      color: black
+      style: solid
+
+    # Horizontal, a genuine 2px line: must stay 2px (guards against the fix
+    # over-shrinking real lines).
+    - type: line
+      bounds: [20, 60.0, 200, 2.0]
+      orientation: horizontal
+      color: black
+      style: solid
+
+    # Vertical, sub-pixel thick, collapse phase.
+    - type: line
+      bounds: [20.1, 90, 0.3, 200]
+      orientation: vertical
+      color: black
+      style: solid
+
+    # Vertical, ~1px thick, inflate phase.
+    - type: line
+      bounds: [40.45, 90, 1.1, 200]
+      orientation: vertical
+      color: black
+      style: solid

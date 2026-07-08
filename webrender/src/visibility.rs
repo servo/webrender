@@ -364,23 +364,17 @@ pub fn update_prim_visibility(
             // rect and clips stay at exact sub-pixel positions so a fractional
             // clip edge is an AA boundary through the glyphs (bug 2050692).
             // Everyone else snaps their rect and own clips to the device grid.
-            let leaf_id = frame_state.prim_instances[prim_instance_index].clip_leaf_id;
+            // How the rect itself is rounded (nearest / round-out for unsnapped
+            // text / thickness-preserving for decoration lines) is decided by
+            // `PrimitiveInstance::snap_rounding`.
+            let prim_instance = &frame_state.prim_instances[prim_instance_index];
+            let leaf_id = prim_instance.clip_leaf_id;
             let snaps = frame_state.clip_tree.get_leaf(leaf_id).prim_clip_root
                 != ClipNodeId::INVALID;
 
-            let unsnapped_prim_rect =
-                frame_state.prim_instances[prim_instance_index].unsnapped_prim_rect;
-            let snapped_local_rect = if snaps {
-                snapper.snap_rect(&unsnapped_prim_rect)
-            } else {
-                // Device-space prims (text) keep their content at exact sub-pixel
-                // positions, but their bounding rect still lands on the device
-                // grid - rounded *outward* so it stays conservative and never
-                // shifts an edge (which would desync the surface/cluster
-                // footprint from the exact-positioned glyphs). Safe because text
-                // rendering anchors on `unsnapped_prim_rect`, never this rect.
-                snapper.snap_rect_round_out(&unsnapped_prim_rect)
-            };
+            let rounding = prim_instance.snap_rounding(snaps, frame_state.data_stores);
+            let snapped_local_rect =
+                snapper.snap_rect_rounded(&prim_instance.unsnapped_prim_rect, rounding);
             frame_state.scratch.primitive.frame.draws[prim_instance_index].snapped_local_rect =
                 snapped_local_rect;
 

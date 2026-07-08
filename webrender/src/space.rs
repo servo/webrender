@@ -340,41 +340,82 @@ impl SpaceSnapper {
         };
     }
 
-    /// Snap a rect to the device pixel grid using the current target's snapping
-    /// transform: map the rect into device space, snap it to the integer pixel
-    /// grid, then map it back. A target that can't be snapped (or a disabled
-    /// snapper) leaves the rect unchanged.
+    /// Snap a rect to the device pixel grid to the nearest pixel. Shorthand for
+    /// `snap_rect_rounded(rect, SnapRounding::Nearest)`.
     pub fn snap_rect<F>(&self, rect: &Box2D<f32, F>) -> Box2D<f32, F> where F: fmt::Debug {
+        self.snap_rect_rounded(rect, SnapRounding::Nearest)
+    }
+
+    /// Snap a rect to the device pixel grid using the current target's snapping
+    /// transform: map the rect into device space, round it to the grid per
+    /// `rounding`, then map it back. A target that can't be snapped (or a
+    /// disabled snapper) leaves the rect unchanged. See `SnapRounding` for what
+    /// each mode is for.
+    pub fn snap_rect_rounded<F>(&self, rect: &Box2D<f32, F>, rounding: SnapRounding) -> Box2D<f32, F> where F: fmt::Debug {
         debug_assert!(!self.enabled || self.current_target_spatial_node_index != SpatialNodeIndex::INVALID);
         match self.snapping_transform {
             Some(SnapTransform { ref scale_offset, swap_xy }) => {
                 let rect = if swap_xy { swap_box_xy(rect) } else { *rect };
-                let snapped_device_rect: DeviceRect = scale_offset.map_rect(&rect).snap();
-                let unmapped: Box2D<f32, F> = scale_offset.unmap_rect(&snapped_device_rect);
+                let device_rect: DeviceRect = scale_offset.map_rect(&rect);
+                let snapped: DeviceRect = match rounding {
+                    SnapRounding::Nearest => device_rect.snap(),
+                    SnapRounding::RoundOut => device_rect.round_out(),
+                    SnapRounding::Line { horizontal } =>
+                        snap_line_device_rect(&device_rect, horizontal ^ swap_xy),
+                };
+                let unmapped: Box2D<f32, F> = scale_offset.unmap_rect(&snapped);
                 if swap_xy { swap_box_xy(&unmapped) } else { unmapped }
             }
             None => *rect,
         }
     }
+}
 
-    /// Like `snap_rect`, but rounds the device-space rect *outward* (floor min,
-    /// ceil max) instead of to the nearest pixel. The result still lands on the
-    /// device pixel grid but is guaranteed to fully contain the mapped rect and
-    /// never shifts an edge inward. Used to grid-align the footprint of prims
-    /// that are not themselves snapped (device-space text): the content stays at
-    /// its exact sub-pixel position while its bounding rect stays conservative
-    /// and pixel-aligned for surface / cluster allocation (bug 2050692).
-    pub fn snap_rect_round_out<F>(&self, rect: &Box2D<f32, F>) -> Box2D<f32, F> where F: fmt::Debug {
-        debug_assert!(!self.enabled || self.current_target_spatial_node_index != SpatialNodeIndex::INVALID);
-        match self.snapping_transform {
-            Some(SnapTransform { ref scale_offset, swap_xy }) => {
-                let rect = if swap_xy { swap_box_xy(rect) } else { *rect };
-                let snapped_device_rect: DeviceRect = scale_offset.map_rect(&rect).round_out();
-                let unmapped: Box2D<f32, F> = scale_offset.unmap_rect(&snapped_device_rect);
-                if swap_xy { swap_box_xy(&unmapped) } else { unmapped }
-            }
-            None => *rect,
-        }
+/// How a rect is rounded to the device pixel grid by `snap_rect_rounded`.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum SnapRounding {
+    /// Round each edge to the nearest device pixel. Crisp fills / borders that
+    /// tile seamlessly with neighbours (`round(max_of_A) == round(min_of_B)`).
+    Nearest,
+    /// Round the device rect *outward* (floor min, ceil max). The result still
+    /// lands on the grid but fully contains the mapped rect and never shifts an
+    /// edge inward. Grid-aligns the footprint of a prim that is not itself
+    /// snapped (device-space text): the content stays at its exact sub-pixel
+    /// position while its bounding rect stays conservative and pixel-aligned for
+    /// surface / cluster allocation (bug 2050692).
+    RoundOut,
+    /// Round the long (length) axis to nearest, but snap the thin (thickness)
+    /// axis to a single phase-independent whole-pixel extent (floored at 1 for a
+    /// non-empty line). Rounding both thin-axis edges independently makes a
+    /// sub-device-pixel-thick decoration line vanish (extent rounds to 0) or
+    /// double (rounds to 2) depending on the sub-pixel position it lands at for
+    /// the current scale (bug 1783779); snapping the extent once removes that
+    /// phase dependence. `horizontal` is the line orientation in the target's
+    /// own space (a horizontal line is thin in Y).
+    Line { horizontal: bool },
+}
+
+/// Snap a device-space decoration-line rect: round both edges of the long axis
+/// to the grid, and snap the thin axis to a phase-independent whole-pixel
+/// extent (floored at 1 for a non-empty line). See `SnapRounding::Line`.
+fn snap_line_device_rect(r: &DeviceRect, thin_is_y: bool) -> DeviceRect {
+    let snap_extent = |e: f32| if e > 0.0 { e.round().max(1.0) } else { 0.0 };
+    if thin_is_y {
+        let min_y = r.min.y.round();
+        DeviceRect::from_floats(
+            r.min.x.round(),
+            min_y,
+            r.max.x.round(),
+            min_y + snap_extent(r.max.y - r.min.y),
+        )
+    } else {
+        let min_x = r.min.x.round();
+        DeviceRect::from_floats(
+            min_x,
+            r.min.y.round(),
+            min_x + snap_extent(r.max.x - r.min.x),
+            r.max.y.round(),
+        )
     }
 }
 

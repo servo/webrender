@@ -3,10 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::ColorF;
-use api::{ImageRendering, PrimitiveFlags};
+use api::{ImageRendering, LineOrientation, PrimitiveFlags};
 use api::units::*;
 use malloc_size_of::MallocSizeOf;
 use crate::clip::ClipLeafId;
+use crate::render_backend::DataStores;
+use crate::space::SnapRounding;
 use crate::quad::QuadTileClassifier;
 use crate::renderer::{GpuBufferAddress, GpuBufferHandle, GpuBufferWriterF};
 use crate::segment::EdgeMask;
@@ -425,6 +427,26 @@ impl PrimitiveInstance {
             kind,
             clip_leaf_id,
             unsnapped_prim_rect,
+        }
+    }
+
+    /// How this prim's rect should be rounded to the device pixel grid.
+    ///
+    /// `snaps` is the prim's snap policy, taken from its clip leaf: `false` for
+    /// a device-space prim (text) that stays at exact sub-pixel positions and
+    /// only needs a conservative, grid-aligned footprint. A decoration line
+    /// snaps its thickness specially so it can't vanish or double with scale
+    /// (bug 1783779); everything else snaps to the nearest pixel.
+    pub fn snap_rounding(&self, snaps: bool, data_stores: &DataStores) -> SnapRounding {
+        if !snaps {
+            return SnapRounding::RoundOut;
+        }
+        match self.kind {
+            PrimitiveKind::LineDecoration { data_handle, .. } => SnapRounding::Line {
+                horizontal: data_stores.line_decoration[data_handle].kind.orientation
+                    == LineOrientation::Horizontal,
+            },
+            _ => SnapRounding::Nearest,
         }
     }
 
