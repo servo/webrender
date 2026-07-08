@@ -1440,27 +1440,6 @@ impl PictureInstance {
         }
     }
 
-    pub fn write_gpu_blocks(
-        &mut self,
-        frame_state: &mut FrameBuildingState,
-        data_stores: &DataStores,
-        scratch: &mut PictureScratch,
-    ) {
-        let raster_config = match self.raster_config {
-            Some(ref mut raster_config) => raster_config,
-            None => {
-                return;
-            }
-        };
-
-        raster_config.composite_mode.write_gpu_blocks(
-            &frame_state.surfaces[raster_config.surface_index.0],
-            &mut frame_state.frame_gpu_data,
-            data_stores,
-            &mut scratch.extra_gpu_data,
-        );
-    }
-
     #[cold]
     fn draw_debug_overlay(
         &self,
