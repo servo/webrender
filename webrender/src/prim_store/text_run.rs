@@ -312,8 +312,15 @@ impl TextRunTemplate {
         // Only support transforms that can be coerced to simple 2D transforms.
         // Add texture padding to the rasterized glyph buffer when one anticipates
         // the glyph will need to be scaled when rendered.
+        // A perspective component that only involves m34/m44 maps the glyphs'
+        // (coplanar, z=0) plane affinely, so they can still be rasterized and
+        // device-snapped in screen space; only a perspective that varies across
+        // the plane (m14/m24, a true keystone) needs local-raster rasterization.
+        // Using `has_2d_plane_perspective` instead of `has_perspective_component`
+        // keeps flat `perspective` ancestors on the sharp device path (bug 2052019)
+        // while genuinely 3D-transformed text still falls back to local raster.
         let (use_subpixel_aa, transform_glyphs, texture_padding, oversized) = if raster_space != RasterSpace::Screen ||
-            transform.has_perspective_component() || !transform.has_2d_inverse()
+            transform.has_2d_plane_perspective() || !transform.has_2d_inverse()
         {
             (false, false, true, device_font_size > FONT_SIZE_LIMIT)
         } else if transform.exceeds_2d_scale((FONT_SIZE_LIMIT / device_font_size) as f64) {

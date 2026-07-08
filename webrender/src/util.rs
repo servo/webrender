@@ -373,6 +373,15 @@ pub trait MatrixHelpers<Src, Dst> {
     /// Defined in the SkMatrix44 class.
     fn preserves_2d_axis_alignment(&self) -> bool;
     fn has_perspective_component(&self) -> bool;
+    /// Returns true only if the perspective divide varies across the z=0 plane
+    /// (`m14`/`m24` non-zero), i.e. a coplanar 2D surface is mapped with a
+    /// non-constant `w` (a true keystone). A perspective matrix whose only
+    /// perspective terms are `m34`/`m44` still maps a z=0 surface affinely
+    /// (constant `w`), so it returns false here even though
+    /// `has_perspective_component` is true. Used to decide whether coplanar
+    /// content (e.g. text) can still be rasterized and snapped in device space
+    /// (bug 2052019).
+    fn has_2d_plane_perspective(&self) -> bool;
     fn has_2d_inverse(&self) -> bool;
     /// Check if the matrix post-scaling on either the X or Y axes could cause geometry
     /// transformed by this matrix to have scaling exceeding the supplied limit.
@@ -436,6 +445,11 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for Transform3D<f32, Src, Dst> {
          self.m24.abs() > NEARLY_ZERO ||
          self.m34.abs() > NEARLY_ZERO ||
          (self.m44 - 1.0).abs() > NEARLY_ZERO
+    }
+
+    fn has_2d_plane_perspective(&self) -> bool {
+         self.m14.abs() > NEARLY_ZERO ||
+         self.m24.abs() > NEARLY_ZERO
     }
 
     fn has_2d_inverse(&self) -> bool {
