@@ -2,18 +2,18 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, ImageBufferKind};
+use api::ImageBufferKind;
 use api::FontInstanceFlags;
 use api::units::*;
 use crate::command_buffer::PrimitiveCommand;
 use crate::pattern::PatternKind;
 use crate::spatial_tree::SpatialNodeIndex;
 use glyph_rasterizer::{GlyphFormat, SubpixelDirection};
-use crate::gpu_types::{BrushFlags, BrushInstance, PrimitiveHeaders, ZBufferId, ZBufferIdGenerator};
+use crate::gpu_types::{BrushFlags, PrimitiveHeaders, ZBufferId, ZBufferIdGenerator};
 use crate::gpu_types::SplitCompositeInstance;
-use crate::gpu_types::{PrimitiveInstanceData, RasterizationSpace, GlyphInstance};
+use crate::gpu_types::{PrimitiveInstanceData, GlyphInstance};
 use crate::gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex};
-use crate::gpu_types::{ImageBrushUserData, MaskInstance};
+use crate::gpu_types::MaskInstance;
 use crate::internal_types::{FastHashMap, FrameAllocator, FrameMemory, FrameVec, Swizzle, TextureSource};
 use crate::picture::PictureCompositeMode;
 use crate::prim_store::PrimitiveKind;
@@ -29,8 +29,6 @@ use crate::space::SpaceMapper;
 use crate::transform::TransformPalette;
 use crate::visibility::{PrimitiveVisibilityFlags, DrawState};
 use std::{f32, i32, usize};
-use crate::util::{MaxRect, ScaleOffset};
-use crate::segment::EdgeMask;
 
 
 // Special sentinel value recognized by the shader. It is considered to be
@@ -745,42 +743,6 @@ impl BatchBuilder {
         self.batcher
     }
 
-    fn add_brush_instance_to_batches(
-        &mut self,
-        batch_key: BatchKey,
-        features: BatchFeatures,
-        bounding_rect: &PictureRect,
-        z_id: ZBufferId,
-        segment_index: i32,
-        edge_flags: EdgeMask,
-        clip_task_address: RenderTaskAddress,
-        brush_flags: BrushFlags,
-        prim_header_index: PrimitiveHeaderIndex,
-        resource_address: i32,
-    ) {
-        assert!(
-            !(brush_flags.contains(BrushFlags::NORMALIZED_UVS)
-                && features.contains(BatchFeatures::REPETITION)),
-            "Normalized UVs are not supported with repetition."
-        );
-        let instance = BrushInstance {
-            segment_index,
-            edge_flags,
-            clip_task_address,
-            brush_flags,
-            prim_header_index,
-            resource_address,
-        };
-
-        self.batcher.push_single_instance(
-            batch_key,
-            features,
-            bounding_rect,
-            z_id,
-            PrimitiveInstanceData::from(instance),
-        );
-    }
-
     fn add_split_composite_instance_to_batches(
         &mut self,
         batch_key: BatchKey,
@@ -969,12 +931,6 @@ impl BatchBuilder {
         let prim_instance = &prim_instances[draw_index.0 as usize];
         let is_anti_aliased = ctx.data_stores.prim_has_anti_aliasing(prim_instance);
 
-        let brush_flags = if is_anti_aliased {
-            BrushFlags::FORCE_AA
-        } else {
-            BrushFlags::empty()
-        };
-
         let vis_flags = match ctx.scratch.frame.draws[draw_index.0 as usize].state {
             DrawState::Culled => {
                 return;
@@ -1055,249 +1011,30 @@ impl BatchBuilder {
         }
 
         if let PrimitiveKind::Picture { pic_index, .. } = prim_instance.kind {
-            let pic_scratch_handle = ctx.scratch.frame.draws[draw_index.0 as usize].kind_scratch.unwrap_picture();
             let picture = &ctx.prim_store.pictures[pic_index.0];
-            let picture_scratch = &ctx.scratch.frame.pictures[pic_scratch_handle];
-            if let Some(snapshot) = picture.snapshot {
-                if snapshot.detached {
-                    return;
-                }
-            }
-
-            let prim_cache_address = ctx.globals.default_image_data;
 
             let Some(ref raster_config) = picture.raster_config else {
                 return;
             };
 
-            // If the child picture was rendered in local space, we can safely
-            // interpolate the UV coordinates with perspective correction.
-            let brush_flags = brush_flags | BrushFlags::PERSPECTIVE_INTERPOLATION;
-
-            let surface = &ctx.surfaces[raster_config.surface_index.0];
-            let mut local_clip_rect = prim_info.clip_chain.local_clip_rect;
-
-            // If we are drawing with snapping enabled, form a simple transform that just applies
-            // the scale / translation from the raster transform. Otherwise, in edge cases where the
-            // intermediate surface has a non-identity but axis-aligned transform (e.g. a 180 degree
-            // rotation) it can be applied twice.
-            let transform_id = if surface.surface_spatial_node_index == surface.raster_spatial_node_index {
-                transform_id
-            } else {
-                let map_local_to_raster = SpaceMapper::new_with_target(
-                    root_spatial_node_index,
-                    surface.surface_spatial_node_index,
-                    LayoutRect::max_rect(),
-                    ctx.spatial_tree,
-                );
-
-                let raster_rect = map_local_to_raster
-                    .map(&prim_rect)
-                    .unwrap();
-
-                let sx = (raster_rect.max.x - raster_rect.min.x) / (prim_rect.max.x - prim_rect.min.x);
-                let sy = (raster_rect.max.y - raster_rect.min.y) / (prim_rect.max.y - prim_rect.min.y);
-
-                let tx = raster_rect.min.x - sx * prim_rect.min.x;
-                let ty = raster_rect.min.y - sy * prim_rect.min.y;
-
-                let transform = ScaleOffset::new(sx, sy, tx, ty);
-
-                let raster_clip_rect = map_local_to_raster
-                    .map(&prim_info.clip_chain.local_clip_rect)
-                    .unwrap();
-                local_clip_rect = transform.unmap_rect(&raster_clip_rect);
-
-                transforms.gpu.get_custom(transform.to_transform())
-            };
-
-            let picture_prim_header = PrimitiveHeader {
-                local_rect: prim_rect,
-                local_clip_rect,
-                specific_prim_address: prim_cache_address.as_int(),
-                transform_id,
-                z: z_id,
-                render_task_address: self.batcher.render_task_address,
-                user_data: [0; 4], // Will be overridden by most uses
-            };
-
+            // Pictures are composited elsewhere: filters, opacity, mix-blend and
+            // blit go through the quad path, and 3D-context planes go through the
+            // split-composite command (handled at the top of add_prim_to_batch).
+            // The only composite modes that reach here are TileCache (a top-level
+            // primitive, effectively never encountered during batching) and
+            // IntermediateSurface (consumed as an input by another primitive);
+            // neither emits a batch instance.
             match raster_config.composite_mode {
-                PictureCompositeMode::TileCache { .. } => {
-                    // TODO(gw): For now, TileCache is still a composite mode, even though
-                    //           it will only exist as a top level primitive and never
-                    //           be encountered during batching. Consider making TileCache
-                    //           a standalone type, not a picture.
-                    return;
-                }
-                PictureCompositeMode::IntermediateSurface { .. } => {
-                    // TODO(gw): As an optimization, support making this a pass-through
-                    //           and/or drawing directly from here when possible
-                    //           (e.g. if not wrapped by filters / different spatial node).
-                    return;
-                }
-                _=>{}
-            }
-
-            let (clip_task_address, clip_mask_texture_id) = ctx.get_prim_clip_task_and_texture(
-                prim_info.clip_task_index,
-                render_tasks,
-            ).unwrap();
-
-            let pic_task_id = picture_scratch.primary_render_task_id.unwrap();
-
-            let (uv_rect_address, texture) = render_tasks.resolve_location(
-                pic_task_id,
-
-            ).unwrap();
-
-            // The set of input textures that most composite modes use,
-            // howevr some override it.
-            let textures = BatchTextures::prim_textured(
-                texture,
-                clip_mask_texture_id,
-            );
-
-            let (key, prim_user_data, resource_address) = match raster_config.composite_mode {
                 PictureCompositeMode::TileCache { .. }
-                | PictureCompositeMode::IntermediateSurface { .. }
-                => return,
-                // Filter pictures composite via the quad path (see prepare.rs); they only
-                // reach the brush path for 3D-context pictures, which effects never
-                // establish (filters flatten 3D).
-                PictureCompositeMode::Filter(..) => unreachable!(
-                    "filter pictures composite via the quad path"
+                | PictureCompositeMode::IntermediateSurface { .. } => {}
+                PictureCompositeMode::Filter(..)
+                | PictureCompositeMode::ComponentTransferFilter(..)
+                | PictureCompositeMode::MixBlend(..)
+                | PictureCompositeMode::Blit(..)
+                | PictureCompositeMode::SVGFEGraph(..) => unreachable!(
+                    "picture composite modes are handled by the quad or split-composite paths, not the brush path"
                 ),
-                PictureCompositeMode::ComponentTransferFilter(..) => unreachable!(
-                    "component-transfer filter pictures composite via the quad path"
-                ),
-                PictureCompositeMode::MixBlend(mode) if BlendMode::from_mix_blend_mode(
-                    mode,
-                    ctx.use_advanced_blending,
-                    !ctx.break_advanced_blend_batches,
-                ).is_some() => {
-                    let key = BatchKey::new(
-                        BatchKind::Brush(
-                            BrushBatchKind::Image(ImageBufferKind::Texture2D),
-                        ),
-                        BlendMode::from_mix_blend_mode(
-                            mode,
-                            ctx.use_advanced_blending,
-                            !ctx.break_advanced_blend_batches,
-                        ).unwrap(),
-                        textures,
-                    );
-
-                    let prim_user_data = ImageBrushUserData {
-                        color_mode: ShaderColorMode::Image,
-                        alpha_type: AlphaType::PremultipliedAlpha,
-                        raster_space: RasterizationSpace::Screen,
-                        opacity: 1.0,
-                    }.encode();
-
-                    (key, prim_user_data, uv_rect_address.as_int())
-                }
-                PictureCompositeMode::MixBlend(mode) => {
-                    let backdrop_id = picture_scratch.secondary_render_task_id.expect("no backdrop!?");
-
-                    let color0 = render_tasks[backdrop_id].get_target_texture();
-                    let color1 = render_tasks[pic_task_id].get_target_texture();
-
-                    // Create a separate brush instance for each batcher. For most cases,
-                    // there is only one batcher. However, in the case of drawing onto
-                    // a picture cache, there is one batcher per tile. Although not
-                    // currently used, the implementation of mix-blend-mode now supports
-                    // doing partial readbacks per-tile. In future, this will be enabled
-                    // and allow mix-blends to operate on picture cache surfaces without
-                    // a separate isolated intermediate surface.
-
-                    let batch_key = BatchKey::new(
-                        BatchKind::Brush(
-                            BrushBatchKind::MixBlend {
-                                task_id: self.batcher.render_task_id,
-                                backdrop_id,
-                            },
-                        ),
-                        BlendMode::PremultipliedAlpha,
-                        BatchTextures {
-                            input: TextureSet {
-                                colors: [
-                                    TextureSource::TextureCache(
-                                        color0,
-                                        Swizzle::default(),
-                                    ),
-                                    TextureSource::TextureCache(
-                                        color1,
-                                        Swizzle::default(),
-                                    ),
-                                    TextureSource::Invalid,
-                                ],
-                            },
-                            clip_mask: clip_mask_texture_id,
-                        },
-                    );
-                    let src_uv_address = render_tasks[pic_task_id].get_texture_address();
-                    let readback_uv_address = render_tasks[backdrop_id].get_texture_address();
-                    let prim_header = PrimitiveHeader {
-                        user_data: [
-                            mode as u32 as i32,
-                            readback_uv_address.as_int(),
-                            src_uv_address.as_int(),
-                            0,
-                        ],
-                        ..picture_prim_header
-                    };
-                    let prim_header_index = prim_headers.push(&prim_header);
-
-                    let instance = BrushInstance {
-                        segment_index: INVALID_SEGMENT_INDEX,
-                        edge_flags: EdgeMask::all(),
-                        clip_task_address,
-                        brush_flags,
-                        prim_header_index,
-                        resource_address: 0,
-                    };
-
-                    self.batcher.push_single_instance(
-                        batch_key,
-                        batch_features,
-                        bounding_rect,
-                        z_id,
-                        PrimitiveInstanceData::from(instance),
-                    );
-
-                    return;
-                }
-                // 3D-context (preserve-3d) Blit pictures composite their
-                // planes via PrimitiveCommand::SplitComposite (handled at
-                // the top of add_prim_to_batch); non-3D Blit pictures
-                // composite via the quad path. Neither reaches here.
-                PictureCompositeMode::Blit(_) => unreachable!(
-                    "Blit pictures composite via the split-composite command or the quad path"
-                ),
-                PictureCompositeMode::SVGFEGraph(..) => unreachable!(
-                    "SVG filter pictures composite via the quad path"
-                ),
-            };
-
-            let prim_header = PrimitiveHeader {
-                z: z_id,
-                user_data: prim_user_data,
-                ..picture_prim_header
-            };
-            let prim_header_index = prim_headers.push(&prim_header);
-
-            self.add_brush_instance_to_batches(
-                key,
-                batch_features,
-                bounding_rect,
-                z_id,
-                INVALID_SEGMENT_INDEX,
-                EdgeMask::all(),
-                clip_task_address,
-                brush_flags,
-                prim_header_index,
-                resource_address,
-            );
+            }
 
             return;
         }
@@ -1313,17 +1050,6 @@ impl BatchBuilder {
         };
 
         match prim_instance.kind {
-            // Handled above.
-            PrimitiveKind::Picture { .. } => {}
-            PrimitiveKind::RadialGradient { .. } => { }
-            PrimitiveKind::ConicGradient { .. } => { }
-            PrimitiveKind::ImageBorder { .. } => {}
-            PrimitiveKind::LineDecoration { .. } => {}
-            PrimitiveKind::YuvImage { .. } => {}
-            PrimitiveKind::BoxShadow { .. } => {
-                unreachable!("BUG: Should not hit box-shadow here as they are handled by quad infra");
-            }
-            PrimitiveKind::NormalBorder { .. } => {}
             PrimitiveKind::TextRun { data_handle, .. } => {
                 let text_run_scratch_handle = prim_info.kind_scratch.unwrap_text_run();
                 let run_scratch = &ctx.scratch.frame.text_runs[text_run_scratch_handle];
@@ -1548,17 +1274,7 @@ impl BatchBuilder {
                     },
                 );
             }
-            PrimitiveKind::Rectangle { .. } => {
-                unreachable!("BUG: rectangles should always use quad path");
-            }
-            PrimitiveKind::Image { .. } => {
-                unreachable!("BUG: images should always use quad path");
-            }
-            PrimitiveKind::LinearGradient { .. } => {
-                unreachable!("BUG: linear gradients should always use quad path");
-            }
-            PrimitiveKind::BackdropCapture { .. } => {}
-            PrimitiveKind::BackdropRender { .. } => {}
+            _ => {}
         }
     }
 }
