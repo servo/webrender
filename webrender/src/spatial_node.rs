@@ -646,7 +646,12 @@ impl SpatialNode {
                 state.nearest_scrolling_ancestor_offset += info.current_offset;
                 state.preserves_3d = false;
                 state.external_id = None;
-                state.scroll_offset = info.current_offset;
+                // A sticky offset translates the entire subtree uniformly (its
+                // perspective origin moves with the element), so it must not
+                // contribute to the perspective change-of-basis. Only genuine
+                // scroll offsets do. `scroll_offset` is read solely by that
+                // perspective path (see ReferenceFrameKind::Perspective).
+                state.scroll_offset = LayoutVector2D::zero();
             }
             SpatialNodeType::ScrollFrame(ref scrolling) => {
                 state.parent_accumulated_scroll_offset += scrolling.offset();
@@ -943,4 +948,86 @@ fn test_cst_perspective_relative_scroll() {
     let world_transform = st.get_world_transform(ref_frame).into_transform().cast_unit();
     let ref_transform = transform.then_translate(LayoutVector3D::new(0.0, -50.0, 0.0));
     assert!(world_transform.approx_eq(&ref_transform));
+}
+
+#[test]
+fn test_cst_perspective_relative_sticky() {
+    // Verify that a sticky offset applied to a node between a perspective
+    // reference frame and its relative scroll node does NOT get folded into
+    // the perspective change-of-basis. A sticky offset translates the whole
+    // subtree uniformly (the perspective origin moves with the element), so it
+    // must not conjugate the perspective matrix - otherwise the perspective
+    // content tips/distorts as the sticky offset grows with scrolling
+    // (bug 2053507).
+
+    use crate::spatial_tree::{SceneSpatialTree, SpatialTree};
+
+    let mut cst = SceneSpatialTree::new();
+    let pipeline_id = PipelineId::dummy();
+    let ext_scroll_id = ExternalScrollId(1, pipeline_id);
+    let transform = LayoutTransform::perspective(1000.0);
+
+    let root = cst.add_reference_frame(
+        cst.root_reference_frame_index(),
+        TransformStyle::Flat,
+        PropertyBinding::Value(LayoutTransform::identity()),
+        ReferenceFrameKind::Transform {
+            is_2d_scale_translation: false,
+            should_snap: false,
+            paired_with_perspective: false,
+        },
+        LayoutVector2D::zero(),
+        pipeline_id,
+        false,
+    );
+
+    // Pre-scroll the scroll frame by 100px. The child sticky frame then sticks
+    // to the top, producing a +100px sticky offset that exactly cancels the
+    // scroll offset in the accumulated transform (a stuck element stays put).
+    let scroll_frame = cst.add_scroll_frame(
+        root,
+        ext_scroll_id,
+        pipeline_id,
+        &LayoutRect::from_size(LayoutSize::new(100.0, 100.0)),
+        &LayoutSize::new(100.0, 500.0),
+        ScrollFrameKind::Explicit,
+        LayoutVector2D::new(0.0, 100.0),
+        APZScrollGeneration::default(),
+        HasScrollLinkedEffect::No,
+    );
+
+    let sticky_frame = cst.add_sticky_frame(
+        scroll_frame,
+        StickyFrameInfo::new(
+            LayoutRect::from_size(LayoutSize::new(100.0, 50.0)),
+            SideOffsets2D::new(Some(0.0), None, None, None),
+            StickyOffsetBounds::new(0.0, 1000.0),
+            StickyOffsetBounds::new(0.0, 0.0),
+            None,
+        ),
+        pipeline_id,
+    );
+
+    let ref_frame = cst.add_reference_frame(
+        sticky_frame,
+        TransformStyle::Preserve3D,
+        PropertyBinding::Value(transform),
+        ReferenceFrameKind::Perspective {
+            scrolling_relative_to: Some(ext_scroll_id),
+        },
+        LayoutVector2D::zero(),
+        pipeline_id,
+        false,
+    );
+
+    let mut st = SpatialTree::new();
+    st.apply_updates(cst.end_frame_and_get_pending_updates());
+    st.update_tree(&SceneProperties::new());
+
+    // The scroll (-100) and sticky (+100) offsets cancel, so the perspective
+    // frame's world transform must be exactly the untouched perspective matrix.
+    // If the sticky offset leaked into the change-of-basis it would be
+    // conjugated and this would fail.
+    let world_transform = st.get_world_transform(ref_frame).into_transform().cast_unit();
+    assert!(world_transform.approx_eq(&transform));
 }
