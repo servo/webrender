@@ -230,6 +230,14 @@ pub struct SpatialNode {
     /// This is calculated in update(). This will be used to decide whether
     /// to override corresponding picture's raster space as an optimisation.
     pub is_ancestor_or_self_zooming: bool,
+
+    /// Whether this node or any of its ancestors has an animated (property-bound)
+    /// transform. Calculated in update(). Used to render text under an animated
+    /// transform in local raster space instead of device-snapping it, so its
+    /// glyphs don't jitter as the transform is re-sampled each frame - matching
+    /// the tree's existing policy of not snapping animated transforms (bug
+    /// 637852), which the device text-snap path (bug 2044211) otherwise misses.
+    pub is_ancestor_or_self_animating: bool,
 }
 
 /// Snap an offset to be incorporated into a transform, where the local space
@@ -310,6 +318,30 @@ impl SpatialNode {
         let state = state_stack.last().unwrap();
 
         self.is_ancestor_or_self_zooming = self.is_async_zooming | state.is_ancestor_or_self_zooming;
+
+        // A reference frame whose transform is bound to a property is re-sampled
+        // every frame while the display list stays fixed. That covers a
+        // compositor-driven CSS transform animation (which we do want to treat as
+        // animating), but also APZ's async pinch-zoom container and fixed-position
+        // reference frames, whose transforms are bound so the compositor can
+        // update them without a new display list. Those APZ frames are marked
+        // `is_2d_scale_translation` (see nsDisplayOwnLayer), which a CSS transform
+        // reference frame never is, so exclude them - otherwise the async-zoom
+        // container (present on essentially every page) would flag all content as
+        // animating and push all text to local raster. Active pinch-zoom itself is
+        // already handled by `is_ancestor_or_self_zooming`.
+        let self_has_animated_transform = match self.node_type {
+            SpatialNodeType::ReferenceFrame(ref info) => {
+                matches!(info.source_transform, PropertyBinding::Binding(..))
+                    && !matches!(
+                        info.kind,
+                        ReferenceFrameKind::Transform { is_2d_scale_translation: true, .. }
+                    )
+            }
+            _ => false,
+        };
+        self.is_ancestor_or_self_animating =
+            self_has_animated_transform | state.is_ancestor_or_self_animating;
 
         // If any of our parents was not rendered, we are not rendered either and can just
         // quit here.
@@ -629,6 +661,7 @@ impl SpatialNode {
     pub fn prepare_state_for_children(&self, state: &mut TransformUpdateState) {
         state.current_coordinate_system_id = self.coordinate_system_id;
         state.is_ancestor_or_self_zooming = self.is_ancestor_or_self_zooming;
+        state.is_ancestor_or_self_animating = self.is_ancestor_or_self_animating;
         state.invertible &= self.invertible;
 
         // The transformation we are passing is the transformation of the parent

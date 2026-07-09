@@ -398,32 +398,38 @@ impl TextRunTemplate {
         spatial_tree: &SpatialTree,
     ) -> RasterSpace {
         let prim_spatial_node = spatial_tree.get_spatial_node(prim_spatial_node_index);
-        if prim_spatial_node.is_ancestor_or_self_zooming {
-            if low_quality_pinch_zoom {
-                // In low-quality mode, we set the scale to be 1.0. However, the device-pixel
-                // scale selected for the zoom will be taken into account in the caller to this
-                // function when it's converted from local -> device pixels. Since in this mode
-                // the device-pixel scale is constant during the zoom, this gives the desired
-                // performance while also allowing the scale to be adjusted to a new factor at
-                // the end of a pinch-zoom.
-                RasterSpace::Local(1.0)
-            } else {
-                let root_spatial_node_index = spatial_tree.root_reference_frame_index();
+        if prim_spatial_node.is_ancestor_or_self_zooming && low_quality_pinch_zoom {
+            // In low-quality mode, we set the scale to be 1.0. However, the device-pixel
+            // scale selected for the zoom will be taken into account in the caller to this
+            // function when it's converted from local -> device pixels. Since in this mode
+            // the device-pixel scale is constant during the zoom, this gives the desired
+            // performance while also allowing the scale to be adjusted to a new factor at
+            // the end of a pinch-zoom.
+            RasterSpace::Local(1.0)
+        } else if prim_spatial_node.is_ancestor_or_self_zooming
+            || prim_spatial_node.is_ancestor_or_self_animating
+        {
+            // High-quality pinch zoom, or an animated (property-bound) transform.
+            // In both cases the transform changes continuously without a new
+            // display list, so rasterize the glyphs in local space and let the
+            // shader apply the current transform each frame. For zoom this avoids
+            // re-rasterizing glyphs for every minor scale change; for animation it
+            // avoids device-snapping a per-frame-sampled transform, which makes the
+            // glyphs jitter as they cross pixel boundaries (bug 637852 - the device
+            // text path added in bug 2044211 otherwise misses that policy). Quantize
+            // the scale up to the nearest power of 2 (capped at 8) so the glyphs
+            // aren't re-rasterized as the scale sweeps through fractional values,
+            // and undo the device-pixel scale since the picture cache tiles are
+            // raster roots.
+            let root_spatial_node_index = spatial_tree.root_reference_frame_index();
+            let scale_factors = spatial_tree
+                .get_relative_transform(prim_spatial_node_index, root_spatial_node_index)
+                .scale_factors();
 
-                // For high-quality mode, we quantize the exact scale factor as before. However,
-                // we want to _undo_ the effect of the device-pixel scale on the picture cache
-                // tiles (which changes now that they are raster roots). Divide the rounded value
-                // by the device-pixel scale so that the local -> device conversion has no effect.
-                let scale_factors = spatial_tree
-                    .get_relative_transform(prim_spatial_node_index, root_spatial_node_index)
-                    .scale_factors();
+            let scale = scale_factors.0.max(scale_factors.1).min(8.0).max(1.0);
+            let rounded_up = 2.0f32.powf(scale.log2().ceil());
 
-                // Round the scale up to the nearest power of 2, but don't exceed 8.
-                let scale = scale_factors.0.max(scale_factors.1).min(8.0).max(1.0);
-                let rounded_up = 2.0f32.powf(scale.log2().ceil());
-
-                RasterSpace::Local(rounded_up / device_pixel_scale.0)
-            }
+            RasterSpace::Local(rounded_up / device_pixel_scale.0)
         } else {
             // Assume that if we have a RasterSpace::Local, it is frequently changing, in which
             // case we want to undo the device-pixel scale, as we do above.
