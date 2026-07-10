@@ -176,10 +176,10 @@ vec4 pattern_fragment(vec4 base_color) {
     } else {
         elem_dist = distance_to_shaped_rect(
             local_pos,
-            vec4(c_tl, inverse_radii(r_tl)),
-            vec4(c_tr, inverse_radii(r_tr)),
-            vec4(c_br, inverse_radii(r_br)),
-            vec4(c_bl, inverse_radii(r_bl)),
+            vec4(c_tl, elem_shape.x == 1.0 ? inverse_radii_squared(r_tl) : inverse_radii(r_tl)),
+            vec4(c_tr, elem_shape.y == 1.0 ? inverse_radii_squared(r_tr) : inverse_radii(r_tr)),
+            vec4(c_br, elem_shape.z == 1.0 ? inverse_radii_squared(r_br) : inverse_radii(r_br)),
+            vec4(c_bl, elem_shape.w == 1.0 ? inverse_radii_squared(r_bl) : inverse_radii(r_bl)),
             elem_bounds,
             elem_shape
         );
