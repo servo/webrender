@@ -1,0 +1,21 @@
+# Bug 1258112: a border edge thinner than a device pixel must not vanish.
+# A 1px solid border under a scale(0.5) transform composites its edges as
+# 0.5-device-pixel-wide quads; edge antialiasing then fades them until sides
+# of the border disappear entirely. The edge thickness must instead be snapped
+# up to a whole device pixel (phase-independently), so every side renders as a
+# stable 1px outline matching the reference. With transform-origin at 0,0 the
+# outer box lands on integer device pixels (20,20)-(120,120) -> (10,10)-(60,60).
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 300, 300]
+      transform: scale(0.5)
+      transform-origin: 0 0
+      items:
+        - type: border
+          bounds: [20, 20, 100, 100]
+          width: [1, 1, 1, 1]
+          border-type: normal
+          style: solid
+          color: [black, black, black, black]

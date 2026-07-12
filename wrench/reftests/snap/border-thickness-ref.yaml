@@ -1,0 +1,18 @@
+# Expected: a crisp 1px-thick outline of the scaled border box, drawn as rects
+# at integer device coordinates (which snapping leaves unchanged). Every side
+# is present at a stable one-device-pixel thickness.
+---
+root:
+  items:
+    - type: rect
+      bounds: [10, 10, 50, 1]
+      color: black
+    - type: rect
+      bounds: [10, 59, 50, 1]
+      color: black
+    - type: rect
+      bounds: [10, 10, 1, 50]
+      color: black
+    - type: rect
+      bounds: [59, 10, 1, 50]
+      color: black

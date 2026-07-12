@@ -1,0 +1,17 @@
+# Expected: a uniform 2px-thick outline of the scaled border box, drawn as
+# rects at integer device coordinates. All four sides are the same thickness.
+---
+root:
+  items:
+    - type: rect
+      bounds: [30, 30, 150, 2]
+      color: black
+    - type: rect
+      bounds: [30, 178, 150, 2]
+      color: black
+    - type: rect
+      bounds: [30, 30, 2, 150]
+      color: black
+    - type: rect
+      bounds: [178, 30, 2, 150]
+      color: black

@@ -95,6 +95,30 @@ impl NormalBorderData {
         // power-of-2 boundary ensures we never scale up, only down --- avoiding
         // jaggies. It also ensures we never scale down by more than a factor of
         // 2, avoiding bad downscaling quality.
+        // Snap the thickness of a border the author declared at >= 1 CSS pixel
+        // to a whole device pixel. Border edges are composited onto their
+        // layout-space rects, so a transform makes a 1px edge a fractional
+        // device thickness: under a downscale it can shrink below a device
+        // pixel and be antialiased away entirely, until whole sides of the
+        // border vanish (bug 1258112); at other scales the four sides land at
+        // different sub-pixel phases and render with visibly uneven thickness
+        // (bug 1950029). Rounding the device thickness to the nearest pixel
+        // (floored at 1 so a real border can't disappear) makes every side a
+        // consistent whole-pixel width. Genuinely sub-CSS-pixel edges are left
+        // untouched. Uses the unclamped world scale factors, since that is the
+        // transform the edge is actually composited with, not the power-of-2
+        // rasterization scale.
+        let snap_width = |w: f32, s: f32| {
+            if w >= 1.0 && s > 0.0 { (w * s).round().max(1.0) / s } else { w }
+        };
+        let device_scale_x = scale.0 * device_pixel_scale.0;
+        let device_scale_y = scale.1 * device_pixel_scale.0;
+        let mut widths = self.widths;
+        widths.left = snap_width(widths.left, device_scale_x);
+        widths.right = snap_width(widths.right, device_scale_x);
+        widths.top = snap_width(widths.top, device_scale_y);
+        widths.bottom = snap_width(widths.bottom, device_scale_y);
+
         let scale_width = clamp_to_scale_factor(scale.0, false);
         let scale_height = clamp_to_scale_factor(scale.1, false);
         // Pick the maximum dimension as scale
@@ -109,7 +133,7 @@ impl NormalBorderData {
         crate::border::create_border_segments(
             *local_rect,
             &self.border,
-            &self.widths,
+            &widths,
             &mut |segment| segments.push(segment.clone()),
         );
 

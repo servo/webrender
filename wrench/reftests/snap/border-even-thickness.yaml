@@ -1,0 +1,21 @@
+# Bug 1950029: under a transform that makes a 1px border a fractional device
+# thickness (here scale(1.5) -> 1.5 device px), the four sides land at
+# different sub-pixel phases and render with visibly uneven thickness (right
+# and bottom look thicker than left and top). The edge thickness must be
+# snapped to a whole device pixel so every side is a consistent width. With
+# transform-origin at 0,0 the outer box lands on integer device pixels
+# (20,20)-(120,120) -> (30,30)-(180,180), and the 1.5px edges snap to 2px.
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 300, 300]
+      transform: scale(1.5)
+      transform-origin: 0 0
+      items:
+        - type: border
+          bounds: [20, 20, 100, 100]
+          width: [1, 1, 1, 1]
+          border-type: normal
+          style: solid
+          color: [black, black, black, black]
