@@ -345,10 +345,10 @@ impl From<FilterOp> for Filter {
     fn from(op: FilterOp) -> Self {
         match op {
             FilterOp::Identity => Filter::Identity,
-            FilterOp::Blur(width, height) => Filter::Blur {
+            FilterOp::Blur(width, height, should_inflate) => Filter::Blur {
                 width,
                 height,
-                should_inflate: true,
+                should_inflate,
                 edge_mode: BlurEdgeMode::Duplicate,
             },
             FilterOp::Brightness(b) => Filter::Brightness(b),

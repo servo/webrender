@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, NormalBorder, PremultipliedColorF, RasterSpace, RepeatMode, Shadow};
+use api::{ColorF, NormalBorder, PremultipliedColorF, RepeatMode};
 use api::units::*;
 use smallvec::SmallVec;
 use crate::border::{build_border_instances, NormalBorderSegment, MAX_BORDER_RESOLUTION};
@@ -15,7 +15,7 @@ use crate::quad::{prepare_repeatable_quad, QuadTransformState};
 use crate::render_backend::DataStores;
 use crate::render_task_cache::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent, to_cache_size};
 use crate::renderer::{GpuBufferAddress, GpuBufferWriterF};
-use crate::scene_building::{CreateShadow, IsVisible};
+use crate::scene_building::{IsVisible};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext};
 use crate::intern::{self, DataStore};
 use crate::internal_types::LayoutPrimitiveInfo;
@@ -311,20 +311,6 @@ impl InternablePrimitive for NormalBorderPrim {
     }
 }
 
-impl CreateShadow for NormalBorderPrim {
-    fn create_shadow(
-        &self,
-        shadow: &Shadow,
-        _: bool,
-        _: RasterSpace,
-    ) -> Self {
-        let border = self.border.with_color(shadow.color.into());
-        NormalBorderPrim {
-            border,
-            widths: self.widths,
-        }
-    }
-}
 
 impl IsVisible for NormalBorderPrim {
     fn is_visible(&self) -> bool {

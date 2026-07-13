@@ -321,12 +321,10 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
                 Debug::RadialGradient(v) => Real::RadialGradient(v),
                 Debug::ConicGradient(v) => Real::ConicGradient(v),
                 Debug::PushStackingContext(v) => Real::PushStackingContext(v),
-                Debug::PushShadow(v) => Real::PushShadow(v),
                 Debug::BackdropFilter(v) => Real::BackdropFilter(v),
 
                 Debug::PopStackingContext => Real::PopStackingContext,
                 Debug::PopReferenceFrame => Real::PopReferenceFrame,
-                Debug::PopAllShadows => Real::PopAllShadows,
                 Debug::DebugMarker(val) => Real::DebugMarker(val),
             };
             poke_into_vec(&item, &mut items_data);
@@ -610,12 +608,10 @@ impl BuiltDisplayList {
                 Real::Iframe(v) => Debug::Iframe(v),
                 Real::PushReferenceFrame(v) => Debug::PushReferenceFrame(v),
                 Real::PushStackingContext(v) => Debug::PushStackingContext(v),
-                Real::PushShadow(v) => Debug::PushShadow(v),
                 Real::BackdropFilter(v) => Debug::BackdropFilter(v),
 
                 Real::PopReferenceFrame => Debug::PopReferenceFrame,
                 Real::PopStackingContext => Debug::PopStackingContext,
-                Real::PopAllShadows => Debug::PopAllShadows,
                 Real::DebugMarker(val) => Debug::DebugMarker(val),
             };
             debug_items.push(serial_di);
@@ -881,6 +877,8 @@ pub struct SaveState {
     next_clip_index: usize,
     next_spatial_index: usize,
     next_clip_chain_id: u64,
+    shadow_capture_len: usize,
+    pending_shadows_len: usize,
 }
 
 /// DisplayListSection determines the target buffer for the display items.
@@ -917,6 +915,25 @@ pub struct DisplayListBuilder {
     /// Reused buffer for normalized glyph positions, to avoid a per-text-run
     /// allocation when shifting glyphs by the external scroll offset.
     glyph_scratch: Vec<GlyphInstance>,
+    /// While a shadow scope is open (between `push_shadow` and
+    /// `pop_all_shadows`), the items pushed within it are captured here instead
+    /// of being written straight to `payload.items_data`, so `pop_all_shadows`
+    /// can desugar them. The buffer is cleared and reused across shadow scopes
+    /// rather than reallocated. A scope is open exactly when `pending_shadows`
+    /// is non-empty.
+    shadow_capture: Vec<u8>,
+    /// The shadows declared by `push_shadow` in the current scope, in order.
+    /// Held as typed descriptors (not captured markers) and consumed by
+    /// `pop_all_shadows`, which desugars them into blur stacking contexts.
+    pending_shadows: Vec<PendingShadow>,
+}
+
+/// A shadow declared by `push_shadow`, awaiting desugaring at `pop_all_shadows`.
+#[derive(Clone)]
+struct PendingShadow {
+    space_and_clip: di::SpaceAndClipInfo,
+    shadow: di::Shadow,
+    should_inflate: bool,
 }
 
 #[repr(C)]
@@ -950,6 +967,8 @@ impl DisplayListBuilder {
             spatial_offsets: HashMap::new(),
             last_scroll_offset: None,
             glyph_scratch: Vec::new(),
+            shadow_capture: Vec::new(),
+            pending_shadows: Vec::new(),
         }
     }
 
@@ -964,6 +983,8 @@ impl DisplayListBuilder {
         self.serialized_content_buffer = None;
         self.spatial_offsets.clear();
         self.last_scroll_offset = None;
+        self.shadow_capture.clear();
+        self.pending_shadows.clear();
     }
 
     /// Saves the current display list state, so it may be `restore()`'d.
@@ -981,6 +1002,8 @@ impl DisplayListBuilder {
             next_clip_index: self.next_clip_index,
             next_spatial_index: self.next_spatial_index,
             next_clip_chain_id: self.next_clip_chain_id,
+            shadow_capture_len: self.shadow_capture.len(),
+            pending_shadows_len: self.pending_shadows.len(),
         });
     }
 
@@ -992,6 +1015,14 @@ impl DisplayListBuilder {
         self.next_clip_index = state.next_clip_index;
         self.next_spatial_index = state.next_spatial_index;
         self.next_clip_chain_id = state.next_clip_chain_id;
+
+        // Roll back any shadow scope opened since the save. Both buffers are
+        // append-only within a scope, so truncating to their save-time lengths
+        // discards exactly the speculative shadow state (the pre-desugar
+        // machinery kept this state in `items_data`, which the truncate above
+        // already handled).
+        self.shadow_capture.truncate(state.shadow_capture_len);
+        self.pending_shadows.truncate(state.pending_shadows_len);
 
         // Drop offsets recorded for spatial nodes defined after the save point;
         // those ids will be reused, so the single-entry cache could be stale.
@@ -1068,7 +1099,16 @@ impl DisplayListBuilder {
         section: DisplayListSection
     ) -> &mut Vec<u8> {
         match section {
-            DisplayListSection::Data => &mut self.payload.items_data,
+            // While a shadow scope is open (a shadow has been pushed but not yet
+            // popped), divert item and aux-array writes into the capture buffer
+            // so `pop_all_shadows` can desugar them. The capture uses relative
+            // sizes/counts (see `push_iter_impl`), so it stays valid when
+            // appended back into `items_data`.
+            DisplayListSection::Data => if self.pending_shadows.is_empty() {
+                &mut self.payload.items_data
+            } else {
+                &mut self.shadow_capture
+            },
         }
     }
 
@@ -1308,25 +1348,31 @@ impl DisplayListBuilder {
             color,
             font_key,
             glyph_options,
+            shadow: di::GlyphShadowMode::None,
         });
+
+        // Store glyph pen positions relative to the (pre-normalization) bounds
+        // origin. This difference is scroll-invariant - both the glyph points
+        // and the bounds come from the same local space - so it subsumes the
+        // external scroll offset removal that `normalize_common` applies to
+        // other coordinates, and it lets a shadow copy be produced by
+        // translating just the bounds (the glyphs follow the prim origin at
+        // build time). The scene builder previously did this relativization; it
+        // now happens here at record time.
+        let bounds_origin = bounds.min.to_vector();
 
         // Take the scratch buffer out so we can hold it while also borrowing
         // `self` mutably for `push_item`/`push_iter`; put it back afterwards to
-        // retain its capacity across text runs. A no-op (empty Vec swap) when
-        // the offset is zero or the prototype is disabled.
+        // retain its capacity across text runs.
         let mut scratch = mem::take(&mut self.glyph_scratch);
         for split_glyphs in glyphs.chunks(MAX_TEXT_RUN_LENGTH) {
             self.push_item(&item);
-            if offset != LayoutVector2D::zero() {
-                scratch.clear();
-                scratch.extend(split_glyphs.iter().map(|g| GlyphInstance {
-                    index: g.index,
-                    point: g.point + offset,
-                }));
-                self.push_iter(&scratch);
-            } else {
-                self.push_iter(split_glyphs);
-            }
+            scratch.clear();
+            scratch.extend(split_glyphs.iter().map(|g| GlyphInstance {
+                index: g.index,
+                point: g.point - bounds_origin,
+            }));
+            self.push_iter(&scratch);
         }
         self.glyph_scratch = scratch;
     }
@@ -1971,16 +2017,238 @@ impl DisplayListBuilder {
         shadow: di::Shadow,
         should_inflate: bool,
     ) {
-        let item = di::DisplayItem::PushShadow(di::PushShadowDisplayItem {
+        // Record the shadow as a typed descriptor. The first `push_shadow`
+        // opens the scope (makes `pending_shadows` non-empty), so the shadowed
+        // content that follows is captured until `pop_all_shadows`, which
+        // desugars the shadows into blur stacking contexts. `should_inflate` is
+        // carried through to the emitted blur.
+        self.pending_shadows.push(PendingShadow {
             space_and_clip: *space_and_clip,
             shadow,
             should_inflate,
         });
-        self.push_item(&item);
     }
 
     pub fn pop_all_shadows(&mut self) {
-        self.push_item(&di::DisplayItem::PopAllShadows);
+        assert!(!self.pending_shadows.is_empty(), "pop_all_shadows without a matching push_shadow");
+        self.desugar_shadow_scope();
+    }
+
+    /// Desugar the captured shadow scope into standard display items: a blur
+    /// stacking context per shadow holding offset/recolored copies of the
+    /// shadowable content, followed by the original content unchanged. This
+    /// replaces the scene builder's shadow expansion. Subpixel AA is disabled
+    /// automatically because a blur is a `Filter` picture, which forces
+    /// `SubpixelMode::Deny`, so the stacking context keeps `RasterSpace::Screen`
+    /// like the scene builder's shadow picture did.
+    fn desugar_shadow_scope(&mut self) {
+        // A shadowable/drawable item plus its aux (only text carries glyphs).
+        struct DrawEntry {
+            item: di::DisplayItem,
+            glyphs: Vec<GlyphInstance>,
+        }
+        enum Parsed {
+            // A clip / clip-chain definition. Re-emitted verbatim (preserving
+            // its id, which `define_*` would not) *before* the shadows, so both
+            // the shadow copies and the originals can reference clips that were
+            // defined inside the scope.
+            Definition {
+                item: di::DisplayItem,
+                clip_ids: Vec<di::ClipId>,
+                points: Vec<LayoutPoint>,
+            },
+            Draw(DrawEntry),
+        }
+
+        // Take the shadows and the captured content out so `self` is free for
+        // re-emission. Emptying `pending_shadows` also closes the scope, so the
+        // re-emitted items below go to `items_data` rather than being captured
+        // again. The capture buffer is restored (cleared) afterwards for reuse.
+        let shadows = mem::take(&mut self.pending_shadows);
+        let mut captured = mem::take(&mut self.shadow_capture);
+        ensure_red_zone::<di::DisplayItem>(&mut captured);
+
+        let mut parsed: Vec<Parsed> = Vec::new();
+        {
+            let mut iter = BuiltDisplayListIter::new(&captured);
+            while let Some(item) = iter.next() {
+                parsed.push(match item.item() {
+                    def @ (di::DisplayItem::RectClip(..)
+                    | di::DisplayItem::RoundedRectClip(..)
+                    | di::DisplayItem::ImageMaskClip(..)
+                    | di::DisplayItem::ClipChain(..)) => Parsed::Definition {
+                        item: *def,
+                        clip_ids: item.clip_chain_items().iter().collect(),
+                        points: item.points().iter().collect(),
+                    },
+                    draw => Parsed::Draw(DrawEntry {
+                        item: *draw,
+                        glyphs: match draw {
+                            di::DisplayItem::Text(..) => item.glyphs().iter().collect(),
+                            _ => Vec::new(),
+                        },
+                    }),
+                });
+            }
+        }
+
+        // 1. Clip / clip-chain definitions, verbatim and in order, before the
+        //    shadows so their ids resolve for both copies and originals.
+        for p in &parsed {
+            if let Parsed::Definition { item, clip_ids, points } = p {
+                if !points.is_empty() {
+                    self.push_item(&di::DisplayItem::SetPoints);
+                    self.push_iter(points);
+                }
+                self.push_item(item);
+                if matches!(item, di::DisplayItem::ClipChain(..)) {
+                    self.push_iter(clip_ids);
+                }
+            }
+        }
+
+        // 2. A blur stacking context per shadow, holding offset/recolored copies
+        //    of the drawable content.
+        for shadow in &shadows {
+            let s = &shadow.shadow;
+            let std_deviation = s.blur_radius * 0.5;
+            let blur = [di::FilterOp::Blur(std_deviation, std_deviation, shadow.should_inflate)];
+            let blurred = s.blur_radius > 0.0;
+            let filters: &[di::FilterOp] = if blurred { &blur } else { &[] };
+            let shadow_mode = if blurred {
+                di::GlyphShadowMode::Blurred
+            } else {
+                di::GlyphShadowMode::Unblurred
+            };
+
+            // Clip the blur stacking context (i.e. the picture), not the offset
+            // copies inside it. This mirrors the old scene-builder shadow
+            // expansion, where the shadow's clip applied to the composited blur
+            // picture while the shadowed primitives were rasterized unclipped.
+            // For a blurred shadow this is what produces a hard clip edge:
+            // clipping the copies *before* the blur would let the blur soften
+            // the clip boundary (a coverage seam / bleed), whereas clipping the
+            // picture cuts the already-blurred (locally uniform) result.
+            let sc_clip = shadow.space_and_clip.clip_chain_id;
+            let sc_clip = (sc_clip != di::ClipChainId::INVALID).then_some(sc_clip);
+
+            self.push_stacking_context(
+                shadow.space_and_clip.spatial_id,
+                di::PrimitiveFlags::default(),
+                sc_clip,
+                di::TransformStyle::Flat,
+                di::MixBlendMode::Normal,
+                filters,
+                &[],
+                di::RasterSpace::Screen,
+                di::StackingContextFlags::empty(),
+                None,
+            );
+
+            for p in &parsed {
+                if let Parsed::Draw(entry) = p {
+                    if let Some(copy) = Self::shadow_copy_of_item(
+                        &entry.item,
+                        s.offset,
+                        s.color,
+                        shadow_mode,
+                    ) {
+                        self.push_item(&copy);
+                        if matches!(copy, di::DisplayItem::Text(..)) {
+                            self.push_iter(&entry.glyphs);
+                        }
+                    }
+                }
+            }
+
+            self.pop_stacking_context();
+        }
+
+        // 3. The original (unshadowed) content, drawn on top of the shadows.
+        for p in &parsed {
+            if let Parsed::Draw(entry) = p {
+                self.push_item(&entry.item);
+                if matches!(entry.item, di::DisplayItem::Text(..)) {
+                    self.push_iter(&entry.glyphs);
+                }
+            }
+        }
+
+        captured.clear();
+        self.shadow_capture = captured;
+        // `pending_shadows` was emptied by the take above and is left empty,
+        // which closes the shadow scope.
+    }
+
+    /// Produce the shadow copy of a shadowable display item: geometry
+    /// translated by `offset` and color replaced by `color`. Returns `None` for
+    /// item types that cannot cast a shadow (they are dropped from the shadow),
+    /// mirroring the scene builder's `CreateShadow` impls.
+    ///
+    /// Aux data (e.g. text glyphs) is unchanged and re-emitted separately: text
+    /// glyphs are stored relative to the bounds origin (see `push_text`), so
+    /// they follow the translated bounds without needing to be rewritten here.
+    fn shadow_copy_of_item(
+        item: &di::DisplayItem,
+        offset: LayoutVector2D,
+        color: ColorF,
+        shadow_mode: di::GlyphShadowMode,
+    ) -> Option<di::DisplayItem> {
+        use di::DisplayItem::*;
+
+        // Translate the copy by the shadow offset and drop its clip chain (see
+        // `desugar_shadow_scope`): the shadow's clip is applied to the enclosing
+        // blur picture, so the copy inside must be unclipped, matching the old
+        // scene builder (which rasterized the shadowed primitives unclipped and
+        // clipped the composited picture).
+        let shift = |mut common: di::CommonItemProperties| -> di::CommonItemProperties {
+            common.clip_rect = common.clip_rect.translate(offset);
+            common.clip_chain_id = di::ClipChainId::INVALID;
+            common
+        };
+
+        Some(match item {
+            Rectangle(info) => Rectangle(di::RectangleDisplayItem {
+                common: shift(info.common),
+                bounds: info.bounds.translate(offset),
+                color: PropertyBinding::Value(color),
+            }),
+            Text(info) => Text(di::TextDisplayItem {
+                common: shift(info.common),
+                bounds: info.bounds.translate(offset),
+                color,
+                shadow: shadow_mode,
+                ..*info
+            }),
+            Image(info) => Image(di::ImageDisplayItem {
+                common: shift(info.common),
+                bounds: info.bounds.translate(offset),
+                color,
+                ..*info
+            }),
+            Line(info) => Line(di::LineDisplayItem {
+                common: shift(info.common),
+                area: info.area.translate(offset),
+                color,
+                ..*info
+            }),
+            Border(info) => {
+                // Only normal borders cast a shadow via this path.
+                let details = match info.details {
+                    di::BorderDetails::Normal(border) => {
+                        di::BorderDetails::Normal(border.with_color(color))
+                    }
+                    di::BorderDetails::NinePatch(_) => return None,
+                };
+                Border(di::BorderDisplayItem {
+                    common: shift(info.common),
+                    bounds: info.bounds.translate(offset),
+                    details,
+                    ..*info
+                })
+            }
+            _ => return None,
+        })
     }
 
     pub fn begin(&mut self) {
@@ -2048,4 +2316,3 @@ fn iter_spatial_tree<F>(spatial_tree: &[u8], mut f: F) where F: FnMut(&di::Spati
         f(&item);
     }
 }
-

@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{
-    AlphaType, ColorDepth, ColorF, ColorRange, ExternalImageData, ExternalImageType, ImageBufferKind, ImageKey as ApiImageKey, ImageRendering, PremultipliedColorF, RasterSpace, Shadow, YuvColorSpace, YuvFormat
+    AlphaType, ColorDepth, ColorF, ColorRange, ExternalImageData, ExternalImageType, ImageBufferKind, ImageKey as ApiImageKey, ImageRendering, PremultipliedColorF, YuvColorSpace, YuvFormat
 };
 use api::units::*;
 use euclid::point2;
@@ -13,7 +13,7 @@ use crate::gpu_types::ImageBrushPrimitiveData;
 use crate::pattern::image::ImagePattern;
 use crate::quad::QuadTransformState;
 use crate::renderer::{GpuBufferAddress, GpuBufferWriterF};
-use crate::scene_building::{CreateShadow, IsVisible};
+use crate::scene_building::{IsVisible};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext};
 use crate::intern::{DataStore, Handle as InternHandle, InternDebug, Internable};
 use crate::internal_types::LayoutPrimitiveInfo;
@@ -741,23 +741,6 @@ impl InternablePrimitive for Image {
     }
 }
 
-impl CreateShadow for Image {
-    fn create_shadow(
-        &self,
-        shadow: &Shadow,
-        _: bool,
-        _: RasterSpace,
-    ) -> Self {
-        Image {
-            tile_spacing: self.tile_spacing,
-            stretch_size: self.stretch_size,
-            key: self.key,
-            image_rendering: self.image_rendering,
-            alpha_type: self.alpha_type,
-            color: shadow.color.into(),
-        }
-    }
-}
 
 impl IsVisible for Image {
     fn is_visible(&self) -> bool {

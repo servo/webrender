@@ -269,7 +269,7 @@ impl<'a> SceneBuilder<'a> {
                     }
 
                     // Element clip is handled analytically in the shader.
-                    self.add_nonshadowable_primitive(
+                    self.add_primitive(
                         spatial_node_index,
                         clip_node_id,
                         &LayoutPrimitiveInfo::with_clip_rect(dest_rect, prim_info.clip_rect),
@@ -296,7 +296,7 @@ impl<'a> SceneBuilder<'a> {
                     }
 
                     // Element clip is handled analytically in the shader.
-                    self.add_nonshadowable_primitive(
+                    self.add_primitive(
                         spatial_node_index,
                         clip_node_id,
                         &prim_info.clone(),

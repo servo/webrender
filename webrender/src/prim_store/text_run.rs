@@ -2,10 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, FontInstanceFlags, GlyphInstance, RasterSpace, Shadow};
+use api::{ColorF, FontInstanceFlags, GlyphInstance, RasterSpace};
 use api::units::{LayoutToWorldTransform, DevicePixelScale};
 use api::units::*;
-use crate::scene_building::{CreateShadow, IsVisible};
+use crate::scene_building::{IsVisible};
 use glyph_rasterizer::{FontInstance, FontTransform, GlyphKey, SubpixelDirection, FONT_SIZE_LIMIT};
 use crate::intern;
 use crate::internal_types::LayoutPrimitiveInfo;
@@ -209,35 +209,6 @@ impl InternablePrimitive for TextRun {
     }
 }
 
-impl CreateShadow for TextRun {
-    fn create_shadow(
-        &self,
-        shadow: &Shadow,
-        blur_is_noop: bool,
-        current_raster_space: RasterSpace,
-    ) -> Self {
-        let mut font = FontInstance {
-            color: shadow.color.into(),
-            ..self.font.clone()
-        };
-        if shadow.blur_radius > 0.0 {
-            font.disable_subpixel_aa();
-        }
-
-        let requested_raster_space = if blur_is_noop {
-            current_raster_space
-        } else {
-            RasterSpace::Local(1.0)
-        };
-
-        TextRun {
-            font,
-            glyphs: self.glyphs.clone(),
-            shadow: true,
-            requested_raster_space,
-        }
-    }
-}
 
 impl IsVisible for TextRun {
     fn is_visible(&self) -> bool {

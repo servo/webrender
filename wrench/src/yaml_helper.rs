@@ -899,7 +899,7 @@ impl YamlHelper for Yaml {
                     Some(FilterOp::ComponentTransfer)
                 }
                 ("blur", ref args, _) if args.len() == 2 => {
-                    Some(FilterOp::Blur(args[0].parse().unwrap(), args[1].parse().unwrap()))
+                    Some(FilterOp::Blur(args[0].parse().unwrap(), args[1].parse().unwrap(), true))
                 }
                 ("brightness", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Brightness(args[0].parse().unwrap()))
