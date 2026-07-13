@@ -1,4 +1,5 @@
 fuzzy-if(platform(swgl),1,180000) == simple.yaml simple-ref.yaml
+== clip-image-escape.yaml clip-image-escape-ref.yaml
 == order-1.yaml order-1-ref.yaml
 == order-2.yaml order-2-ref.yaml
 == nested.yaml nested-ref.yaml

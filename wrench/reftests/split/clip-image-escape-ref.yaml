@@ -1,0 +1,12 @@
+---
+root:
+  items:
+    - type: clip
+      id: 100
+      bounds: [300, 300, 200, 200]
+    - type: clip-chain
+      id: 101
+      clips: [100]
+    - image: solid-color(255, 0, 0, 255, 600, 600)
+      clip-chain: 101
+      bounds: [100, 100, 600, 600]

@@ -1,0 +1,22 @@
+# This test exercises the the quad tiled rendering code with partially
+# clipped tiles.
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 800, 800]
+      transform: scale(1.0)
+      transform-style: preserve-3d
+      items:
+        - type: clip
+          id: 100
+          bounds: [300, 300, 200, 200]
+        - type: clip-chain
+          id: 101
+          clips: [100]
+        - type: stacking-context
+          bounds: [100, 100, 600, 600]
+          clip-chain: 101
+          items:
+            - image: solid-color(255, 0, 0, 255, 600, 600)
+              bounds: [100, 100, 600, 600]
