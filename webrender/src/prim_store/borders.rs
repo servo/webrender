@@ -156,6 +156,9 @@ impl NormalBorderData {
                 // TODO(gw): We don't calculate opacity for borders yet!
                 let is_opaque = false;
 
+                // TODO: All normal borders are getting baked into a cached render
+                // task, including trivial solid borders (presumably the most common
+                // kind).
                 let task_id = frame_state.resource_cache.request_render_task(
                     Some(cache_key),
                     is_opaque,

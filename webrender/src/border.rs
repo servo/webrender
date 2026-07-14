@@ -500,7 +500,7 @@ fn get_edge_info(
             EdgeInfo::new(offset, used_size, stretch_size)
         }
         _ => {
-            EdgeInfo::new(0.0, avail_size, 8.0)
+            EdgeInfo::new(0.0, avail_size, avail_size)
         }
     }
 }
