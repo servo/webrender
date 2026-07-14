@@ -11,7 +11,7 @@ use crate::clip::{ClipChainInstance, ClipIntern};
 use crate::command_buffer::CommandBufferIndex;
 use crate::gpu_types::ImageBrushPrimitiveData;
 use crate::pattern::image::ImagePattern;
-use crate::quad::{prepare_repeatable_quad, QuadTransformState};
+use crate::quad::{self, QuadTransformState};
 use crate::render_backend::DataStores;
 use crate::render_task_cache::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent, to_cache_size};
 use crate::renderer::{GpuBufferAddress, GpuBufferWriterF};
@@ -145,105 +145,18 @@ impl NormalBorderData {
         scale.0 = scale.0.min(max_scale.0);
 
         for segment in &segments {
-                // Update the cache key device size based on requested scale.
-                let cache_size = to_cache_size(segment.task_size, &mut scale);
-                let cache_key = RenderTaskCacheKey {
-                    kind: RenderTaskCacheKeyKind::BorderSegment(segment.cache_key.clone()),
-                    origin: DeviceIntPoint::zero(),
-                    size: cache_size,
-                };
+            let local_clip_rect = match segment.clip_rect {
+                Some(clip_rect) => clip_chain.local_clip_rect
+                    .intersection(&clip_rect)
+                    .unwrap_or(LayoutRect::zero()),
+                None => clip_chain.local_clip_rect,
+            };
 
-                // TODO(gw): We don't calculate opacity for borders yet!
-                let is_opaque = false;
-
-                // TODO: All normal borders are getting baked into a cached render
-                // task, including trivial solid borders (presumably the most common
-                // kind).
-                let task_id = frame_state.resource_cache.request_render_task(
-                    Some(cache_key),
-                    is_opaque,
-                    RenderTaskParent::Surface,
-                    &mut frame_state.frame_gpu_data.f32,
-                    frame_state.rg_builder,
-                    &mut frame_state.surface_builder,
-                    &mut |rg_builder, gpu_buffer_builder| {
-                        rg_builder.add().init(RenderTask::new_dynamic(
-                            cache_size,
-                            RenderTaskKind::new_border_segment(
-                                build_border_instances(
-                                    &segment.cache_key,
-                                    cache_size,
-                                    &self.border,
-                                    scale,
-                                    gpu_buffer_builder,
-                                )
-                            ),
-                        ))
-                    }
-                );
-
-                let pattern = ImagePattern {
-                    src_task_id: task_id,
-                    src_is_opaque: is_opaque,
-                    premultiplied: true,
-                    sampler_kind: api::ImageBufferKind::Texture2D,
-                    color: ColorF::WHITE,
-                };
-
-                // The texture is drawn across the full segment rect (for
-                // corners that is the natural corner-image size, which may
-                // extend past the visible area). `clip_rect` crops it back to
-                // the visible part for corners whose adjacent corner overlaps.
-                let segment_local_rect = segment.local_rect;
-                let local_clip_rect = match segment.clip_rect {
-                    Some(clip_rect) => clip_chain.local_clip_rect
-                        .intersection(&clip_rect)
-                        .unwrap_or(LayoutRect::zero()),
-                    None => clip_chain.local_clip_rect,
-                };
-
-                let mut stretch_size = segment_local_rect.size();
-                let mut spacing = LayoutSize::zero();
-                let mut _repeat_offset = LayoutVector2D::zero();
-                crate::border::compute_border_repetition(
-                    segment_local_rect.size(),
-                    cache_size.to_f32(),
-                    segment.repeat_x,
-                    segment.repeat_y,
-                    &mut stretch_size,
-                    &mut spacing,
-                    &mut _repeat_offset,
-                );
-
-                // The positioning and size of the dashes and dots is not specified
-                // but browsers are encouraged to make the pattern symetrical.
-                // One way to do this is to apply the repeat offset computed
-                // by compute_border_repetition. However the pattern that we
-                // are repeating is meant to be instead stretched to so that
-                // an integer number of repetitions fills the space.
-
-                if segment.repeat_x == RepeatMode::Repeat {
-                    let w = segment_local_rect.width();
-                    let sw = stretch_size.width;
-                    let scale = w / ((w / sw).round() * sw);
-
-                    stretch_size.width *= scale;
-                }
-
-                if segment.repeat_y == RepeatMode::Repeat {
-                    let h = segment_local_rect.height();
-                    let sh = stretch_size.height;
-                    let scale = h / ((h / sh).round() * sh);
-
-                    stretch_size.height *= scale;
-                }
-
-                prepare_repeatable_quad(
-                    &pattern,
-                    &segment_local_rect,
+            if let Some(color) = &segment.is_solid {
+                quad::prepare_quad(
+                    color,
+                    &segment.local_rect,
                     &local_clip_rect,
-                    stretch_size,
-                    spacing,
                     segment.edge_flags & aligned_aa_edges,
                     segment.edge_flags & transformed_aa_edges,
                     prim_instance_index,
@@ -257,6 +170,113 @@ impl NormalBorderData {
                     frame_state,
                     scratch,
                 );
+
+                continue;
+            }
+
+            // Update the cache key device size based on requested scale.
+            let cache_size = to_cache_size(segment.task_size, &mut scale);
+            let cache_key = RenderTaskCacheKey {
+                kind: RenderTaskCacheKeyKind::BorderSegment(segment.cache_key.clone()),
+                origin: DeviceIntPoint::zero(),
+                size: cache_size,
+            };
+
+            // TODO(gw): We don't calculate opacity for borders yet!
+            let is_opaque = false;
+
+            let task_id = frame_state.resource_cache.request_render_task(
+                Some(cache_key),
+                is_opaque,
+                RenderTaskParent::Surface,
+                &mut frame_state.frame_gpu_data.f32,
+                frame_state.rg_builder,
+                &mut frame_state.surface_builder,
+                &mut |rg_builder, gpu_buffer_builder| {
+                    rg_builder.add().init(RenderTask::new_dynamic(
+                        cache_size,
+                        RenderTaskKind::new_border_segment(
+                            build_border_instances(
+                                &segment.cache_key,
+                                cache_size,
+                                &self.border,
+                                scale,
+                                gpu_buffer_builder,
+                            )
+                        ),
+                    ))
+                }
+            );
+
+            let pattern = ImagePattern {
+                src_task_id: task_id,
+                src_is_opaque: is_opaque,
+                premultiplied: true,
+                sampler_kind: api::ImageBufferKind::Texture2D,
+                color: ColorF::WHITE,
+            };
+
+            // The texture is drawn across the full segment rect (for
+            // corners that is the natural corner-image size, which may
+            // extend past the visible area). `clip_rect` crops it back to
+            // the visible part for corners whose adjacent corner overlaps.
+            let segment_local_rect = segment.local_rect;
+
+            let mut stretch_size = segment_local_rect.size();
+            let mut spacing = LayoutSize::zero();
+            let mut _repeat_offset = LayoutVector2D::zero();
+            crate::border::compute_border_repetition(
+                segment_local_rect.size(),
+                cache_size.to_f32(),
+                segment.repeat_x,
+                segment.repeat_y,
+                &mut stretch_size,
+                &mut spacing,
+                &mut _repeat_offset,
+            );
+
+            // The positioning and size of the dashes and dots is not specified
+            // but browsers are encouraged to make the pattern symetrical.
+            // One way to do this is to apply the repeat offset computed
+            // by compute_border_repetition. However the pattern that we
+            // are repeating is meant to be instead stretched to so that
+            // an integer number of repetitions fills the space.
+
+            if segment.repeat_x == RepeatMode::Repeat {
+                let w = segment_local_rect.width();
+                let sw = stretch_size.width;
+                let scale = w / ((w / sw).round() * sw);
+
+                stretch_size.width *= scale;
+            }
+
+            if segment.repeat_y == RepeatMode::Repeat {
+                let h = segment_local_rect.height();
+                let sh = stretch_size.height;
+                let scale = h / ((h / sh).round() * sh);
+
+                stretch_size.height *= scale;
+            }
+
+            quad::prepare_repeatable_quad(
+                &pattern,
+                &segment_local_rect,
+                &local_clip_rect,
+                stretch_size,
+                spacing,
+                segment.edge_flags & aligned_aa_edges,
+                segment.edge_flags & transformed_aa_edges,
+                prim_instance_index,
+                &None,
+                clip_chain,
+                quad_transform,
+                frame_context,
+                pic_context,
+                targets,
+                interned_clips,
+                frame_state,
+                scratch,
+            );
         }
     }
 }

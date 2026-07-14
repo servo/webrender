@@ -521,6 +521,7 @@ pub struct NormalBorderSegment {
     pub edge_flags: EdgeMask,
     pub task_size: LayoutSize,
     pub cache_key: BorderSegmentCacheKey,
+    pub is_solid: Option<ColorF>,
 }
 
 /// Create the set of border segments and render task
@@ -1023,6 +1024,7 @@ fn add_corner_segment(
             v_adjacent_corner_outer: (v_corner_outer - image_rect.min).to_point().to_au(),
             v_adjacent_corner_radius: v_corner_radius.to_au(),
         },
+        is_solid: None,
     });
 }
 
@@ -1062,6 +1064,12 @@ fn add_edge_segment(
         return;
     }
 
+    let is_solid = if side.style == BorderStyle::Solid {
+        Some(side.color)
+    } else {
+        None
+    };
+
     segment_cb(&NormalBorderSegment {
         local_rect: image_rect,
         clip_rect: None,
@@ -1082,6 +1090,7 @@ fn add_edge_segment(
             v_adjacent_corner_outer: LayoutPointAu::zero(),
             v_adjacent_corner_radius: LayoutSizeAu::zero(),
         },
+        is_solid,
     });
 }
 
