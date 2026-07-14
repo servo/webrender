@@ -1,0 +1,28 @@
+# Regression test: a picture-cache tile whose world offset is fractional (its
+# raster reference frame is at x/y .5, e.g. a transformed, flex-centered
+# scroller) must not crop its max-side content when composited. The composite
+# clip was derived on the raw pic->world grid while the tiles are placed on the
+# (rounded) compositor grid; the half-pixel mismatch clipped the right/bottom
+# border edges. See the matching -ref (same scene, generous clip that can't
+# crop): with the bug the border here loses its right and bottom edges.
+---
+root:
+  items:
+    - type: reference-frame
+      id: 4
+      bounds: [50.5, 305.5, 520, 63]
+      is-2d: true
+      items:
+        - type: stacking-context
+          items:
+            - type: scroll-frame
+              id: 5
+              bounds: [0, 0, 520, 53]
+              content-size: [520, 63]
+              items:
+                - type: border
+                  bounds: [28, 5, 464, 43]
+                  width: [1, 1, 1, 1]
+                  border-type: normal
+                  style: solid
+                  color: magenta

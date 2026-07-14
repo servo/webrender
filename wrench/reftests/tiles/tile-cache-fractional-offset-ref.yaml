@@ -1,0 +1,29 @@
+# Reference for tile-cache-fractional-offset.yaml. Same fractional-offset tile
+# cache and border, but a white background rect enlarges the slice's content
+# bounds so the composite clip is generous and cannot crop the border edges.
+# The white rect is invisible against the white clear colour, so the visible
+# result (the full magenta border) is identical to the (fixed) test.
+---
+root:
+  items:
+    - type: reference-frame
+      id: 4
+      bounds: [50.5, 305.5, 520, 63]
+      is-2d: true
+      items:
+        - type: stacking-context
+          items:
+            - type: scroll-frame
+              id: 5
+              bounds: [0, 0, 520, 53]
+              content-size: [520, 63]
+              items:
+                - type: rect
+                  bounds: [0, 0, 520, 53]
+                  color: white
+                - type: border
+                  bounds: [28, 5, 464, 43]
+                  width: [1, 1, 1, 1]
+                  border-type: normal
+                  style: solid
+                  color: magenta
