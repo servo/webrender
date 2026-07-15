@@ -1838,10 +1838,17 @@ fn prepare_prim_for_render(
                         }
                     };
                     let device_pixel_scale = info.device_pixel_scale;
-                    let surface_spatial_node_index = info.surface_spatial_node_index;
+
+                    // `content_origin`/`backdrop_rect` are in the surface's raster
+                    // device space (world space when the raster root is the scene
+                    // root). Map the prim into that same raster space rather than the
+                    // surface's own spatial node, otherwise the readback is offset by
+                    // the surface node's origin whenever snapping promotes the raster
+                    // root away from the surface node.
+                    let raster_spatial_node_index = info.raster_spatial_node_index;
 
                     let map_prim_to_backdrop = SpaceMapper::new_with_target(
-                        surface_spatial_node_index,
+                        raster_spatial_node_index,
                         prim_spatial_node_index,
                         WorldRect::max_rect(),
                         frame_context.spatial_tree,

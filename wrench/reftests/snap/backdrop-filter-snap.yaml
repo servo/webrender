@@ -1,0 +1,28 @@
+# Verify that an off-screen surface containing a backdrop-filter still snaps
+# to the device pixel grid when attached to a fractional transform. A
+# backdrop-filter establishes a resolve sub-graph; regression coverage for the
+# surface being left unsnapped (and hence resampled/blurry) at a fractional
+# device offset. Mirrors fractional-filter.yaml with an added backdrop-filter.
+# The backdrop-filter rect is placed in an empty region clear of the text: it
+# only needs to exist to force the resolve sub-graph, and its own edges are not
+# grid-snapped, so overlapping the (font-width dependent) text tail would make
+# the comparison fragile.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 1920, 1200]
+      transform: translate(-45, 7.491675)
+      items:
+      - type: stacking-context
+        filters: [opacity(0.9)]
+        backdrop-root: true
+        items:
+          - text: "This should be pixel aligned!"
+            origin: 416.543499 160.008325
+            size: 16
+          - type: stacking-context
+            bounds: [0, 0, 0, 0]
+            items:
+              - type: backdrop-filter
+                bounds: [700, 400, 40, 20]
+                filters: invert(1)

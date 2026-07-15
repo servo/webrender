@@ -661,10 +661,6 @@ impl<'a> SceneBuilder<'a> {
             let pic = &mut pictures[pic_index.0];
             assert_ne!(pic.spatial_node_index, SpatialNodeIndex::UNKNOWN);
 
-            if pic.flags.contains(PictureFlags::IS_RESOLVE_TARGET) {
-                pic.flags |= PictureFlags::DISABLE_SNAPPING;
-            }
-
             // If we're a surface, use that spatial node, otherwise the parent
             let spatial_node_index = match pic.composite_mode {
                 Some(_) => pic.spatial_node_index,
@@ -816,10 +812,6 @@ impl<'a> SceneBuilder<'a> {
                         prim_instances,
                         clip_interner,
                     );
-
-                    if pictures[child_pic_index.0].flags.contains(PictureFlags::DISABLE_SNAPPING) {
-                        pictures[pic_index.0].flags |= PictureFlags::DISABLE_SNAPPING;
-                    }
                 }
             }
         }

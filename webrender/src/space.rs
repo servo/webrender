@@ -251,17 +251,14 @@ impl SpaceSnapper {
     /// Create a snapper that snaps into `surface`'s raster space (the space the
     /// surface's content is rasterized in).
     ///
-    /// When the surface snaps (`allow_snapping == true`) content is snapped
-    /// against the surface's own raster node.
+    /// A surface whose raster node is in the root coordinate system snaps its
+    /// content against the root, and when it also snaps (`allow_snapping ==
+    /// true`) it establishes a root-snapping raster root.
     ///
-    /// A non-snapping raster root (`allow_snapping == false`) whose raster node
-    /// is still in the root coordinate system is a resolve target (backdrop
-    /// filter): the `DISABLE_SNAPPING` flag keeps it from establishing a
-    /// root-snapping raster root, but its content must still be snapped — so we
-    /// snap it against the root, mirroring the global snap pass this replaced.
-    /// A genuine non-snapping raster root (preserve-3d / perspective, raster
-    /// node not in the root coordinate system) stays disabled, since snapping
-    /// against its own scaled node would collapse content to zero.
+    /// A genuine non-snapping raster root (`allow_snapping == false`:
+    /// preserve-3d / perspective, raster node not in the root coordinate system)
+    /// stays disabled, since snapping against its own scaled node would collapse
+    /// content to zero.
     pub fn new(
         surface: &SurfaceInfo,
         spatial_tree: &SpatialTree,

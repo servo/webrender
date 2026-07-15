@@ -521,8 +521,6 @@ bitflags! {
         /// This picture establishes a sub-graph, which affects how SurfaceBuilder will
         /// set up dependencies in the render task graph
         const IS_SUB_GRAPH = 1 << 1;
-        /// If set, this picture should not apply snapping via changing the raster root
-        const DISABLE_SNAPPING = 1 << 2;
     }
 }
 
@@ -1200,14 +1198,6 @@ impl PictureInstance {
                     }
                 };
 
-                // TODO(gw): For now, we disable snapping on any sub-graph, as that implies
-                //           that the spatial / raster node must be the same as the parent
-                //           surface. In future, we may be able to support snapping in these
-                //           cases (if it's even useful?) or perhaps add a ENABLE_SNAPPING
-                //           picture flag, if the IS_SUB_GRAPH is ever useful in a different
-                //           context.
-                let allow_snapping = !self.flags.contains(PictureFlags::DISABLE_SNAPPING);
-
                 // For some primitives (e.g. text runs) we can't rely on the bounding rect being
                 // exactly correct. For these cases, ensure we set a scissor rect when drawing
                 // this picture to a surface.
@@ -1275,7 +1265,6 @@ impl PictureInstance {
                         let surface_spatial_node = frame_context.spatial_tree.get_spatial_node(surface_spatial_node_index);
 
                         let enable_snapping =
-                            allow_snapping &&
                             surface_spatial_node.coordinate_system_id == CoordinateSystemId::root();
 
                         if enable_snapping {
