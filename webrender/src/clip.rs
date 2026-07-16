@@ -1012,18 +1012,16 @@ impl ClipTreeBuilder {
         &mut self,
         clip_node_id: ClipNodeId,
         info: &LayoutPrimitiveInfo,
-        extra_clips: &[ClipItemEntry],
-        interners: &mut Interners,
         // False for device-space prims (text): the leaf is built to snap
         // nothing (encoded as a `ClipNodeId::INVALID` prim_clip_root).
         snap_clips: bool,
     ) -> ClipLeafId {
         // The prim's own clips are `clip_node_id` (the `build_clip_set` result
-        // for this item) plus any `extra_clips`, appended on top of the
-        // inherited clip root = `clip_stack.last().clip_node_id`. That inherited
-        // root is the own/shared boundary. Device-space prims snap nothing, so
-        // record the `INVALID` sentinel instead. This assumes the clip stack was
-        // not pushed/popped between `build_clip_set` and here (they run
+        // for this item), appended on top of the inherited clip root =
+        // `clip_stack.last().clip_node_id`. That inherited root is the
+        // own/shared boundary. Device-space prims snap nothing, so record the
+        // `INVALID` sentinel instead. This assumes the clip stack was not
+        // pushed/popped between `build_clip_set` and here (they run
         // back-to-back per item) - asserted below.
         let prim_clip_root = if snap_clips {
             self.clip_stack.last().unwrap().clip_node_id
@@ -1031,35 +1029,7 @@ impl ClipTreeBuilder {
             ClipNodeId::INVALID
         };
 
-        let node_id = if extra_clips.is_empty() {
-            clip_node_id
-        } else {
-            // TODO(gw): Cache the previous build of clip-node / clip-leaf to handle cases where we get a
-            //           lot of primitives referencing the same clip set (e.g. dl_mutate and similar tests)
-            self.clip_handles_buffer.clear();
-
-            for clip_item_entry in extra_clips {
-                // Intern this clip item, and store the handle
-                // in the clip chain node.
-                let handle = interners.clip.intern(&clip_item_entry.key, || {
-                    ClipInternData {
-                        key: clip_item_entry.key.clone(),
-                    }
-                });
-
-                self.clip_handles_buffer.push(ClipEntry {
-                    handle,
-                    spatial_node_index: clip_item_entry.spatial_node_index,
-                    clip_rect: clip_item_entry.clip_rect.into(),
-                    snap_outset: clip_item_entry.snap_outset,
-                });
-            }
-
-            self.tree.add(
-                clip_node_id,
-                &self.clip_handles_buffer,
-            )
-        };
+        let node_id = clip_node_id;
 
         // When snapping, `prim_clip_root` must be an ancestor of (or equal to)
         // `node_id`, since `node_id` is built on top of it. If not, the clip
@@ -1937,16 +1907,6 @@ pub struct ClipItemKey {
     pub kind: ClipItemKeyKind,
 }
 
-/// A clip item key paired with the spatial node that positions it, used during scene building.
-#[derive(Copy, Clone)]
-pub struct ClipItemEntry {
-    pub key: ClipItemKey,
-    pub spatial_node_index: SpatialNodeIndex,
-    pub clip_rect: LayoutRect,
-    /// Propagated to `ClipTreeNode::snap_outset`. See that field.
-    pub snap_outset: Au,
-}
-
 /// The data available about an interned clip node during scene building
 #[derive(Debug, MallocSizeOf)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -2578,7 +2538,6 @@ mod tests {
         );
 
         let mut builder = ClipTreeBuilder::new();
-        let mut interners = Interners::default();
         let info = LayoutPrimitiveInfo::with_clip_rect(
             lr(0.0, 0.0, 100.0, 100.0),
             lr(0.0, 0.0, 100.0, 100.0),
@@ -2586,7 +2545,7 @@ mod tests {
 
         // A text run (SNAP_CLIPS == false) records the INVALID snap sentinel.
         let text_leaf =
-            builder.build_for_prim(ClipNodeId::NONE, &info, &[], &mut interners, TextRun::SNAP_CLIPS);
+            builder.build_for_prim(ClipNodeId::NONE, &info, TextRun::SNAP_CLIPS);
         assert_eq!(
             builder.get_leaf(text_leaf).prim_clip_root,
             ClipNodeId::INVALID,
@@ -2596,7 +2555,7 @@ mod tests {
         // A snapping primitive (backgrounds, borders, ...) records a real
         // prim_clip_root, so its clips are snapped to the device grid.
         let snapping_leaf =
-            builder.build_for_prim(ClipNodeId::NONE, &info, &[], &mut interners, true);
+            builder.build_for_prim(ClipNodeId::NONE, &info, true);
         assert_ne!(
             builder.get_leaf(snapping_leaf).prim_clip_root,
             ClipNodeId::INVALID,

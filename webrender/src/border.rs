@@ -86,7 +86,6 @@ impl<'a> SceneBuilder<'a> {
             spatial_node_index,
             clip_node_id,
             info,
-            Vec::new(),
             NormalBorderPrim {
                 border: border.into(),
                 widths: widths.to_au(),

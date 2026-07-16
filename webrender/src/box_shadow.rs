@@ -191,7 +191,6 @@ impl<'a> SceneBuilder<'a> {
                     spatial_node_index,
                     clip_node_id,
                     &LayoutPrimitiveInfo::with_clip_rect(dest_rect, prim_info.clip_rect),
-                    vec![],
                     BoxShadow {
                         color: color.into(),
                         blur_radius: Au::from_f32_px(blur_radius),
@@ -218,7 +217,6 @@ impl<'a> SceneBuilder<'a> {
                     spatial_node_index,
                     clip_node_id,
                     &prim_info.clone(),
-                    vec![],
                     BoxShadow {
                         color: color.into(),
                         blur_radius: Au::from_f32_px(blur_radius),

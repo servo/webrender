@@ -51,7 +51,7 @@ use api::units::*;
 use crate::image_tiling::simplify_repeated_primitive;
 use api::prim_geometry::{process_repeat_size, compute_stretch_ratio};
 use crate::box_shadow::BLUR_SAMPLE_SCALE;
-use crate::clip::{ClipIntern, ClipItemKey, ClipItemKeyKind, ClipItemEntry, ClipStore};
+use crate::clip::{ClipIntern, ClipItemKey, ClipItemKeyKind, ClipStore};
 use crate::clip::{ClipInternData, ClipNodeId, ClipLeafId};
 use crate::clip::{PolygonDataHandle, ClipTreeBuilder};
 use crate::gpu_types::BlurEdgeMode;
@@ -1414,7 +1414,6 @@ impl<'a> SceneBuilder<'a> {
                     spatial_node_index,
                     clip_node_id,
                     &layout,
-                    Vec::new(),
                     RectanglePrim {
                         color: info.color.into(),
                     },
@@ -1530,7 +1529,6 @@ impl<'a> SceneBuilder<'a> {
                             spatial_node_index,
                             clip_node_id,
                             &layout,
-                            Vec::new(),
                             prim_key_kind,
                         );
                     }
@@ -1582,7 +1580,6 @@ impl<'a> SceneBuilder<'a> {
                                 transformed_aa_edges: layout.transformed_aa_edges & aa_mask,
                                 .. layout
                             },
-                            Vec::new(),
                             RectanglePrim { color: PropertyBinding::Value(color) },
                         );
                     }
@@ -1616,7 +1613,6 @@ impl<'a> SceneBuilder<'a> {
                         spatial_node_index,
                         clip_node_id,
                         &layout,
-                        Vec::new(),
                         prim_key_kind,
                     );
                 }
@@ -1665,7 +1661,6 @@ impl<'a> SceneBuilder<'a> {
                         spatial_node_index,
                         clip_node_id,
                         &layout,
-                        Vec::new(),
                         prim_key_kind,
                     );
                 }
@@ -1885,7 +1880,6 @@ impl<'a> SceneBuilder<'a> {
         spatial_node_index: SpatialNodeIndex,
         clip_node_id: ClipNodeId,
         info: &LayoutPrimitiveInfo,
-        clip_items: Vec<ClipItemEntry>,
         prim: P,
     )
     where
@@ -1896,8 +1890,6 @@ impl<'a> SceneBuilder<'a> {
             let clip_leaf_id = self.clip_tree_builder.build_for_prim(
                 clip_node_id,
                 info,
-                &clip_items,
-                &mut self.interners,
                 P::SNAP_CLIPS,
             );
 
@@ -2783,7 +2775,6 @@ impl<'a> SceneBuilder<'a> {
             spatial_node_index,
             clip_node_id,
             &info,
-            Vec::new(),
             LineDecoration {
                 style,
                 orientation,
@@ -2828,7 +2819,6 @@ impl<'a> SceneBuilder<'a> {
                             spatial_node_index,
                             clip_node_id,
                             info,
-                            Vec::new(),
                             prim,
                         );
                     }
@@ -2852,7 +2842,6 @@ impl<'a> SceneBuilder<'a> {
                             spatial_node_index,
                             clip_node_id,
                             info,
-                            Vec::new(),
                             prim,
                         );
                     }
@@ -2874,7 +2863,6 @@ impl<'a> SceneBuilder<'a> {
                             spatial_node_index,
                             clip_node_id,
                             info,
-                            Vec::new(),
                             prim,
                         );
                     }
@@ -2896,7 +2884,6 @@ impl<'a> SceneBuilder<'a> {
                             spatial_node_index,
                             clip_node_id,
                             info,
-                            Vec::new(),
                             prim,
                         );
                     }
@@ -3128,7 +3115,6 @@ impl<'a> SceneBuilder<'a> {
             spatial_node_index,
             clip_node_id,
             prim_info,
-            Vec::new(),
             text_run,
         );
     }
@@ -3164,7 +3150,6 @@ impl<'a> SceneBuilder<'a> {
             spatial_node_index,
             clip_node_id,
             &info,
-            Vec::new(),
             Image {
                 key: image_key,
                 tile_spacing: tile_spacing.into(),
@@ -3201,7 +3186,6 @@ impl<'a> SceneBuilder<'a> {
             spatial_node_index,
             clip_node_id,
             info,
-            Vec::new(),
             YuvImage {
                 color_depth,
                 yuv_key,
@@ -3252,8 +3236,6 @@ impl<'a> SceneBuilder<'a> {
         let clip_leaf_id = self.clip_tree_builder.build_for_prim(
             clip_node_id,
             info,
-            &[],
-            &mut self.interners,
             true,
         );
 
