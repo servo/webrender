@@ -239,6 +239,11 @@ pub struct RoundedRectClipDisplayItem {
     pub id: ClipId,
     pub spatial_id: SpatialId,
     pub clip: ComplexClipRegion,
+    /// Layout-space outset applied when snapping this clip's rect. Non-zero
+    /// only for the internal zero-blur box-shadow desugar, where the inner
+    /// ClipOut edge must stay a constant distance from the snapped element
+    /// (bug 2052033). All public callers leave this 0.
+    pub snap_outset: f32,
 }
 
 /// The minimum and maximum allowable offset for a sticky frame in a single dimension.

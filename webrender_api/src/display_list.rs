@@ -1452,6 +1452,24 @@ impl DisplayListBuilder {
         shadow_radius: di::BorderRadius,
         clip_mode: di::BoxShadowClipMode,
     ) {
+        // Zero-blur box-shadows desugar into a plain rectangle shaped by a
+        // ClipOut/Clip rounded-rect pair, so the scene builder sees only
+        // ordinary items instead of expanding a BoxShadow via extra clips.
+        // Box-shadows with a real blur still use the quad/blur-cache path.
+        if blur_radius == 0.0 {
+            self.push_zero_blur_box_shadow(
+                common,
+                box_bounds,
+                offset,
+                color,
+                spread_radius,
+                border_radius,
+                shadow_radius,
+                clip_mode,
+            );
+            return;
+        }
+
         let (common, eso_offset) = self.normalize_common(common);
         let item = di::DisplayItem::BoxShadow(di::BoxShadowDisplayItem {
             common,
@@ -1466,6 +1484,111 @@ impl DisplayListBuilder {
         });
 
         self.push_item(&item);
+    }
+
+    /// Desugar a zero-blur box-shadow into a filled rectangle bounded by a
+    /// rounded-rect `Clip` and (for the fake-border ring) carved out by an inner
+    /// rounded-rect `ClipOut`. This replaces the scene builder's zero-blur fast
+    /// path. Rects are left in the caller's layout space; each `define_*`/
+    /// `push_rect` call applies the same scroll-offset normalization for
+    /// `spatial_id`, so they stay aligned. The inner ClipOut carries the spread
+    /// as its snap outset to keep the ring width even under motion (bug 2052033).
+    fn push_zero_blur_box_shadow(
+        &mut self,
+        common: &di::CommonItemProperties,
+        box_bounds: LayoutRect,
+        offset: LayoutVector2D,
+        color: ColorF,
+        spread_radius: f32,
+        border_radius: di::BorderRadius,
+        shadow_radius: di::BorderRadius,
+        clip_mode: di::BoxShadowClipMode,
+    ) {
+        use di::{BoxShadowClipMode, ClipMode, ComplexClipRegion};
+
+        if color.a == 0.0 {
+            return;
+        }
+
+        // Inset shadows get smaller as spread radius increases.
+        let spread_amount = match clip_mode {
+            BoxShadowClipMode::Outset => spread_radius,
+            BoxShadowClipMode::Inset => -spread_radius,
+        };
+
+        // Trivial reject of box-shadows that are not visible.
+        if offset == LayoutVector2D::zero() && spread_amount == 0.0 {
+            return;
+        }
+
+        let shadow_rect = box_bounds
+            .translate(offset)
+            .inflate(spread_amount, spread_amount);
+        let spatial_id = common.spatial_id;
+
+        let mut clips: Vec<di::ClipId> = Vec::with_capacity(2);
+        let (final_prim_rect, clip_radius) = match clip_mode {
+            BoxShadowClipMode::Outset => {
+                if shadow_rect.is_empty() {
+                    return;
+                }
+
+                clips.push(self.define_clip_rounded_rect_impl(
+                    spatial_id,
+                    ComplexClipRegion {
+                        rect: box_bounds,
+                        radii: border_radius,
+                        mode: ClipMode::ClipOut,
+                    },
+                    spread_radius,
+                ));
+
+                (shadow_rect, shadow_radius)
+            }
+            BoxShadowClipMode::Inset => {
+                if !shadow_rect.is_empty() {
+                    clips.push(self.define_clip_rounded_rect_impl(
+                        spatial_id,
+                        ComplexClipRegion {
+                            rect: shadow_rect,
+                            radii: shadow_radius,
+                            mode: ClipMode::ClipOut,
+                        },
+                        spread_radius,
+                    ));
+                }
+
+                (box_bounds, border_radius)
+            }
+        };
+
+        // Outer Clip matches the rectangle and snaps normally (outset 0).
+        clips.push(self.define_clip_rounded_rect_impl(
+            spatial_id,
+            ComplexClipRegion {
+                rect: final_prim_rect,
+                radii: clip_radius,
+                mode: ClipMode::Clip,
+            },
+            0.0,
+        ));
+
+        // Chain the shaping clips on top of the item's own clip chain.
+        let parent = (common.clip_chain_id != di::ClipChainId::INVALID)
+            .then_some(common.clip_chain_id);
+        let clip_chain_id = self.define_clip_chain(parent, clips);
+
+        let rect_common = di::CommonItemProperties {
+            clip_rect: common.clip_rect,
+            clip_chain_id,
+            spatial_id,
+            flags: common.flags,
+        };
+        self.push_rect_with_animation(
+            &rect_common,
+            final_prim_rect,
+            PropertyBinding::Value(color),
+        );
     }
 
     /// Pushes a linear gradient to be displayed.
@@ -1942,15 +2065,26 @@ impl DisplayListBuilder {
         spatial_id: di::SpatialId,
         clip: di::ComplexClipRegion,
     ) -> di::ClipId {
+        self.define_clip_rounded_rect_impl(spatial_id, clip, 0.0)
+    }
+
+    /// As `define_clip_rounded_rect`, but with a `snap_outset` for the internal
+    /// zero-blur box-shadow desugar (see `RoundedRectClipDisplayItem`).
+    fn define_clip_rounded_rect_impl(
+        &mut self,
+        spatial_id: di::SpatialId,
+        mut clip: di::ComplexClipRegion,
+        snap_outset: f32,
+    ) -> di::ClipId {
         let id = self.generate_clip_index();
 
-        let mut clip = clip;
         clip.rect = self.normalize_rect(clip.rect, spatial_id);
 
         let item = di::DisplayItem::RoundedRectClip(di::RoundedRectClipDisplayItem {
             id,
             spatial_id,
             clip,
+            snap_outset,
         });
 
         self.push_item(&item);

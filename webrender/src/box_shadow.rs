@@ -1,13 +1,12 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-use api::{BorderRadius, BoxShadowClipMode, ClipMode, ColorF, PropertyBinding};
+use api::{BorderRadius, BoxShadowClipMode, ColorF};
 use api::units::*;
-use crate::clip::{ClipItemEntry, ClipItemKey, ClipItemKeyKind, ClipNodeId};
+use crate::clip::ClipNodeId;
 use crate::intern::{Handle as InternHandle, InternDebug, Internable};
 use crate::prim_store::{InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData};
 use crate::prim_store::{PrimitiveKind, PrimitiveStore};
-use crate::prim_store::rectangle::RectanglePrim;
 use crate::scene_building::{SceneBuilder, IsVisible};
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::internal_types::LayoutPrimitiveInfo;
@@ -170,148 +169,66 @@ impl<'a> SceneBuilder<'a> {
             .translate(*box_offset)
             .inflate(spread_amount, spread_amount);
 
-        // If blur radius is zero, we can use a fast path with
-        // no blur applied.
-        if blur_radius == 0.0 {
-            // Trivial reject of box-shadows that are not visible.
-            if box_offset.x == 0.0 && box_offset.y == 0.0 && spread_amount == 0.0 {
-                return;
+        // Box-shadows with a valid blur radius use the quad primitive path;
+        // element clipping is handled analytically in the shader. Zero-blur
+        // box-shadows are desugared into a rectangle plus shaping clips in the
+        // DisplayListBuilder and never reach here.
+        let blur_offset = (BLUR_SAMPLE_SCALE * blur_radius).ceil();
+
+        // Get the local rect of where the shadow will be drawn,
+        // expanded to include room for the blurred region.
+        let dest_rect = shadow_rect.inflate(blur_offset, blur_offset);
+
+        match clip_mode {
+            BoxShadowClipMode::Outset => {
+                // Certain spread-radii make the shadow invalid.
+                if shadow_rect.is_empty() {
+                    return;
+                }
+
+                // Element clip is handled analytically in the shader.
+                self.add_primitive(
+                    spatial_node_index,
+                    clip_node_id,
+                    &LayoutPrimitiveInfo::with_clip_rect(dest_rect, prim_info.clip_rect),
+                    vec![],
+                    BoxShadow {
+                        color: color.into(),
+                        blur_radius: Au::from_f32_px(blur_radius),
+                        clip_mode,
+                        shadow_radius: shadow_radius.into(),
+                        element_radius: border_radius.into(),
+                        box_offset: (*box_offset).into(),
+                        spread_amount: Au::from_f32_px(spread_amount),
+                    },
+                );
             }
-
-            let mut clips = Vec::with_capacity(2);
-            let (final_prim_rect, clip_radius) = match clip_mode {
-                BoxShadowClipMode::Outset => {
-                    if shadow_rect.is_empty() {
-                        return;
-                    }
-
-                    // TODO(gw): Add a fast path for ClipOut + zero border radius!
-                    // Anchor the inner ClipOut edge to the snapped element by
-                    // snapping with the spread as the outset (bug 2052033): the
-                    // edge stays a constant `spread` from the snapped element,
-                    // rather than each side rounding on its own (which makes the
-                    // fake-border sides thicken at different times as the spread
-                    // animates, and the ring width breathe under motion).
-                    clips.push(ClipItemEntry {
-                        key: ClipItemKey {
-                            kind: ClipItemKeyKind::rounded_rect(
-                                border_radius,
-                                ClipMode::ClipOut,
-                            ),
-                        },
-                        spatial_node_index,
-                        clip_rect: prim_info.rect,
-                        snap_outset: Au::from_f32_px(spread_radius),
-                    });
-
-                    (shadow_rect, shadow_radius)
+            BoxShadowClipMode::Inset => {
+                // If the inner shadow rect contains the prim
+                // rect, no pixels will be shadowed.
+                if border_radius.is_zero() && shadow_rect
+                    .inflate(-blur_radius, -blur_radius)
+                    .contains_box(&prim_info.rect)
+                {
+                    return;
                 }
-                BoxShadowClipMode::Inset => {
-                    if !shadow_rect.is_empty() {
-                        // See the Outset arm: anchor the inner ClipOut edge to
-                        // the snapped element via the spread outset, rather than
-                        // snapping it independently (bug 2052033).
-                        clips.push(ClipItemEntry {
-                            key: ClipItemKey {
-                                kind: ClipItemKeyKind::rounded_rect(
-                                    shadow_radius,
-                                    ClipMode::ClipOut,
-                                ),
-                            },
-                            spatial_node_index,
-                            clip_rect: shadow_rect,
-                            snap_outset: Au::from_f32_px(spread_radius),
-                        });
-                    }
 
-                    (prim_info.rect, border_radius)
-                }
-            };
-
-            // The outer Clip matches the RectanglePrim rect and snaps normally
-            // (both snapped the same way), so the outer edge stays crisp and
-            // aligned; only the inner ClipOut above uses the spread outset.
-            clips.push(ClipItemEntry {
-                key: ClipItemKey {
-                    kind: ClipItemKeyKind::rounded_rect(
-                        clip_radius,
-                        ClipMode::Clip,
-                    ),
-                },
-                spatial_node_index,
-                clip_rect: final_prim_rect,
-                snap_outset: Au(0),
-            });
-
-            self.add_primitive(
-                spatial_node_index,
-                clip_node_id,
-                &LayoutPrimitiveInfo::with_clip_rect(final_prim_rect, prim_info.clip_rect),
-                clips,
-                RectanglePrim {
-                    color: PropertyBinding::Value(color.into()),
-                },
-            );
-        } else {
-            // Box-shadows with a valid blur radius use the quad primitive
-            // path; element clipping is handled analytically in the shader.
-            let blur_offset = (BLUR_SAMPLE_SCALE * blur_radius).ceil();
-
-            // Get the local rect of where the shadow will be drawn,
-            // expanded to include room for the blurred region.
-            let dest_rect = shadow_rect.inflate(blur_offset, blur_offset);
-
-            match clip_mode {
-                BoxShadowClipMode::Outset => {
-                    // Certain spread-radii make the shadow invalid.
-                    if shadow_rect.is_empty() {
-                        return;
-                    }
-
-                    // Element clip is handled analytically in the shader.
-                    self.add_primitive(
-                        spatial_node_index,
-                        clip_node_id,
-                        &LayoutPrimitiveInfo::with_clip_rect(dest_rect, prim_info.clip_rect),
-                        vec![],
-                        BoxShadow {
-                            color: color.into(),
-                            blur_radius: Au::from_f32_px(blur_radius),
-                            clip_mode,
-                            shadow_radius: shadow_radius.into(),
-                            element_radius: border_radius.into(),
-                            box_offset: (*box_offset).into(),
-                            spread_amount: Au::from_f32_px(spread_amount),
-                        },
-                    );
-                }
-                BoxShadowClipMode::Inset => {
-                    // If the inner shadow rect contains the prim
-                    // rect, no pixels will be shadowed.
-                    if border_radius.is_zero() && shadow_rect
-                        .inflate(-blur_radius, -blur_radius)
-                        .contains_box(&prim_info.rect)
-                    {
-                        return;
-                    }
-
-                    // Element clip is handled analytically in the shader.
-                    self.add_primitive(
-                        spatial_node_index,
-                        clip_node_id,
-                        &prim_info.clone(),
-                        vec![],
-                        BoxShadow {
-                            color: color.into(),
-                            blur_radius: Au::from_f32_px(blur_radius),
-                            clip_mode,
-                            shadow_radius: shadow_radius.into(),
-                            element_radius: border_radius.into(),
-                            box_offset: (*box_offset).into(),
-                            spread_amount: Au::from_f32_px(spread_amount),
-                        },
-                    );
-                }
+                // Element clip is handled analytically in the shader.
+                self.add_primitive(
+                    spatial_node_index,
+                    clip_node_id,
+                    &prim_info.clone(),
+                    vec![],
+                    BoxShadow {
+                        color: color.into(),
+                        blur_radius: Au::from_f32_px(blur_radius),
+                        clip_mode,
+                        shadow_radius: shadow_radius.into(),
+                        element_radius: border_radius.into(),
+                        box_offset: (*box_offset).into(),
+                        spread_amount: Au::from_f32_px(spread_amount),
+                    },
+                );
             }
         }
     }

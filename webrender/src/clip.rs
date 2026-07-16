@@ -596,8 +596,9 @@ impl ClipTreeBuilder {
         handle: ClipDataHandle,
         spatial_node_index: SpatialNodeIndex,
         clip_rect: LayoutRect,
+        snap_outset: Au,
     ) {
-        self.clip_map.insert(id, ClipEntry { handle, spatial_node_index, clip_rect: clip_rect.into(), snap_outset: Au(0) });
+        self.clip_map.insert(id, ClipEntry { handle, spatial_node_index, clip_rect: clip_rect.into(), snap_outset });
     }
 
     /// Define a image mask clip

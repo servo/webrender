@@ -1725,6 +1725,7 @@ impl<'a> SceneBuilder<'a> {
                     info.id,
                     info.spatial_id,
                     &info.clip,
+                    info.snap_outset,
                 );
             }
             DisplayItem::RectClip(ref info) => {
@@ -2709,6 +2710,7 @@ impl<'a> SceneBuilder<'a> {
         new_node_id: ClipId,
         spatial_id: SpatialId,
         clip: &ComplexClipRegion,
+        snap_outset: f32,
     ) {
         let spatial_node_index = self.get_space(spatial_id);
 
@@ -2735,6 +2737,7 @@ impl<'a> SceneBuilder<'a> {
             handle,
             spatial_node_index,
             region_rect,
+            Au::from_f32_px(snap_outset),
         );
     }
 
