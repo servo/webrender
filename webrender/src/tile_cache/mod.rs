@@ -31,7 +31,7 @@ use crate::invalidation::compare::{OpacityBindingInfo, ColorBindingInfo};
 use crate::picture::{SurfaceTextureDescriptor, PictureCompositeMode, SurfaceIndex, clamp};
 use crate::picture::{get_relative_scale_offset, PictureInstance};
 use crate::picture::MAX_COMPOSITOR_SURFACES_SIZE;
-use crate::prim_store::{PrimitiveInstance, PrimitiveKind, PrimitiveScratchBuffer, PictureIndex};
+use crate::prim_store::{ClipSnap, PrimitiveInstance, PrimitiveKind, PrimitiveScratchBuffer, PictureIndex};
 use crate::prim_store::PrimitiveInstanceIndex;
 use crate::print_tree::{PrintTreePrinter, PrintTree};
 use crate::{profiler, render_backend::DataStores};
@@ -1087,11 +1087,22 @@ impl TileCacheInstance {
 
             let mut clip_snapper = SpaceSnapper::new(surface, frame_context.spatial_tree);
 
+            // The tile cache's shared clip is never a text run: it snaps its
+            // chain to nearest when it carries a real clip root, otherwise it
+            // leaves it exact (matching the device-space sentinel behavior).
+            let clip_snap = if frame_state.clip_tree.get_leaf(shared_clip_leaf_id).prim_clip_root
+                != ClipNodeId::INVALID {
+                ClipSnap::Nearest
+            } else {
+                ClipSnap::Exact
+            };
+
             frame_state.clip_store.set_active_clips(
                 self.spatial_node_index,
                 map_local_to_picture.ref_spatial_node_index,
                 surface.visibility_spatial_node_index,
                 &mut clip_snapper,
+                clip_snap,
                 shared_clip_leaf_id,
                 frame_context.spatial_tree,
                 &frame_state.data_stores.clip,

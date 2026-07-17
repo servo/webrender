@@ -22,7 +22,7 @@ use crate::picture::{PictureCompositeMode, ClusterFlags, SurfaceInfo};
 use crate::tile_cache::TileCacheInstance;
 use crate::picture::{PictureScratch, SurfaceIndex, RasterConfig};
 use crate::tile_cache::SubSliceIndex;
-use crate::prim_store::{ClipTaskIndex, PictureIndex, PrimitiveKind, SegmentInstanceIndex};
+use crate::prim_store::{ClipSnap, ClipTaskIndex, PictureIndex, PrimitiveKind, SegmentInstanceIndex};
 use crate::prim_store::{PrimitiveStore, PrimitiveInstance, PrimitiveInstanceIndex};
 use crate::prim_store::borders::ImageBorderScratch;
 use crate::prim_store::image::ImageScratch;
@@ -372,23 +372,28 @@ pub fn update_prim_visibility(
             let snaps = frame_state.clip_tree.get_leaf(leaf_id).prim_clip_root
                 != ClipNodeId::INVALID;
 
-            let rounding = prim_instance.snap_rounding(snaps, frame_state.data_stores);
+            let policy = prim_instance.snap_policy(snaps, frame_state.data_stores);
             let snapped_local_rect =
-                snapper.snap_rect_rounded(&prim_instance.unsnapped_prim_rect, rounding);
+                snapper.snap_rect_rounded(&prim_instance.unsnapped_prim_rect, policy.rect);
             frame_state.scratch.primitive.frame.draws[prim_instance_index].snapped_local_rect =
                 snapped_local_rect;
 
             // Picture / tile-cache leaves carry `max_rect` (snapping it would
-            // overflow the snap transform) and device-space leaves don't snap;
-            // both pass through. Other prims snap their own leaf clip for crisp
-            // fill/border edges.
+            // overflow the snap transform); pass those through. Otherwise the
+            // leaf clip rounds per the prim's clip policy: nearest for snapping
+            // prims (crisp fill/border edges), exact for surfaces, and round-out
+            // on the non-sub-pixel axis for text runs (bug 2055145).
             let leaf = frame_state.clip_tree.get_leaf_mut(leaf_id);
             let unsnapped = leaf.unsnapped_local_clip_rect;
-            if unsnapped == LayoutRect::max_rect() || !snaps {
-                leaf.snapped_local_clip_rect = unsnapped;
+            leaf.snapped_local_clip_rect = if unsnapped == LayoutRect::max_rect() {
+                unsnapped
             } else {
-                leaf.snapped_local_clip_rect = snapper.snap_rect(&unsnapped);
-            }
+                match policy.clip {
+                    ClipSnap::Nearest => snapper.snap_rect(&unsnapped),
+                    ClipSnap::Exact => unsnapped,
+                    ClipSnap::Text(rounding) => snapper.snap_rect_rounded(&unsnapped, rounding),
+                }
+            };
 
             if let PrimitiveKind::Picture { pic_index, .. } = frame_state.prim_instances[prim_instance_index].kind {
                 if !store.pictures[pic_index.0].is_visible(frame_context.spatial_tree) {
@@ -450,6 +455,7 @@ pub fn update_prim_visibility(
                 map_local_to_picture.ref_spatial_node_index,
                 visibility_spatial_node_index,
                 &mut clip_snapper,
+                policy.clip,
                 prim_instance.clip_leaf_id,
                 &frame_context.spatial_tree,
                 &frame_state.data_stores.clip,

@@ -103,12 +103,12 @@ use crate::ellipse::Ellipse;
 use crate::intern;
 use crate::internal_types::{FastHashMap, FastHashSet, LayoutPrimitiveInfo};
 use crate::prim_store::{VisibleMaskImageTile};
-use crate::prim_store::{RectKey, PolygonKey};
+use crate::prim_store::{ClipSnap, RectKey, PolygonKey};
 use crate::render_task::RenderTask;
 use crate::render_task_graph::RenderTaskGraphBuilder;
 use crate::resource_cache::{ImageRequest, ResourceCache};
 use crate::scene_builder_thread::Interners;
-use crate::space::{SpaceMapper, SpaceSnapper};
+use crate::space::{SnapRounding, SpaceMapper, SpaceSnapper};
 use crate::util::{extract_inner_rect_safe, project_rect, MatrixHelpers, MaxRect, ScaleOffset};
 use euclid::approxeq::ApproxEq;
 use std::{iter, ops, u32, mem};
@@ -153,6 +153,7 @@ impl ClipTreeNode {
         &self,
         snapper: &mut SpaceSnapper,
         spatial_tree: &SpatialTree,
+        rounding: SnapRounding,
     ) -> LayoutRect {
         debug_assert!(self.spatial_node_index != SpatialNodeIndex::INVALID);
         snapper.set_target_spatial_node(self.spatial_node_index, spatial_tree);
@@ -162,9 +163,9 @@ impl ClipTreeNode {
             // recover it (e.g. the box-shadow element), snap that, then inset
             // by the outset. See `snap_outset`.
             let anchor = self.unsnapped_clip_rect.inflate(outset, outset);
-            snapper.snap_rect(&anchor).inflate(-outset, -outset)
+            snapper.snap_rect_rounded(&anchor, rounding).inflate(-outset, -outset)
         } else {
-            snapper.snap_rect(&self.unsnapped_clip_rect)
+            snapper.snap_rect_rounded(&self.unsnapped_clip_rect, rounding)
         }
     }
 }
@@ -1510,6 +1511,7 @@ impl ClipStore {
         pic_spatial_node_index: SpatialNodeIndex,
         visibility_spatial_node_index: SpatialNodeIndex,
         snapper: &mut SpaceSnapper,
+        clip_snap: ClipSnap,
         clip_leaf_id: ClipLeafId,
         spatial_tree: &SpatialTree,
         clip_data_store: &ClipDataStore,
@@ -1522,24 +1524,35 @@ impl ClipStore {
         let clip_root = clip_tree.current_clip_root();
         let clip_leaf = clip_tree.get_leaf(clip_leaf_id);
 
-        // A snapping primitive snaps every clip in its chain to the device pixel
-        // grid, so a fractional clip edge (an animated clip-path, a rounded
-        // overflow clip, etc.) lands on the same grid as the primitive's own
-        // snapped geometry. Device-space primitives (text) carry the INVALID
-        // sentinel and snap nothing, so their clips stay at the exact sub-pixel
-        // position that matches the glyphs (bug 2050692). The leaf clip rect was
-        // pre-snapped accordingly by the visibility pass.
-        let snaps = clip_leaf.prim_clip_root != ClipNodeId::INVALID;
+        // How each clip in the chain rounds to the device grid is the prim's
+        // clip policy (`ClipSnap`), resolved by the caller from the prim kind and
+        // its clip-leaf sentinel. A snapping prim snaps every clip to nearest so
+        // a fractional clip edge (an animated clip-path, a rounded overflow clip,
+        // etc.) lands on the same grid as the prim's own snapped geometry; a
+        // surface leaves its clips exact so they stay at the sub-pixel position
+        // matching its contents (bug 2050692); a text run rounds out on the
+        // non-sub-pixel axis (bug 2055145). The leaf clip rect was pre-snapped
+        // accordingly by the visibility pass.
         let mut local_clip_rect = clip_leaf.snapped_local_clip_rect;
         let mut current = clip_leaf.node_id;
 
         while current != clip_root && current != ClipNodeId::NONE {
             let node = clip_tree.get_node(current);
 
-            let clip_rect = if snaps {
-                node.snapped_clip_rect(snapper, spatial_tree)
-            } else {
-                node.unsnapped_clip_rect
+            let clip_rect = match clip_snap {
+                ClipSnap::Nearest =>
+                    node.snapped_clip_rect(snapper, spatial_tree, SnapRounding::Nearest),
+                // A device-space text run rounds its clip *out* on the
+                // non-sub-pixel axis: the glyph is snapped to the device grid on
+                // that axis, so an exact fractional clip edge would shave a whole
+                // glyph row whose center lies just beyond it. Rounding out keeps
+                // the snapped glyph's own rows while never rounding a clip edge
+                // inward, so it can't shave the last glyph the way snapping used
+                // to (bug 2050692, bug 2055145).
+                ClipSnap::Text(rounding) =>
+                    node.snapped_clip_rect(snapper, spatial_tree, rounding),
+                // Surface / other device-space prim: leave the clip exact.
+                ClipSnap::Exact => node.unsnapped_clip_rect,
             };
 
             if !add_clip_node_to_current_chain(
