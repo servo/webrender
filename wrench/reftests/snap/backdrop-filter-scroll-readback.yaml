@@ -1,0 +1,79 @@
+# Bug 2055555: a backdrop-filter resolve target inside a scrolled subtree must
+# read back the region of the backdrop it actually covers. The invert() rect
+# should show the inverse of the bands it overlaps. Before the fix the readback
+# ignored the scroll offset and sampled a region offset by the scroll amount.
+---
+root:
+  items:
+    - type: scroll-frame
+      bounds: 0 0 400 400
+      content-size: 400 800
+      scroll-offset: 0 200
+      items:
+        - type: stacking-context
+          backdrop-root: true
+          bounds: 0 0 400 800
+          items:
+            - type: rect
+              bounds: 0 0 400 40
+              color: [230, 30, 30, 1]
+            - type: rect
+              bounds: 0 40 400 40
+              color: [30, 200, 30, 1]
+            - type: rect
+              bounds: 0 80 400 40
+              color: [30, 30, 230, 1]
+            - type: rect
+              bounds: 0 120 400 40
+              color: [220, 220, 30, 1]
+            - type: rect
+              bounds: 0 160 400 40
+              color: [220, 30, 220, 1]
+            - type: rect
+              bounds: 0 200 400 40
+              color: [30, 220, 220, 1]
+            - type: rect
+              bounds: 0 240 400 40
+              color: [240, 240, 240, 1]
+            - type: rect
+              bounds: 0 280 400 40
+              color: [120, 60, 20, 1]
+            - type: rect
+              bounds: 0 320 400 40
+              color: [20, 120, 60, 1]
+            - type: rect
+              bounds: 0 360 400 40
+              color: [60, 20, 120, 1]
+            - type: rect
+              bounds: 0 400 400 40
+              color: [150, 150, 150, 1]
+            - type: rect
+              bounds: 0 440 400 40
+              color: [200, 120, 40, 1]
+            - type: rect
+              bounds: 0 480 400 40
+              color: [40, 200, 120, 1]
+            - type: rect
+              bounds: 0 520 400 40
+              color: [120, 40, 200, 1]
+            - type: rect
+              bounds: 0 560 400 40
+              color: [90, 90, 90, 1]
+            - type: rect
+              bounds: 0 600 400 40
+              color: [200, 200, 120, 1]
+            - type: rect
+              bounds: 0 640 400 40
+              color: [120, 200, 200, 1]
+            - type: rect
+              bounds: 0 680 400 40
+              color: [200, 120, 200, 1]
+            - type: rect
+              bounds: 0 720 400 40
+              color: [70, 140, 210, 1]
+            - type: rect
+              bounds: 0 760 400 40
+              color: [210, 140, 70, 1]
+            - type: backdrop-filter
+              bounds: 50 320 300 160
+              filters: [invert(1)]

@@ -2780,23 +2780,43 @@ impl Renderer {
                 dest_info.content_size.to_f32(),
             );
 
-            // Get the rect that we ideally want, in space of the parent surface
-            let wanted_rect = DeviceRect::from_origin_and_size(
+            // The rect we want to read, in the dest (resolve target) surface's
+            // raster space, normalized to a scale-independent space by dividing
+            // out the dest device pixel scale.
+            let wanted_rect_dest: WorldRect = DeviceRect::from_origin_and_size(
                 dest_info.content_origin,
                 dest_task_rect.size().to_f32(),
             ).cast_unit() * dest_info.device_pixel_scale.inverse();
 
+            // Map it into the src (parent) surface's raster space. This is the
+            // identity unless the resolve target established a different raster
+            // root than the parent it reads back from (e.g. a backdrop-filter
+            // promoted to a root-snapping raster root inside a scrolled subtree),
+            // in which case it corrects for the offset between the two raster
+            // roots so we read back the region the backdrop actually covers.
+            let wanted_rect: WorldRect =
+                resolve_op.dest_to_src_raster.map_rect(&wanted_rect_dest);
+
             // Get the rect that is available on the parent surface. It may be smaller
             // than desired because this is a picture cache tile covering only part of
             // the wanted rect and/or because the parent surface was clipped.
-            let avail_rect = DeviceRect::from_origin_and_size(
+            let avail_rect: WorldRect = DeviceRect::from_origin_and_size(
                 src_info.content_origin,
                 src_task_rect.size().to_f32(),
             ).cast_unit() * src_info.device_pixel_scale.inverse();
 
-            if let Some(device_int_rect) = wanted_rect.intersection(&avail_rect) {
-                let src_int_rect = (device_int_rect * src_info.device_pixel_scale).cast_unit();
-                let dest_int_rect = (device_int_rect * dest_info.device_pixel_scale).cast_unit();
+            // Both rects are now in the src surface's raster space, so the
+            // intersection is too.
+            if let Some(src_isect_rect) = wanted_rect.intersection(&avail_rect) {
+                let src_int_rect: DeviceRect =
+                    (src_isect_rect * src_info.device_pixel_scale).cast_unit();
+
+                // Map the intersection back into the dest surface's raster space
+                // to work out the region to write on the resolve target.
+                let dest_isect_rect: WorldRect =
+                    resolve_op.dest_to_src_raster.unmap_rect(&src_isect_rect);
+                let dest_int_rect: DeviceRect =
+                    (dest_isect_rect * dest_info.device_pixel_scale).cast_unit();
 
                 // If there is a valid intersection, work out the correct origins and
                 // sizes of the copy rects, and do the blit.

@@ -610,6 +610,14 @@ impl RenderTarget {
 pub struct ResolveOp {
     pub src_task_ids: Vec<RenderTaskId>,
     pub dest_task_id: RenderTaskId,
+    /// Maps a rect from the dest (resolve target) surface's raster space into
+    /// the src (parent) surface's raster space. Identity unless the resolve
+    /// target established a different raster root than the parent it reads back
+    /// from (e.g. a backdrop-filter promoted to a root-snapping raster root
+    /// inside a scrolled/transformed subtree). Used by `handle_resolve` to read
+    /// back the region the backdrop actually covers rather than one offset by
+    /// the difference between the two raster roots.
+    pub dest_to_src_raster: ScaleOffset,
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]

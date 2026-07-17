@@ -17,11 +17,71 @@ use crate::render_task_graph::{RenderTaskId, RenderTaskGraphBuilder};
 use crate::render_target::ResolveOp;
 use crate::render_task::{RenderTask, RenderTaskKind, RenderTaskLocation};
 use crate::space::SpaceMapper;
-use crate::spatial_tree::{SpatialTree, SpatialNodeIndex};
-use crate::util::MaxRect;
+use crate::spatial_tree::{CoordinateSpaceMapping, SpatialTree, SpatialNodeIndex};
+use crate::util::{MaxRect, ScaleOffset};
 use crate::visibility::{DrawState, PrimitiveDrawHeader, FrameVisibilityContext};
 pub use crate::picture_composite_mode::get_surface_rects;
 
+/// Fetch the raster spatial node of a picture render task (used to relate the
+/// raster spaces of a resolve target and the surface(s) it reads back from).
+fn raster_spatial_node(
+    rg_builder: &RenderTaskGraphBuilder,
+    task_id: RenderTaskId,
+) -> SpatialNodeIndex {
+    match rg_builder.get_task(task_id).kind {
+        RenderTaskKind::Picture(ref info) => info.raster_spatial_node_index,
+        _ => unreachable!("bug: resolve src/dest task is not a picture"),
+    }
+}
+
+/// Compute the mapping from a resolve target's raster space into the raster
+/// space of the surface(s) it reads back from, for use by `handle_resolve`.
+///
+/// A resolve target (backdrop-filter sub-graph) and the surface it captures
+/// always share a surface spatial node: `finalize_picture` resolves the filter
+/// picture's spatial node to its backdrop root. They differ only in their raster
+/// root, and only when the resolve target promotes to a root-snapping raster
+/// root (the root reference frame) while the parent rasterizes against its own
+/// node (e.g. a scrolling tile cache). Both nodes are then in the root
+/// coordinate system, so the relationship is always a `ScaleOffset` (the
+/// identity when the raster roots coincide); it can never be a non-axis-aligned
+/// `Transform`, because a resolve target under a non-root coordinate system does
+/// not promote and shares its parent's raster node.
+fn resolve_dest_to_src_raster(
+    rg_builder: &RenderTaskGraphBuilder,
+    spatial_tree: &SpatialTree,
+    dest_task_id: RenderTaskId,
+    src_task_ids: &[RenderTaskId],
+) -> ScaleOffset {
+    // All src tasks are tiles of the same parent surface, so they share a raster
+    // node; the first is representative.
+    let Some(&first_src) = src_task_ids.first() else {
+        return ScaleOffset::identity();
+    };
+
+    let dest_raster = raster_spatial_node(rg_builder, dest_task_id);
+    let src_raster = raster_spatial_node(rg_builder, first_src);
+
+    if src_raster == dest_raster {
+        return ScaleOffset::identity();
+    }
+
+    match spatial_tree.get_relative_transform(dest_raster, src_raster) {
+        CoordinateSpaceMapping::ScaleOffset(scale_offset) => scale_offset,
+        // Distinct nodes with an identity relationship: no correction needed.
+        CoordinateSpaceMapping::Local => ScaleOffset::identity(),
+        CoordinateSpaceMapping::Transform(..) => {
+            // Unreachable given the shared-coordinate-system invariant above; a
+            // rect-to-rect copy can't express a rotation, so degrade to the old
+            // (uncorrected) behaviour rather than crash a release build.
+            debug_assert!(
+                false,
+                "resolve target and its backdrop source must share the root coordinate system",
+            );
+            ScaleOffset::identity()
+        }
+    }
+}
 
 /// Maximum blur radius for blur filter
 const MAX_BLUR_RADIUS: f32 = 100.;
@@ -617,6 +677,7 @@ impl SurfaceBuilder {
         pic_index: PictureIndex,
         rg_builder: &mut RenderTaskGraphBuilder,
         cmd_buffers: &mut CommandBufferList,
+        spatial_tree: &SpatialTree,
     ) {
         let builder = self.builder_stack.pop().unwrap();
 
@@ -785,6 +846,20 @@ impl SurfaceBuilder {
                             }
                         }
 
+                        // The resolve target may establish a different raster
+                        // root than the parent surface(s) it reads back from (for
+                        // example a backdrop-filter that promoted to a
+                        // root-snapping raster root inside a scrolled subtree). The
+                        // copy rects computed in `handle_resolve` then live in two
+                        // different raster spaces, so pre-compute the mapping
+                        // between them here (identity in the common case).
+                        let dest_to_src_raster = resolve_dest_to_src_raster(
+                            rg_builder,
+                            spatial_tree,
+                            resolve_task_id,
+                            &src_task_ids,
+                        );
+
                         let dest_task = rg_builder.get_task_mut(resolve_task_id);
 
                         match dest_task.kind {
@@ -793,6 +868,7 @@ impl SurfaceBuilder {
                                 dest_task_info.resolve_op = Some(ResolveOp {
                                     src_task_ids,
                                     dest_task_id: resolve_task_id,
+                                    dest_to_src_raster,
                                 })
                             }
                             _ => {
