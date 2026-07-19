@@ -109,6 +109,14 @@ pub struct ImageBorder {
     pub nine_patch: NinePatchDescriptor,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, MallocSizeOf, Hash, Serialize, Deserialize)]
+pub struct BackdropCapture {
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, MallocSizeOf, Hash, Serialize, Deserialize)]
+pub struct BackdropRender {
+}
+
 #[derive(Clone, Debug, Eq, MallocSizeOf, PartialEq, Hash, Serialize, Deserialize)]
 pub struct LinearGradient {
     pub extend_mode: ExtendMode,
