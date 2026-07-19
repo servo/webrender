@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{FontInstanceFlags, FontKey, FontRenderMode, FontVariation};
-use api::{ColorU, GlyphDimensions, NativeFontHandle};
+use api::{ColorU, FontTemplate, GlyphDimensions, NativeFontHandle};
 use crate::gamma_lut::{ColorLut, GammaLut};
 use crate::rasterizer::{FontInstance, FontTransform, GlyphKey};
 use crate::rasterizer::{GlyphFormat, GlyphRasterError, GlyphRasterResult, RasterizedGlyph};
@@ -182,6 +182,15 @@ impl FontContext {
         // XXX add_raw_font needs to have a way to return an error
         debug!("DWrite WR failed to load font from data, using Arial instead");
         self.add_font_descriptor(font_key, &DEFAULT_FONT_DESCRIPTOR);
+    }
+
+    /// Whether the font described by `template` contains embedded bitmap
+    /// strikes. On Windows the `EMBEDDED_BITMAPS` instance flag is set by Gecko
+    /// only for fonts that may have color glyphs (see `is_bitmap_font`), so the
+    /// per-instance flag is authoritative and this can defer to it without
+    /// loading the face.
+    pub fn has_bitmap_strikes(_template: &FontTemplate) -> bool {
+        true
     }
 
     pub fn add_native_font(&mut self, font_key: &FontKey, font_handle: NativeFontHandle) {
