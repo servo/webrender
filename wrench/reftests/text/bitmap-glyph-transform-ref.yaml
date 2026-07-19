@@ -1,0 +1,16 @@
+# Reference for bitmap-glyph-transform.yaml: local raster space rasterizes the
+# bitmap glyphs with an identity shape and lets the shader apply the rotation to
+# the glyph image, which is the correct result the screen path must now match.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 300, 200]
+      transform: rotate(20)
+      transform-origin: [150, 100]
+      raster-space: local(1.0)
+      items:
+        - text: "0123456789"
+          origin: 40 110
+          size: 20
+          font: "Proggy.ttf"
+          embedded-bitmaps: true

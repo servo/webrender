@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{ColorF, ColorU, FontKey, FontRenderMode, FontSize, GlyphDimensions};
-use api::{FontInstanceFlags, FontVariation, NativeFontHandle};
+use api::{FontInstanceFlags, FontTemplate, FontVariation, NativeFontHandle};
 use core_foundation::data::CFData;
 use core_foundation::base::TCFType;
 use core_foundation::dictionary::CFDictionary;
@@ -258,6 +258,15 @@ impl FontContext {
             Ok(cg_font) => cg_font,
         };
         self.ct_font_descs.insert(*font_key, ct_font_desc);
+    }
+
+    /// Whether the font described by `template` contains embedded bitmap
+    /// strikes. On macOS the `EMBEDDED_BITMAPS` instance flag is set by Gecko
+    /// only for fonts that may have color glyphs (see `is_bitmap_font`), so the
+    /// per-instance flag is authoritative and this can defer to it without
+    /// loading the face.
+    pub fn has_bitmap_strikes(_template: &FontTemplate) -> bool {
+        true
     }
 
     pub fn add_native_font(&mut self, font_key: &FontKey, native_font_handle: NativeFontHandle) {

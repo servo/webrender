@@ -1611,6 +1611,15 @@ impl GlyphRasterizer {
         self.fonts.contains(&font_key)
     }
 
+    /// Returns whether the font `template` contains embedded bitmap strikes.
+    /// Intended to be called once per font at add time on the render backend
+    /// thread so the result can be cached for lock-free lookup during frame
+    /// building. The detection consults the shared font cache directly rather
+    /// than a worker `FontContext`, so it does not take a worker mutex.
+    pub fn template_has_bitmap_strikes(&self, template: &FontTemplate) -> bool {
+        FontContext::has_bitmap_strikes(template)
+    }
+
     pub fn get_glyph_dimensions(
         &mut self,
         font: &FontInstance,

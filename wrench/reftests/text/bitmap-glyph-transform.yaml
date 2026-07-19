@@ -1,0 +1,17 @@
+# A rotated (non-axis-aligned) transform must apply to embedded-bitmap glyphs.
+# On the default screen raster path this previously baked an identity glyph
+# shape for bitmap fonts, drawing the glyphs axis-aligned and displaced
+# (bug 2055177). The reference renders the same content via local raster space.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 300, 200]
+      transform: rotate(20)
+      transform-origin: [150, 100]
+      raster-space: screen
+      items:
+        - text: "0123456789"
+          origin: 40 110
+          size: 20
+          font: "Proggy.ttf"
+          embedded-bitmaps: true
