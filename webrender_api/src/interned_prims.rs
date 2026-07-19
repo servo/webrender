@@ -22,7 +22,7 @@ use crate::key_types::{
     NormalBorderAu, PointKey, PrimKeyCommonData, RadialGradientParams, SizeKey, StretchSizeKey,
     VectorKey,
 };
-use crate::units::LayoutSideOffsetsAu;
+use crate::units::{LayoutSideOffsetsAu, TileOffset};
 use app_units::Au;
 use malloc_size_of::MallocSizeOf;
 
@@ -95,6 +95,18 @@ pub struct LineDecoration {
 pub struct NormalBorderPrim {
     pub border: NormalBorderAu,
     pub widths: LayoutSideOffsetsAu,
+}
+
+/// Interned representation of an image-source nine-patch border. The interned
+/// key stores the image request's parts directly (rather than a webrender
+/// `ImageRequest`) so the value is api-resident; the frame-time
+/// `ImageBorderData` template rebuilds the `ImageRequest`.
+#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash, Serialize, Deserialize)]
+pub struct ImageBorder {
+    pub key: ImageKey,
+    pub rendering: ImageRendering,
+    pub tile: Option<TileOffset>,
+    pub nine_patch: NinePatchDescriptor,
 }
 
 #[derive(Clone, Debug, Eq, MallocSizeOf, PartialEq, Hash, Serialize, Deserialize)]
