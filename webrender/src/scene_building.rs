@@ -2902,7 +2902,7 @@ impl<'a> SceneBuilder<'a> {
     }
 
     pub fn create_linear_gradient_prim(
-        &mut self,
+        &self,
         info: &LayoutPrimitiveInfo,
         start_point: LayoutPoint,
         end_point: LayoutPoint,
@@ -2959,7 +2959,6 @@ impl<'a> SceneBuilder<'a> {
             reverse_stops,
             nine_patch,
             edge_aa_mask,
-            enable_dithering: self.config.enable_dithering,
         })
     }
 

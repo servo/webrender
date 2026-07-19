@@ -41,7 +41,6 @@ pub struct LinearGradientKey {
     pub stops: Vec<GradientStopKey>,
     pub reverse_stops: bool,
     pub nine_patch: Option<Box<NinePatchDescriptor>>,
-    pub enable_dithering: bool,
 }
 
 impl LinearGradientKey {
@@ -59,7 +58,6 @@ impl LinearGradientKey {
             stops: linear_grad.stops,
             reverse_stops: linear_grad.reverse_stops,
             nine_patch: linear_grad.nine_patch,
-            enable_dithering: linear_grad.enable_dithering,
         }
     }
 }
@@ -410,7 +408,6 @@ pub struct LinearGradient {
     pub reverse_stops: bool,
     pub nine_patch: Option<Box<NinePatchDescriptor>>,
     pub edge_aa_mask: EdgeMask,
-    pub enable_dithering: bool,
 }
 
 impl Internable for LinearGradient {
