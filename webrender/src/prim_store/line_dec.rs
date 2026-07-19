@@ -42,18 +42,6 @@ pub use api::interned_prims::LineDecoration;
 
 pub type LineDecorationKey = PrimKey<LineDecoration>;
 
-impl LineDecorationKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        line_dec: LineDecoration,
-    ) -> Self {
-        LineDecorationKey {
-            common: info.into(),
-            kind: line_dec,
-        }
-    }
-}
-
 impl intern::InternDebug for LineDecorationKey {}
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -214,7 +202,7 @@ impl InternablePrimitive for LineDecoration {
         info: &LayoutPrimitiveInfo,
     ) -> LineDecorationKey {
         LineDecorationKey::new(
-            info,
+            info.into(),
             self,
         )
     }

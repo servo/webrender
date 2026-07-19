@@ -13,18 +13,6 @@ use crate::internal_types::LayoutPrimitiveInfo;
 
 pub type BoxShadowKey = PrimKey<BoxShadow>;
 
-impl BoxShadowKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        shadow: BoxShadow,
-    ) -> Self {
-        BoxShadowKey {
-            common: info.into(),
-            kind: shadow,
-        }
-    }
-}
-
 impl InternDebug for BoxShadowKey {}
 
 // `BoxShadow` now lives in `webrender_api::interned_prims` so content-process
@@ -44,7 +32,7 @@ impl InternablePrimitive for BoxShadow {
         self,
         info: &LayoutPrimitiveInfo,
     ) -> BoxShadowKey {
-        BoxShadowKey::new(info, self)
+        BoxShadowKey::new(info.into(), self)
     }
 
     fn make_instance_kind(

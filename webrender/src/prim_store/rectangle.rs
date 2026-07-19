@@ -21,11 +21,6 @@ pub type RectangleKey = PrimKey<RectanglePrim>;
 
 pub type RectangleDataHandle = intern::Handle<RectanglePrim>;
 
-impl RectangleKey {
-    pub fn new(info: &LayoutPrimitiveInfo, kind: RectanglePrim) -> Self {
-        RectangleKey { common: info.into(), kind }
-    }
-}
 
 impl intern::InternDebug for RectangleKey {}
 
@@ -41,7 +36,7 @@ impl InternablePrimitive for RectanglePrim {
         self,
         info: &LayoutPrimitiveInfo,
     ) -> RectangleKey {
-        RectangleKey::new(info, self)
+        RectangleKey::new(info.into(), self)
     }
 
     fn make_instance_kind(

@@ -153,18 +153,6 @@ pub use api::interned_prims::Image;
 
 pub type ImageKey = PrimKey<Image>;
 
-impl ImageKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        image: Image,
-    ) -> Self {
-        ImageKey {
-            common: info.into(),
-            kind: image,
-        }
-    }
-}
-
 impl InternDebug for ImageKey {}
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -727,7 +715,7 @@ impl InternablePrimitive for Image {
         self,
         info: &LayoutPrimitiveInfo,
     ) -> ImageKey {
-        ImageKey::new(info, self)
+        ImageKey::new(info.into(), self)
     }
 
     fn make_instance_kind(
@@ -845,18 +833,6 @@ pub use api::interned_prims::YuvImage;
 
 pub type YuvImageKey = PrimKey<YuvImage>;
 
-impl YuvImageKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        yuv_image: YuvImage,
-    ) -> Self {
-        YuvImageKey {
-            common: info.into(),
-            kind: yuv_image,
-        }
-    }
-}
-
 impl InternDebug for YuvImageKey {}
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -955,7 +931,7 @@ impl InternablePrimitive for YuvImage {
         self,
         info: &LayoutPrimitiveInfo,
     ) -> YuvImageKey {
-        YuvImageKey::new(info, self)
+        YuvImageKey::new(info.into(), self)
     }
 
     fn make_instance_kind(

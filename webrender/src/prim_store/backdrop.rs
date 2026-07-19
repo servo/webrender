@@ -39,29 +39,6 @@ impl From<BackdropRender> for BackdropRenderData {
 pub type BackdropCaptureKey = PrimKey<BackdropCapture>;
 pub type BackdropRenderKey = PrimKey<BackdropRender>;
 
-impl BackdropCaptureKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        backdrop_capture: BackdropCapture,
-    ) -> Self {
-        BackdropCaptureKey {
-            common: info.into(),
-            kind: backdrop_capture,
-        }
-    }
-}
-
-impl BackdropRenderKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        backdrop_render: BackdropRender,
-    ) -> Self {
-        BackdropRenderKey {
-            common: info.into(),
-            kind: backdrop_render,
-        }
-    }
-}
 
 impl InternDebug for BackdropCaptureKey {}
 impl InternDebug for BackdropRenderKey {}
@@ -125,7 +102,7 @@ impl InternablePrimitive for BackdropCapture {
         self,
         info: &LayoutPrimitiveInfo,
     ) -> BackdropCaptureKey {
-        BackdropCaptureKey::new(info, self)
+        BackdropCaptureKey::new(info.into(), self)
     }
 
     fn make_instance_kind(
@@ -144,7 +121,7 @@ impl InternablePrimitive for BackdropRender {
         self,
         info: &LayoutPrimitiveInfo,
     ) -> BackdropRenderKey {
-        BackdropRenderKey::new(info, self)
+        BackdropRenderKey::new(info.into(), self)
     }
 
     fn make_instance_kind(

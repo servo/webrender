@@ -5,7 +5,6 @@
 use api::ColorF;
 use api::{ImageRendering, LineOrientation, PrimitiveFlags};
 use api::units::*;
-use malloc_size_of::MallocSizeOf;
 use crate::clip::ClipLeafId;
 use crate::render_backend::DataStores;
 use crate::space::SnapRounding;
@@ -212,13 +211,10 @@ impl From<&LayoutPrimitiveInfo> for PrimKeyCommonData {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
-pub struct PrimKey<T: MallocSizeOf> {
-    pub common: PrimKeyCommonData,
-    pub kind: T,
-}
+// `PrimKey<T>` now lives in `webrender_api::interned_prims` so builder-side
+// interning can construct the alias-based keys. Re-exported here to keep
+// existing references working.
+pub use api::interned_prims::PrimKey;
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]

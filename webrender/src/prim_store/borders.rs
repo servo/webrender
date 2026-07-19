@@ -38,18 +38,6 @@ pub use api::interned_prims::NormalBorderPrim;
 
 pub type NormalBorderKey = PrimKey<NormalBorderPrim>;
 
-impl NormalBorderKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        normal_border: NormalBorderPrim,
-    ) -> Self {
-        NormalBorderKey {
-            common: info.into(),
-            kind: normal_border,
-        }
-    }
-}
-
 impl intern::InternDebug for NormalBorderKey {}
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -318,7 +306,7 @@ impl InternablePrimitive for NormalBorderPrim {
         info: &LayoutPrimitiveInfo,
     ) -> NormalBorderKey {
         NormalBorderKey::new(
-            info,
+            info.into(),
             self,
         )
     }
@@ -353,18 +341,6 @@ pub struct ImageBorder {
 }
 
 pub type ImageBorderKey = PrimKey<ImageBorder>;
-
-impl ImageBorderKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        image_border: ImageBorder,
-    ) -> Self {
-        ImageBorderKey {
-            common: info.into(),
-            kind: image_border,
-        }
-    }
-}
 
 impl intern::InternDebug for ImageBorderKey {}
 
@@ -531,7 +507,7 @@ impl InternablePrimitive for ImageBorder {
         info: &LayoutPrimitiveInfo,
     ) -> ImageBorderKey {
         ImageBorderKey::new(
-            info,
+            info.into(),
             self,
         )
     }
