@@ -18,49 +18,17 @@ use crate::scene_building::IsVisible;
 use crate::intern::{Internable, InternDebug, Handle as InternHandle};
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{PrimitiveKind, PrimitiveOpacity};
-use crate::prim_store::{PrimKeyCommonData, PrimTemplateCommonData, PrimitiveStore};
-use crate::prim_store::{NinePatchDescriptor, PointKey, SizeKey, InternablePrimitive};
+use crate::prim_store::{PrimTemplateCommonData, PrimitiveStore};
+use crate::prim_store::{NinePatchDescriptor, InternablePrimitive};
 use crate::segment::EdgeMask;
-use super::{stops_and_min_alpha, GradientStopKey};
+use super::stops_and_min_alpha;
 use std::ops::{Deref, DerefMut};
 use std::mem::swap;
 
-/// Identifying key for a linear gradient.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq, Hash, MallocSizeOf)]
-pub struct LinearGradientKey {
-    pub common: PrimKeyCommonData,
-    pub extend_mode: ExtendMode,
-    pub start_point: PointKey,
-    pub end_point: PointKey,
-    /// Per-axis tile size encoded as a fraction of `common.prim_size`. The
-    /// runtime `stretch_size` is `stretch_ratio * common.prim_size`.
-    pub stretch_ratio: SizeKey,
-    pub tile_spacing: SizeKey,
-    pub stops: Vec<GradientStopKey>,
-    pub reverse_stops: bool,
-    pub nine_patch: Option<Box<NinePatchDescriptor>>,
-}
-
-impl LinearGradientKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        linear_grad: LinearGradient,
-    ) -> Self {
-        LinearGradientKey {
-            common: info.into(),
-            extend_mode: linear_grad.extend_mode,
-            start_point: linear_grad.start_point,
-            end_point: linear_grad.end_point,
-            stretch_ratio: linear_grad.stretch_ratio,
-            tile_spacing: linear_grad.tile_spacing,
-            stops: linear_grad.stops,
-            reverse_stops: linear_grad.reverse_stops,
-            nine_patch: linear_grad.nine_patch,
-        }
-    }
-}
+// `LinearGradient` (the interned value) and `LinearGradientKey` live in
+// `webrender_api::interned_prims` so the key can be built from api-resident
+// types. The frame-time `LinearGradientTemplate` and the interning glue stay here.
+pub use api::interned_prims::{LinearGradient, LinearGradientKey};
 
 impl InternDebug for LinearGradientKey {}
 
@@ -393,23 +361,6 @@ impl From<LinearGradientKey> for LinearGradientTemplate {
 
 pub type LinearGradientDataHandle = InternHandle<LinearGradient>;
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct LinearGradient {
-    pub extend_mode: ExtendMode,
-    pub start_point: PointKey,
-    pub end_point: PointKey,
-    /// Per-axis tile size encoded as a fraction of the prim's size. See
-    /// [`LinearGradientKey::stretch_ratio`].
-    pub stretch_ratio: SizeKey,
-    pub tile_spacing: SizeKey,
-    pub stops: Vec<GradientStopKey>,
-    pub reverse_stops: bool,
-    pub nine_patch: Option<Box<NinePatchDescriptor>>,
-    pub edge_aa_mask: EdgeMask,
-}
-
 impl Internable for LinearGradient {
     type Key = LinearGradientKey;
     type StoreData = LinearGradientTemplate;
@@ -422,7 +373,7 @@ impl InternablePrimitive for LinearGradient {
         self,
         info: &LayoutPrimitiveInfo,
     ) -> LinearGradientKey {
-        LinearGradientKey::new(info, self)
+        LinearGradientKey::new(info.into(), self)
     }
 
     fn make_instance_kind(

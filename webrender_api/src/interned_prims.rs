@@ -18,8 +18,9 @@ use crate::{
     ImageRendering, LineOrientation, LineStyle, PropertyBinding, YuvColorSpace, YuvFormat,
 };
 use crate::key_types::{
-    BorderRadiusAu, ConicGradientParams, GradientStopKey, NinePatchDescriptor, NormalBorderAu,
-    PointKey, RadialGradientParams, SizeKey, StretchSizeKey, VectorKey,
+    BorderRadiusAu, ConicGradientParams, EdgeMask, GradientStopKey, NinePatchDescriptor,
+    NormalBorderAu, PointKey, PrimKeyCommonData, RadialGradientParams, SizeKey, StretchSizeKey,
+    VectorKey,
 };
 use crate::units::LayoutSideOffsetsAu;
 use app_units::Au;
@@ -79,6 +80,21 @@ pub struct NormalBorderPrim {
 }
 
 #[derive(Clone, Debug, Eq, MallocSizeOf, PartialEq, Hash, Serialize, Deserialize)]
+pub struct LinearGradient {
+    pub extend_mode: ExtendMode,
+    pub start_point: PointKey,
+    pub end_point: PointKey,
+    /// Per-axis tile size encoded as a fraction of the prim's size. See the
+    /// matching `stretch_ratio` field on `LinearGradientKey`.
+    pub stretch_ratio: SizeKey,
+    pub tile_spacing: SizeKey,
+    pub stops: Vec<GradientStopKey>,
+    pub reverse_stops: bool,
+    pub nine_patch: Option<Box<NinePatchDescriptor>>,
+    pub edge_aa_mask: EdgeMask,
+}
+
+#[derive(Clone, Debug, Eq, MallocSizeOf, PartialEq, Hash, Serialize, Deserialize)]
 pub struct RadialGradient {
     pub extend_mode: ExtendMode,
     pub center: PointKey,
@@ -102,4 +118,99 @@ pub struct ConicGradient {
     pub stops: Vec<GradientStopKey>,
     pub tile_spacing: SizeKey,
     pub nine_patch: Option<Box<NinePatchDescriptor>>,
+}
+
+// Interning keys for the gradient primitives. Unlike the `PrimKey<T>`-based
+// prims, gradients use bespoke key structs. The constructors take an
+// already-built `PrimKeyCommonData` so the `LayoutPrimitiveInfo -> common`
+// conversion can stay behind in `webrender`'s `into_key`. The matching
+// `*Template` structs and `Internable` impls also stay in `webrender`.
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, MallocSizeOf, Serialize, Deserialize)]
+pub struct LinearGradientKey {
+    pub common: PrimKeyCommonData,
+    pub extend_mode: ExtendMode,
+    pub start_point: PointKey,
+    pub end_point: PointKey,
+    /// Per-axis tile size encoded as a fraction of `common.prim_size`. The
+    /// runtime `stretch_size` is `stretch_ratio * common.prim_size`.
+    pub stretch_ratio: SizeKey,
+    pub tile_spacing: SizeKey,
+    pub stops: Vec<GradientStopKey>,
+    pub reverse_stops: bool,
+    pub nine_patch: Option<Box<NinePatchDescriptor>>,
+}
+
+impl LinearGradientKey {
+    pub fn new(common: PrimKeyCommonData, linear_grad: LinearGradient) -> Self {
+        LinearGradientKey {
+            common,
+            extend_mode: linear_grad.extend_mode,
+            start_point: linear_grad.start_point,
+            end_point: linear_grad.end_point,
+            stretch_ratio: linear_grad.stretch_ratio,
+            tile_spacing: linear_grad.tile_spacing,
+            stops: linear_grad.stops,
+            reverse_stops: linear_grad.reverse_stops,
+            nine_patch: linear_grad.nine_patch,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, MallocSizeOf, Serialize, Deserialize)]
+pub struct RadialGradientKey {
+    pub common: PrimKeyCommonData,
+    pub extend_mode: ExtendMode,
+    pub center: PointKey,
+    pub params: RadialGradientParams,
+    /// Per-axis tile size encoded as a fraction of `common.prim_size`. The
+    /// runtime `stretch_size` is `stretch_ratio * common.prim_size`.
+    pub stretch_ratio: SizeKey,
+    pub stops: Vec<GradientStopKey>,
+    pub tile_spacing: SizeKey,
+    pub nine_patch: Option<Box<NinePatchDescriptor>>,
+}
+
+impl RadialGradientKey {
+    pub fn new(common: PrimKeyCommonData, radial_grad: RadialGradient) -> Self {
+        RadialGradientKey {
+            common,
+            extend_mode: radial_grad.extend_mode,
+            center: radial_grad.center,
+            params: radial_grad.params,
+            stretch_ratio: radial_grad.stretch_ratio,
+            stops: radial_grad.stops,
+            tile_spacing: radial_grad.tile_spacing,
+            nine_patch: radial_grad.nine_patch,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, MallocSizeOf, Serialize, Deserialize)]
+pub struct ConicGradientKey {
+    pub common: PrimKeyCommonData,
+    pub extend_mode: ExtendMode,
+    pub center: PointKey,
+    pub params: ConicGradientParams,
+    /// Per-axis tile size encoded as a fraction of `common.prim_size`. The
+    /// runtime `stretch_size` is `stretch_ratio * common.prim_size`.
+    pub stretch_ratio: SizeKey,
+    pub stops: Vec<GradientStopKey>,
+    pub tile_spacing: SizeKey,
+    pub nine_patch: Option<Box<NinePatchDescriptor>>,
+}
+
+impl ConicGradientKey {
+    pub fn new(common: PrimKeyCommonData, conic_grad: ConicGradient) -> Self {
+        ConicGradientKey {
+            common,
+            extend_mode: conic_grad.extend_mode,
+            center: conic_grad.center,
+            params: conic_grad.params,
+            stretch_ratio: conic_grad.stretch_ratio,
+            stops: conic_grad.stops,
+            tile_spacing: conic_grad.tile_spacing,
+            nine_patch: conic_grad.nine_patch,
+        }
+    }
 }

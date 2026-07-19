@@ -196,7 +196,7 @@ pub use api::key_types::PolygonKey;
 // `SideOffsetsKey`, `SizeKey`, `PointKey` and `VectorKey` now live in
 // `webrender_api` so builder-side interning keys can reference them. Re-exported
 // here to keep existing references working.
-pub use api::key_types::{PointKey, SizeKey, VectorKey};
+pub use api::key_types::VectorKey;
 
 // `PrimKeyCommonData` now lives in `webrender_api` so interned keys reference
 // only api-resident types. Re-exported here to keep existing references working.
