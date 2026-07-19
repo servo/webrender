@@ -48,6 +48,7 @@ fuzzy(1,26) platform(linux) == subpixel-skew.yaml subpixel-skew.png
 fuzzy(1,381) platform(linux) == subpixel-translate.yaml subpixel-translate-ref.yaml
 != shadow-rotate.yaml blank.yaml
 platform(linux) == embedded-bitmaps.yaml embedded-bitmaps.png
+fuzzy(1,20) platform(linux) == bitmap-glyph-transform.yaml bitmap-glyph-transform-ref.yaml
 fuzzy(1,21) platform(linux) == clipped-transform.yaml clipped-transform.png
 platform(mac) fuzzy(195,30) == color-bitmap-shadow.yaml color-bitmap-shadow-ref.yaml
 platform(linux) == writing-modes.yaml writing-modes-ref.yaml

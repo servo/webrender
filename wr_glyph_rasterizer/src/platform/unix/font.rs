@@ -407,6 +407,23 @@ impl FontContext {
         }
     }
 
+    /// Returns whether the font described by `template` actually contains
+    /// embedded bitmap strikes (FreeType `FT_FACE_FLAG_FIXED_SIZES`). The
+    /// `EMBEDDED_BITMAPS` instance flag is unreliable here because on unix it
+    /// only reflects a fontconfig preference and is set even for ordinary
+    /// outline fonts, so anything that needs to know whether a glyph will really
+    /// rasterize to a bitmap must consult the face itself. The face is loaded
+    /// into the shared cache that the rasterizing worker threads reuse, so this
+    /// does not duplicate work.
+    pub fn has_bitmap_strikes(template: &FontTemplate) -> bool {
+        let cached = match FONT_CACHE.lock().unwrap().add_font(template.clone()) {
+            Ok(font) => font,
+            Err(_) => return false,
+        };
+        let cached = cached.lock().unwrap();
+        (unsafe { (*cached.face).face_flags } & (FT_FACE_FLAG_FIXED_SIZES as FT_Long)) != 0
+    }
+
     pub fn delete_font(&mut self, font_key: &FontKey) {
         if let Some(cached) = self.fonts.remove(font_key) {
             // If the only references to this font are the FontCache and this FontContext,

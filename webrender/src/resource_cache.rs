@@ -479,6 +479,13 @@ pub struct ResourceCache {
     cached_glyph_dimensions: GlyphDimensionsCache,
     glyph_rasterizer: GlyphRasterizer,
 
+    /// Whether each font template contains embedded bitmap strikes. Computed
+    /// once when the template is added (on the render backend thread, the same
+    /// thread that builds frames) so text runs can decide lock-free at frame
+    /// time whether a transformed bitmap font needs the local-raster path
+    /// (bug 2055177).
+    font_bitmap_strikes: FastHashMap<FontKey, bool>,
+
     /// The set of images that aren't present or valid in the texture cache,
     /// and need to be rasterized and/or uploaded this frame. This includes
     /// both blobs and regular images.
@@ -541,6 +548,7 @@ impl ResourceCache {
                 weak_fonts: WeakTable::new(),
             },
             cached_glyph_dimensions: FastHashMap::default(),
+            font_bitmap_strikes: FastHashMap::default(),
             texture_cache,
             picture_textures,
             state: State::Idle,
@@ -931,16 +939,26 @@ impl ResourceCache {
             self.resources.weak_fonts.insert(Arc::downgrade(data));
             self.font_templates_memory += data.len();
         }
+        let has_bitmap_strikes = self.glyph_rasterizer.template_has_bitmap_strikes(&template);
+        self.font_bitmap_strikes.insert(font_key, has_bitmap_strikes);
         self.glyph_rasterizer.add_font(font_key, template.clone());
         self.resources.fonts.templates.add_font(font_key, template);
     }
 
     pub fn delete_font_template(&mut self, font_key: FontKey) {
         self.glyph_rasterizer.delete_font(font_key);
+        self.font_bitmap_strikes.remove(&font_key);
         if let Some(FontTemplate::Raw(data, _)) = self.resources.fonts.templates.delete_font(&font_key) {
             self.font_templates_memory -= data.len();
         }
         self.cached_glyphs.delete_fonts(&[font_key]);
+    }
+
+    /// Whether the given font template contains embedded bitmap strikes. Cheap,
+    /// lock-free lookup for use during frame building; defaults to `false` for
+    /// unknown fonts (treated as ordinary vector glyphs).
+    pub fn font_has_bitmap_strikes(&self, font_key: FontKey) -> bool {
+        self.font_bitmap_strikes.get(&font_key).copied().unwrap_or(false)
     }
 
     pub fn delete_font_instance(&mut self, instance_key: FontInstanceKey) {
