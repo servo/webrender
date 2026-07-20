@@ -127,7 +127,9 @@ impl NormalBorderData {
 
         let mut max_dim = 1.0;
         for segment in &segments {
-            max_dim = segment.task_size.width.max(segment.task_size.height.max(max_dim));
+            if segment.is_solid.is_none() {
+                max_dim = segment.task_size.width.max(segment.task_size.height.max(max_dim));
+            }
         }
         let max_scale = LayoutToDeviceScale::new(MAX_BORDER_RESOLUTION as f32 / max_dim);
         scale.0 = scale.0.min(max_scale.0);

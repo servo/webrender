@@ -1,0 +1,19 @@
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 16496, 16496]
+      color: [255, 255, 255, 1.0]
+    - type: border
+      bounds: [10, 10, 500, 500]
+      width: 6
+      border-type: normal
+      style: solid
+      radius: 30
+      color: [ [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0] ]
+    - type: rect
+      bounds: [400, 0, 20000, 20000]
+      color: [255, 255, 255, 1.0]
+    - type: rect
+      bounds: [0, 400, 20000, 20000]
+      color: [255, 255, 255, 1.0]
