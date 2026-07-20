@@ -2728,7 +2728,7 @@ impl<'a> SceneBuilder<'a> {
             handle,
             spatial_node_index,
             region_rect,
-            Au::from_f32_px(snap_outset),
+            snap_outset,
         );
     }
 

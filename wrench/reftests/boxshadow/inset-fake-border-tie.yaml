@@ -1,0 +1,29 @@
+---
+# Bug 2051177: follow-up to bug 2052033's inset fake-border anchoring. The inner
+# ClipOut is anchored to the snapped element by insetting a "snap outset" equal
+# to the spread. If that outset is quantized (the original fix stored it as Au,
+# 1/60px), the reconstructed element edge shifts by up to half an app unit. When
+# an element edge lands exactly on a device-pixel tie (x.5), that shift flips the
+# rounding to the opposite pixel on the min (top/left) edges, leaving those sides
+# of the ring a pixel thin while the max (right/bottom) edges stay correct.
+#
+# Here every element edge is on an x.5 tie and the spread (1.875) is a half app
+# unit, so the Au bug makes the top and left of the ring thin. The == reference
+# places the element at the rounded (integer) position it snaps to: with the
+# outset kept at exact f32 precision both render an identical uniform ring; with
+# the Au-quantized outset only this file's top/left go thin, so the two differ.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 250, 250]
+      items:
+        - type: rect
+          bounds: [0, 0, 250, 250]
+          color: [255, 255, 255]
+        - type: box-shadow
+          bounds: [20.5, 20.5, 200, 200]
+          color: [0, 0, 0, 1]
+          clip-mode: inset
+          offset: [0, 0]
+          blur-radius: 0
+          spread-radius: 1.875

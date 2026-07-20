@@ -1,0 +1,24 @@
+---
+# == reference for inset-fake-border-tie.yaml. See that file.
+#
+# The same box-shadow with the element at the rounded (integer) position its x.5
+# edges snap to: (20.5,20.5)-(220.5,220.5) rounds to (21,21)-(221,221). Under the
+# fix the ring geometry depends only on the snapped element, so this matches the
+# test exactly. It also stays uniform under the Au bug -- an integer edge minus
+# the tiny quantization error still rounds to the same pixel -- so it never goes
+# thin, which is what makes the pair discriminating.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 250, 250]
+      items:
+        - type: rect
+          bounds: [0, 0, 250, 250]
+          color: [255, 255, 255]
+        - type: box-shadow
+          bounds: [21, 21, 200, 200]
+          color: [0, 0, 0, 1]
+          clip-mode: inset
+          offset: [0, 0]
+          blur-radius: 0
+          spread-radius: 1.875
