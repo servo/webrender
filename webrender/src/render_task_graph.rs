@@ -154,8 +154,6 @@ struct Surface {
     kind: RenderTargetKind,
     /// Allocator for this surface texture
     allocator: GuillotineAllocator,
-    /// We can only allocate into this for reuse if it's a shared surface
-    is_shared: bool,
     /// The lifetime group of this surface: only tasks with a matching
     /// lifetime_group can share it, to avoid holding the surface longer
     /// than necessary.
@@ -172,10 +170,9 @@ impl Surface {
         &mut self,
         size: DeviceIntSize,
         kind: RenderTargetKind,
-        is_shared: bool,
         lifetime_group: PassId,
     ) -> Option<DeviceIntPoint> {
-        if self.kind == kind && self.is_shared == is_shared && self.lifetime_group == lifetime_group {
+        if self.kind == kind && self.lifetime_group == lifetime_group {
             self.allocator
                 .allocate(&size)
                 .map(|(_slice, origin)| origin)
@@ -215,6 +212,8 @@ pub struct SubPass {
     pub surface: SubPassSurface,
     /// The tasks assigned to this subpass.
     pub task_ids: FrameVec<RenderTaskId>,
+    /// Whether multiple render tasks may be packed into this subpass.
+    pub is_shared: bool,
 }
 
 /// A pass expresses dependencies between tasks. Each pass consists of a number
@@ -551,9 +550,12 @@ impl RenderTaskGraphBuilder {
                             // surfaces for this subpass, and see if we can allocate the task
                             // to one of these targets.
                             for sub_pass in &mut pass.sub_passes {
+                                if !sub_pass.is_shared {
+                                    continue;
+                                }
                                 if let SubPassSurface::Dynamic { texture_id, ref mut used_rect, .. } = sub_pass.surface {
                                     let surface = self.active_surfaces.get_mut(&texture_id).unwrap();
-                                    if let Some(p) = surface.alloc_rect(size, kind, true, task.free_after) {
+                                    if let Some(p) = surface.alloc_rect(size, kind, task.free_after) {
                                         surface.pending_frees += 1;
                                         location = Some((texture_id, p));
                                         *used_rect = used_rect.union(&DeviceIntRect::from_origin_and_size(p, size));
@@ -610,7 +612,6 @@ impl RenderTaskGraphBuilder {
                             let mut surface = Surface {
                                 kind,
                                 allocator: GuillotineAllocator::new(Some(surface_size)),
-                                is_shared: can_use_shared_surface,
                                 lifetime_group: task.free_after,
                                 pending_frees: 1,
                             };
@@ -619,7 +620,6 @@ impl RenderTaskGraphBuilder {
                             let p = surface.alloc_rect(
                                 size,
                                 kind,
-                                can_use_shared_surface,
                                 task.free_after,
                             ).expect("bug: alloc must succeed!");
 
@@ -648,6 +648,7 @@ impl RenderTaskGraphBuilder {
                                     used_rect: DeviceIntRect::from_origin_and_size(p, size),
                                 },
                                 task_ids,
+                                is_shared: can_use_shared_surface,
                             });
                         }
 
@@ -684,6 +685,7 @@ impl RenderTaskGraphBuilder {
                                         used_rect: rect,        // clear will be skipped due to no-op check anyway
                                     },
                                     task_ids,
+                                    is_shared: false,
                                 });
 
                                 let task = &mut graph.tasks[task_id.index as usize];
@@ -704,6 +706,7 @@ impl RenderTaskGraphBuilder {
                                 surface: surface.clone(),
                             },
                             task_ids,
+                            is_shared: false,
                         });
                     }
                     RenderTaskLocation::CacheRequest { .. } => {
