@@ -810,13 +810,24 @@ impl SceneBuilderThread {
             FastHashMap::default();
         let mut windows_with_built_scene: FastHashSet<RenderBackendId> =
             FastHashSet::default();
+
+        let mut max_sb_time: f64 = 0.0;
         for txn in &txns {
+            if let Some(time) = txn.profile.get(profiler::SCENE_BUILD_TIME) {
+                max_sb_time = max_sb_time.max(time);
+            }
+
             if let Some(&win_id) = self.doc_to_window.get(&txn.document_id) {
                 docs_per_window.entry(win_id).or_default().push(txn.document_id);
                 if txn.built_scene.is_some() {
                     windows_with_built_scene.insert(win_id);
                 }
             }
+        }
+
+        if max_sb_time > 0.0 {
+            let duration = Duration::from_nanos((max_sb_time * 1_000_000.0) as u64);
+            Telemetry::record_scenebuild_time(duration);
         }
 
         let has_built_scene = !windows_with_built_scene.is_empty();
@@ -837,8 +848,6 @@ impl SceneBuilderThread {
             };
 
             let (tx, rx) = single_msg_channel();
-            let txn = txns.iter().find(|txn| txn.built_scene.is_some()).unwrap();
-            Telemetry::record_scenebuild_time(Duration::from_millis(txn.profile.get(profiler::SCENE_BUILD_TIME).unwrap() as u64));
 
             // Invoke pre_scene_swap for every window that produced a built
             // scene in this batch.
