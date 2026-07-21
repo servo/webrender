@@ -4,7 +4,7 @@
 
 use api::{AsyncBlobImageRasterizer, BlobImageResult, DebugFlags, Parameter};
 use api::{DocumentId, PipelineId, ExternalEvent, BlobImageRequest};
-use api::{NotificationRequest, Checkpoint, IdNamespace, QualitySettings};
+use api::{NotificationRequest, Checkpoint, IdNamespace, QualitySettings, RenderBackendId};
 use api::{GlyphDimensionRequest, GlyphIndexRequest};
 use api::channel::{unbounded_channel, single_msg_channel, Receiver, Sender};
 use api::units::*;
@@ -97,21 +97,30 @@ pub struct LoadScene {
 /// Message to the scene builder thread.
 pub enum SceneBuilderRequest {
     Transactions(Vec<Box<TransactionMsg>>),
-    AddDocument(DocumentId, DeviceIntSize),
+    /// Register a new document and the window that owns it. The SB uses
+    /// the backend id to dispatch hook calls to the correct per-window
+    /// `SceneBuilderHooks` instance (see `SetSceneBuilderHooks`).
+    AddDocument(DocumentId, DeviceIntSize, RenderBackendId),
     DeleteDocument(DocumentId),
-    GetGlyphDimensions(GlyphDimensionRequest),
-    GetGlyphIndices(GlyphIndexRequest),
-    ClearNamespace(IdNamespace),
+    GetGlyphDimensions(RenderBackendId, GlyphDimensionRequest),
+    GetGlyphIndices(RenderBackendId, GlyphIndexRequest),
+    ClearNamespace(RenderBackendId, IdNamespace),
     SimulateLongSceneBuild(u32),
-    ExternalEvent(ExternalEvent),
+    ExternalEvent(RenderBackendId, ExternalEvent),
     WakeUp,
     StopRenderBackend,
     ShutDown(Option<Sender<()>>),
     Flush(Sender<()>),
     SetFlags(DebugFlags),
-    SetFrameBuilderConfig(FrameBuilderConfig),
-    SetParameter(Parameter),
+    SetFrameBuilderConfig(RenderBackendId, FrameBuilderConfig),
+    SetParameter(RenderBackendId, Parameter),
     ReportMemory(Box<MemoryReport>, Sender<Box<MemoryReport>>),
+    /// Install or clear the scene-builder hooks for the given window.
+    /// `Some(hooks)` registers them (`hooks.register()` is invoked on the
+    /// SB thread, which is the correct thread for APZ's
+    /// `apz_register_updater`); `None` deregisters and removes them.
+    /// Forwarded from the render backend on window register / unregister.
+    SetSceneBuilderHooks(RenderBackendId, Option<Box<dyn SceneBuilderHooks + Send>>),
     #[cfg(feature = "capture")]
     SaveScene(CaptureConfig),
     #[cfg(feature = "replay")]
@@ -125,13 +134,13 @@ pub enum SceneBuilderRequest {
 // Message from scene builder to render backend.
 pub enum SceneBuilderResult {
     Transactions(Vec<Box<BuiltTransaction>>, Option<Sender<SceneSwapResult>>),
-    ExternalEvent(ExternalEvent),
+    ExternalEvent(RenderBackendId, ExternalEvent),
     FlushComplete(Sender<()>),
     DeleteDocument(DocumentId),
-    ClearNamespace(IdNamespace),
-    GetGlyphDimensions(GlyphDimensionRequest),
-    GetGlyphIndices(GlyphIndexRequest),
-    SetParameter(Parameter),
+    ClearNamespace(RenderBackendId, IdNamespace),
+    GetGlyphDimensions(RenderBackendId, GlyphDimensionRequest),
+    GetGlyphIndices(RenderBackendId, GlyphIndexRequest),
+    SetParameter(RenderBackendId, Parameter),
     StopRenderBackend,
     ShutDown(Option<Sender<()>>),
 
@@ -240,12 +249,26 @@ impl Document {
 
 pub struct SceneBuilderThread {
     documents: FastHashMap<DocumentId, Document>,
+    /// Which window each document belongs to. Used to dispatch hook
+    /// calls to the right per-window `SceneBuilderHooks` instance
+    /// when more than one window shares this SB.
+    doc_to_window: FastHashMap<DocumentId, RenderBackendId>,
     rx: Receiver<SceneBuilderRequest>,
     tx: Sender<ApiMsg>,
+    /// Fallback config used when no per-window config has been registered
+    /// yet (initial pool setup, before any window registers).
     config: FrameBuilderConfig,
+    /// Per-window frame builder configs. Populated via
+    /// `SceneBuilderRequest::SetFrameBuilderConfig(backend_id, cfg)` on
+    /// window registration and on any subsequent change. Scene building
+    /// looks up the right config via `doc_to_window`.
+    window_configs: FastHashMap<RenderBackendId, FrameBuilderConfig>,
     fonts: SharedFontResources,
     size_of_ops: Option<MallocSizeOfOps>,
-    hooks: Option<Box<dyn SceneBuilderHooks + Send>>,
+    /// Per-window scene-builder hooks. Empty for SBs with no registered
+    /// hooks. Populated as `SetSceneBuilderHooks(id, Some(_))` arrives
+    /// and pruned on `SetSceneBuilderHooks(id, None)` or window removal.
+    hooks: FastHashMap<RenderBackendId, Box<dyn SceneBuilderHooks + Send>>,
     simulate_slow_ms: u32,
     removed_pipelines: FastHashSet<PipelineId>,
     #[cfg(feature = "capture")]
@@ -280,19 +303,21 @@ impl SceneBuilderThread {
         config: FrameBuilderConfig,
         fonts: SharedFontResources,
         size_of_ops: Option<MallocSizeOfOps>,
-        hooks: Option<Box<dyn SceneBuilderHooks + Send>>,
         channels: SceneBuilderThreadChannels,
     ) -> Self {
         let SceneBuilderThreadChannels { rx, tx } = channels;
 
         Self {
             documents: Default::default(),
+            doc_to_window: Default::default(),
             rx,
             tx,
             config,
+            window_configs: FastHashMap::default(),
             fonts,
             size_of_ops,
-            hooks,
+            // Hooks now arrive per-window via `SetSceneBuilderHooks`.
+            hooks: FastHashMap::default(),
             simulate_slow_ms: 0,
             removed_pipelines: FastHashSet::default(),
             #[cfg(feature = "capture")]
@@ -314,9 +339,11 @@ impl SceneBuilderThread {
 
     /// The scene builder thread's event loop.
     pub fn run(&mut self) {
-        if let Some(ref hooks) = self.hooks {
-            hooks.register();
-        }
+        // Hooks register / deregister are tied to window registration
+        // (via `SceneBuilderRequest::SetSceneBuilderHooks`), not to the
+        // SB thread lifecycle. The SB thread can outlive any single
+        // window (shared pool), and can serve multiple windows
+        // simultaneously.
 
         loop {
             tracy_begin_frame!("scene_builder_thread");
@@ -344,28 +371,31 @@ impl SceneBuilderThread {
                     self.recycler.recycle_built_scene();
                     self.tile_pool.cleanup();
                 }
-                Ok(SceneBuilderRequest::AddDocument(document_id, initial_size)) => {
+                Ok(SceneBuilderRequest::AddDocument(document_id, initial_size, backend_id)) => {
                     let old = self.documents.insert(document_id, Document::new(
                         initial_size.into(),
                     ));
                     debug_assert!(old.is_none());
+                    self.doc_to_window.insert(document_id, backend_id);
                 }
                 Ok(SceneBuilderRequest::DeleteDocument(document_id)) => {
                     self.documents.remove(&document_id);
+                    self.doc_to_window.remove(&document_id);
                     self.send(SceneBuilderResult::DeleteDocument(document_id));
                 }
-                Ok(SceneBuilderRequest::ClearNamespace(id)) => {
+                Ok(SceneBuilderRequest::ClearNamespace(backend_id, id)) => {
                     self.documents.retain(|doc_id, _doc| doc_id.namespace_id != id);
-                    self.send(SceneBuilderResult::ClearNamespace(id));
+                    self.doc_to_window.retain(|doc_id, _| doc_id.namespace_id != id);
+                    self.send(SceneBuilderResult::ClearNamespace(backend_id, id));
                 }
-                Ok(SceneBuilderRequest::ExternalEvent(evt)) => {
-                    self.send(SceneBuilderResult::ExternalEvent(evt));
+                Ok(SceneBuilderRequest::ExternalEvent(backend_id, evt)) => {
+                    self.send(SceneBuilderResult::ExternalEvent(backend_id, evt));
                 }
-                Ok(SceneBuilderRequest::GetGlyphDimensions(request)) => {
-                    self.send(SceneBuilderResult::GetGlyphDimensions(request));
+                Ok(SceneBuilderRequest::GetGlyphDimensions(backend_id, request)) => {
+                    self.send(SceneBuilderResult::GetGlyphDimensions(backend_id, request));
                 }
-                Ok(SceneBuilderRequest::GetGlyphIndices(request)) => {
-                    self.send(SceneBuilderResult::GetGlyphIndices(request));
+                Ok(SceneBuilderRequest::GetGlyphIndices(backend_id, request)) => {
+                    self.send(SceneBuilderResult::GetGlyphIndices(backend_id, request));
                 }
                 Ok(SceneBuilderRequest::StopRenderBackend) => {
                     self.send(SceneBuilderResult::StopRenderBackend);
@@ -381,11 +411,20 @@ impl SceneBuilderThread {
                     (*report) += self.report_memory();
                     tx.send(report).unwrap();
                 }
-                Ok(SceneBuilderRequest::SetFrameBuilderConfig(cfg)) => {
-                    self.config = cfg;
+                Ok(SceneBuilderRequest::SetFrameBuilderConfig(backend_id, cfg)) => {
+                    self.window_configs.insert(backend_id, cfg);
                 }
-                Ok(SceneBuilderRequest::SetParameter(prop)) => {
-                    self.send(SceneBuilderResult::SetParameter(prop));
+                Ok(SceneBuilderRequest::SetParameter(backend_id, prop)) => {
+                    self.send(SceneBuilderResult::SetParameter(backend_id, prop));
+                }
+                Ok(SceneBuilderRequest::SetSceneBuilderHooks(backend_id, hooks)) => {
+                    if let Some(old) = self.hooks.remove(&backend_id) {
+                        old.deregister();
+                    }
+                    if let Some(new_hooks) = hooks {
+                        new_hooks.register();
+                        self.hooks.insert(backend_id, new_hooks);
+                    }
                 }
                 #[cfg(feature = "replay")]
                 Ok(SceneBuilderRequest::LoadScenes(msg)) => {
@@ -406,19 +445,26 @@ impl SceneBuilderThread {
                     self.capture_config = None;
                     self.send(SceneBuilderResult::StopCaptureSequence);
                 }
-                Err(_) => {
+                Err(..) => {
                     break;
                 }
             }
 
-            if let Some(ref hooks) = self.hooks {
+            // Poke every registered window's hooks (e.g. APZ's
+            // `apz_run_updater`). Each window's updater drives its own
+            // APZ tree.
+            for (_, hooks) in self.hooks.iter() {
                 hooks.poke();
             }
 
             tracy_end_frame!("scene_builder_thread");
         }
 
-        if let Some(ref hooks) = self.hooks {
+        // SB is exiting; deregister any still-installed hooks. In a
+        // clean shutdown the RB has already sent `SetSceneBuilderHooks(_, None)`
+        // for each window, so this is usually empty. The drain is here
+        // as a safety net.
+        for (_, hooks) in self.hooks.drain() {
             hooks.deregister();
         }
     }
@@ -539,10 +585,21 @@ impl SceneBuilderThread {
     /// Do the bulk of the work of the scene builder thread.
     fn process_transaction(&mut self, mut txn: TransactionMsg) -> Box<BuiltTransaction> {
         profile_scope!("process_transaction");
+        let win_id_opt = self.doc_to_window.get(&txn.document_id).copied();
 
-        if let Some(ref hooks) = self.hooks {
-            hooks.pre_scene_build();
+        // Dispatch pre_scene_build to the hooks for this transaction's
+        // owning window. With multi-window per SB this is the only way
+        // to avoid calling the wrong window's APZ.
+        if let Some(win_id) = win_id_opt {
+            if let Some(hooks) = self.hooks.get(&win_id) {
+                hooks.pre_scene_build();
+            }
         }
+
+        let config: FrameBuilderConfig = win_id_opt
+            .and_then(|id| self.window_configs.get(&id))
+            .unwrap_or(&self.config)
+            .clone();
 
         let doc = self.documents.get_mut(&txn.document_id).unwrap();
         let scene = &mut doc.scene;
@@ -623,7 +680,7 @@ impl SceneBuilderThread {
                         Some(pipeline_id),
                         self.fonts.clone(),
                         &doc.view,
-                        &self.config,
+                        &config,
                         &mut doc.interners,
                         &mut spatial_tree,
                         &mut self.recycler,
@@ -663,7 +720,7 @@ impl SceneBuilderThread {
                 None,
                 self.fonts.clone(),
                 &doc.view,
-                &self.config,
+                &config,
                 &mut doc.interners,
                 &mut doc.spatial_tree,
                 &mut self.recycler,
@@ -746,39 +803,58 @@ impl SceneBuilderThread {
 
     /// Send the results of process_transaction back to the render backend.
     fn forward_built_transactions(&mut self, txns: Vec<Box<BuiltTransaction>>) {
-        let (pipeline_info, result_tx, result_rx) = match self.hooks {
-            Some(ref hooks) => {
-                if txns.iter().any(|txn| txn.built_scene.is_some()) {
-                    let info = PipelineInfo {
-                        epochs: txns.iter()
-                            .filter(|txn| txn.built_scene.is_some())
-                            .map(|txn| {
-                                txn.built_scene.as_ref().unwrap()
-                                    .pipeline_epochs.iter()
-                                    .zip(iter::repeat(txn.document_id))
-                                    .map(|((&pipeline_id, &epoch), document_id)| ((pipeline_id, document_id), epoch))
-                            }).flatten().collect(),
-                        removed_pipelines: txns.iter()
-                            .map(|txn| txn.removed_pipelines.clone())
-                            .flatten().collect(),
-                    };
-
-                    let (tx, rx) = single_msg_channel();
-                    let txn = txns.iter().find(|txn| txn.built_scene.is_some()).unwrap();
-                    Telemetry::record_scenebuild_time(Duration::from_millis(txn.profile.get(profiler::SCENE_BUILD_TIME).unwrap() as u64));
-                    hooks.pre_scene_swap();
-
-                    (Some(info), Some(tx), Some(rx))
-                } else {
-                    (None, None, None)
+        // Group transactions by their owning window so hooks fire per-window.
+        // In practice each batch is usually a single transaction (and hence a
+        // single window), but multiple are handled correctly too.
+        let mut docs_per_window: FastHashMap<RenderBackendId, Vec<DocumentId>> =
+            FastHashMap::default();
+        let mut windows_with_built_scene: FastHashSet<RenderBackendId> =
+            FastHashSet::default();
+        for txn in &txns {
+            if let Some(&win_id) = self.doc_to_window.get(&txn.document_id) {
+                docs_per_window.entry(win_id).or_default().push(txn.document_id);
+                if txn.built_scene.is_some() {
+                    windows_with_built_scene.insert(win_id);
                 }
             }
-            _ => (None, None, None)
+        }
+
+        let has_built_scene = !windows_with_built_scene.is_empty();
+
+        let (pipeline_info, result_tx, result_rx) = if has_built_scene {
+            let info = PipelineInfo {
+                epochs: txns.iter()
+                    .filter(|txn| txn.built_scene.is_some())
+                    .map(|txn| {
+                        txn.built_scene.as_ref().unwrap()
+                            .pipeline_epochs.iter()
+                            .zip(iter::repeat(txn.document_id))
+                            .map(|((&pipeline_id, &epoch), document_id)| ((pipeline_id, document_id), epoch))
+                    }).flatten().collect(),
+                removed_pipelines: txns.iter()
+                    .map(|txn| txn.removed_pipelines.clone())
+                    .flatten().collect(),
+            };
+
+            let (tx, rx) = single_msg_channel();
+            let txn = txns.iter().find(|txn| txn.built_scene.is_some()).unwrap();
+            Telemetry::record_scenebuild_time(Duration::from_millis(txn.profile.get(profiler::SCENE_BUILD_TIME).unwrap() as u64));
+
+            // Invoke pre_scene_swap for every window that produced a built
+            // scene in this batch.
+            for win_id in &windows_with_built_scene {
+                if let Some(hooks) = self.hooks.get(win_id) {
+                    hooks.pre_scene_swap();
+                }
+            }
+
+            (Some(info), Some(tx), Some(rx))
+        } else {
+            (None, None, None)
         };
 
         let timer_id = Telemetry::start_sceneswap_time();
-        let document_ids = txns.iter().map(|txn| txn.document_id).collect();
-        let have_resources_updates : Vec<DocumentId> = if pipeline_info.is_none() {
+        let have_resources_updates: Vec<DocumentId> = if pipeline_info.is_none() {
             txns.iter()
                 .filter(|txn| !txn.resource_updates.is_empty() || txn.invalidate_rendered_frame)
                 .map(|txn| txn.document_id)
@@ -804,24 +880,72 @@ impl SceneBuilderThread {
         self.send(SceneBuilderResult::Transactions(txns, result_tx));
 
         if let Some(pipeline_info) = pipeline_info {
-            // Block until the swap is done, then invoke the hook.
+            // Block until the swap is done, then invoke post_scene_swap.
             let swap_result = result_rx.unwrap().recv();
             Telemetry::stop_and_accumulate_sceneswap_time(timer_id);
-            self.hooks.as_ref().unwrap().post_scene_swap(&document_ids,
-                                                         pipeline_info,
-                                                         compositor_should_schedule_a_frame);
-            // Once the hook is done, allow the RB thread to resume
+
+            // For each window that contributed a built scene, send it the
+            // subset of pipeline info it actually owns. This is what
+            // delivers `apz_post_scene_swap(this_window_id, ...)` to the
+            // right APZ tree and triggers
+            // `wr_schedule_frame_after_scene_build` for that window.
+            for win_id in &windows_with_built_scene {
+                if let Some(hooks) = self.hooks.get(win_id) {
+                    let win_docs = docs_per_window
+                        .get(win_id)
+                        .cloned()
+                        .unwrap_or_default();
+                    let win_doc_set: FastHashSet<DocumentId> =
+                        win_docs.iter().copied().collect();
+                    let win_info = PipelineInfo {
+                        epochs: pipeline_info
+                            .epochs
+                            .iter()
+                            .filter(|((_, doc_id), _)| win_doc_set.contains(doc_id))
+                            .map(|(k, v)| (*k, *v))
+                            .collect(),
+                        removed_pipelines: pipeline_info
+                            .removed_pipelines
+                            .iter()
+                            .filter(|(_, doc_id)| win_doc_set.contains(doc_id))
+                            .cloned()
+                            .collect(),
+                    };
+                    hooks.post_scene_swap(
+                        &win_docs,
+                        win_info,
+                        compositor_should_schedule_a_frame,
+                    );
+                }
+            }
+
+            // Once the hooks are done, allow the RB thread to resume.
             if let Ok(SceneSwapResult::Complete(resume_tx)) = swap_result {
-                resume_tx.send(()).ok();
+                let _ = resume_tx.send(());
             }
         } else {
             Telemetry::cancel_sceneswap_time(timer_id);
-            if !have_resources_updates.is_empty() {
-                if let Some(ref hooks) = self.hooks {
-                    hooks.post_resource_update(&have_resources_updates);
+            // No built scene this batch. Per window, either deliver
+            // post_resource_update (with the docs that had updates) or
+            // post_empty_scene_build.
+            let updates_by_window: FastHashMap<RenderBackendId, Vec<DocumentId>> = {
+                let mut map: FastHashMap<RenderBackendId, Vec<DocumentId>> =
+                    FastHashMap::default();
+                for doc_id in &have_resources_updates {
+                    if let Some(&win_id) = self.doc_to_window.get(doc_id) {
+                        map.entry(win_id).or_default().push(*doc_id);
+                    }
                 }
-            } else if let Some(ref hooks) = self.hooks {
-                hooks.post_empty_scene_build();
+                map
+            };
+            for (win_id, _doc_ids) in &docs_per_window {
+                if let Some(hooks) = self.hooks.get(win_id) {
+                    if let Some(updates) = updates_by_window.get(win_id) {
+                        hooks.post_resource_update(updates);
+                    } else {
+                        hooks.post_empty_scene_build();
+                    }
+                }
             }
         }
     }
@@ -868,9 +992,7 @@ impl LowPrioritySceneBuilderThread {
                 Ok(other) => {
                     self.tx.send(other).unwrap();
                 }
-                Err(_) => {
-                    break;
-                }
+                Err(..) => break,
             }
         }
     }

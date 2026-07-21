@@ -97,7 +97,6 @@ use euclid::{rect, Transform3D, Scale, default};
 use gleam::gl;
 use malloc_size_of::MallocSizeOfOps;
 
-#[cfg(feature = "replay")]
 use std::sync::Arc;
 
 use std::{
@@ -740,6 +739,13 @@ impl BufferDamageTracker {
 pub struct Renderer {
     result_rx: Receiver<ResultMsg>,
     api_tx: Sender<ApiMsg>,
+    /// Keep the `RenderBackendPool` alive for the lifetime of this
+    /// `Renderer`. For the private-pool case (pref=0) this is the only
+    /// owner, so dropping the renderer drops the pool and triggers its
+    /// `Drop` impl, which signals the backend thread to exit cleanly.
+    /// For the shared-pool case (pref>=1) the C++ side also holds an
+    /// `Arc`, so the pool only drops at process shutdown.
+    _render_backend_pool: Arc<crate::render_backend_pool::RenderBackendPool>,
     pub device: Device,
     pending_texture_updates: Vec<TextureUpdateList>,
     /// True if there are any TextureCacheUpdate pending.

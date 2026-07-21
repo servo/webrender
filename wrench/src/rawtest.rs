@@ -1452,7 +1452,10 @@ impl<'a> RawtestHarness<'a> {
     fn test_clear_cache(&mut self) {
         println!("\tclear cache test...");
 
-        self.wrench.api.send_message(ApiMsg::DebugCommand(DebugCommand::ClearCaches(ClearCache::all())));
+        self.wrench.api.send_message(ApiMsg::DebugCommand(
+            self.wrench.api.backend_id(),
+            DebugCommand::ClearCaches(ClearCache::all()),
+        ));
 
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id);
         builder.begin();

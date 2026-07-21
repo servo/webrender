@@ -117,6 +117,7 @@ mod prim_store;
 mod print_tree;
 mod quad;
 mod render_backend;
+pub mod render_backend_pool;
 mod render_target;
 mod render_task_graph;
 mod render_task_cache;

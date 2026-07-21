@@ -8,7 +8,7 @@ use crate::composite::CompositeState;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use api::channel::{Sender, unbounded_channel};
-use api::{DebugFlags, TextureCacheCategory};
+use api::{DebugFlags, RenderBackendId, TextureCacheCategory};
 use api::debugger::{DebuggerMessage, SetDebugFlagsMessage, ProfileCounterDescriptor};
 use api::debugger::{FrameLogMessage, InitProfileCountersMessage, ProfileCounterId};
 use api::debugger::{CompositorDebugInfo, CompositorDebugTile, RenderDocReply};
@@ -27,24 +27,26 @@ use tokio::net::TcpListener;
 #[derive(Clone)]
 struct DebugRenderApi {
     api_sender: Sender<ApiMsg>,
+    backend_id: RenderBackendId,
 }
 
 impl DebugRenderApi {
     fn new(api: &RenderApi) -> Self {
         Self {
             api_sender: api.get_api_sender(),
+            backend_id: api.backend_id(),
         }
     }
 
     fn get_debug_flags(&self) -> DebugFlags {
         let (tx, rx) = unbounded_channel();
-        let msg = ApiMsg::DebugCommand(DebugCommand::GetDebugFlags(tx));
+        let msg = ApiMsg::DebugCommand(self.backend_id, DebugCommand::GetDebugFlags(tx));
         self.api_sender.send(msg).unwrap();
         rx.recv().unwrap()
     }
 
     fn send_debug_cmd(&self, cmd: DebugCommand) {
-        let msg = ApiMsg::DebugCommand(cmd);
+        let msg = ApiMsg::DebugCommand(self.backend_id, cmd);
         self.api_sender.send(msg).unwrap();
     }
 }
