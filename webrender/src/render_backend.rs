@@ -751,29 +751,45 @@ struct PlainRenderBackend {
     resource_sequence_id: u32,
 }
 
-/// The render backend is responsible for transforming high level display lists into
-/// GPU-friendly work which is then submitted to the renderer in the form of a frame::Frame.
+/// Routing key used by the render backend to identify a window.
 ///
-/// The render backend operates on its own thread.
-pub struct RenderBackend {
-    api_rx: Receiver<ApiMsg>,
+/// Currently every `RenderBackend` thread has exactly one window. The id is
+/// always `WINDOW_ID_DEFAULT`. The indirection is in place so that a future
+/// step can let multiple windows share a single render backend thread.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+struct WindowId(u32);
+
+const WINDOW_ID_DEFAULT: WindowId = WindowId(0);
+
+/// State owned by a single window living inside a render backend thread.
+///
+/// Most fields here used to live directly on `RenderBackend`. They were moved
+/// here so that multiple windows can eventually share a backend thread without
+/// stepping on each other's GPU-side bookkeeping. Today there is one
+/// `WindowState` per `RenderBackend`.
+struct WindowState {
+    /// Outgoing channel to the `Renderer` that owns this window's GL context.
     result_tx: Sender<ResultMsg>,
-    scene_tx: Sender<SceneBuilderRequest>,
-
-    resource_cache: ResourceCache,
-    chunk_pool: Arc<ChunkPool>,
-
-    frame_config: FrameBuilderConfig,
-    default_compositor_kind: CompositorKind,
-    documents: FastHashMap<DocumentId, Document>,
 
     notifier: Box<dyn RenderNotifier>,
     sampler: Option<Box<dyn AsyncPropertySampler + Send>>,
-    size_of_ops: Option<MallocSizeOfOps>,
+
+    /// CPU-side bookkeeping for GPU resources. Per-window because the
+    /// resources live on the window's GL context.
+    resource_cache: ResourceCache,
+    chunk_pool: Arc<ChunkPool>,
+
+    /// Tile caches persisted between scenes for this window's documents.
+    tile_caches: FastHashMap<SliceId, Box<TileCacheInstance>>,
+
+    frame_config: FrameBuilderConfig,
+    default_compositor_kind: CompositorKind,
     debug_flags: DebugFlags,
-    namespace_alloc_by_client: bool,
 
     recycler: Recycler,
+
+    /// The id of the latest PublishDocument sent on `result_tx`.
+    frame_publish_id: FramePublishId,
 
     #[cfg(feature = "capture")]
     /// If `Some`, do 'sequence capture' logging, recording updated documents,
@@ -783,13 +799,27 @@ pub struct RenderBackend {
 
     #[cfg(feature = "replay")]
     loaded_resource_sequence_id: u32,
+}
 
-    /// A map of tile caches. These are stored in the backend as they are
-    /// persisted between both frame and scenes.
-    tile_caches: FastHashMap<SliceId, Box<TileCacheInstance>>,
+/// The render backend is responsible for transforming high level display lists into
+/// GPU-friendly work which is then submitted to the renderer in the form of a frame::Frame.
+///
+/// The render backend operates on its own thread.
+pub struct RenderBackend {
+    api_rx: Receiver<ApiMsg>,
+    scene_tx: Sender<SceneBuilderRequest>,
 
-    /// The id of the latest PublishDocument
-    frame_publish_id: FramePublishId,
+    documents: FastHashMap<DocumentId, Document>,
+
+    /// Per-window state. Currently always contains exactly one entry, keyed by
+    /// `WINDOW_ID_DEFAULT`.
+    windows: FastHashMap<WindowId, WindowState>,
+
+    /// Reverse lookup from a document to the window that owns it.
+    document_to_window: FastHashMap<DocumentId, WindowId>,
+
+    size_of_ops: Option<MallocSizeOfOps>,
+    namespace_alloc_by_client: bool,
 }
 
 impl RenderBackend {
@@ -806,28 +836,49 @@ impl RenderBackend {
         debug_flags: DebugFlags,
         namespace_alloc_by_client: bool,
     ) -> RenderBackend {
-        RenderBackend {
-            api_rx,
+        let window = WindowState {
             result_tx,
-            scene_tx,
-            resource_cache,
-            chunk_pool,
-            frame_config,
-            default_compositor_kind : frame_config.compositor_kind,
-            documents: FastHashMap::default(),
             notifier,
             sampler,
-            size_of_ops,
+            resource_cache,
+            chunk_pool,
+            tile_caches: FastHashMap::default(),
+            default_compositor_kind: frame_config.compositor_kind,
+            frame_config,
             debug_flags,
-            namespace_alloc_by_client,
             recycler: Recycler::new(),
+            frame_publish_id: FramePublishId::first(),
             #[cfg(feature = "capture")]
             capture_config: None,
             #[cfg(feature = "replay")]
             loaded_resource_sequence_id: 0,
-            tile_caches: FastHashMap::default(),
-            frame_publish_id: FramePublishId::first(),
+        };
+
+        let mut windows = FastHashMap::default();
+        windows.insert(WINDOW_ID_DEFAULT, window);
+
+        RenderBackend {
+            api_rx,
+            scene_tx,
+            documents: FastHashMap::default(),
+            windows,
+            document_to_window: FastHashMap::default(),
+            size_of_ops,
+            namespace_alloc_by_client,
         }
+    }
+
+    /// Returns the single window owned by this backend.
+    ///
+    /// Step 1 of the render-backend-pool refactor maintains a strict
+    /// 1:1 mapping between backend threads and windows. The helper exists so
+    /// later steps can replace it with per-document routing.
+    fn window(&self) -> &WindowState {
+        &self.windows[&WINDOW_ID_DEFAULT]
+    }
+
+    fn window_mut(&mut self) -> &mut WindowState {
+        self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap()
     }
 
     pub fn next_namespace_id() -> IdNamespace {
@@ -838,7 +889,7 @@ impl RenderBackend {
         let mut frame_counter: u32 = 0;
         let mut status = RenderBackendStatus::Continue;
 
-        if let Some(ref sampler) = self.sampler {
+        if let Some(ref sampler) = self.window().sampler {
             sampler.register();
         }
 
@@ -855,7 +906,7 @@ impl RenderBackend {
             while let Ok(msg) = self.api_rx.recv() {
                 match msg {
                     ApiMsg::SceneBuilderResult(SceneBuilderResult::ExternalEvent(evt)) => {
-                        self.notifier.external_event(evt);
+                        self.window_mut().notifier.external_event(evt);
                     }
                     ApiMsg::SceneBuilderResult(SceneBuilderResult::FlushComplete(tx)) => {
                         // If somebody's blocked waiting for a flush, how did they
@@ -865,7 +916,7 @@ impl RenderBackend {
                         tx.send(()).ok();
                     }
                     ApiMsg::SceneBuilderResult(SceneBuilderResult::ShutDown(sender)) => {
-                        info!("Recycling stats: {:?}", self.recycler);
+                        info!("Recycling stats: {:?}", self.window().recycler);
                         status = RenderBackendStatus::ShutDown(sender);
                         break;
                    }
@@ -890,10 +941,11 @@ impl RenderBackend {
         }
 
         self.documents.clear();
+        self.document_to_window.clear();
 
-        self.notifier.shut_down();
+        self.window_mut().notifier.shut_down();
 
-        if let Some(ref sampler) = self.sampler {
+        if let Some(ref sampler) = self.window().sampler {
             sampler.deregister();
         }
 
@@ -917,6 +969,7 @@ impl RenderBackend {
         for mut txn in txns.drain(..) {
            let has_built_scene = txn.built_scene.is_some();
 
+            let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
             if let Some(doc) = self.documents.get_mut(&txn.document_id) {
                 doc.removed_pipelines.append(&mut txn.removed_pipelines);
                 doc.view.scene = txn.view;
@@ -930,7 +983,7 @@ impl RenderBackend {
 
                 // Before updating the spatial tree, save the most recently sampled
                 // scroll offsets (which include async deltas).
-                let last_sampled_scroll_offsets = if self.sampler.is_some() {
+                let last_sampled_scroll_offsets = if win.sampler.is_some() {
                     Some(doc.spatial_tree.get_last_sampled_scroll_offsets())
                 } else {
                     None
@@ -943,9 +996,9 @@ impl RenderBackend {
                 if let Some(built_scene) = txn.built_scene.take() {
                     doc.new_async_scene_ready(
                         built_scene,
-                        &mut self.recycler,
-                        &mut self.tile_caches,
-                        &mut self.resource_cache,
+                        &mut win.recycler,
+                        &mut win.tile_caches,
+                        &mut win.resource_cache,
                     );
                 }
 
@@ -983,33 +1036,33 @@ impl RenderBackend {
                     resume_rx.recv().ok();
                 }
 
-                self.resource_cache.add_rasterized_blob_images(
+                win.resource_cache.add_rasterized_blob_images(
                     txn.rasterized_blobs.take(),
                     &mut doc.profile,
                 );
 
                 for offscreen_scene in txn.offscreen_scenes.drain(..) {
-                    self.resource_cache.post_scene_building_update(
+                    win.resource_cache.post_scene_building_update(
                         txn.resource_updates.take(),
                         &mut doc.profile,
                     );
 
                     let rendered_document = doc.process_offscreen_scene(
                         offscreen_scene,
-                        &mut self.resource_cache,
-                        self.chunk_pool.clone(),
-                        self.debug_flags,
+                        &mut win.resource_cache,
+                        win.chunk_pool.clone(),
+                        win.debug_flags,
                     );
 
-                    let pending_update = self.resource_cache.pending_updates();
+                    let pending_update = win.resource_cache.pending_updates();
 
                     let msg = ResultMsg::PublishDocument(
-                        self.frame_publish_id,
+                        win.frame_publish_id,
                         txn.document_id,
                         rendered_document,
                         pending_update,
                     );
-                    self.result_tx.send(msg).unwrap();
+                    win.result_tx.send(msg).unwrap();
 
                     let params = api::FrameReadyParams {
                         present: false,
@@ -1018,9 +1071,9 @@ impl RenderBackend {
                         tracked: false,
                     };
 
-                    self.notifier.new_frame_ready(
+                    win.notifier.new_frame_ready(
                         txn.document_id,
-                        self.frame_publish_id,
+                        win.frame_publish_id,
                         &params
                     );
                 }
@@ -1050,7 +1103,7 @@ impl RenderBackend {
                 None,
             );
 
-            if self.debug_flags.contains(DebugFlags::DUMP_SPATIAL_TREE) {
+            if self.window().debug_flags.contains(DebugFlags::DUMP_SPATIAL_TREE) {
                 if let Some(doc) = self.documents.get(&txn.document_id) {
                     let spatial_tree = doc.spatial_tree.print_to_string();
                     if !spatial_tree.is_empty() {
@@ -1087,6 +1140,7 @@ impl RenderBackend {
                 );
                 let old = self.documents.insert(document_id, document);
                 debug_assert!(old.is_none());
+                self.document_to_window.insert(document_id, WINDOW_ID_DEFAULT);
             }
             ApiMsg::MemoryPressure => {
                 // This is drastic. It will basically flush everything out of the cache,
@@ -1097,24 +1151,27 @@ impl RenderBackend {
                 // The advantage of clearing the cache completely is that it gets rid of any
                 // remaining fragmentation that could have persisted if we kept around the most
                 // recently used resources.
-                self.resource_cache.clear(ClearCache::all());
-
                 for (_, doc) in &mut self.documents {
                     doc.scratch.memory_pressure();
-                    for tile_cache in self.tile_caches.values_mut() {
-                        tile_cache.memory_pressure(&mut self.resource_cache);
-                    }
                 }
 
-                let resource_updates = self.resource_cache.pending_updates();
-                let msg = ResultMsg::UpdateResources {
-                    resource_updates,
-                    memory_pressure: true,
-                };
-                self.result_tx.send(msg).unwrap();
-                self.notifier.wake_up(false);
+                for win in self.windows.values_mut() {
+                    win.resource_cache.clear(ClearCache::all());
 
-                self.chunk_pool.purge_all_chunks();
+                    for tile_cache in win.tile_caches.values_mut() {
+                        tile_cache.memory_pressure(&mut win.resource_cache);
+                    }
+
+                    let resource_updates = win.resource_cache.pending_updates();
+                    let msg = ResultMsg::UpdateResources {
+                        resource_updates,
+                        memory_pressure: true,
+                    };
+                    win.result_tx.send(msg).unwrap();
+                    win.notifier.wake_up(false);
+
+                    win.chunk_pool.purge_all_chunks();
+                }
             }
             ApiMsg::ReportMemory(tx) => {
                 self.report_memory(tx);
@@ -1122,13 +1179,13 @@ impl RenderBackend {
             ApiMsg::DebugCommand(option) => {
                 let msg = match option {
                     DebugCommand::SetPictureTileSize(tile_size) => {
-                        self.frame_config.tile_size_override = tile_size;
+                        self.window_mut().frame_config.tile_size_override = tile_size;
                         self.update_frame_builder_config();
 
                         return RenderBackendStatus::Continue;
                     }
                     DebugCommand::SetMaximumSurfaceSize(surface_size) => {
-                        self.frame_config.max_surface_override = surface_size;
+                        self.window_mut().frame_config.max_surface_override = surface_size;
                         self.update_frame_builder_config();
 
                         return RenderBackendStatus::Continue;
@@ -1273,17 +1330,18 @@ impl RenderBackend {
                         }
                     }
                     DebugCommand::ClearCaches(mask) => {
-                        self.resource_cache.clear(mask);
+                        self.window_mut().resource_cache.clear(mask);
                         return RenderBackendStatus::Continue;
                     }
                     DebugCommand::EnableNativeCompositor(enable) => {
+                        let default_kind = self.window().default_compositor_kind;
                         // Default CompositorKind should be Native
-                        if let CompositorKind::Draw { .. } = self.default_compositor_kind {
+                        if let CompositorKind::Draw { .. } = default_kind {
                             unreachable!();
                         }
 
                         let compositor_kind = if enable {
-                            self.default_compositor_kind
+                            default_kind
                         } else {
                             CompositorKind::default()
                         };
@@ -1293,14 +1351,14 @@ impl RenderBackend {
                             doc.frame_is_valid = false;
                         }
 
-                        self.frame_config.compositor_kind = compositor_kind;
+                        self.window_mut().frame_config.compositor_kind = compositor_kind;
                         self.update_frame_builder_config();
 
                         // We don't want to forward this message to the renderer.
                         return RenderBackendStatus::Continue;
                     }
                     DebugCommand::SetBatchingLookback(count) => {
-                        self.frame_config.batch_lookback_count = count as usize;
+                        self.window_mut().frame_config.batch_lookback_count = count as usize;
                         self.update_frame_builder_config();
 
                         return RenderBackendStatus::Continue;
@@ -1310,25 +1368,31 @@ impl RenderBackend {
                         return RenderBackendStatus::Continue;
                     }
                     DebugCommand::SetFlags(flags) => {
-                        self.resource_cache.set_debug_flags(flags);
-
                         let force_invalidation = flags.contains(DebugFlags::FORCE_PICTURE_INVALIDATION);
-                        if self.frame_config.force_invalidation != force_invalidation {
-                            self.frame_config.force_invalidation = force_invalidation;
+                        let needs_update = {
+                            let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+                            win.resource_cache.set_debug_flags(flags);
+                            let needs_update = win.frame_config.force_invalidation != force_invalidation;
+                            if needs_update {
+                                win.frame_config.force_invalidation = force_invalidation;
+                            }
+                            win.debug_flags = flags;
+                            needs_update
+                        };
+                        if needs_update {
                             for doc in self.documents.values_mut() {
                                 doc.scene.config.force_invalidation = force_invalidation;
                             }
                             self.update_frame_builder_config();
                         }
 
-                        self.debug_flags = flags;
-
                         ResultMsg::DebugCommand(option)
                     }
                     _ => ResultMsg::DebugCommand(option),
                 };
-                self.result_tx.send(msg).unwrap();
-                self.notifier.wake_up(true);
+                let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+                win.result_tx.send(msg).unwrap();
+                win.notifier.wake_up(true);
             }
             ApiMsg::UpdateDocuments(transaction_msgs) => {
                 self.prepare_transactions(
@@ -1345,7 +1409,7 @@ impl RenderBackend {
         // from the pool. The underlying deallocation can be expensive, especially
         // with build configurations where all of the memory is zeroed, so we
         // spread the load over potentially many iterations of the event loop.
-        self.chunk_pool.purge_chunks(2, 3);
+        self.window().chunk_pool.purge_chunks(2, 3);
 
         RenderBackendStatus::Continue
     }
@@ -1367,14 +1431,17 @@ impl RenderBackend {
             },
             #[cfg(feature = "capture")]
             SceneBuilderResult::CapturedTransactions(txns, capture_config, result_tx) => {
-                if let Some(ref mut old_config) = self.capture_config {
-                    assert!(old_config.scene_id <= capture_config.scene_id);
-                    if old_config.scene_id < capture_config.scene_id {
-                        old_config.scene_id = capture_config.scene_id;
-                        old_config.frame_id = 0;
+                {
+                    let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+                    if let Some(ref mut old_config) = win.capture_config {
+                        assert!(old_config.scene_id <= capture_config.scene_id);
+                        if old_config.scene_id < capture_config.scene_id {
+                            old_config.scene_id = capture_config.scene_id;
+                            old_config.frame_id = 0;
+                        }
+                    } else {
+                        win.capture_config = Some(capture_config);
                     }
-                } else {
-                    self.capture_config = Some(capture_config);
                 }
 
                 let built_frame = self.process_transaction(
@@ -1389,25 +1456,27 @@ impl RenderBackend {
             },
             #[cfg(feature = "capture")]
             SceneBuilderResult::StopCaptureSequence => {
-                self.capture_config = None;
+                self.window_mut().capture_config = None;
             }
             SceneBuilderResult::GetGlyphDimensions(request) => {
+                let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
                 let mut glyph_dimensions = Vec::with_capacity(request.glyph_indices.len());
-                let instance_key = self.resource_cache.map_font_instance_key(request.key);
-                if let Some(base) = self.resource_cache.get_font_instance(instance_key) {
+                let instance_key = win.resource_cache.map_font_instance_key(request.key);
+                if let Some(base) = win.resource_cache.get_font_instance(instance_key) {
                     let font = FontInstance::from_base(Arc::clone(&base));
                     for glyph_index in &request.glyph_indices {
-                        let glyph_dim = self.resource_cache.get_glyph_dimensions(&font, *glyph_index);
+                        let glyph_dim = win.resource_cache.get_glyph_dimensions(&font, *glyph_index);
                         glyph_dimensions.push(glyph_dim);
                     }
                 }
                 request.sender.send(glyph_dimensions).unwrap();
             }
             SceneBuilderResult::GetGlyphIndices(request) => {
+                let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
                 let mut glyph_indices = Vec::with_capacity(request.text.len());
-                let font_key = self.resource_cache.map_font_key(request.key);
+                let font_key = win.resource_cache.map_font_key(request.key);
                 for ch in request.text.chars() {
-                    let index = self.resource_cache.get_glyph_index(font_key, ch);
+                    let index = win.resource_cache.get_glyph_index(font_key, ch);
                     glyph_indices.push(index);
                 }
                 request.sender.send(glyph_indices).unwrap();
@@ -1416,26 +1485,29 @@ impl RenderBackend {
                 tx.send(()).ok();
             }
             SceneBuilderResult::ExternalEvent(evt) => {
-                self.notifier.external_event(evt);
+                self.window_mut().notifier.external_event(evt);
             }
             SceneBuilderResult::ClearNamespace(id) => {
-                self.resource_cache.clear_namespace(id);
+                self.window_mut().resource_cache.clear_namespace(id);
                 self.documents.retain(|doc_id, _doc| doc_id.namespace_id != id);
+                self.document_to_window.retain(|doc_id, _| doc_id.namespace_id != id);
             }
             SceneBuilderResult::DeleteDocument(document_id) => {
                 self.documents.remove(&document_id);
+                self.document_to_window.remove(&document_id);
             }
             SceneBuilderResult::SetParameter(param) => {
+                let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
                 if let Parameter::Bool(BoolParameter::Multithreading, enabled) = param {
-                    self.resource_cache.enable_multithreading(enabled);
+                    win.resource_cache.enable_multithreading(enabled);
                 }
-                let _ = self.result_tx.send(ResultMsg::SetParameter(param));
+                let _ = win.result_tx.send(ResultMsg::SetParameter(param));
             }
             SceneBuilderResult::StopRenderBackend => {
                 return RenderBackendStatus::StopRenderBackend;
             }
             SceneBuilderResult::ShutDown(sender) => {
-                info!("Recycling stats: {:?}", self.recycler);
+                info!("Recycling stats: {:?}", self.window().recycler);
                 return RenderBackendStatus::ShutDown(sender);
             }
         }
@@ -1446,7 +1518,7 @@ impl RenderBackend {
     fn update_frame_builder_config(&self) {
         self.send_backend_message(
             SceneBuilderRequest::SetFrameBuilderConfig(
-                self.frame_config.clone()
+                self.window().frame_config.clone()
             )
         );
     }
@@ -1555,9 +1627,11 @@ impl RenderBackend {
     ) -> bool {
         let update_doc_start = zeitstempel::now();
 
-        let requested_frame = render_frame || self.frame_config.force_invalidation;
-
         let requires_frame_build = self.requires_frame_build();
+
+        let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+        let requested_frame = render_frame || win.frame_config.force_invalidation;
+
         let doc = self.documents.get_mut(&document_id).unwrap();
 
         // If we have a sampler, get more frame ops from it and add them
@@ -1566,7 +1640,7 @@ impl RenderBackend {
         // before rendering. This is useful for rendering with the latest
         // async transforms.
         if requested_frame {
-            if let Some(ref sampler) = self.sampler {
+            if let Some(ref sampler) = win.sampler {
                 frame_ops.append(&mut sampler.sample(document_id, generated_frame_id));
             }
         }
@@ -1587,7 +1661,7 @@ impl RenderBackend {
             }
         }
 
-        self.resource_cache.post_scene_building_update(
+        win.resource_cache.post_scene_building_update(
             resource_updates,
             &mut doc.profile,
         );
@@ -1619,7 +1693,7 @@ impl RenderBackend {
             doc.rendered_frame_is_valid = false;
             if doc.scene.config.compositor_kind.should_redraw_on_invalidation() {
                 let msg = ResultMsg::ForceRedraw;
-                self.result_tx.send(msg).unwrap();
+                win.result_tx.send(msg).unwrap();
             }
         }
 
@@ -1646,13 +1720,13 @@ impl RenderBackend {
                 let frame_stats = doc.frame_stats.take();
 
                 let rendered_document = doc.build_frame(
-                    &mut self.resource_cache,
-                    self.debug_flags,
-                    &mut self.tile_caches,
+                    &mut win.resource_cache,
+                    win.debug_flags,
+                    &mut win.tile_caches,
                     frame_stats,
                     present,
                     render_reasons,
-                    self.chunk_pool.clone(),
+                    win.chunk_pool.clone(),
                 );
 
                 debug!("generated frame for document {:?} with {} passes",
@@ -1660,7 +1734,7 @@ impl RenderBackend {
 
                 Telemetry::stop_and_accumulate_framebuild_time(timer_id);
 
-                let pending_update = self.resource_cache.pending_updates();
+                let pending_update = win.resource_cache.pending_updates();
                 (pending_update, rendered_document)
             };
 
@@ -1688,7 +1762,7 @@ impl RenderBackend {
             doc.prev_composite_descriptor = composite_descriptor;
 
             #[cfg(feature = "capture")]
-            match self.capture_config {
+            match win.capture_config {
                 Some(ref mut config) => {
                     // FIXME(aosmond): document splitting causes multiple prepare frames
                     config.prepare_frame();
@@ -1714,24 +1788,24 @@ impl RenderBackend {
             rendered_document.profile.set(profiler::UPDATE_DOCUMENT_TIME, update_doc_time);
 
             let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
-            self.result_tx.send(msg).unwrap();
+            win.result_tx.send(msg).unwrap();
 
             // Publish the frame
-            self.frame_publish_id.advance();
+            win.frame_publish_id.advance();
             let msg = ResultMsg::PublishDocument(
-                self.frame_publish_id,
+                win.frame_publish_id,
                 document_id,
                 rendered_document,
                 pending_update,
             );
-            self.result_tx.send(msg).unwrap();
+            win.result_tx.send(msg).unwrap();
         } else if requested_frame {
             // WR-internal optimization to avoid doing a bunch of render work if
             // there's no pixels. We still want to pretend to render and request
             // a render to make sure that the callbacks (particularly the
             // new_frame_ready callback below) has the right flags.
             let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
-            self.result_tx.send(msg).unwrap();
+            win.result_tx.send(msg).unwrap();
         }
 
         drain_filter(
@@ -1741,7 +1815,7 @@ impl RenderBackend {
         );
 
         if !notifications.is_empty() {
-            self.result_tx.send(ResultMsg::AppendNotificationRequests(notifications)).unwrap();
+            win.result_tx.send(ResultMsg::AppendNotificationRequests(notifications)).unwrap();
         }
 
         // Always forward the transaction to the renderer if a frame was requested,
@@ -1760,7 +1834,7 @@ impl RenderBackend {
                 scrolled: scroll,
                 tracked,
             };
-            self.notifier.new_frame_ready(document_id, self.frame_publish_id, &params);
+            win.notifier.new_frame_ready(document_id, win.frame_publish_id, &params);
         }
 
         if !doc.hit_tester_is_valid {
@@ -1788,10 +1862,12 @@ impl RenderBackend {
             doc.data_stores.report_memory(ops, &mut report)
         }
 
-        (*report) += self.resource_cache.report_memory(op);
-        report.texture_cache_structures = self.resource_cache
-            .texture_cache
-            .report_memory(ops);
+        for win in self.windows.values_mut() {
+            (*report) += win.resource_cache.report_memory(op);
+            report.texture_cache_structures += win.resource_cache
+                .texture_cache
+                .report_memory(ops);
+        }
 
         // Send a message to report memory on the scene-builder thread, which
         // will add its report to this one and send the result back to the original
@@ -1803,11 +1879,12 @@ impl RenderBackend {
 
     #[cfg(feature = "capture")]
     fn save_capture_sequence(&mut self) {
-        if let Some(ref mut config) = self.capture_config {
-            let deferred = self.resource_cache.save_capture_sequence(config);
+        let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+        if let Some(ref mut config) = win.capture_config {
+            let deferred = win.resource_cache.save_capture_sequence(config);
 
             let backend = PlainRenderBackend {
-                frame_config: self.frame_config.clone(),
+                frame_config: win.frame_config.clone(),
                 resource_sequence_id: config.resource_id,
                 documents: self.documents
                     .iter()
@@ -1818,7 +1895,7 @@ impl RenderBackend {
 
             if !deferred.is_empty() {
                 let msg = ResultMsg::DebugOutput(DebugOutput::SaveCapture(config.clone(), deferred));
-                self.result_tx.send(msg).unwrap();
+                win.result_tx.send(msg).unwrap();
             }
         }
     }
@@ -1843,19 +1920,20 @@ impl RenderBackend {
         }
         let config = CaptureConfig::new(root, bits);
 
+        let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
         for (&id, doc) in &mut self.documents {
             debug!("\tdocument {:?}", id);
             if config.bits.contains(CaptureBits::FRAME) {
                 // Temporarily force invalidation otherwise the render task graph dump is empty.
                 let force_invalidation = std::mem::replace(&mut doc.scene.config.force_invalidation, true);
                 let rendered_document = doc.build_frame(
-                    &mut self.resource_cache,
-                    self.debug_flags,
-                    &mut self.tile_caches,
+                    &mut win.resource_cache,
+                    win.debug_flags,
+                    &mut win.tile_caches,
                     None,
                     true,
                     RenderReasons::empty(),
-                    self.chunk_pool.clone(),
+                    win.chunk_pool.clone(),
                 );
 
                 doc.scene.config.force_invalidation = force_invalidation;
@@ -1884,22 +1962,22 @@ impl RenderBackend {
                 let file_name = format!("texture-cache-color-linear-{}-{}.svg", id.namespace_id.0, id.id);
                 let mut texture_file = fs::File::create(&config.file_path_for_frame(file_name, "svg"))
                     .expect("Failed to open the SVG file.");
-                self.resource_cache.texture_cache.dump_color8_linear_as_svg(&mut texture_file).unwrap();
+                win.resource_cache.texture_cache.dump_color8_linear_as_svg(&mut texture_file).unwrap();
 
                 let file_name = format!("texture-cache-color8-glyphs-{}-{}.svg", id.namespace_id.0, id.id);
                 let mut texture_file = fs::File::create(&config.file_path_for_frame(file_name, "svg"))
                     .expect("Failed to open the SVG file.");
-                self.resource_cache.texture_cache.dump_color8_glyphs_as_svg(&mut texture_file).unwrap();
+                win.resource_cache.texture_cache.dump_color8_glyphs_as_svg(&mut texture_file).unwrap();
 
                 let file_name = format!("texture-cache-alpha8-glyphs-{}-{}.svg", id.namespace_id.0, id.id);
                 let mut texture_file = fs::File::create(&config.file_path_for_frame(file_name, "svg"))
                     .expect("Failed to open the SVG file.");
-                self.resource_cache.texture_cache.dump_alpha8_glyphs_as_svg(&mut texture_file).unwrap();
+                win.resource_cache.texture_cache.dump_alpha8_glyphs_as_svg(&mut texture_file).unwrap();
 
                 let file_name = format!("texture-cache-alpha8-linear-{}-{}.svg", id.namespace_id.0, id.id);
                 let mut texture_file = fs::File::create(&config.file_path_for_frame(file_name, "svg"))
                     .expect("Failed to open the SVG file.");
-                self.resource_cache.texture_cache.dump_alpha8_linear_as_svg(&mut texture_file).unwrap();
+                win.resource_cache.texture_cache.dump_alpha8_linear_as_svg(&mut texture_file).unwrap();
             }
 
             let data_stores_name = format!("data-stores-{}-{}", id.namespace_id.0, id.id);
@@ -1925,11 +2003,12 @@ impl RenderBackend {
         );
 
         debug!("\tresource cache");
-        let (resources, deferred) = self.resource_cache.save_capture(&config.root);
+        let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+        let (resources, deferred) = win.resource_cache.save_capture(&config.root);
 
         info!("\tbackend");
         let backend = PlainRenderBackend {
-            frame_config: self.frame_config.clone(),
+            frame_config: win.frame_config.clone(),
             resource_sequence_id: 0,
             documents: self.documents
                 .iter()
@@ -1942,13 +2021,13 @@ impl RenderBackend {
 
         if config.bits.contains(CaptureBits::FRAME) {
             let msg_update_resources = ResultMsg::UpdateResources {
-                resource_updates: self.resource_cache.pending_updates(),
+                resource_updates: win.resource_cache.pending_updates(),
                 memory_pressure: false,
             };
-            self.result_tx.send(msg_update_resources).unwrap();
+            win.result_tx.send(msg_update_resources).unwrap();
             // Save the texture/glyph/image caches.
             info!("\tresource cache");
-            let caches = self.resource_cache.save_caches(&config.root);
+            let caches = win.resource_cache.save_caches(&config.root);
             config.serialize_for_resource(&caches, "resource_cache");
         }
 
@@ -1987,7 +2066,8 @@ impl RenderBackend {
         // If this is a capture sequence, then the ID will be non-zero, and won't
         // match what is loaded, but for still captures, the ID will be zero.
         let first_load = backend.resource_sequence_id == 0;
-        if self.loaded_resource_sequence_id != backend.resource_sequence_id || first_load {
+        let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+        if win.loaded_resource_sequence_id != backend.resource_sequence_id || first_load {
             // FIXME(aosmond): We clear the documents because when we update the
             // resource cache, we actually wipe and reload, because we don't
             // know what is the same and what has changed. If we were to keep as
@@ -2001,9 +2081,10 @@ impl RenderBackend {
             // advance to the next frame until the FrameRendered event for all
             // of the pipelines.
             self.documents.clear();
+            self.document_to_window.clear();
 
             config.resource_id = backend.resource_sequence_id;
-            self.loaded_resource_sequence_id = backend.resource_sequence_id;
+            win.loaded_resource_sequence_id = backend.resource_sequence_id;
 
             let plain_resources = config.deserialize_for_resource::<PlainResources, _>("plain-resources")
                 .expect("Unable to open plain-resources.ron");
@@ -2013,7 +2094,7 @@ impl RenderBackend {
             // rather explicitly on what's used before and after scene building
             // so that, for example, we never miss anything in the code below:
 
-            let plain_externals = self.resource_cache.load_capture(
+            let plain_externals = win.resource_cache.load_capture(
                 plain_resources,
                 caches_maybe,
                 &config,
@@ -2022,10 +2103,10 @@ impl RenderBackend {
             let msg_load = ResultMsg::DebugOutput(
                 DebugOutput::LoadCapture(config.clone(), plain_externals)
             );
-            self.result_tx.send(msg_load).unwrap();
+            win.result_tx.send(msg_load).unwrap();
         }
 
-        self.frame_config = backend.frame_config;
+        win.frame_config = backend.frame_config;
 
         let mut scenes_to_build = Vec::new();
 
@@ -2101,15 +2182,17 @@ impl RenderBackend {
                 }
             };
 
+            self.document_to_window.insert(id, WINDOW_ID_DEFAULT);
+
             let frame_name = format!("frame-{}-{}", id.namespace_id.0, id.id);
             let frame = config.deserialize_for_frame::<Frame, _>(frame_name);
             let build_frame = match frame {
                 Some(frame) => {
                     info!("\tloaded a built frame with {} passes", frame.passes.len());
 
-                    self.frame_publish_id.advance();
+                    win.frame_publish_id.advance();
                     let msg_publish = ResultMsg::PublishDocument(
-                        self.frame_publish_id,
+                        win.frame_publish_id,
                         id,
                         RenderedDocument {
                             frame,
@@ -2117,9 +2200,9 @@ impl RenderBackend {
                             render_reasons: RenderReasons::empty(),
                             frame_stats: None,
                         },
-                        self.resource_cache.pending_updates(),
+                        win.resource_cache.pending_updates(),
                     );
-                    self.result_tx.send(msg_publish).unwrap();
+                    win.result_tx.send(msg_publish).unwrap();
 
                     let params = api::FrameReadyParams {
                         present: true,
@@ -2127,7 +2210,7 @@ impl RenderBackend {
                         scrolled: false,
                         tracked: false,
                     };
-                    self.notifier.new_frame_ready(id, self.frame_publish_id, &params);
+                    win.notifier.new_frame_ready(id, win.frame_publish_id, &params);
 
                     // We deserialized the state of the frame so we don't want to build
                     // it (but we do want to update the scene builder's state)
@@ -2140,8 +2223,8 @@ impl RenderBackend {
                 document_id: id,
                 scene,
                 view: view.scene.clone(),
-                config: self.frame_config.clone(),
-                fonts: self.resource_cache.get_fonts(),
+                config: win.frame_config.clone(),
+                fonts: win.resource_cache.get_fonts(),
                 build_frame,
                 interners,
                 spatial_tree: scene_spatial_tree,
