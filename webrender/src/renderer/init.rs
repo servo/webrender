@@ -169,6 +169,13 @@ pub struct WebRenderOptions {
     /// must also be allocated by the client to avoid namespace collisions with
     /// the backend.
     pub shared_font_namespace: Option<IdNamespace>,
+    /// When set, the renderer reuses this `SharedFontResources` instance
+    /// instead of constructing a fresh one. Required for the shared-pool
+    /// mode so that every window assigned to the pool — and the pool's
+    /// scene builders — see the same font / glyph instance maps. Otherwise
+    /// each window's `RenderApi` would register fonts into its own
+    /// `SharedFontResources` and the pool's SB would never see them.
+    pub shared_fonts: Option<crate::glyph_rasterizer::SharedFontResources>,
     pub testing: bool,
     /// Set to true if this GPU supports hardware fast clears as a performance
     /// optimization. Likely requires benchmarking on various GPUs to see if
@@ -270,6 +277,7 @@ impl Default for WebRenderOptions {
             support_low_priority_transactions: false,
             namespace_alloc_by_client: false,
             shared_font_namespace: None,
+            shared_fonts: None,
             testing: false,
             gpu_supports_fast_clears: false,
             allow_dual_source_blending: true,
@@ -600,12 +608,22 @@ pub fn create_webrender_instance(
 
     // Ensure shared font keys exist within their own unique namespace so
     // that they don't accidentally collide across Renderer instances.
-    let font_namespace = if namespace_alloc_by_client {
-        options.shared_font_namespace.expect("Shared font namespace must be allocated by client")
+    //
+    // In shared-pool mode (`pref >= 1`) the caller supplies the pool's own
+    // `SharedFontResources` via `options.shared_fonts`. Reusing it is
+    // mandatory: every RenderApi assigned to the pool, and the pool's SB
+    // threads, must observe the same font/instance maps so fonts registered
+    // on one window are visible to scene building for any window.
+    let fonts = if let Some(fonts) = options.shared_fonts.take() {
+        fonts
     } else {
-        RenderBackend::next_namespace_id()
+        let font_namespace = if namespace_alloc_by_client {
+            options.shared_font_namespace.expect("Shared font namespace must be allocated by client")
+        } else {
+            RenderBackend::next_namespace_id()
+        };
+        SharedFontResources::new(font_namespace)
     };
-    let fonts = SharedFontResources::new(font_namespace);
 
     let blob_image_handler = options.blob_image_handler.take();
     let scene_builder_hooks = options.scene_builder_hooks.take();
