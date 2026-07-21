@@ -3,30 +3,27 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BlobImageHandler, ColorF, CrashAnnotator, DocumentId, IdNamespace};
-use api::{VoidPtrToSizeFn, FontRenderMode, ImageFormat};
+use api::{RenderBackendId, VoidPtrToSizeFn, FontRenderMode, ImageFormat};
 use api::{RenderNotifier, ImageBufferKind};
 use api::units::*;
 use api::channel::unbounded_channel;
 pub use api::DebugFlags;
 
 use crate::bump_allocator::ChunkPool;
-use crate::render_api::{RenderApiSender, FrameMsg};
+use crate::render_api::{RenderApiSender, FrameMsg, ResourceCacheInit, WindowRegistration};
 use crate::composite::{CompositorKind, CompositorConfig};
 use crate::device::{
     UploadMethod, UploadPBOPool, VertexUsageHint, Device, ProgramCache, TextureFilter
 };
 use crate::frame_builder::FrameBuilderConfig;
-use crate::glyph_cache::GlyphCache;
-use glyph_rasterizer::{GlyphRasterThread, GlyphRasterizer, SharedFontResources};
+use glyph_rasterizer::{GlyphRasterThread, SharedFontResources};
 use crate::gpu_types::PrimitiveInstanceData;
 use crate::internal_types::{FastHashMap, FastHashSet};
 use crate::profiler::{self, Profiler, TransactionProfile};
 use crate::device::query::{GpuProfiler, GpuDebugMethod};
 use crate::render_backend::RenderBackend;
-use crate::resource_cache::ResourceCache;
 use crate::scene_builder_thread::{SceneBuilderThread, SceneBuilderThreadChannels, LowPrioritySceneBuilderThread};
-use crate::texture_cache::{TextureCache, TextureCacheConfig};
-use crate::picture_textures::PictureTextures;
+use crate::texture_cache::TextureCacheConfig;
 use crate::renderer::{
     debug, vertex, gl,
     Renderer, DebugOverlayState, BufferDamageTracker, PipelineInfo, TextureResolver,
@@ -62,6 +59,15 @@ static HAS_BEEN_INITIALIZED: AtomicBool = AtomicBool::new(false);
 /// Returns true if a WR instance has ever been initialized in this process.
 pub fn wr_has_been_initialized() -> bool {
     HAS_BEEN_INITIALIZED.load(Ordering::SeqCst)
+}
+
+/// Process-wide allocator for `RenderBackendId`. Starts at 1 so `RenderBackendId(0)`
+/// (the `Default`) is distinguishable from a valid id.
+static NEXT_RENDER_BACKEND_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+fn next_render_backend_id() -> RenderBackendId {
+    let id = NEXT_RENDER_BACKEND_ID.fetch_add(1, Ordering::Relaxed);
+    RenderBackendId(id)
 }
 
 /// Allows callers to hook in at certain points of the async scene build. These
@@ -600,11 +606,7 @@ pub fn create_webrender_instance(
     let scene_thread_name = format!("WRSceneBuilder#{}", options.renderer_id.unwrap_or(0));
     let lp_scene_thread_name = format!("WRSceneBuilderLP#{}", options.renderer_id.unwrap_or(0));
 
-    let glyph_rasterizer = GlyphRasterizer::new(
-        workers,
-        options.dedicated_glyph_raster_thread,
-        device.get_capabilities().supports_r8_texture_upload,
-    );
+    let supports_r8_texture_upload = device.get_capabilities().supports_r8_texture_upload;
 
     let (scene_builder_channels, scene_tx) =
         SceneBuilderThreadChannels::new(api_tx.clone());
@@ -673,8 +675,28 @@ pub fn create_webrender_instance(
     });
 
     let rb_scene_tx = scene_tx.clone();
-    let rb_fonts = fonts.clone();
     let enable_multithreading = options.enable_multithreading;
+    let backend_id = next_render_backend_id();
+
+    // Build the params for the per-window ResourceCache. The cache itself is
+    // constructed on the render-backend thread (inside `register_window`) so
+    // that its allocations are attributed to that thread.
+    let resource_cache_init = ResourceCacheInit {
+        max_internal_texture_size,
+        image_tiling_threshold,
+        color_cache_formats,
+        swizzle_settings,
+        texture_cache_config,
+        picture_tile_size,
+        picture_texture_filter,
+        workers,
+        dedicated_glyph_raster_thread: options.dedicated_glyph_raster_thread.take(),
+        supports_r8_texture_upload,
+        fonts: fonts.clone(),
+        blob_image_handler: rb_blob_handler,
+        enable_multithreading,
+    };
+
     thread::Builder::new().name(rb_thread_name.clone()).spawn(move || {
         if let Some(hooks) = render_backend_hooks {
             hooks.init_thread();
@@ -682,45 +704,22 @@ pub fn create_webrender_instance(
         register_thread_with_profiler(rb_thread_name.clone());
         profiler::register_thread(&rb_thread_name);
 
-        let texture_cache = TextureCache::new(
-            max_internal_texture_size,
-            image_tiling_threshold,
-            color_cache_formats,
-            swizzle_settings,
-            &texture_cache_config,
-        );
-
-        let picture_textures = PictureTextures::new(
-            picture_tile_size,
-            picture_texture_filter,
-        );
-
-        let glyph_cache = GlyphCache::new();
-
-        let mut resource_cache = ResourceCache::new(
-            texture_cache,
-            picture_textures,
-            glyph_rasterizer,
-            glyph_cache,
-            rb_fonts,
-            rb_blob_handler,
-        );
-
-        resource_cache.enable_multithreading(enable_multithreading);
-
         let mut backend = RenderBackend::new(
             api_rx,
-            result_tx,
             rb_scene_tx,
-            resource_cache,
-            chunk_pool,
-            backend_notifier,
-            config,
-            sampler,
             make_size_of_ops(),
-            debug_flags,
             namespace_alloc_by_client,
         );
+        backend.register_window(Box::new(WindowRegistration {
+            id: backend_id,
+            result_tx,
+            notifier: backend_notifier,
+            sampler,
+            resource_cache: resource_cache_init,
+            chunk_pool,
+            frame_config: config,
+            debug_flags,
+        }));
         backend.run();
         profiler::unregister_thread();
     })?;
@@ -827,6 +826,7 @@ pub fn create_webrender_instance(
         api_tx,
         scene_tx,
         low_priority_scene_tx,
+        backend_id,
         blob_image_handler,
         fonts,
     );

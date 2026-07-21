@@ -21,10 +21,19 @@ use crate::api::{HitTestResult, HitTesterRequest, ApiHitTester, PropertyValue, D
 use crate::api::{SampledScrollOffset, TileSize, NotificationRequest, DebugFlags};
 use crate::api::{GlyphDimensionRequest, GlyphIndexRequest, GlyphIndex, GlyphDimensions};
 use crate::api::{FontInstanceOptions, FontInstancePlatformOptions, FontVariation, RenderReasons};
+use crate::api::{RenderBackendId, RenderNotifier};
 use crate::api::DEFAULT_TILE_SIZE;
 use crate::api::units::*;
 use crate::api_resources::ApiResources;
-use glyph_rasterizer::SharedFontResources;
+use crate::api::ImageFormat;
+use crate::bump_allocator::ChunkPool;
+use crate::device::{TextureFilter, TextureFormatPair};
+use crate::frame_builder::FrameBuilderConfig;
+use crate::internal_types::{ResultMsg, SwizzleSettings};
+use crate::texture_cache::TextureCacheConfig;
+use crate::AsyncPropertySampler;
+use glyph_rasterizer::{GlyphRasterThread, SharedFontResources};
+use rayon::ThreadPool;
 use crate::scene_builder_thread::{SceneBuilderRequest, SceneBuilderResult};
 use crate::intern::InterningMemoryReport;
 use crate::profiler::{self, TransactionProfile};
@@ -996,14 +1005,76 @@ pub enum DebugCommand {
     CaptureRenderDoc(Sender<crate::api::debugger::RenderDocReply>),
 }
 
+/// Initial state handed to `RenderBackend::register_window`.
+///
+/// All fields are `Send`. The `ResourceCache` itself isn't carried here —
+/// instead we ship the [`ResourceCacheInit`] params so that the backend
+/// thread constructs `ResourceCache` (and its sub-caches) locally. This
+/// keeps the allocations attributed to the thread that ultimately owns
+/// them, and lets a future step ship the registration through an
+/// `ApiMsg` variant without making `ResourceCache` `Send`.
+pub struct WindowRegistration {
+    /// The id assigned to the window. Used to route subsequent messages.
+    pub id: RenderBackendId,
+    /// Channel the backend uses to publish frames / texture updates back
+    /// to the `Renderer` that owns this window.
+    pub result_tx: Sender<ResultMsg>,
+    /// Notifier used to wake up the renderer when frames are ready.
+    pub notifier: Box<dyn RenderNotifier>,
+    /// Optional sampler invoked just before frame building.
+    pub sampler: Option<Box<dyn AsyncPropertySampler + Send>>,
+    /// Params used to construct the window's `ResourceCache` on the
+    /// render-backend thread.
+    pub resource_cache: ResourceCacheInit,
+    /// Pool of large memory chunks used by per-frame allocators.
+    pub chunk_pool: Arc<ChunkPool>,
+    /// Initial frame-builder configuration.
+    pub frame_config: FrameBuilderConfig,
+    /// Initial debug flags.
+    pub debug_flags: DebugFlags,
+}
+
+/// Parameters needed to construct a window's `ResourceCache` (plus its
+/// sub-caches) on the render backend thread.
+pub struct ResourceCacheInit {
+    /// Maximum texture size for the texture cache.
+    pub max_internal_texture_size: i32,
+    /// Threshold above which images get tiled.
+    pub image_tiling_threshold: i32,
+    /// Preferred color formats reported by the device.
+    pub color_cache_formats: TextureFormatPair<ImageFormat>,
+    /// Swizzle settings reported by the device.
+    pub swizzle_settings: Option<SwizzleSettings>,
+    /// Per-window texture cache budget configuration.
+    pub texture_cache_config: TextureCacheConfig,
+    /// Tile size used for picture caches.
+    pub picture_tile_size: api::units::DeviceIntSize,
+    /// Filter used for picture-cache textures.
+    pub picture_texture_filter: TextureFilter,
+    /// Worker thread pool used by the glyph rasterizer.
+    pub workers: Arc<ThreadPool>,
+    /// Optional dedicated glyph raster thread handle.
+    pub dedicated_glyph_raster_thread: Option<GlyphRasterThread>,
+    /// Whether the device supports r8 texture uploads.
+    pub supports_r8_texture_upload: bool,
+    /// Shared font resources used by the scene builder and frame builder.
+    pub fonts: SharedFontResources,
+    /// Optional blob image handler used to rasterize blob images for this window.
+    pub blob_image_handler: Option<Box<dyn crate::api::BlobImageHandler>>,
+    /// Whether the resource cache may use parallel work.
+    pub enable_multithreading: bool,
+}
+
 /// Message sent by the `RenderApi` to the render backend thread.
 pub enum ApiMsg {
     /// Adds a new document namespace.
     CloneApi(Sender<IdNamespace>),
     /// Adds a new document namespace.
     CloneApiByClient(IdNamespace),
-    /// Adds a new document with given initial size.
-    AddDocument(DocumentId, DeviceIntSize),
+    /// Unregister a window from this render backend thread.
+    UnregisterWindow(RenderBackendId),
+    /// Adds a new document with given initial size, owned by the given window.
+    AddDocument(DocumentId, DeviceIntSize, RenderBackendId),
     /// A message targeted at a particular document.
     UpdateDocuments(Vec<Box<TransactionMsg>>),
     /// Flush from the caches anything that isn't necessary, to free some memory.
@@ -1021,6 +1092,7 @@ impl fmt::Debug for ApiMsg {
         f.write_str(match *self {
             ApiMsg::CloneApi(..) => "ApiMsg::CloneApi",
             ApiMsg::CloneApiByClient(..) => "ApiMsg::CloneApiByClient",
+            ApiMsg::UnregisterWindow(..) => "ApiMsg::UnregisterWindow",
             ApiMsg::AddDocument(..) => "ApiMsg::AddDocument",
             ApiMsg::UpdateDocuments(..) => "ApiMsg::UpdateDocuments",
             ApiMsg::MemoryPressure => "ApiMsg::MemoryPressure",
@@ -1039,6 +1111,9 @@ pub struct RenderApiSender {
     api_sender: Sender<ApiMsg>,
     scene_sender: Sender<SceneBuilderRequest>,
     low_priority_scene_sender: Sender<SceneBuilderRequest>,
+    /// The render backend window this sender (and any `RenderApi` cloned from
+    /// it) routes documents to.
+    backend_id: RenderBackendId,
     blob_image_handler: Option<Box<dyn BlobImageHandler>>,
     fonts: SharedFontResources,
 }
@@ -1049,6 +1124,7 @@ impl RenderApiSender {
         api_sender: Sender<ApiMsg>,
         scene_sender: Sender<SceneBuilderRequest>,
         low_priority_scene_sender: Sender<SceneBuilderRequest>,
+        backend_id: RenderBackendId,
         blob_image_handler: Option<Box<dyn BlobImageHandler>>,
         fonts: SharedFontResources,
     ) -> Self {
@@ -1056,9 +1132,15 @@ impl RenderApiSender {
             api_sender,
             scene_sender,
             low_priority_scene_sender,
+            backend_id,
             blob_image_handler,
             fonts,
         }
+    }
+
+    /// Returns the `RenderBackendId` of the window this sender routes to.
+    pub fn backend_id(&self) -> RenderBackendId {
+        self.backend_id
     }
 
     /// Creates a new resource API object with a dedicated namespace.
@@ -1071,6 +1153,7 @@ impl RenderApiSender {
             api_sender: self.api_sender.clone(),
             scene_sender: self.scene_sender.clone(),
             low_priority_scene_sender: self.low_priority_scene_sender.clone(),
+            backend_id: self.backend_id,
             namespace_id,
             next_id: Cell::new(ResourceId(0)),
             resources: ApiResources::new(
@@ -1092,6 +1175,7 @@ impl RenderApiSender {
             api_sender: self.api_sender.clone(),
             scene_sender: self.scene_sender.clone(),
             low_priority_scene_sender: self.low_priority_scene_sender.clone(),
+            backend_id: self.backend_id,
             namespace_id,
             next_id: Cell::new(ResourceId(0)),
             resources: ApiResources::new(
@@ -1107,6 +1191,7 @@ pub struct RenderApi {
     api_sender: Sender<ApiMsg>,
     scene_sender: Sender<SceneBuilderRequest>,
     low_priority_scene_sender: Sender<SceneBuilderRequest>,
+    backend_id: RenderBackendId,
     namespace_id: IdNamespace,
     next_id: Cell<ResourceId>,
     resources: ApiResources,
@@ -1116,6 +1201,11 @@ impl RenderApi {
     /// Returns the namespace ID used by this API object.
     pub fn get_namespace_id(&self) -> IdNamespace {
         self.namespace_id
+    }
+
+    /// Returns the `RenderBackendId` of the window this API targets.
+    pub fn backend_id(&self) -> RenderBackendId {
+        self.backend_id
     }
 
     /// Returns a clone of the API message sender for internal use
@@ -1130,6 +1220,7 @@ impl RenderApi {
             self.api_sender.clone(),
             self.scene_sender.clone(),
             self.low_priority_scene_sender.clone(),
+            self.backend_id,
             self.resources.blob_image_handler.as_ref().map(|handler| handler.create_similar()),
             self.resources.get_fonts(),
         )
@@ -1159,7 +1250,7 @@ impl RenderApi {
         // the render backend knows about the existence of the corresponding document id.
         // It may not be necessary, though.
         self.api_sender.send(
-            ApiMsg::AddDocument(document_id, initial_size)
+            ApiMsg::AddDocument(document_id, initial_size, self.backend_id)
         ).unwrap();
         self.scene_sender.send(
             SceneBuilderRequest::AddDocument(document_id, initial_size)

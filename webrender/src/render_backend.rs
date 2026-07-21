@@ -10,7 +10,7 @@
 
 use api::{DebugFlags, Parameter, BoolParameter, PrimitiveFlags, MinimapData};
 use api::{DocumentId, ExternalScrollId, HitTestResult};
-use api::{IdNamespace, PipelineId, RenderNotifier, SampledScrollOffset};
+use api::{IdNamespace, PipelineId, RenderBackendId, RenderNotifier, SampledScrollOffset};
 use api::{NotificationRequest, Checkpoint, QualitySettings};
 use api::{FramePublishId, RenderReasons};
 use api::units::*;
@@ -23,7 +23,11 @@ use crate::prim_store::rectangle::RectanglePrim;
 use crate::render_api::CaptureBits;
 #[cfg(feature = "replay")]
 use crate::render_api::CapturedDocument;
-use crate::render_api::{MemoryReport, TransactionMsg, ResourceUpdate, ApiMsg, FrameMsg, ClearCache, DebugCommand};
+use crate::glyph_cache::GlyphCache;
+use crate::picture_textures::PictureTextures;
+use crate::render_api::{MemoryReport, TransactionMsg, ResourceUpdate, ApiMsg, FrameMsg, ClearCache, DebugCommand, ResourceCacheInit, WindowRegistration};
+use crate::texture_cache::TextureCache;
+use glyph_rasterizer::GlyphRasterizer;
 use crate::clip::{ClipIntern, PolygonIntern, ClipStoreScratchBuffer};
 use crate::filterdata::FilterDataIntern;
 #[cfg(any(feature = "capture", feature = "replay"))]
@@ -751,23 +755,13 @@ struct PlainRenderBackend {
     resource_sequence_id: u32,
 }
 
-/// Routing key used by the render backend to identify a window.
-///
-/// Currently every `RenderBackend` thread has exactly one window. The id is
-/// always `WINDOW_ID_DEFAULT`. The indirection is in place so that a future
-/// step can let multiple windows share a single render backend thread.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-struct WindowId(u32);
-
-const WINDOW_ID_DEFAULT: WindowId = WindowId(0);
-
 /// State owned by a single window living inside a render backend thread.
 ///
 /// Most fields here used to live directly on `RenderBackend`. They were moved
 /// here so that multiple windows can eventually share a backend thread without
 /// stepping on each other's GPU-side bookkeeping. Today there is one
 /// `WindowState` per `RenderBackend`.
-struct WindowState {
+pub struct WindowState {
     /// Outgoing channel to the `Renderer` that owns this window's GL context.
     result_tx: Sender<ResultMsg>,
 
@@ -811,31 +805,112 @@ pub struct RenderBackend {
 
     documents: FastHashMap<DocumentId, Document>,
 
-    /// Per-window state. Currently always contains exactly one entry, keyed by
-    /// `WINDOW_ID_DEFAULT`.
-    windows: FastHashMap<WindowId, WindowState>,
+    /// Per-window state, keyed by `RenderBackendId`. Currently contains at
+    /// most one entry.
+    windows: FastHashMap<RenderBackendId, WindowState>,
 
     /// Reverse lookup from a document to the window that owns it.
-    document_to_window: FastHashMap<DocumentId, WindowId>,
+    document_to_window: FastHashMap<DocumentId, RenderBackendId>,
 
     size_of_ops: Option<MallocSizeOfOps>,
     namespace_alloc_by_client: bool,
 }
 
+/// Build a `ResourceCache` (and its sub-caches) from the params shipped via
+/// `WindowRegistration`. Called on the render-backend thread so that the
+/// allocations are attributed there.
+fn build_resource_cache(init: ResourceCacheInit) -> ResourceCache {
+    let ResourceCacheInit {
+        max_internal_texture_size,
+        image_tiling_threshold,
+        color_cache_formats,
+        swizzle_settings,
+        texture_cache_config,
+        picture_tile_size,
+        picture_texture_filter,
+        workers,
+        dedicated_glyph_raster_thread,
+        supports_r8_texture_upload,
+        fonts,
+        blob_image_handler,
+        enable_multithreading,
+    } = init;
+
+    let texture_cache = TextureCache::new(
+        max_internal_texture_size,
+        image_tiling_threshold,
+        color_cache_formats,
+        swizzle_settings,
+        &texture_cache_config,
+    );
+    let picture_textures = PictureTextures::new(
+        picture_tile_size,
+        picture_texture_filter,
+    );
+    let glyph_rasterizer = GlyphRasterizer::new(
+        workers,
+        dedicated_glyph_raster_thread,
+        supports_r8_texture_upload,
+    );
+    let glyph_cache = GlyphCache::new();
+
+    let mut resource_cache = ResourceCache::new(
+        texture_cache,
+        picture_textures,
+        glyph_rasterizer,
+        glyph_cache,
+        fonts,
+        blob_image_handler,
+    );
+    resource_cache.enable_multithreading(enable_multithreading);
+    resource_cache
+}
+
 impl RenderBackend {
     pub fn new(
         api_rx: Receiver<ApiMsg>,
-        result_tx: Sender<ResultMsg>,
         scene_tx: Sender<SceneBuilderRequest>,
-        resource_cache: ResourceCache,
-        chunk_pool: Arc<ChunkPool>,
-        notifier: Box<dyn RenderNotifier>,
-        frame_config: FrameBuilderConfig,
-        sampler: Option<Box<dyn AsyncPropertySampler + Send>>,
         size_of_ops: Option<MallocSizeOfOps>,
-        debug_flags: DebugFlags,
         namespace_alloc_by_client: bool,
     ) -> RenderBackend {
+        RenderBackend {
+            api_rx,
+            scene_tx,
+            documents: FastHashMap::default(),
+            windows: FastHashMap::default(),
+            document_to_window: FastHashMap::default(),
+            size_of_ops,
+            namespace_alloc_by_client,
+        }
+    }
+
+    /// Install a window. Called via `ApiMsg::RegisterWindow`, and also
+    /// synchronously by `renderer::init` before the message loop starts so
+    /// that the backend has a window ready when the first transaction
+    /// arrives.
+    ///
+    /// `ResourceCache` (and its sub-caches) are constructed here, on the
+    /// render-backend thread, so that their allocations are attributed to
+    /// the thread that ultimately owns them. The caller ships only
+    /// [`ResourceCacheInit`] params across the api channel.
+    pub fn register_window(&mut self, reg: Box<WindowRegistration>) {
+        let WindowRegistration {
+            id,
+            result_tx,
+            notifier,
+            sampler,
+            resource_cache,
+            chunk_pool,
+            frame_config,
+            debug_flags,
+        } = *reg;
+
+        if let Some(ref sampler) = sampler {
+            sampler.register();
+        }
+
+        let resource_cache = build_resource_cache(resource_cache);
+
         let window = WindowState {
             result_tx,
             notifier,
@@ -854,31 +929,48 @@ impl RenderBackend {
             loaded_resource_sequence_id: 0,
         };
 
-        let mut windows = FastHashMap::default();
-        windows.insert(WINDOW_ID_DEFAULT, window);
+        let old = self.windows.insert(id, window);
+        debug_assert!(old.is_none(), "window {:?} registered twice", id);
+    }
 
-        RenderBackend {
-            api_rx,
-            scene_tx,
-            documents: FastHashMap::default(),
-            windows,
-            document_to_window: FastHashMap::default(),
-            size_of_ops,
-            namespace_alloc_by_client,
+    /// Drop the state for a window, including any documents that belong to it.
+    fn unregister_window(&mut self, id: RenderBackendId) {
+        if let Some(win) = self.windows.remove(&id) {
+            // Drop all documents owned by this window.
+            let doomed: Vec<DocumentId> = self.document_to_window.iter()
+                .filter_map(|(doc_id, win_id)| if *win_id == id { Some(*doc_id) } else { None })
+                .collect();
+            for doc_id in doomed {
+                self.documents.remove(&doc_id);
+                self.document_to_window.remove(&doc_id);
+            }
+
+            if let Some(ref sampler) = win.sampler {
+                sampler.deregister();
+            }
+            win.notifier.shut_down();
         }
     }
 
     /// Returns the single window owned by this backend.
     ///
-    /// Step 1 of the render-backend-pool refactor maintains a strict
-    /// 1:1 mapping between backend threads and windows. The helper exists so
-    /// later steps can replace it with per-document routing.
+    /// Today every backend has at most one window. The helper is convenient
+    /// for paths that don't carry a document or window id. A future step that
+    /// admits multiple windows per backend will narrow these call sites.
     fn window(&self) -> &WindowState {
-        &self.windows[&WINDOW_ID_DEFAULT]
+        self.windows.values().next()
+            .expect("RenderBackend has no registered windows")
     }
 
     fn window_mut(&mut self) -> &mut WindowState {
-        self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap()
+        self.windows.values_mut().next()
+            .expect("RenderBackend has no registered windows")
+    }
+
+    #[cfg(feature = "replay")]
+    fn the_only_window_id(&self) -> RenderBackendId {
+        *self.windows.keys().next()
+            .expect("RenderBackend has no registered windows")
     }
 
     pub fn next_namespace_id() -> IdNamespace {
@@ -889,9 +981,7 @@ impl RenderBackend {
         let mut frame_counter: u32 = 0;
         let mut status = RenderBackendStatus::Continue;
 
-        if let Some(ref sampler) = self.window().sampler {
-            sampler.register();
-        }
+        // `sampler.register()` is now called inside `register_window`.
 
         while let RenderBackendStatus::Continue = status {
             status = match self.api_rx.recv() {
@@ -916,7 +1006,9 @@ impl RenderBackend {
                         tx.send(()).ok();
                     }
                     ApiMsg::SceneBuilderResult(SceneBuilderResult::ShutDown(sender)) => {
-                        info!("Recycling stats: {:?}", self.window().recycler);
+                        for (_, win) in &self.windows {
+                            info!("Recycling stats: {:?}", win.recycler);
+                        }
                         status = RenderBackendStatus::ShutDown(sender);
                         break;
                    }
@@ -943,12 +1035,13 @@ impl RenderBackend {
         self.documents.clear();
         self.document_to_window.clear();
 
-        self.window_mut().notifier.shut_down();
-
-        if let Some(ref sampler) = self.window().sampler {
-            sampler.deregister();
+        // Drain any windows that weren't explicitly unregistered.
+        for (_, win) in self.windows.drain() {
+            if let Some(ref sampler) = win.sampler {
+                sampler.deregister();
+            }
+            win.notifier.shut_down();
         }
-
 
         if let RenderBackendStatus::ShutDown(Some(sender)) = status {
             let _ = sender.send(());
@@ -969,7 +1062,7 @@ impl RenderBackend {
         for mut txn in txns.drain(..) {
            let has_built_scene = txn.built_scene.is_some();
 
-            let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+            let win = self.windows.values_mut().next().unwrap();
             if let Some(doc) = self.documents.get_mut(&txn.document_id) {
                 doc.removed_pipelines.append(&mut txn.removed_pipelines);
                 doc.view.scene = txn.view;
@@ -1133,14 +1226,19 @@ impl RenderBackend {
                 assert!(self.namespace_alloc_by_client);
                 debug_assert!(!self.documents.iter().any(|(did, _doc)| did.namespace_id == namespace_id));
             }
-            ApiMsg::AddDocument(document_id, initial_size) => {
+            ApiMsg::UnregisterWindow(id) => {
+                self.unregister_window(id);
+            }
+            ApiMsg::AddDocument(document_id, initial_size, backend_id) => {
+                debug_assert!(self.windows.contains_key(&backend_id),
+                    "AddDocument targets unregistered backend {:?}", backend_id);
                 let document = Document::new(
                     document_id,
                     initial_size,
                 );
                 let old = self.documents.insert(document_id, document);
                 debug_assert!(old.is_none());
-                self.document_to_window.insert(document_id, WINDOW_ID_DEFAULT);
+                self.document_to_window.insert(document_id, backend_id);
             }
             ApiMsg::MemoryPressure => {
                 // This is drastic. It will basically flush everything out of the cache,
@@ -1370,7 +1468,7 @@ impl RenderBackend {
                     DebugCommand::SetFlags(flags) => {
                         let force_invalidation = flags.contains(DebugFlags::FORCE_PICTURE_INVALIDATION);
                         let needs_update = {
-                            let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+                            let win = self.windows.values_mut().next().unwrap();
                             win.resource_cache.set_debug_flags(flags);
                             let needs_update = win.frame_config.force_invalidation != force_invalidation;
                             if needs_update {
@@ -1390,7 +1488,7 @@ impl RenderBackend {
                     }
                     _ => ResultMsg::DebugCommand(option),
                 };
-                let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+                let win = self.windows.values_mut().next().unwrap();
                 win.result_tx.send(msg).unwrap();
                 win.notifier.wake_up(true);
             }
@@ -1432,7 +1530,7 @@ impl RenderBackend {
             #[cfg(feature = "capture")]
             SceneBuilderResult::CapturedTransactions(txns, capture_config, result_tx) => {
                 {
-                    let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+                    let win = self.windows.values_mut().next().unwrap();
                     if let Some(ref mut old_config) = win.capture_config {
                         assert!(old_config.scene_id <= capture_config.scene_id);
                         if old_config.scene_id < capture_config.scene_id {
@@ -1459,7 +1557,7 @@ impl RenderBackend {
                 self.window_mut().capture_config = None;
             }
             SceneBuilderResult::GetGlyphDimensions(request) => {
-                let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+                let win = self.windows.values_mut().next().unwrap();
                 let mut glyph_dimensions = Vec::with_capacity(request.glyph_indices.len());
                 let instance_key = win.resource_cache.map_font_instance_key(request.key);
                 if let Some(base) = win.resource_cache.get_font_instance(instance_key) {
@@ -1472,7 +1570,7 @@ impl RenderBackend {
                 request.sender.send(glyph_dimensions).unwrap();
             }
             SceneBuilderResult::GetGlyphIndices(request) => {
-                let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+                let win = self.windows.values_mut().next().unwrap();
                 let mut glyph_indices = Vec::with_capacity(request.text.len());
                 let font_key = win.resource_cache.map_font_key(request.key);
                 for ch in request.text.chars() {
@@ -1497,7 +1595,7 @@ impl RenderBackend {
                 self.document_to_window.remove(&document_id);
             }
             SceneBuilderResult::SetParameter(param) => {
-                let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+                let win = self.windows.values_mut().next().unwrap();
                 if let Parameter::Bool(BoolParameter::Multithreading, enabled) = param {
                     win.resource_cache.enable_multithreading(enabled);
                 }
@@ -1507,7 +1605,9 @@ impl RenderBackend {
                 return RenderBackendStatus::StopRenderBackend;
             }
             SceneBuilderResult::ShutDown(sender) => {
-                info!("Recycling stats: {:?}", self.window().recycler);
+                for (_, win) in &self.windows {
+                    info!("Recycling stats: {:?}", win.recycler);
+                }
                 return RenderBackendStatus::ShutDown(sender);
             }
         }
@@ -1629,7 +1729,7 @@ impl RenderBackend {
 
         let requires_frame_build = self.requires_frame_build();
 
-        let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+        let win = self.windows.values_mut().next().unwrap();
         let requested_frame = render_frame || win.frame_config.force_invalidation;
 
         let doc = self.documents.get_mut(&document_id).unwrap();
@@ -1879,7 +1979,7 @@ impl RenderBackend {
 
     #[cfg(feature = "capture")]
     fn save_capture_sequence(&mut self) {
-        let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+        let win = self.windows.values_mut().next().unwrap();
         if let Some(ref mut config) = win.capture_config {
             let deferred = win.resource_cache.save_capture_sequence(config);
 
@@ -1920,7 +2020,7 @@ impl RenderBackend {
         }
         let config = CaptureConfig::new(root, bits);
 
-        let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+        let win = self.windows.values_mut().next().unwrap();
         for (&id, doc) in &mut self.documents {
             debug!("\tdocument {:?}", id);
             if config.bits.contains(CaptureBits::FRAME) {
@@ -2003,7 +2103,7 @@ impl RenderBackend {
         );
 
         debug!("\tresource cache");
-        let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+        let win = self.windows.values_mut().next().unwrap();
         let (resources, deferred) = win.resource_cache.save_capture(&config.root);
 
         info!("\tbackend");
@@ -2066,7 +2166,8 @@ impl RenderBackend {
         // If this is a capture sequence, then the ID will be non-zero, and won't
         // match what is loaded, but for still captures, the ID will be zero.
         let first_load = backend.resource_sequence_id == 0;
-        let win = self.windows.get_mut(&WINDOW_ID_DEFAULT).unwrap();
+        let backend_id = self.the_only_window_id();
+        let win = self.windows.values_mut().next().unwrap();
         if win.loaded_resource_sequence_id != backend.resource_sequence_id || first_load {
             // FIXME(aosmond): We clear the documents because when we update the
             // resource cache, we actually wipe and reload, because we don't
@@ -2182,7 +2283,7 @@ impl RenderBackend {
                 }
             };
 
-            self.document_to_window.insert(id, WINDOW_ID_DEFAULT);
+            self.document_to_window.insert(id, backend_id);
 
             let frame_name = format!("frame-{}-{}", id.namespace_id.0, id.id);
             let frame = config.deserialize_for_frame::<Frame, _>(frame_name);

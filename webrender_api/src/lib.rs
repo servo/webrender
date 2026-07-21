@@ -135,6 +135,16 @@ impl IdNamespace {
     pub const DEBUGGER: IdNamespace = IdNamespace(!0);
 }
 
+/// Identifies a window registered on a render backend thread.
+///
+/// Currently every render backend thread serves a single window, so each
+/// backend has exactly one `RenderBackendId`. The indirection is in place
+/// so that a future step can let multiple windows share a single render
+/// backend thread, with messages routed to the right window via this id.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Ord, PartialOrd)]
+pub struct RenderBackendId(pub u32);
+
 /// A key uniquely identifying a WebRender document.
 ///
 /// Instances can manage one or several documents (using the same render backend thread).
