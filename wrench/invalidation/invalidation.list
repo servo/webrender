@@ -8,3 +8,23 @@
 
 # Moving a rect within a tile requires a composite (and dirty tile)
 != composite_nop_1.yaml composite_nop_2.yaml
+
+# Text under an animated transform is rasterized in local space; when the
+# animation ends it must return to the crisp device path. A bound transform only
+# counts as animating once it has actually moved (bug 2051166), so the sequence
+# moves property 10 (a -> b) before ending it (b -> c). These lines share the
+# persistent property state and must run in order.
+
+# a -> b: the bound transform starts moving, flipping the text from the device
+# path to local raster. This must invalidate the tile.
+!= anim_text_a.yaml anim_text_b.yaml
+
+# Re-rendering the latched-moving frame with an unchanged value must NOT churn
+# the tile (the AnimatedRasterSpace dependency is stable frame-to-frame).
+== anim_text_b.yaml anim_text_b.yaml
+
+# b -> c: the animation ends (binding removed) at the same position, so only the
+# raster space flips local -> device with the transform value unchanged. The
+# tile must still invalidate so the text returns to the device path (bug
+# 2056306).
+!= anim_text_b.yaml anim_text_c.yaml

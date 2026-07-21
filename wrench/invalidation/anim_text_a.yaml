@@ -1,0 +1,21 @@
+# Frame a of the bug 2056306 sequence. The reference-frame transform is bound to
+# property 10, appearing for the first time, so it has not yet been observed to
+# move: the text is on the crisp device raster path. Paired with anim_text_b.yaml
+# (the transform then moves) and anim_text_c.yaml (the animation ends).
+---
+transform-properties:
+  - id: 10
+    transform: translate(0, -40)
+root:
+  items:
+    - type: reference-frame
+      bounds: [0, 0, 500, 200]
+      transform: translate(0, -40)
+      transform-binding: 10
+      items:
+        - type: text
+          origin: [20, 100]
+          text: "Animated text"
+          font: "../reftests/text/FreeSans.ttf"
+          size: 40
+          color: [255, 255, 255, 1]

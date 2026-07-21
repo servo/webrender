@@ -2688,9 +2688,20 @@ impl TileCacheInstance {
             }
             PrimitiveKind::LineDecoration { .. } |
             PrimitiveKind::NormalBorder { .. } |
-            PrimitiveKind::BoxShadow { .. } |
-            PrimitiveKind::TextRun { .. } => {
+            PrimitiveKind::BoxShadow { .. } => {
                 // These don't contribute dependencies
+            }
+            PrimitiveKind::TextRun { .. } => {
+                // A text run under an animated transform is rasterized in local
+                // space (see TextRunTemplate::get_raster_space_for_prim, bug
+                // 2053638). Record that as a dependency so the tile invalidates
+                // when the animation ends and the text returns to the crisp
+                // device path - the raster-space flip alone changes neither
+                // prim_uid nor the vert corners, so nothing else would catch it
+                // (bug 2056306).
+                prim_info.raster_space_animating = frame_context.spatial_tree
+                    .get_spatial_node(prim_spatial_node_index)
+                    .is_ancestor_or_self_animating;
             }
         };
 

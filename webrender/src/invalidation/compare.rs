@@ -76,6 +76,16 @@ pub enum PrimitiveDependency {
         prim_uid: ItemUid,
         vert_range: VertRange,
     },
+    /// Marks that a text run is being rasterized in local space because its
+    /// spatial node (or an ancestor) has an animated transform (bug 2056306).
+    /// Emitted only while animating, so its presence/absence flips the dep
+    /// count when the animation ends, invalidating the tile. Without this the
+    /// text keeps its stale local-raster (blurry) rasterization after the
+    /// animation settles, since prim_uid and the raster-space corners are
+    /// unchanged from the last animating frame.
+    AnimatedRasterSpace {
+        animating: bool,
+    },
 }
 
 /// Information stored an image dependency
@@ -229,6 +239,15 @@ impl<'a> PrimitiveComparer<'a> {
                         if self.color_bindings.get(id).map_or(true, |info| info.changed) {
                             return PrimitiveCompareResult::ColorBinding;
                         }
+                    }
+                }
+                (PrimitiveDependency::AnimatedRasterSpace { animating: prev }, PrimitiveDependency::AnimatedRasterSpace { animating: curr }) => {
+                    // Both frames animating: equal, so no per-frame invalidation
+                    // here (transform changes are already covered by the vert
+                    // corners). The animating end/start flips the dep count,
+                    // caught by the dep_count guard above.
+                    if prev != curr {
+                        return PrimitiveCompareResult::Descriptor;
                     }
                 }
                 _ => {

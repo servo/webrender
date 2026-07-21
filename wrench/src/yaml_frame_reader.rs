@@ -333,6 +333,12 @@ pub struct YamlFrameReader {
     scroll_offsets: HashMap<ExternalScrollId, Vec<SampledScrollOffset>>,
     next_external_scroll_id: u64,
 
+    /// Dynamic transform property values sent with the frame (top-level
+    /// `transform-properties` yaml key). Lets a `transform-binding` reference
+    /// frame's value change across frames, which is what drives the animating
+    /// (has-moved) latch used for text raster space.
+    transform_properties: Vec<PropertyValue<LayoutTransform>>,
+
     image_map: HashMap<(PathBuf, Option<i64>), (ImageKey, LayoutSize)>,
 
     fonts: HashMap<FontDescriptor, FontKey>,
@@ -368,6 +374,7 @@ impl YamlFrameReader {
             frame_count: 0,
             display_lists: Vec::new(),
             scroll_offsets: HashMap::new(),
+            transform_properties: Vec::new(),
             fonts: HashMap::new(),
             font_instances: HashMap::new(),
             font_render_mode: None,
@@ -434,6 +441,22 @@ impl YamlFrameReader {
     pub fn reset(&mut self) {
         self.scroll_offsets.clear();
         self.display_lists.clear();
+        self.transform_properties.clear();
+    }
+
+    fn parse_transform_properties(&mut self, yaml: &Yaml) {
+        if let Some(props) = yaml["transform-properties"].as_vec() {
+            for prop in props {
+                let id = prop["id"].as_i64().expect("transform-property needs an id") as u64;
+                let value = prop["transform"]
+                    .as_transform(&LayoutPoint::zero())
+                    .unwrap_or_default();
+                self.transform_properties.push(PropertyValue {
+                    key: PropertyBindingKey::new(id),
+                    value,
+                });
+            }
+        }
     }
 
     fn build(&mut self, wrench: &mut Wrench) {
@@ -445,6 +468,8 @@ impl YamlFrameReader {
             .expect("Failed to parse YAML file");
 
         self.reset();
+
+        self.parse_transform_properties(&yaml);
 
         if let Some(pipelines) = yaml["pipelines"].as_vec() {
             for pipeline in pipelines {
@@ -1967,11 +1992,26 @@ impl YamlFrameReader {
             _ => yaml["perspective"].as_matrix4d(),
         };
 
+        let transform_value = transform.or(perspective).unwrap_or_default();
+
+        // A `transform-binding` id makes the reference frame's transform a
+        // property Binding rather than a static Value, so it is treated as
+        // animating (is_ancestor_or_self_animating). The bound value is the
+        // computed transform above; nothing needs to update it for the binding
+        // to count as animating.
+        let transform_binding = match yaml["transform-binding"].as_i64() {
+            Some(id) => PropertyBinding::Binding(
+                PropertyBindingKey::new(id as u64),
+                transform_value,
+            ),
+            None => PropertyBinding::Value(transform_value),
+        };
+
         let reference_frame_id = dl.push_reference_frame(
             bounds.min,
             *self.spatial_id_stack.last().unwrap(),
             transform_style,
-            transform.or(perspective).unwrap_or_default().into(),
+            transform_binding,
             reference_frame_kind,
         );
 
@@ -2215,6 +2255,7 @@ impl WrenchThing for YamlFrameReader {
                 &mut self.frame_count,
                 self.display_lists.clone(),
                 &self.scroll_offsets,
+                &self.transform_properties,
             );
         } else {
             wrench.refresh();

@@ -1,0 +1,18 @@
+# Frame c: the animation has ended. The reference-frame transform is now a
+# static Value (no transform-binding) at the SAME position as anim_text_b.yaml.
+# Only the raster space flips (local -> device); the transform value, prim_uid
+# and raster-space corners are unchanged from frame b, so the AnimatedRasterSpace
+# dependency is what must invalidate the tile (bug 2056306).
+---
+root:
+  items:
+    - type: reference-frame
+      bounds: [0, 0, 500, 200]
+      transform: translate(0, 0)
+      items:
+        - type: text
+          origin: [20, 100]
+          text: "Animated text"
+          font: "../reftests/text/FreeSans.ttf"
+          size: 40
+          color: [255, 255, 255, 1]

@@ -198,6 +198,16 @@ impl CachedSurface {
             );
         }
 
+        if info.raster_space_animating {
+            dep_count += 1;
+            poke_into_vec(
+                &PrimitiveDependency::AnimatedRasterSpace {
+                    animating: true,
+                },
+                &mut self.current_descriptor.dep_data,
+            );
+        }
+
         self.current_descriptor.prims.push(PrimitiveDescriptor {
             prim_clip_box,
             dep_offset,
@@ -371,6 +381,11 @@ pub struct PrimitiveDependencyInfo {
     /// Per-clip data: (clip intern uid, scratch range for clip corners).
     /// The uid covers the clip's shape/mode; position is captured in the scratch range.
     pub clips: SmallVec<[(ItemUid, VertRange); 4]>,
+    /// Set for a text run whose spatial node (or an ancestor) has an animated
+    /// transform, so it is rasterized in local space (bug 2056306). Encoded as
+    /// an `AnimatedRasterSpace` dep only when true, so the tile invalidates when
+    /// the animation ends and the text returns to the crisp device path.
+    pub raster_space_animating: bool,
 }
 
 impl PrimitiveDependencyInfo {
@@ -384,6 +399,7 @@ impl PrimitiveDependencyInfo {
             prim_scratch: VertRange::INVALID,
             cov_scratch: VertRange::INVALID,
             clips: smallvec::SmallVec::new(),
+            raster_space_animating: false,
         }
     }
 }

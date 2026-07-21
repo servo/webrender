@@ -572,6 +572,7 @@ impl Wrench {
         frame_number: &mut u32,
         display_lists: Vec<DisplayList>,
         scroll_offsets: &HashMap<ExternalScrollId, Vec<SampledScrollOffset>>,
+        transform_properties: &[PropertyValue<LayoutTransform>],
     ) {
         let mut txn = Transaction::new();
         let mut present = false;
@@ -590,6 +591,10 @@ impl Wrench {
             if display_list.send_transaction {
                 for (id, offsets) in scroll_offsets {
                     txn.set_scroll_offsets(*id, offsets.clone());
+                }
+
+                if !transform_properties.is_empty() {
+                    txn.append_dynamic_transform_properties(transform_properties.to_vec());
                 }
 
                 let tracked = false;

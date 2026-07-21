@@ -331,13 +331,21 @@ impl SpatialNode {
         // animating and push all text to local raster. Active pinch-zoom itself is
         // already handled by `is_ancestor_or_self_zooming`.
         let self_has_animated_transform = match self.node_type {
-            SpatialNodeType::ReferenceFrame(ref info) => {
-                matches!(info.source_transform, PropertyBinding::Binding(..))
-                    && !matches!(
+            SpatialNodeType::ReferenceFrame(ref info) => match info.source_transform {
+                // A bound transform counts as animating only once it has been
+                // observed to actually move (bug 2051166): a bound-but-static
+                // value - e.g. a CSS animation holding a constant transform -
+                // stays on the crisp device text path instead of local raster.
+                // When the animation ends the binding is removed (the transform
+                // becomes a static Value), so this returns false again.
+                PropertyBinding::Binding(ref key, _) => {
+                    !matches!(
                         info.kind,
                         ReferenceFrameKind::Transform { is_2d_scale_translation: true, .. }
-                    )
-            }
+                    ) && scene_properties.transform_binding_has_moved(key.id)
+                }
+                PropertyBinding::Value(..) => false,
+            },
             _ => false,
         };
         self.is_ancestor_or_self_animating =

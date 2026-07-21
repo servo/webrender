@@ -1849,9 +1849,10 @@ fn test_is_ancestor_or_self_zooming() {
     assert!(st.get_spatial_node(child2).is_ancestor_or_self_zooming);
 }
 
-/// Tests that a reference frame with an animated (property-bound) transform, and
-/// all of its descendants, are marked as having a self-or-ancestor animating
-/// transform, while a static ancestor above it is not.
+/// Tests the `is_ancestor_or_self_animating` policy: a CSS-transform reference
+/// frame counts as animating (and propagates that to its descendants) only once
+/// its bound transform has been observed to actually move. A bound-but-static
+/// transform, an APZ scale/translation frame, and static ancestors are not.
 #[test]
 fn test_is_ancestor_or_self_animating() {
     let mut cst = SceneSpatialTree::new();
@@ -1864,8 +1865,7 @@ fn test_is_ancestor_or_self_animating() {
         LayoutTransform::identity(),
         LayoutVector2D::zero(),
     );
-    // ... an animated CSS-transform reference frame below it (transform bound to
-    // a property, not an APZ scale/translation frame) ...
+    // ... a CSS-transform reference frame below it whose bound transform moves ...
     let animated = cst.add_reference_frame(
         root,
         TransformStyle::Flat,
@@ -1887,9 +1887,27 @@ fn test_is_ancestor_or_self_animating() {
         LayoutVector2D::zero(),
     );
 
+    // A CSS-transform reference frame whose bound transform never changes value
+    // (e.g. a `hold` animation): it must NOT be treated as animating, so its
+    // text stays device-snapped (bug 2051166).
+    let static_bound = cst.add_reference_frame(
+        root,
+        TransformStyle::Flat,
+        PropertyBinding::Binding(api::PropertyBindingKey::new(3), LayoutTransform::identity()),
+        ReferenceFrameKind::Transform {
+            is_2d_scale_translation: false,
+            should_snap: false,
+            paired_with_perspective: false,
+        },
+        LayoutVector2D::zero(),
+        PipelineId::dummy(),
+        false,
+    );
+
     // A bound reference frame marked `is_2d_scale_translation` is an APZ
     // async-zoom / fixed-position frame, not a CSS animation: it must NOT be
-    // treated as animating (and must not propagate that to its children).
+    // treated as animating (and must not propagate that to its children) even if
+    // its bound transform moves.
     let apz = cst.add_reference_frame(
         root,
         TransformStyle::Flat,
@@ -1912,14 +1930,39 @@ fn test_is_ancestor_or_self_animating() {
 
     let mut st = SpatialTree::new();
     st.apply_updates(cst.end_frame_and_get_pending_updates());
-    st.update_tree(&SceneProperties::new());
+
+    // Feed two frames of dynamic properties: the id 1 (animated) and id 2 (APZ)
+    // transforms move, while id 3 (static_bound) holds a constant value.
+    let mut props = SceneProperties::new();
+    let sample = |props: &mut SceneProperties, moving: LayoutTransform| {
+        props.reset_properties();
+        props.add_transforms(vec![
+            api::PropertyValue { key: api::PropertyBindingKey::new(1), value: moving },
+            api::PropertyValue { key: api::PropertyBindingKey::new(2), value: moving },
+            api::PropertyValue { key: api::PropertyBindingKey::new(3), value: LayoutTransform::identity() },
+        ]);
+        props.flush_pending_updates();
+    };
+    sample(&mut props, LayoutTransform::identity());
+    sample(&mut props, LayoutTransform::translation(10.0, 0.0, 0.0));
+    st.update_tree(&props);
 
     // The static ancestor above the animated frame is unaffected.
     assert!(!st.get_spatial_node(root).is_ancestor_or_self_animating);
-    // The CSS-animated frame and everything below it are marked.
+    // The moving CSS-transform frame and everything below it are marked.
     assert!(st.get_spatial_node(animated).is_ancestor_or_self_animating);
     assert!(st.get_spatial_node(child).is_ancestor_or_self_animating);
-    // The APZ (async-zoom / fixed) frame and its children are not.
+    // A bound-but-static transform is not animating.
+    assert!(!st.get_spatial_node(static_bound).is_ancestor_or_self_animating);
+    // The APZ (async-zoom / fixed) frame and its children are not, despite the
+    // bound transform moving.
     assert!(!st.get_spatial_node(apz).is_ancestor_or_self_animating);
     assert!(!st.get_spatial_node(apz_child).is_ancestor_or_self_animating);
+
+    // The latch is monotonic while the binding exists: once id 1 has moved it
+    // stays animating even on a frame where its value is unchanged.
+    sample(&mut props, LayoutTransform::translation(10.0, 0.0, 0.0));
+    st.update_tree(&props);
+    assert!(st.get_spatial_node(animated).is_ancestor_or_self_animating);
+    assert!(!st.get_spatial_node(static_bound).is_ancestor_or_self_animating);
 }
