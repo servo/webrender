@@ -1388,7 +1388,9 @@ impl RenderBackend {
                         // glyphs/images re-rasterize and re-upload, and force a full
                         // invalidated rebuild so all picture cache tiles re-rasterize.
                         // Then forward the command so the renderer captures that frame.
-                        self.resource_cache.clear(ClearCache::all());
+                        for win in self.windows.values_mut() {
+                            win.resource_cache.clear(ClearCache::all());
+                        }
 
                         let documents: Vec<DocumentId> = self.documents.keys()
                             .cloned()
