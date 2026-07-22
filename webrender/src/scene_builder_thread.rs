@@ -564,6 +564,9 @@ impl SceneBuilderThread {
                 let interners_name = format!("interners-{}-{}", id.namespace_id.0, id.id);
                 config.serialize_for_scene(&doc.interners, interners_name);
 
+                let scene_spatial_tree_name = format!("scene-spatial-tree-{}-{}", id.namespace_id.0, id.id);
+                config.serialize_for_scene(&doc.spatial_tree, scene_spatial_tree_name);
+
                 use crate::render_api::CaptureBits;
                 if config.bits.contains(CaptureBits::SCENE) {
                     let file_name = format!("scene-{}-{}", id.namespace_id.0, id.id);
