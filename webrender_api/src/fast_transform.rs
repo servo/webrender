@@ -3,10 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::borrow::Cow;
-use euclid::{
-    Box2D, Point2D, Scale, Size2D, Transform3D, Vector2D, approxeq::ApproxEq as _,
-    default, point2, point3,
-};
+use euclid::{approxeq::ApproxEq as _, default, point2, point3, Box2D, Point2D, Scale, Size2D, Transform3D, Vector2D};
 use crate::units::{LayoutPixel, WorldPixel};
 
 // Matches the definition of SK_ScalarNearlyZero in Skia.
@@ -364,7 +361,7 @@ impl<Src, Dst> FastTransform<Src, Dst> {
 
     /// Return true if this is an identity transform
     #[allow(unused)]
-    pub fn is_identity(&self)-> bool {
+    pub fn is_identity(&self) -> bool {
         match *self {
             FastTransform::Offset(offset) => {
                 offset == Vector2D::zero()
@@ -466,9 +463,9 @@ impl<Src, Dst> FastTransform<Src, Dst> {
 
     #[inline(always)]
     pub fn project_point2d(&self, point: Point2D<f32, Src>) -> Option<Point2D<f32, Dst>> {
-        match* self {
+        match *self {
             FastTransform::Offset(..) => self.transform_point2d(point),
-            FastTransform::Transform{ref transform, ..} => {
+            FastTransform::Transform { ref transform, .. } => {
                 // Find a value for z that will transform to 0.
 
                 // The transformed value of z is computed as:
