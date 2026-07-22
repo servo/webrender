@@ -2352,9 +2352,11 @@ impl RenderBackend {
             let mut data_stores = config.deserialize_for_frame::<DataStores, _>(&data_stores_name)
                 .expect(&format!("Unable to open {}.ron", data_stores_name));
 
-            // The data store snapshot can lag the interners by a scene build,
-            // leaving slots for last-frame interned items empty. Fill them in
-            // so the rebuilt scene is self-consistent.
+            // This is a band-aid to work around the fact that there isn't a
+            // proper synchronization between the serialization of the frame
+            // and the scene, which can cause the data store snapshot to lag
+            // the interners by one or even several scene builds, leaving
+            // slots for last-frame interned items empty.
             data_stores.reconcile_from_interners(&interners);
 
             let properties_name = format!("properties-{}-{}", id.namespace_id.0, id.id);
