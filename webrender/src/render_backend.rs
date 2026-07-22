@@ -136,6 +136,16 @@ macro_rules! declare_data_stores {
                     );
                 )+
             }
+
+            /// Fill in any data store slots that are missing relative to the
+            /// interners. Used when loading a capture, where the serialized
+            /// data store can lag the interners by a scene build.
+            #[cfg(feature = "replay")]
+            fn reconcile_from_interners(&mut self, interners: &Interners) {
+                $(
+                    interners.$name.reconcile_datastore(&mut self.$name);
+                )+
+            }
         }
     }
 }
@@ -2339,8 +2349,13 @@ impl RenderBackend {
                 .expect(&format!("Unable to open {}.ron", interners_name));
 
             let data_stores_name = format!("data-stores-{}-{}", id.namespace_id.0, id.id);
-            let data_stores = config.deserialize_for_frame::<DataStores, _>(&data_stores_name)
+            let mut data_stores = config.deserialize_for_frame::<DataStores, _>(&data_stores_name)
                 .expect(&format!("Unable to open {}.ron", data_stores_name));
+
+            // The data store snapshot can lag the interners by a scene build,
+            // leaving slots for last-frame interned items empty. Fill them in
+            // so the rebuilt scene is self-consistent.
+            data_stores.reconcile_from_interners(&interners);
 
             let properties_name = format!("properties-{}-{}", id.namespace_id.0, id.id);
             let properties = config.deserialize_for_frame::<SceneProperties, _>(&properties_name)
