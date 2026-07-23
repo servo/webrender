@@ -240,7 +240,7 @@ pub fn prepare_quad(
         clip_chain,
 
         transform,
-        &pattern_ctx,
+        frame_context.spatial_tree,
         pic_context,
         targets,
         interned_clips,
@@ -330,7 +330,7 @@ pub fn prepare_repeatable_quad(
             &cache_key,
             clip_chain,
             transform,
-            &pattern_ctx,
+            frame_context.spatial_tree,
             pic_context,
             targets,
             interned_clips,
@@ -389,7 +389,7 @@ pub fn prepare_repeatable_quad(
                     EdgeMask::empty(),
                     cache_key,
                     None,
-                    &pattern_ctx,
+                    frame_context.spatial_tree,
                     interned_clips,
                     frame_state,
                 ) else {
@@ -430,7 +430,7 @@ pub fn prepare_repeatable_quad(
             &None,
             clip_chain,
             transform,
-            &pattern_ctx,
+            frame_context.spatial_tree,
             pic_context,
             targets,
             interned_clips,
@@ -480,7 +480,7 @@ pub fn prepare_repeatable_quad(
             &None,
             clip_chain,
             transform,
-            &pattern_ctx,
+            frame_context.spatial_tree,
             pic_context,
             targets,
             interned_clips,
@@ -584,7 +584,7 @@ pub fn prepare_border_nine_patch(
             EdgeMask::empty(),
             &None,
             None,
-            &pattern_ctx,
+            &frame_context.spatial_tree,
             interned_clips,
             frame_state,
         ) else {
@@ -605,7 +605,7 @@ pub fn prepare_border_nine_patch(
             clip_chain,
 
             transform,
-            &pattern_ctx,
+            frame_context.spatial_tree,
             pic_context,
             targets,
             interned_clips,
@@ -628,7 +628,7 @@ fn prepare_quad_impl(
     clip_chain: &ClipChainInstance,
 
     transform: &mut QuadTransformState,
-    ctx: &PatternBuilderContext,
+    spatial_tree: &SpatialTree,
     pic_context: &PictureContext,
     targets: &[CommandBufferIndex],
     interned_clips: &DataStore<ClipIntern>,
@@ -648,7 +648,7 @@ fn prepare_quad_impl(
             transform.prim_spatial_node_index(),
             transform.raster_spatial_node_index(),
             transform.device_pixel_scale().get(),
-            ctx.spatial_tree,
+            spatial_tree,
         )
     };
 
@@ -739,7 +739,7 @@ fn prepare_quad_impl(
         surface.raster_spatial_node_index,
         surface.surface_spatial_node_index,
         RasterRect::max_rect(),
-        ctx.spatial_tree,
+        spatial_tree,
     );
     let Some(clipped_raster_rect) = pic_to_raster.map(&clipped_pic_rect) else { return; };
 
@@ -788,7 +788,7 @@ fn prepare_quad_impl(
                 aa_flags,
                 cache_key,
                 Some(clip_chain),
-                ctx,
+                spatial_tree,
                 interned_clips,
                 frame_state,
             ) else {
@@ -816,7 +816,7 @@ fn prepare_quad_impl(
                 clip_chain,
                 transform_id,
                 transform,
-                ctx,
+                spatial_tree,
                 interned_clips,
                 frame_state,
                 scratch,
@@ -837,7 +837,7 @@ fn prepare_quad_impl(
                 clip_chain.clips_range,
                 transform,
                 transform_id,
-                ctx,
+                spatial_tree,
                 interned_clips,
                 frame_state,
                 scratch,
@@ -861,7 +861,7 @@ fn prepare_indirect_pattern(
     aa_flags: EdgeMask,
     cache_key: &Option<QuadCacheKey>,
     clip_chain: Option<&ClipChainInstance>,
-    ctx: &PatternBuilderContext,
+    spatial_tree: &SpatialTree,
     interned_clips: &DataStore<ClipIntern>,
     frame_state: &mut FrameBuildingState,
 ) -> Option<RenderTaskId> {
@@ -929,7 +929,7 @@ fn prepare_indirect_pattern(
         device_pixel_scale,
         needs_scissor,
         cache_key.as_ref(),
-        ctx.spatial_tree,
+        spatial_tree,
         interned_clips,
         frame_state,
     ))
@@ -948,7 +948,7 @@ fn prepare_nine_patch(
     clips_range: ClipNodeRange,
     transform: &mut QuadTransformState,
     gpu_transform: GpuTransformId,
-    ctx: &PatternBuilderContext,
+    spatial_tree: &SpatialTree,
     interned_clips: &DataStore<ClipIntern>,
     frame_state: &mut FrameBuildingState,
     scratch: &mut PrimitiveScratchBuffer,
@@ -1071,7 +1071,7 @@ fn prepare_nine_patch(
                     transform.device_pixel_scale(),
                     false,
                     None,
-                    ctx.spatial_tree,
+                    spatial_tree,
                     interned_clips,
                     frame_state,
                 );
@@ -1125,7 +1125,7 @@ fn prepare_tiles(
     clip_chain: &ClipChainInstance,
     gpu_transform: GpuTransformId,
     transform: &mut QuadTransformState,
-    ctx: &PatternBuilderContext,
+    spatial_tree: &SpatialTree,
     interned_clips: &DataStore<ClipIntern>,
     frame_state: &mut FrameBuildingState,
     scratch: &mut PrimitiveScratchBuffer,
@@ -1157,7 +1157,7 @@ fn prepare_tiles(
         let clip_instance = frame_state.clip_store.get_instance_from_range(&clip_chain.clips_range, i);
         let clip_node = &interned_clips[clip_instance.handle];
 
-        clip_to_raster.set_target_spatial_node(clip_instance.spatial_node_index, ctx.spatial_tree);
+        clip_to_raster.set_target_spatial_node(clip_instance.spatial_node_index, spatial_tree);
 
         let transform = match clip_to_raster.as_2d_scale_offset() {
             Some(t) => t.then_scale(transform.device_pixel_scale.0),
@@ -1312,7 +1312,7 @@ fn prepare_tiles(
                 transform.device_pixel_scale(),
                 needs_scissor,
                 None,
-                ctx.spatial_tree,
+                spatial_tree,
                 interned_clips,
                 frame_state,
             );
