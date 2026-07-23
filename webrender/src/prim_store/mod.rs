@@ -39,7 +39,7 @@ pub mod storage;
 use backdrop::{BackdropCaptureDataHandle, BackdropRenderDataHandle};
 use borders::{ImageBorderDataHandle, NormalBorderDataHandle};
 use gradient::{LinearGradientDataHandle, RadialGradientDataHandle, ConicGradientDataHandle};
-use image::{ImageDataHandle, ImageScratch, VisibleImageTile, YuvImageDataHandle};
+use image::{ImageDataHandle, YuvImageDataHandle};
 use line_dec::LineDecorationDataHandle;
 use picture::PictureDataHandle;
 use rectangle::RectangleDataHandle;
@@ -524,15 +524,6 @@ pub struct PrimitiveFrameScratch {
     /// `PrimitiveKind::Picture`.
     pub pictures: storage::Storage<PictureScratch>,
 
-    /// Per-frame scratch for Image primitives. Holds the source render
-    /// task (or a Range of per-tile tasks for tiled images), normalized-
-    /// uvs flag, and image adjustment.
-    pub images: storage::Storage<ImageScratch>,
-
-    /// Per-tile entries for tiled Image primitives. Each `ImageScratch`
-    /// holds a `Range` into this storage.
-    pub visible_image_tiles: storage::Storage<VisibleImageTile>,
-
     /// Per-frame scratch for TextRun primitives. Holds the per-frame
     /// font snapshot, glyph-key range, snapping offset, and raster
     /// scale for each visible text run.
@@ -567,8 +558,6 @@ impl Default for PrimitiveFrameScratch {
         PrimitiveFrameScratch {
             draws: Vec::new(),
             pictures: storage::Storage::new(0),
-            images: storage::Storage::new(0),
-            visible_image_tiles: storage::Storage::new(0),
             text_runs: storage::Storage::new(0),
             glyph_keys: GlyphKeyStorage::new(0),
             clip_mask_instances: Vec::new(),
@@ -584,8 +573,6 @@ impl PrimitiveFrameScratch {
     pub fn recycle(&mut self, recycler: &mut Recycler) {
         recycler.recycle_vec(&mut self.draws);
         self.pictures.recycle(recycler);
-        self.images.recycle(recycler);
-        self.visible_image_tiles.recycle(recycler);
         self.text_runs.recycle(recycler);
         self.glyph_keys.recycle(recycler);
         recycler.recycle_vec(&mut self.clip_mask_instances);
@@ -596,8 +583,6 @@ impl PrimitiveFrameScratch {
 
     pub fn begin_frame(&mut self) {
         self.pictures.clear();
-        self.images.clear();
-        self.visible_image_tiles.clear();
         self.text_runs.clear();
         self.glyph_keys.clear();
 

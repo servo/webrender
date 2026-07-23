@@ -24,8 +24,6 @@ use crate::picture::{PictureScratch, SurfaceIndex, RasterConfig};
 use crate::tile_cache::SubSliceIndex;
 use crate::prim_store::{ClipSnap, ClipTaskIndex, PictureIndex, PrimitiveKind};
 use crate::prim_store::{PrimitiveStore, PrimitiveInstance, PrimitiveInstanceIndex};
-use crate::prim_store::borders::ImageBorderScratch;
-use crate::prim_store::image::ImageScratch;
 use crate::prim_store::storage;
 use crate::prim_store::text_run::TextRunScratch;
 use crate::render_backend::{DataStores, ScratchBuffer};
@@ -122,28 +120,11 @@ pub enum DrawState {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub enum KindScratchHandle {
     None,
-    ImageBorder(storage::Index<ImageBorderScratch>),
-    Image(storage::Index<ImageScratch>),
     TextRun(storage::Index<TextRunScratch>),
     Picture(storage::Index<PictureScratch>),
 }
 
 impl KindScratchHandle {
-    /// Extract the specific scratch index. Panics if the variant
-    /// doesn't match — readers in the specific arm of the
-    /// PrimitiveKind match know the variant by construction.
-    pub fn unwrap_image_border(&self) -> storage::Index<ImageBorderScratch> {
-        match *self {
-            KindScratchHandle::ImageBorder(h) => h,
-            _ => panic!("kind_scratch mismatch: expected ImageBorder, got {:?}", self),
-        }
-    }
-    pub fn unwrap_image(&self) -> storage::Index<ImageScratch> {
-        match *self {
-            KindScratchHandle::Image(h) => h,
-            _ => panic!("kind_scratch mismatch: expected Image, got {:?}", self),
-        }
-    }
     pub fn unwrap_text_run(&self) -> storage::Index<TextRunScratch> {
         match *self {
             KindScratchHandle::TextRun(h) => h,

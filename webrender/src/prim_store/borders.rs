@@ -11,7 +11,6 @@ use crate::command_buffer::CommandBufferIndex;
 use crate::pattern::image::ImagePattern;
 use crate::quad::{self, QuadTransformState};
 use crate::render_task_cache::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent, to_cache_size};
-use crate::renderer::GpuBufferAddress;
 use crate::scene_building::{IsVisible};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext};
 use crate::intern::{self, DataStore};
@@ -335,24 +334,6 @@ pub use api::interned_prims::ImageBorder;
 pub type ImageBorderKey = PrimKey<ImageBorder>;
 
 impl intern::InternDebug for ImageBorderKey {}
-
-/// Per-frame scratch data for an ImageBorder primitive.
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-pub struct ImageBorderScratch {
-    /// Per-instance GPU buffer address for the brush + segment blocks
-    /// written by `ImageBorderData::write_brush_gpu_blocks`. Per-instance
-    /// because the block contents (stretch_size and segments) depend on
-    /// the prim's per-instance size.
-    pub gpu_address: GpuBufferAddress,
-    /// Per-instance source image render task, recomputed each frame in
-    /// `ImageBorderData::update`. Lives here rather than on the now-
-    /// immutable template.
-    pub src_color: Option<RenderTaskId>,
-    /// Whether the source image is opaque. Derived each frame from the
-    /// resource-cache image properties.
-    pub is_opaque: bool,
-}
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
