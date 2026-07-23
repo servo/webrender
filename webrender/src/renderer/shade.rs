@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{ImageBufferKind, units::DeviceSize};
-use crate::batch::{BatchKey, BatchKind, BrushBatchKind, BatchFeatures};
+use crate::batch::{BatchKey, BatchKind, BatchFeatures};
 use crate::composite::{CompositeFeatures, CompositeSurfaceFormat};
 use crate::device::{Device, Program, ShaderError};
 use crate::pattern::PatternKind;
@@ -64,9 +64,6 @@ pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 4] = [
     ImageBufferKind::TextureExternalBT709,
 ];
 
-const ADVANCED_BLEND_FEATURE: &str = "ADVANCED_BLEND";
-const ALPHA_FEATURE: &str = "ALPHA_PASS";
-const DEBUG_OVERDRAW_FEATURE: &str = "DEBUG_OVERDRAW";
 const DITHERING_FEATURE: &str = "DITHERING";
 const DUAL_SOURCE_FEATURE: &str = "DUAL_SOURCE_BLENDING";
 const FAST_PATH_FEATURE: &str = "FAST_PATH";
@@ -74,7 +71,6 @@ const FAST_PATH_FEATURE: &str = "FAST_PATH";
 pub(crate) enum ShaderKind {
     Primitive,
     Cache(VertexArrayKind),
-    Brush,
     Text,
     Composite,
     Clear,
@@ -181,7 +177,7 @@ impl LazilyCompiledShader {
         if self.program.is_none() {
             let start_time = zeitstempel::now();
             let program = match self.kind {
-                ShaderKind::Primitive | ShaderKind::Brush | ShaderKind::Text | ShaderKind::Clear | ShaderKind::Copy => {
+                ShaderKind::Primitive | ShaderKind::Text | ShaderKind::Clear | ShaderKind::Copy => {
                     create_prim_shader(
                         self.name,
                         device,
@@ -218,7 +214,6 @@ impl LazilyCompiledShader {
 
             let vertex_format = match self.kind {
                 ShaderKind::Primitive |
-                ShaderKind::Brush |
                 ShaderKind::Text => VertexArrayKind::Primitive,
                 ShaderKind::Cache(format) => format,
                 ShaderKind::Composite => VertexArrayKind::Composite,
@@ -270,134 +265,6 @@ impl LazilyCompiledShader {
     fn deinit(self, device: &mut Device) {
         if let Some(program) = self.program {
             device.delete_program(program);
-        }
-    }
-}
-
-// A brush shader supports two modes:
-// opaque:
-//   Used for completely opaque primitives,
-//   or inside segments of partially
-//   opaque primitives. Assumes no need
-//   for clip masks, AA etc.
-// alpha:
-//   Used for brush primitives in the alpha
-//   pass. Assumes that AA should be applied
-//   along the primitive edge, and also that
-//   clip mask is present.
-struct BrushShader {
-    opaque: ShaderHandle,
-    alpha: ShaderHandle,
-    advanced_blend: Option<ShaderHandle>,
-    dual_source: Option<ShaderHandle>,
-    debug_overdraw: ShaderHandle,
-}
-
-impl BrushShader {
-    fn new(
-        name: &'static str,
-        features: &[&'static str],
-        shader_list: &ShaderFeatures,
-        use_advanced_blend: bool,
-        use_dual_source: bool,
-        loader: &mut ShaderLoader,
-    ) -> Result<Self, ShaderError> {
-        let opaque_features = features.to_vec();
-        let opaque = loader.create_shader(
-            ShaderKind::Brush,
-            name,
-            &opaque_features,
-            &shader_list,
-        )?;
-
-        let mut alpha_features = opaque_features.to_vec();
-        alpha_features.push(ALPHA_FEATURE);
-
-        let alpha = loader.create_shader(
-            ShaderKind::Brush,
-            name,
-            &alpha_features,
-            &shader_list,
-        )?;
-
-        let advanced_blend = if use_advanced_blend {
-            let mut advanced_blend_features = alpha_features.to_vec();
-            advanced_blend_features.push(ADVANCED_BLEND_FEATURE);
-
-            let shader = loader.create_shader(
-                ShaderKind::Brush,
-                name,
-                &advanced_blend_features,
-                &shader_list,
-            )?;
-
-            Some(shader)
-        } else {
-            None
-        };
-
-        let dual_source = if use_dual_source {
-            let mut dual_source_features = alpha_features.to_vec();
-            dual_source_features.push(DUAL_SOURCE_FEATURE);
-
-            let shader = loader.create_shader(
-                ShaderKind::Brush,
-                name,
-                &dual_source_features,
-                &shader_list,
-            )?;
-
-            Some(shader)
-        } else {
-            None
-        };
-
-        let mut debug_overdraw_features = features.to_vec();
-        debug_overdraw_features.push(DEBUG_OVERDRAW_FEATURE);
-
-        let debug_overdraw = loader.create_shader(
-            ShaderKind::Brush,
-            name,
-            &debug_overdraw_features,
-            &shader_list,
-        )?;
-
-        Ok(BrushShader {
-            opaque,
-            alpha,
-            advanced_blend,
-            dual_source,
-            debug_overdraw,
-        })
-    }
-
-    fn get_handle(
-        &mut self,
-        blend_mode: BlendMode,
-        features: BatchFeatures,
-        debug_flags: DebugFlags,
-    ) -> ShaderHandle {
-        match blend_mode {
-            _ if debug_flags.contains(DebugFlags::SHOW_OVERDRAW) => self.debug_overdraw,
-            BlendMode::None => self.opaque,
-            BlendMode::Alpha |
-            BlendMode::PremultipliedAlpha |
-            BlendMode::PremultipliedDestOut |
-            BlendMode::Screen |
-            BlendMode::PlusLighter |
-            BlendMode::Exclusion => {
-                if features.contains(BatchFeatures::ALPHA_PASS) {
-                    self.alpha
-                } else {
-                    self.opaque
-                }
-            }
-            BlendMode::Advanced(_) => {
-                self.advanced_blend.expect("bug: no advanced blend shader loaded")
-            }
-            BlendMode::SubpixelDualSource => {
-                self.dual_source.expect("bug: no dual source shader loaded")
-            }
         }
     }
 }
@@ -550,10 +417,6 @@ pub struct Shaders {
     cs_scale: Vec<Option<ShaderHandle>>,
     cs_line_decoration: ShaderHandle,
     cs_svg_filter_node: ShaderHandle,
-
-    // Brush shaders
-    brush_image: Vec<Option<BrushShader>>,
-    brush_fast_image: Vec<Option<BrushShader>>,
 
     // The are "primitive shaders". These shaders draw and blend
     // final results on screen. They are aware of tile boundaries.
@@ -874,56 +737,6 @@ impl Shaders {
             &shader_list,
         )?;
 
-        // All image configuration.
-        let mut image_features = Vec::new();
-        let mut brush_image = Vec::new();
-        let mut brush_fast_image = Vec::new();
-        // PrimitiveShader is not clonable. Use push() to initialize the vec.
-        for _ in 0 .. IMAGE_BUFFER_KINDS.len() {
-            brush_image.push(None);
-            brush_fast_image.push(None);
-        }
-        for buffer_kind in 0 .. IMAGE_BUFFER_KINDS.len() {
-            if !has_platform_support(IMAGE_BUFFER_KINDS[buffer_kind], device)
-                // Brush shaders are not ESSL1 compatible
-                || (IMAGE_BUFFER_KINDS[buffer_kind] == ImageBufferKind::TextureExternal
-                    && texture_external_version == TextureExternalVersion::ESSL1)
-            {
-                continue;
-            }
-
-            let feature_string = get_feature_string(
-                IMAGE_BUFFER_KINDS[buffer_kind],
-                texture_external_version,
-            );
-            if feature_string != "" {
-                image_features.push(feature_string);
-            }
-
-            brush_fast_image[buffer_kind] = Some(BrushShader::new(
-                "brush_image",
-                &image_features,
-                &shader_list,
-                use_advanced_blend_equation,
-                use_dual_source_blending,
-                &mut loader,
-            )?);
-
-            image_features.push("REPETITION");
-            image_features.push("ANTIALIASING");
-
-            brush_image[buffer_kind] = Some(BrushShader::new(
-                "brush_image",
-                &image_features,
-                &shader_list,
-                use_advanced_blend_equation,
-                use_dual_source_blending,
-                &mut loader,
-            )?);
-
-            image_features.clear();
-        }
-
         let cs_line_decoration = loader.create_shader(
             ShaderKind::Cache(VertexArrayKind::LineDecoration),
             "cs_line_decoration",
@@ -957,8 +770,6 @@ impl Shaders {
             cs_border_solid,
             cs_scale,
             cs_svg_filter_node,
-            brush_image,
-            brush_fast_image,
             ps_text_run,
             ps_text_run_dual_source,
             ps_quad_textured,
@@ -1068,18 +879,16 @@ impl Shaders {
         key: &BatchKey,
         features: BatchFeatures,
         debug_flags: DebugFlags,
-        device: &Device,
     ) -> &mut LazilyCompiledShader {
-        let shader_handle = self.get_handle(key, features, debug_flags, device);
+        let shader_handle = self.get_handle(key, features, debug_flags);
         self.loader.get(shader_handle)
     }
 
     pub fn get_handle(
         &mut self,
         key: &BatchKey,
-        mut features: BatchFeatures,
+        _features: BatchFeatures,
         debug_flags: DebugFlags,
-        device: &Device,
     ) -> ShaderHandle {
         match key.kind {
             BatchKind::Quad(PatternKind::ColorOrTexture) => {
@@ -1135,30 +944,6 @@ impl Shaders {
         }
             BatchKind::SplitComposite => {
                 self.ps_split_composite
-            }
-            BatchKind::Brush(brush_kind) => {
-                // SWGL uses a native anti-aliasing implementation that bypasses the shader.
-                // Don't consider it in that case when deciding whether or not to use
-                // an alpha-pass shader.
-                if device.get_capabilities().uses_native_antialiasing {
-                    features.remove(BatchFeatures::ANTIALIASING);
-                }
-                let brush_shader = match brush_kind {
-                    BrushBatchKind::Image(image_buffer_kind) => {
-                        if features.contains(BatchFeatures::ANTIALIASING) ||
-                            features.contains(BatchFeatures::REPETITION) {
-
-                            self.brush_image[image_buffer_kind as usize]
-                                .as_mut()
-                                .expect("Unsupported image shader kind")
-                        } else {
-                            self.brush_fast_image[image_buffer_kind as usize]
-                            .as_mut()
-                                .expect("Unsupported image shader kind")
-                        }
-                    }
-                };
-                brush_shader.get_handle(key.blend_mode, features, debug_flags)
             }
             BatchKind::TextRun(glyph_format) => {
                 let text_shader = match key.blend_mode {

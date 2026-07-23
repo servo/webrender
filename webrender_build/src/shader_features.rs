@@ -80,10 +80,6 @@ pub fn get_shader_features(flags: ShaderFeatureFlags) -> ShaderFeatures {
 
     let mut base_prim_features = FeatureList::new();
 
-    // Brush shaders
-    let brush_alpha_features = base_prim_features.with("ALPHA_PASS");
-
-    // Image brush shaders
     let mut texture_types = vec!["TEXTURE_2D"];
     if flags.contains(ShaderFeatureFlags::GL) {
         texture_types.push("TEXTURE_RECT");
@@ -94,33 +90,6 @@ pub fn get_shader_features(flags: ShaderFeatureFlags) -> ShaderFeatures {
     if flags.contains(ShaderFeatureFlags::TEXTURE_EXTERNAL_BT709) {
         texture_types.push("TEXTURE_EXTERNAL_BT709");
     }
-    let mut image_features: Vec<String> = Vec::new();
-    for texture_type in &texture_types {
-        let mut fast = FeatureList::new();
-        if !texture_type.is_empty() {
-            fast.add(texture_type);
-        }
-        image_features.push(fast.concat(&base_prim_features).finish());
-        image_features.push(fast.concat(&brush_alpha_features).finish());
-        image_features.push(fast.with("DEBUG_OVERDRAW").finish());
-        let mut slow = fast.clone();
-        slow.add("REPETITION");
-        slow.add("ANTIALIASING");
-        image_features.push(slow.concat(&base_prim_features).finish());
-        image_features.push(slow.concat(&brush_alpha_features).finish());
-        image_features.push(slow.with("DEBUG_OVERDRAW").finish());
-        if flags.contains(ShaderFeatureFlags::ADVANCED_BLEND_EQUATION) {
-            let advanced_blend_features = brush_alpha_features.with("ADVANCED_BLEND");
-            image_features.push(fast.concat(&advanced_blend_features).finish());
-            image_features.push(slow.concat(&advanced_blend_features).finish());
-        }
-        if flags.contains(ShaderFeatureFlags::DUAL_SOURCE_BLENDING) {
-            let dual_source_features = brush_alpha_features.with("DUAL_SOURCE_BLENDING");
-            image_features.push(fast.concat(&dual_source_features).finish());
-            image_features.push(slow.concat(&dual_source_features).finish());
-        }
-    }
-    shaders.insert("brush_image", image_features);
 
     let mut composite_texture_types = texture_types.clone();
     if flags.contains(ShaderFeatureFlags::TEXTURE_EXTERNAL_ESSL1) {

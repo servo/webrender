@@ -3,16 +3,15 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{
-    AlphaType, ColorDepth, ColorF, ColorRange, ExternalImageData, ExternalImageType, ImageBufferKind, ImageKey as ApiImageKey, ImageRendering, PremultipliedColorF, YuvColorSpace, YuvFormat
+    AlphaType, ColorDepth, ColorF, ColorRange, ExternalImageData, ExternalImageType, ImageBufferKind, ImageKey as ApiImageKey, ImageRendering, YuvColorSpace, YuvFormat
 };
 use api::units::*;
 use euclid::point2;
 use crate::clip::{ClipChainInstance, ClipIntern};
 use crate::command_buffer::CommandBufferIndex;
-use crate::gpu_types::ImageBrushPrimitiveData;
 use crate::pattern::image::ImagePattern;
 use crate::quad::QuadTransformState;
-use crate::renderer::{GpuBufferAddress, GpuBufferWriterF};
+use crate::renderer::GpuBufferAddress;
 use crate::scene_building::{IsVisible};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext};
 use crate::intern::{DataStore, Handle as InternHandle, InternDebug, Internable};
@@ -442,27 +441,7 @@ impl ImageData {
             );
         }
 
-        let mut writer = frame_state.frame_gpu_data.f32.write_blocks(3);
-        self.write_prim_gpu_blocks(&image_scratch.adjustment, effective_stretch_size, &mut writer);
-        image_scratch.gpu_address = writer.finish();
-
         scratch.frame.images.push(image_scratch)
-    }
-
-    pub fn write_prim_gpu_blocks(
-        &self,
-        adjustment: &AdjustedImageSource,
-        stretch_size: LayoutSize,
-        writer: &mut GpuBufferWriterF,
-    ) {
-        let stretch_size = adjustment.map_stretch_size(stretch_size)
-             + self.tile_spacing;
-
-        writer.push(&ImageBrushPrimitiveData {
-            color: self.color.premultiplied(),
-            background_color: PremultipliedColorF::WHITE,
-            stretch_size,
-        });
     }
 }
 

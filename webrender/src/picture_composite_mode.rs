@@ -2,13 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, ColorU, PremultipliedColorF, PropertyBinding, PropertyBindingId, SnapshotInfo};
+use api::{ColorF, ColorU, PropertyBinding, PropertyBindingId, SnapshotInfo};
 use api::units::*;
 use crate::prim_store::image::AdjustedImageSource;
 use crate::{render_task_graph::RenderTaskGraphBuilder, renderer::GpuBufferBuilderF};
 use crate::box_shadow::BLUR_SAMPLE_SCALE;
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState};
-use crate::gpu_types::{BlurEdgeMode, BrushSegmentGpuData, ImageBrushPrimitiveData, UvRectKind};
+use crate::gpu_types::{BlurEdgeMode, UvRectKind};
 use crate::intern::ItemUid;
 use crate::render_backend::DataStores;
 use crate::render_task_graph::RenderTaskId;
@@ -169,7 +169,6 @@ impl PictureCompositeMode {
 
     pub fn write_gpu_blocks(
         &self,
-        surface: &SurfaceInfo,
         gpu_buffers: &mut GpuBufferBuilder,
         data_stores: &DataStores,
         extra_gpu_data: &mut SmallVec<[GpuBufferAddress; 1]>,
@@ -184,40 +183,7 @@ impl PictureCompositeMode {
         match *self {
             PictureCompositeMode::TileCache { .. } => {}
             PictureCompositeMode::Filter(Filter::Blur { .. }) => {}
-            PictureCompositeMode::Filter(Filter::DropShadows(ref shadows)) => {
-                extra_gpu_data.resize(shadows.len(), GpuBufferAddress::INVALID);
-                for (shadow, extra_handle) in shadows.iter().zip(extra_gpu_data.iter_mut()) {
-                    let mut writer = gpu_buffers.f32.write_blocks(5);
-                    let prim_rect = surface.clipped_local_rect.cast_unit();
-
-                    // Basic brush primitive header is (see end of prepare_prim_for_render_inner in prim_store.rs)
-                    //  [brush specific data]
-                    //  [segment_rect, segment data]
-                    let (blur_inflation_x, blur_inflation_y) = surface.clamp_blur_radius(
-                        shadow.blur_radius,
-                        shadow.blur_radius,
-                    );
-
-                    let shadow_rect = prim_rect.inflate(
-                        blur_inflation_x * BLUR_SAMPLE_SCALE,
-                        blur_inflation_y * BLUR_SAMPLE_SCALE,
-                    ).translate(shadow.offset);
-
-                    // ImageBrush colors
-                    writer.push(&ImageBrushPrimitiveData {
-                        color: shadow.color.premultiplied(),
-                        background_color: PremultipliedColorF::WHITE,
-                        stretch_size: shadow_rect.size(),
-                    });
-
-                    writer.push(&BrushSegmentGpuData {
-                        local_rect: shadow_rect,
-                        extra_data: [0.0; 4],
-                    });
-
-                    *extra_handle = writer.finish();
-                }
-            }
+            PictureCompositeMode::Filter(Filter::DropShadows(..)) => {}
             PictureCompositeMode::Filter(ref filter) => {
                 match *filter {
                     Filter::ColorMatrix(ref m) => {

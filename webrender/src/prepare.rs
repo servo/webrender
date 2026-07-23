@@ -1241,7 +1241,6 @@ fn prepare_prim_for_render(
             // Write the composite-mode gpu blocks first: the filter eligibility
             // check below reads the resulting extra_gpu_data.
             raster_config.composite_mode.write_gpu_blocks(
-                &frame_state.surfaces[raster_config.surface_index.0],
                 &mut frame_state.frame_gpu_data,
                 data_stores,
                 &mut pic_scratch.extra_gpu_data,

@@ -2,11 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::ImageBufferKind;
 use api::FontInstanceFlags;
 use api::units::*;
 use crate::command_buffer::PrimitiveCommand;
 use crate::pattern::PatternKind;
+use crate::renderer::GpuBufferAddress;
 use crate::spatial_tree::SpatialNodeIndex;
 use glyph_rasterizer::{GlyphFormat, SubpixelDirection};
 use crate::gpu_types::{BrushFlags, PrimitiveHeaders, ZBufferId, ZBufferIdGenerator};
@@ -40,17 +40,9 @@ pub const INVALID_SEGMENT_INDEX: i32 = 0xffff;
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub enum BrushBatchKind {
-    Image(ImageBufferKind),
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BatchKind {
     SplitComposite,
     TextRun(GlyphFormat),
-    Brush(BrushBatchKind),
     Quad(PatternKind),
 }
 
@@ -808,7 +800,7 @@ impl BatchBuilder {
                 let prim_header = PrimitiveHeader {
                     local_rect: *local_rect,
                     local_clip_rect: prim_info.clip_chain.local_clip_rect,
-                    specific_prim_address: ctx.globals.default_image_data.as_int(),
+                    specific_prim_address: GpuBufferAddress::INVALID.as_int(),
                     transform_id: *transform_id,
                     z: z_id,
                     render_task_address: self.batcher.render_task_address,

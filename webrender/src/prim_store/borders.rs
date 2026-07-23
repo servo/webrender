@@ -2,25 +2,24 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, NormalBorder, PremultipliedColorF, RepeatMode};
+use api::{ColorF, NormalBorder, RepeatMode};
 use api::units::*;
 use smallvec::SmallVec;
 use crate::border::{build_border_instances, NormalBorderSegment, MAX_BORDER_RESOLUTION};
 use crate::border::NinePatchDescriptorExt;
 use crate::clip::{ClipChainInstance, ClipIntern};
 use crate::command_buffer::CommandBufferIndex;
-use crate::gpu_types::ImageBrushPrimitiveData;
 use crate::pattern::image::ImagePattern;
 use crate::quad::{self, QuadTransformState};
 use crate::render_backend::DataStores;
 use crate::render_task_cache::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent, to_cache_size};
-use crate::renderer::{GpuBufferAddress, GpuBufferWriterF};
+use crate::renderer::GpuBufferAddress;
 use crate::scene_building::{IsVisible};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext};
 use crate::intern::{self, DataStore};
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
-    BrushSegment, InternablePrimitive, NinePatchDescriptor, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveKind, PrimitiveScratchBuffer, PrimitiveStore, VECS_PER_SEGMENT
+    BrushSegment, InternablePrimitive, NinePatchDescriptor, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveKind, PrimitiveScratchBuffer, PrimitiveStore
 };
 use crate::resource_cache::ImageRequest;
 use crate::render_task::{RenderTask, RenderTaskKind};
@@ -410,23 +409,6 @@ pub struct ImageBorderData {
 }
 
 impl ImageBorderData {
-    /// Update the GPU cache for a given primitive template. This may be called multiple
-    /// times per frame, by each primitive reference that refers to this interned
-    /// template. The initial request call to the GPU cache ensures that work is only
-    /// done if the cache entry is invalid (due to first use or eviction).
-    pub fn write_brush_gpu_blocks(
-        &self,
-        prim_size: LayoutSize,
-        brush_segments: &[BrushSegment],
-        frame_state: &mut FrameBuildingState,
-    ) -> GpuBufferAddress {
-        let mut writer = frame_state.frame_gpu_data.f32.write_blocks(3 + brush_segments.len() * VECS_PER_SEGMENT);
-        self.write_prim_gpu_blocks(&mut writer, &prim_size);
-        Self::write_segment_gpu_blocks(&mut writer, brush_segments);
-        writer.finish()
-    }
-
-
     pub fn update(
         &self,
         frame_state: &mut FrameBuildingState,
@@ -447,30 +429,6 @@ impl ImageBorderData {
             .unwrap_or(true);
 
         (task_id, size, is_opaque)
-    }
-
-    fn write_prim_gpu_blocks(
-        &self,
-        writer: &mut GpuBufferWriterF,
-        prim_size: &LayoutSize,
-    ) {
-        // Border primitives currently used for
-        // image borders, and run through the
-        // normal brush_image shader.
-        writer.push(&ImageBrushPrimitiveData {
-            color: PremultipliedColorF::WHITE,
-            background_color: PremultipliedColorF::WHITE,
-            stretch_size: *prim_size,
-        });
-    }
-
-    fn write_segment_gpu_blocks(
-        writer: &mut GpuBufferWriterF,
-        brush_segments: &[BrushSegment],
-    ) {
-        for segment in brush_segments {
-            segment.write_gpu_blocks(writer);
-        }
     }
 }
 

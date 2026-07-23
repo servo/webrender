@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, DebugFlags, ExternalScrollId, FontRenderMode, ImageKey, MinimapData, PremultipliedColorF};
+use api::{ColorF, DebugFlags, ExternalScrollId, FontRenderMode, ImageKey, MinimapData};
 use api::units::*;
 use plane_split::BspSplitter;
 use crate::batch::{BatchBuilder, AlphaBatchBuilder, AlphaBatchContainer};
@@ -13,7 +13,7 @@ use crate::spatial_node::SpatialNodeType;
 use crate::spatial_tree::{SpatialTree, SpatialNodeIndex};
 use crate::composite::{CompositorKind, CompositeState, CompositeStatePreallocator};
 use crate::debug_item::DebugItem;
-use crate::gpu_types::{ImageBrushPrimitiveData, PrimitiveHeaders, ZBufferIdGenerator};
+use crate::gpu_types::{PrimitiveHeaders, ZBufferIdGenerator};
 use crate::gpu_types::QuadSegment;
 use crate::internal_types::{FastHashMap, PlaneSplitter, FrameStamp};
 use crate::invalidation::DirtyRegion;
@@ -27,7 +27,7 @@ use crate::prim_store::{DeferredResolve, PrimitiveInstance};
 use crate::prim_store::storage;
 use crate::profiler::{self, TransactionProfile};
 use crate::render_backend::{DataStores, ScratchBuffer};
-use crate::renderer::{GpuBufferAddress, GpuBufferBuilder, GpuBufferBuilderF, GpuBufferBuilderI, GpuBufferF, GpuBufferI, GpuBufferDataF};
+use crate::renderer::{GpuBufferBuilder, GpuBufferBuilderF, GpuBufferBuilderI, GpuBufferF, GpuBufferI};
 use crate::render_target::{PictureCacheTarget, PictureCacheTargetKind};
 use crate::render_target::{RenderTargetContext, RenderTargetKind, RenderTarget};
 use crate::render_task_graph::{Pass, RenderTaskGraph, RenderTaskId, SubPassSurface};
@@ -71,31 +71,6 @@ pub struct FrameBuilderConfig {
     pub low_quality_pinch_zoom: bool,
     pub max_shared_surface_size: i32,
     pub enable_dithering: bool,
-}
-
-/// A set of default / global resources that are re-built each frame.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-pub struct FrameGlobalResources {
-    /// The image shader block for the most common / default
-    /// set of image parameters (color white, stretch == rect.size).
-    pub default_image_data: GpuBufferAddress,
-}
-
-impl FrameGlobalResources {
-    pub fn new(gpu_buffers: &mut GpuBufferBuilder) -> Self {
-        let mut writer = gpu_buffers.f32.write_blocks(ImageBrushPrimitiveData::NUM_BLOCKS);
-        writer.push(&ImageBrushPrimitiveData {
-            color: PremultipliedColorF::WHITE,
-            background_color: PremultipliedColorF::WHITE,
-            // -ve means use prim rect for stretch size
-            stretch_size: LayoutSize::new(-1.0, 0.0),
-        });
-        let default_image_data = writer.finish();
-
-        FrameGlobalResources {
-            default_image_data,
-        }
-    }
 }
 
 pub struct FrameScratchBuffer {
@@ -679,8 +654,6 @@ impl FrameBuilder {
         //           statically during scene building.
         scene.surfaces.clear();
 
-        let globals = FrameGlobalResources::new(&mut gpu_buffer_builder);
-
         spatial_tree.update_tree(scene_properties);
         let mut transform_palette = spatial_tree.build_transform_palette(&frame_memory);
         scene.clip_store.begin_frame(&mut scratch.clip_store);
@@ -766,7 +739,6 @@ impl FrameBuilder {
                     data_stores,
                     scratch: &mut scratch.primitive,
                     screen_world_rect,
-                    globals: &globals,
                     tile_caches,
                     root_spatial_node_index: spatial_tree.root_reference_frame_index(),
                     frame_memory: &mut frame_memory,
@@ -803,7 +775,6 @@ impl FrameBuilder {
                     data_stores,
                     scratch: &mut scratch.primitive,
                     screen_world_rect,
-                    globals: &globals,
                     tile_caches,
                     root_spatial_node_index: spatial_tree.root_reference_frame_index(),
                     frame_memory: &mut frame_memory,
