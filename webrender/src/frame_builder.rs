@@ -36,7 +36,6 @@ use crate::render_task::{RenderTaskKind, StaticRenderTaskSurface};
 use crate::resource_cache::ResourceCache;
 use crate::scene::{BuiltScene, SceneProperties};
 use crate::space::SpaceMapper;
-use crate::segment::SegmentBuilder;
 use crate::surface::SurfaceBuilder;
 use crate::transform::{TransformPalette, TransformData};
 use std::sync::Arc;
@@ -147,7 +146,6 @@ pub struct FrameBuildingState<'a> {
     pub clip_store: &'a mut ClipStore,
     pub resource_cache: &'a mut ResourceCache,
     pub transforms: &'a mut TransformPalette,
-    pub segment_builder: SegmentBuilder,
     pub surfaces: &'a mut Vec<SurfaceInfo>,
     pub dirty_region_stack: Vec<DirtyRegion>,
     pub composite_state: &'a mut CompositeState,
@@ -536,7 +534,6 @@ impl FrameBuilder {
             clip_store: &mut scene.clip_store,
             resource_cache,
             transforms: transform_palette,
-            segment_builder: SegmentBuilder::new(),
             surfaces: &mut scene.surfaces,
             dirty_region_stack: scratch.frame.dirty_region_stack.take(),
             composite_state,
