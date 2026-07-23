@@ -674,9 +674,10 @@ fn prepare_quad_impl(
         transfomed_aa_edges
     };
 
-    let local_clip_rect = local_clip_rect
+    let local_bounds = local_clip_rect
         .intersection_unchecked(local_rect)
         .intersection_unchecked(&clip_chain.local_clip_rect);
+    let local_pattern_rect = *local_rect;
 
     // We round the coordinates of non-antialiased edges of the primitive.
     // This allows us to ensure that indirect axis-aligned primitives cover the render
@@ -690,8 +691,8 @@ fn prepare_quad_impl(
         }
 
         let quad = create_quad_primitive(
-            local_rect,
-            &local_clip_rect,
+            &local_bounds,
+            &local_pattern_rect,
             &DeviceRect::max_rect(),
             transform.as_2d_scale_offset(),
             round_edges,
@@ -751,8 +752,7 @@ fn prepare_quad_impl(
     let mut clipped_surface_rect = (clipped_raster_rect * device_scale).round();
 
     if let Some(t) = transform.as_2d_scale_offset() {
-        let clipped_local_rect = local_rect.intersection_unchecked(&local_clip_rect);
-        let prim_surface_rect = t.map_rect(&clipped_local_rect);
+        let prim_surface_rect = t.map_rect(&local_bounds);
         // Snap the rectangle to the pixel grid...
         let prim_surface_rect = round_edges.select(
             // ... to the nearest pixel for non-antialiased edges.
@@ -777,8 +777,8 @@ fn prepare_quad_impl(
             let Some(task_id) = prepare_indirect_pattern(
                 transform.prim_spatial_node_index(),
                 transform.raster_spatial_node_index(),
-                local_rect,
-                &local_clip_rect,
+                &local_bounds,
+                &local_pattern_rect,
                 &clipped_surface_rect,
                 transform.as_2d_scale_offset(),
                 transform.device_pixel_scale(),
@@ -807,8 +807,8 @@ fn prepare_quad_impl(
         QuadRenderStrategy::Tiled => {
             prepare_tiles(
                 prim_instance_index,
-                local_rect,
-                &local_clip_rect,
+                &local_bounds,
+                &local_pattern_rect,
                 &clipped_surface_rect,
                 pattern,
                 quad_flags,
@@ -827,8 +827,8 @@ fn prepare_quad_impl(
         QuadRenderStrategy::NinePatch { clip_rect, radius } => {
             prepare_nine_patch(
                 prim_instance_index,
-                local_rect,
-                &local_clip_rect,
+                &local_bounds,
+                &local_pattern_rect,
                 &clipped_surface_rect,
                 &clip_rect,
                 radius,
@@ -851,8 +851,8 @@ fn prepare_quad_impl(
 fn prepare_indirect_pattern(
     prim_spatial_node_index: SpatialNodeIndex,
     raster_spatial_node_index: SpatialNodeIndex,
-    local_rect: &LayoutRect,
-    local_clip_rect: &LayoutRect,
+    local_bounds: &LayoutRect,
+    local_pattern_rect: &LayoutRect,
     clipped_surface_rect: &DeviceRect,
     local_to_device_scale_offset: Option<&ScaleOffset>,
     device_pixel_scale: DevicePixelScale,
@@ -868,8 +868,8 @@ fn prepare_indirect_pattern(
 ) -> Option<RenderTaskId> {
     let round_edges = !aa_flags;
     let quad = create_quad_primitive(
-        local_rect,
-        local_clip_rect,
+        local_bounds,
+        local_pattern_rect,
         clipped_surface_rect,
         local_to_device_scale_offset,
         round_edges,
@@ -910,17 +910,14 @@ fn prepare_indirect_pattern(
 
     let needs_scissor = local_to_device_scale_offset.is_none();
 
-    let mut pattern_rect = *local_rect;
     let mut clips_range = ClipNodeRange { first: 0, count: 0 };
     if let Some(clip_chain) = clip_chain {
-        // TODO: intersecting the pattern rect with the clip is incorrect.
-        pattern_rect = pattern_rect.intersection_unchecked(local_clip_rect);
         clips_range = clip_chain.clips_range;
     }
 
     Some(add_render_task_with_mask(
         &pattern,
-        &pattern_rect,
+        local_bounds,
         task_size,
         clipped_surface_rect.min,
         clips_range,
@@ -941,8 +938,8 @@ fn prepare_indirect_pattern(
 
 fn prepare_nine_patch(
     prim_instance_index: PrimitiveInstanceIndex,
-    local_rect: &LayoutRect,
-    local_clip_rect: &LayoutRect,
+    local_bounds: &LayoutRect,
+    local_pattern_rect: &LayoutRect,
     clipped_surface_rect: &DeviceRect,
     ninepatch_rect: &LayoutRect,
     radius: LayoutVector2D,
@@ -963,19 +960,14 @@ fn prepare_nine_patch(
     // destination picture.
 
     let local_to_device = transform.as_2d_scale_offset().unwrap();
-    let mut device_prim_rect: DeviceRect = local_to_device.map_rect(&local_rect);
-    let mut device_clip_rect: DeviceRect = local_to_device
-        .map_rect(&local_clip_rect)
-        .intersection_unchecked(clipped_surface_rect);
+    let mut device_bounds: DeviceRect = local_to_device.map_rect(local_bounds);
+    let device_pattern_rect: DeviceRect = local_to_device.map_rect(local_pattern_rect);
 
     let rounded_edges = !aa_flags;
-    device_prim_rect = rounded_edges.select(device_prim_rect.round(), device_prim_rect);
-    device_clip_rect = rounded_edges
-        .select(device_clip_rect.round(), device_clip_rect)
-        .intersection_unchecked(&device_prim_rect);
-    let clipped_surface_rect = rounded_edges
-        .select(device_clip_rect, *clipped_surface_rect);
-
+    device_bounds = rounded_edges.select(
+        device_bounds.round(),
+        device_bounds,
+    ).intersection_unchecked(clipped_surface_rect);
 
     let local_corner_0 = LayoutRect::new(
         ninepatch_rect.min,
@@ -1027,8 +1019,8 @@ fn prepare_nine_patch(
 
     let indirect_prim_address = write_device_prim_blocks(
         &mut frame_state.frame_gpu_data.f32,
-        &device_prim_rect,
-        &device_clip_rect,
+        &device_bounds,
+        &device_pattern_rect,
         pattern.base_color,
         pattern.texture_input.task_id(),
         &[],
@@ -1056,7 +1048,7 @@ fn prepare_nine_patch(
             }
 
             let segment = DeviceRect::new(point2(x0, y0), point2(x1, y1));
-            let segment_device_rect = match segment.intersection(&clipped_surface_rect) {
+            let segment_device_rect = match segment.intersection(&device_bounds) {
                 Some(rect) => rect,
                 None => {
                     continue;
@@ -1067,7 +1059,7 @@ fn prepare_nine_patch(
                 let task_size = segment_device_rect.size().to_i32();
                 let task_id = add_render_task_with_mask(
                     pattern,
-                    &local_rect,
+                    &local_bounds,
                     task_size,
                     segment_device_rect.min,
                     clips_range,
@@ -1102,8 +1094,8 @@ fn prepare_nine_patch(
             pattern,
             local_to_device.inverse(),
             prim_instance_index,
-            &device_clip_rect,
-            &device_prim_rect,
+            &device_bounds,
+            &device_pattern_rect,
             pattern.is_opaque,
             frame_state,
             targets,
@@ -1115,7 +1107,7 @@ fn prepare_nine_patch(
         add_composite_prim(
             pattern.blend_mode,
             prim_instance_index,
-            &device_clip_rect,
+            &device_bounds,
             frame_state,
             targets,
             &scratch.frame.quad_indirect_segments,
@@ -1125,9 +1117,9 @@ fn prepare_nine_patch(
 
 fn prepare_tiles(
     prim_instance_index: PrimitiveInstanceIndex,
-    local_rect: &LayoutRect,
-    local_clip_rect: &LayoutRect,
-    device_clip_rect: &DeviceRect,
+    local_bounds: &LayoutRect,
+    local_pattern_rect: &LayoutRect,
+    device_bounds: &DeviceRect,
     pattern: &Pattern,
     mut quad_flags: QuadFlags,
     aa_flags: EdgeMask,
@@ -1154,7 +1146,7 @@ fn prepare_tiles(
         ctx.spatial_tree,
     );
 
-    let unclipped_surface_rect = device_clip_rect.round_out();
+    let unclipped_surface_rect = device_bounds.round_out();
 
     let force_masks = !transform.is_2d_scale_offset();
     // Set up the tile classifier for the params of this quad
@@ -1269,9 +1261,9 @@ fn prepare_tiles(
 
     let indirect_prim_address = write_prim_blocks(
         &mut frame_state.frame_gpu_data.f32,
-        local_rect,
-        local_clip_rect,
-        device_clip_rect,
+        local_bounds,
+        local_pattern_rect,
+        device_bounds,
         transform.as_2d_scale_offset(),
         !aa_flags,
         pattern,
@@ -1315,7 +1307,7 @@ fn prepare_tiles(
             let needs_scissor = !transform.is_2d_scale_offset();
             let task_id = add_render_task_with_mask(
                 pattern,
-                local_rect,
+                local_bounds,
                 tile_size,
                 tile.rect.min,
                 clip_chain.clips_range,
@@ -1344,7 +1336,7 @@ fn prepare_tiles(
         // Tile segments are only allowed for axis-aligned primitives.
         let local_to_device = transform.as_2d_scale_offset().unwrap();
 
-        let device_prim_rect: DeviceRect = local_to_device.map_rect(&local_rect);
+        let device_pattern_rect: DeviceRect = local_to_device.map_rect(&local_pattern_rect);
 
         if pattern.texture_input.task_id() != RenderTaskId::INVALID {
             for segment in &mut scratch.frame.quad_direct_segments {
@@ -1356,8 +1348,8 @@ fn prepare_tiles(
             pattern,
             local_to_device.inverse(),
             prim_instance_index,
-            &device_clip_rect,
-            &device_prim_rect,
+            &device_bounds,
+            &device_pattern_rect,
             pattern.is_opaque,
             frame_state,
             targets,
@@ -1369,7 +1361,7 @@ fn prepare_tiles(
         add_composite_prim(
             pattern.blend_mode,
             prim_instance_index,
-            device_clip_rect,
+            device_bounds,
             frame_state,
             targets,
             &scratch.frame.quad_indirect_segments,
@@ -1543,7 +1535,7 @@ pub fn cache_key(
 
 fn add_render_task_with_mask(
     pattern: &Pattern,
-    prim_local_coverage_rect: &LayoutRect,
+    local_bounds: &LayoutRect,
     task_size: DeviceIntSize,
     content_origin: DevicePoint,
     clips_range: ClipNodeRange,
@@ -1604,7 +1596,7 @@ fn add_render_task_with_mask(
                     clips_range,
                     task_id,
                     &task_rect,
-                    prim_local_coverage_rect,
+                    local_bounds,
                     prim_spatial_node_index,
                     raster_spatial_node_index,
                     device_pixel_scale,
@@ -1997,40 +1989,36 @@ pub fn prepare_clip_task(
 }
 
 fn create_quad_primitive(
-    local_rect: &LayoutRect,
-    local_clip_rect: &LayoutRect,
+    local_bounds: &LayoutRect,
+    local_pattern_rect: &LayoutRect,
     device_clip_rect: &DeviceRect,
     local_to_device: Option<&ScaleOffset>,
     round_edges: EdgeMask,
     pattern: &Pattern,
 ) -> QuadPrimitive {
-    let mut prim_rect;
-    let mut prim_clip_rect;
+    let mut bounds;
     let pattern_rect;
     let pattern_transform;
     if let Some(local_to_device) = local_to_device {
-        prim_rect = local_to_device.map_rect(local_rect);
-        prim_clip_rect = local_to_device
-                .map_rect(&local_clip_rect)
-                .intersection_unchecked(device_clip_rect)
-                .to_untyped();
+        bounds = local_to_device
+            .map_rect(&local_bounds)
+            .intersection_unchecked(device_clip_rect)
+            .to_untyped();
         // Capture the pattern rect before rounding: rounding is only meant to
         // snap vertex coverage to the device grid, not to move the samples.
-        pattern_rect = prim_rect;
-        prim_rect = round_edges.select(prim_rect.round(), prim_rect);
-        prim_clip_rect = round_edges.select(prim_clip_rect.round(), prim_clip_rect);
+        pattern_rect = local_to_device.map_rect(local_pattern_rect);
+        bounds = round_edges.select(bounds.round(), bounds);
 
         pattern_transform = local_to_device.inverse();
     } else {
-        prim_rect = local_rect.to_untyped();
-        prim_clip_rect = local_clip_rect.to_untyped();
-        pattern_rect = prim_rect;
+        bounds = local_bounds.to_untyped();
+        pattern_rect = local_pattern_rect.to_untyped();
         pattern_transform = ScaleOffset::identity();
     };
 
     QuadPrimitive {
         // Fold the clip rect into the bounds: a single coverage rect.
-        bounds: prim_rect.intersection_unchecked(&prim_clip_rect),
+        bounds,
         pattern_rect,
         input_task: pattern.texture_input.task_id(),
         pattern_scale_offset: pattern_transform,
@@ -2045,40 +2033,35 @@ fn create_quad_primitive(
 /// written in layout space.
 fn write_prim_blocks(
     builder: &mut GpuBufferBuilderF,
-    local_rect: &LayoutRect,
-    local_clip_rect: &LayoutRect,
+    local_bounds: &LayoutRect,
+    local_pattern_rect: &LayoutRect,
     device_clip_rect: &DeviceRect,
     local_to_device: Option<&ScaleOffset>,
     round_edges: EdgeMask,
     pattern: &Pattern,
 ) -> GpuBufferAddress {
-    let mut prim_rect;
-    let mut prim_clip_rect;
+    let mut bounds;
     let pattern_rect;
     let pattern_transform;
     if let Some(local_to_device) = local_to_device {
-        prim_rect = local_to_device.map_rect(&local_rect);
-        prim_clip_rect = local_to_device
-                .map_rect(&local_clip_rect)
+        pattern_rect = local_to_device.map_rect(local_pattern_rect);
+        bounds = local_to_device
+                .map_rect(&local_bounds)
                 .intersection_unchecked(&device_clip_rect)
                 .to_untyped();
         // Capture the pattern rect before rounding: rounding is only meant to
         // snap vertex coverage to the device grid, not to move the samples.
-        pattern_rect = prim_rect;
-        prim_rect = round_edges.select(prim_rect.round(), prim_rect);
-        prim_clip_rect = round_edges.select(prim_clip_rect.round(), prim_clip_rect);
+        bounds = round_edges.select(bounds.round(), bounds);
         pattern_transform = local_to_device.inverse();
     } else {
-        prim_rect = local_rect.to_untyped();
-        prim_clip_rect = local_clip_rect.to_untyped();
-        pattern_rect = prim_rect;
+        pattern_rect = local_pattern_rect.to_untyped();
+        bounds = local_bounds.to_untyped();
         pattern_transform = ScaleOffset::identity();
     };
 
     write_prim_blocks_impl(
         builder,
-        // Fold the clip rect into the bounds: a single coverage rect.
-        prim_rect.intersection_unchecked(&prim_clip_rect),
+        bounds,
         pattern_rect,
         pattern.base_color,
         pattern.texture_input.task_id(),
@@ -2091,7 +2074,7 @@ fn write_prim_blocks(
 pub fn write_device_prim_blocks(
     builder: &mut GpuBufferBuilderF,
     prim_rect: &DeviceRect,
-    clip_rect: &DeviceRect,
+    pattern_rect: &DeviceRect,
     pattern_base_color: ColorF,
     pattern_texture_input: RenderTaskId,
     segments: &[QuadSegment],
@@ -2099,12 +2082,8 @@ pub fn write_device_prim_blocks(
 ) -> GpuBufferAddress {
     write_prim_blocks_impl(
         builder,
-        // Fold the clip rect into the bounds: a single coverage rect.
-        prim_rect.to_untyped().intersection_unchecked(&clip_rect.to_untyped()),
-        // These device-space rects are already pixel-aligned (or sampled via
-        // segment uv rects with MAP_TO_SEGMENT), so the pattern rect matches the
-        // (unclipped) bounds.
         prim_rect.to_untyped(),
+        pattern_rect.to_untyped(),
         pattern_base_color,
         pattern_texture_input,
         segments,
@@ -2115,19 +2094,16 @@ pub fn write_device_prim_blocks(
 /// Write the gpu blocks for a primitive in layout space.
 pub fn write_layout_prim_blocks(
     builder: &mut GpuBufferBuilderF,
-    prim_rect: &LayoutRect,
-    clip_rect: &LayoutRect,
+    bounds: &LayoutRect,
+    pattern_rect: &LayoutRect,
     pattern_base_color: ColorF,
     pattern_texture_input: RenderTaskId,
     segments: &[QuadSegment],
 ) -> GpuBufferAddress {
     write_prim_blocks_impl(
         builder,
-        // Fold the clip rect into the bounds: a single coverage rect.
-        prim_rect.to_untyped().intersection_unchecked(&clip_rect.to_untyped()),
-        // Layout-space prims are not rounded, so the pattern rect matches the
-        // (unclipped) bounds.
-        prim_rect.to_untyped(),
+        bounds.cast_unit(),
+        pattern_rect.cast_unit(),
         pattern_base_color,
         pattern_texture_input,
         segments,
