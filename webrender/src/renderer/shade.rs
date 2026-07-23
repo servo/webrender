@@ -554,7 +554,6 @@ pub struct Shaders {
     // Brush shaders
     brush_image: Vec<Option<BrushShader>>,
     brush_fast_image: Vec<Option<BrushShader>>,
-    brush_mix_blend: BrushShader,
 
     // The are "primitive shaders". These shaders draw and blend
     // final results on screen. They are aware of tile boundaries.
@@ -625,15 +624,6 @@ impl Shaders {
         let shader_list = get_shader_features(shader_flags);
 
         let mut loader = ShaderLoader::new();
-
-        let brush_mix_blend = BrushShader::new(
-            "brush_mix_blend",
-            &[],
-            &shader_list,
-            false /* advanced blend */,
-            false /* dual source */,
-            &mut loader,
-        )?;
 
         let cs_blur_rgba8 = loader.create_shader(
             ShaderKind::Cache(VertexArrayKind::Blur),
@@ -969,7 +959,6 @@ impl Shaders {
             cs_svg_filter_node,
             brush_image,
             brush_fast_image,
-            brush_mix_blend,
             ps_text_run,
             ps_text_run_dual_source,
             ps_quad_textured,
@@ -1167,9 +1156,6 @@ impl Shaders {
                             .as_mut()
                                 .expect("Unsupported image shader kind")
                         }
-                    }
-                    BrushBatchKind::MixBlend { .. } => {
-                        &mut self.brush_mix_blend
                     }
                 };
                 brush_shader.get_handle(key.blend_mode, features, debug_flags)

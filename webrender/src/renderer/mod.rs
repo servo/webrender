@@ -149,7 +149,7 @@ const GPU_TAG_BRUSH_YUV_IMAGE: GpuProfileTag = GpuProfileTag {
     label: "B_YuvImage",
     color: debug_colors::DARKGREEN,
 };
-const GPU_TAG_BRUSH_MIXBLEND: GpuProfileTag = GpuProfileTag {
+const GPU_TAG_MIXBLEND: GpuProfileTag = GpuProfileTag {
     label: "B_MixBlend",
     color: debug_colors::MAGENTA,
 };
@@ -251,7 +251,6 @@ impl BatchKind {
             BatchKind::Brush(kind) => {
                 match kind {
                     BrushBatchKind::Image(..) => GPU_TAG_BRUSH_IMAGE,
-                    BrushBatchKind::MixBlend { .. } => GPU_TAG_BRUSH_MIXBLEND,
                 }
             }
             BatchKind::TextRun(_) => GPU_TAG_PRIM_TEXT_RUN,
@@ -268,7 +267,7 @@ impl BatchKind {
             BatchKind::Quad(PatternKind::YuvTextureRect) => GPU_TAG_BRUSH_YUV_IMAGE,
             BatchKind::Quad(PatternKind::Backdrop) => GPU_TAG_PRIMITIVE,
             BatchKind::Quad(PatternKind::Blend) => GPU_TAG_PRIMITIVE,
-            BatchKind::Quad(PatternKind::MixBlend) => GPU_TAG_PRIMITIVE,
+            BatchKind::Quad(PatternKind::MixBlend) => GPU_TAG_MIXBLEND,
             BatchKind::Quad(PatternKind::Mask) => GPU_TAG_INDIRECT_MASK,
         }
     }
@@ -657,7 +656,7 @@ impl BlendMode {
             MixBlendMode::PlusLighter => BlendMode::PlusLighter,
             // Otherwise, use advanced blend without coherency if available.
             _ if advanced_blend => BlendMode::Advanced(mode),
-            // If advanced blend is not available, then we have to use brush_mix_blend.
+            // If advanced blend is not available, then we have to use mix_blend.
             _ => return None,
         })
     }
@@ -3131,19 +3130,6 @@ impl Renderer {
                         }
                     }
                     prev_blend_mode = batch.key.blend_mode;
-                }
-
-                // Handle special case readback for composites.
-                if let BatchKind::Brush(BrushBatchKind::MixBlend { task_id, backdrop_id }) = batch.key.kind {
-                    // composites can't be grouped together because
-                    // they may overlap and affect each other.
-                    debug_assert_eq!(batch.instances.len(), 1);
-                    self.handle_readback_composite(
-                        draw_target,
-                        uses_scissor,
-                        &render_tasks[task_id],
-                        &render_tasks[backdrop_id],
-                    );
                 }
 
                 if let Some(readback) = batch.readback {

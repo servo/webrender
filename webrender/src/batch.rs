@@ -42,10 +42,6 @@ pub const INVALID_SEGMENT_INDEX: i32 = 0xffff;
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BrushBatchKind {
     Image(ImageBufferKind),
-    MixBlend {
-        task_id: RenderTaskId,
-        backdrop_id: RenderTaskId,
-    },
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
