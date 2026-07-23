@@ -1558,15 +1558,22 @@ impl ClipStore {
             let clip_rect = match clip_snap {
                 ClipSnap::Nearest =>
                     node.snapped_clip_rect(snapper, spatial_tree, SnapRounding::Nearest),
-                // A device-space text run rounds its clip *out* on the
-                // non-sub-pixel axis: the glyph is snapped to the device grid on
-                // that axis, so an exact fractional clip edge would shave a whole
-                // glyph row whose center lies just beyond it. Rounding out keeps
-                // the snapped glyph's own rows while never rounding a clip edge
-                // inward, so it can't shave the last glyph the way snapping used
-                // to (bug 2050692, bug 2055145).
-                ClipSnap::Text(rounding) =>
-                    node.snapped_clip_rect(snapper, spatial_tree, rounding),
+                // An *ancestor* clip of a device-space text run (an overflow
+                // clip, table-cell edge, scroll frame, etc.) rounds out on BOTH
+                // axes. The glyph is snapped to the device grid on its
+                // non-sub-pixel axis always, and on its sub-pixel axis when it
+                // has no sub-pixel positioning (a bitmap strike, e.g. MS UI
+                // Gothic), so an exact fractional container edge would shave a
+                // whole glyph column/row whose ink lies just beyond it. Rounding
+                // out keeps the snapped glyph while never moving an edge inward,
+                // so it can't shave the first or last glyph
+                // (bug 2050692 / bug 2055145 / bug 2056856). The run's OWN leaf
+                // clip is instead kept exact on the sub-pixel axis (see
+                // `snap_policy` / the visibility pass): rounding it out would
+                // over-reveal a sub-pixel column of an adjacent run at an inline
+                // boundary, and the leaf never causes the container-shave.
+                ClipSnap::Text(_) =>
+                    node.snapped_clip_rect(snapper, spatial_tree, SnapRounding::RoundOut),
                 // Surface / other device-space prim: leave the clip exact.
                 ClipSnap::Exact => node.unsnapped_clip_rect,
             };

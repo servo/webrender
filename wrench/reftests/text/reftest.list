@@ -82,3 +82,10 @@ skip_on(android) fuzzy(120,20800) == raster_root_C_8192.yaml raster_root_C_ref.y
 platform(linux,mac) == rotate-snap-clip.yaml rotate-snap-clip-ref.yaml
 platform(linux,mac) == rotate-snap-filter.yaml rotate-snap-filter-ref.yaml
 fuzzy-if(env(android,device),47,6865) fuzzy-if(not(env(android,device)),4,6600) == mix-blend-layers.yaml mix-blend-layers-ref.yaml # Android device is Samsung Galaxy A51
+
+# bug 2056856: a device-space text run must round its *ancestor* clips out on the
+# sub-pixel (horizontal) axis, not keep them exact. Proggy's ppem-11 bitmap strike
+# places a bearing-0 glyph on the device grid with no sub-pixel positioning; an
+# exact fractional left edge on an ancestor clip-chain node shaves its leftmost
+# column. FreeType-only (the bitmap strike selection), so restrict to linux.
+platform(linux) == 2056856-bitmap-clip.yaml 2056856-bitmap-clip-ref.yaml

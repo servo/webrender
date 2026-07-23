@@ -1,0 +1,80 @@
+# Reference for 2056856-bitmap-clip.yaml. Same grid-placed bitmap glyphs and the
+# same ancestor clip-chain, but with the clip's left edge moved to an integer x a
+# couple of px further left, where it never shaves the glyph. A correct build
+# (ancestor clips of text rounded out) renders the test identically to this.
+
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 240, 160]
+      color: white
+    - type: clip
+      id: 2
+      bounds: [98.0, 0, 122.0, 160]
+    - type: clip-chain
+      id: 3
+      clips: [2]
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 24]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 40]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 56]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 72]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 88]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 104]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 120]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 136]
+      text: "w"
+      clip-chain: 3

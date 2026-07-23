@@ -1,0 +1,91 @@
+# Regression test for bug 2056856 (regressed by bug 2044211).
+#
+# Proggy carries an embedded bitmap strike at ppem 11 (its outlines are empty,
+# so `embedded-bitmaps: true` + size 11 selects the strike). The 'w' glyph has
+# bitmap bearingX=0 (ink flush against the pen) and, being a bitmap, no sub-pixel
+# positioning: it is placed on the device pixel grid. At a fractional device x the
+# glyph floors onto the grid while an *ancestor* clip (here a clip-chain node,
+# mirroring an overflow:hidden container) kept EXACT on the sub-pixel axis before
+# this fix (bug 2050692) sits at the fractional edge just to the right - shaving
+# the leftmost ink column. Rounding a text run's *ancestor* clips OUT on both axes
+# (the fix) puts that edge on the same grid line as the glyph, so nothing is
+# shaved. The clip must be a clip-chain node, not the text item's own clip-rect:
+# a run's own leaf clip stays exact on the sub-pixel axis (bug 2050692), only its
+# ancestor clips round out (bug 2056856). The reference moves the clip's left edge
+# a couple of px left, where it never shaves; a correct build renders them alike.
+
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 240, 160]
+      color: white
+    - type: clip
+      id: 2
+      bounds: [100.8, 0, 119.2, 160]
+    - type: clip-chain
+      id: 3
+      clips: [2]
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 24]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 40]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 56]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 72]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 88]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 104]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 120]
+      text: "w"
+      clip-chain: 3
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 136]
+      text: "w"
+      clip-chain: 3
