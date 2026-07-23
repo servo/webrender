@@ -42,7 +42,6 @@ use crate::picture::{ClusterFlags, PictureCompositeMode, PictureInstance, Pictur
 use crate::picture::{PrimitiveList, PrimitiveCluster, SurfaceIndex, SubpixelMode, Picture3DContext};
 use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::prim_store::*;
-use crate::prim_store::borders::ImageBorderScratch;
 use crate::quad::{self, QuadTransformState};
 use crate::render_backend::DataStores;
 use crate::render_task_cache::RenderTaskCacheKeyKind;
@@ -311,27 +310,11 @@ fn prepare_prim_for_render(
             _ => use_legacy_path,
         };
 
-        // Per-frame, per-kind segment construction that has to run
-        // before update_clip_task (which reads the segments via
-        // update_clip_task_for_brush).
-        let snapped_local_rect = scratch.frame.draws[prim_instance_index].snapped_local_rect;
-        match prim_instance.kind {
-            PrimitiveKind::ImageBorder { data_handle } => {
-                ImageBorderScratch::build_for_prim(
-                    data_handle,
-                    PrimitiveInstanceIndex(prim_instance_index as u32),
-                    snapped_local_rect.size(),
-                    data_stores,
-                    scratch,
-                );
-            }
-            _ => {}
-        }
-
         if should_update_clip_task {
+            let snapped_local_rect = scratch.frame.draws[prim_instance_index].snapped_local_rect;
             let prim_rect = data_stores.get_local_prim_rect(
                 prim_instance,
-                scratch.frame.draws[prim_instance_index].snapped_local_rect,
+                snapped_local_rect,
                 &store.pictures,
                 frame_state.surfaces,
             );

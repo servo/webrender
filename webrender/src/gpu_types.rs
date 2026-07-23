@@ -8,10 +8,8 @@ use euclid::HomogeneousVector;
 use crate::composite::{CompositeFeatures, CompositorClip};
 use crate::pattern::PatternShaderInput;
 use crate::quad::LayoutOrDeviceRect;
-use crate::segment::EdgeMask;
 use crate::transform::GpuTransformId;
 use crate::internal_types::{FrameVec, FrameMemory};
-use crate::prim_store::VECS_PER_SEGMENT;
 use crate::render_task::RenderTaskAddress;
 use crate::render_task_graph::RenderTaskId;
 use crate::renderer::{GpuBufferAddress, GpuBufferBuilderF, GpuBufferHandle, GpuBufferWriterF, GpuBufferDataF, GpuBufferDataI, GpuBufferWriterI, ShaderColorMode};
@@ -709,84 +707,6 @@ pub struct MaskInstance {
 }
 
 
-// Note: This can use up to 12 bits due to how it will
-// be packed in the instance data.
-
-/// Flags that define how the common brush shader
-/// code should process this instance.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, MallocSizeOf)]
-pub struct BrushFlags(u16);
-
-bitflags! {
-    impl BrushFlags: u16 {
-        /// Apply perspective interpolation to UVs
-        const PERSPECTIVE_INTERPOLATION = 1;
-        /// Do interpolation relative to segment rect,
-        /// rather than primitive rect.
-        const SEGMENT_RELATIVE = 2;
-        /// Repeat UVs horizontally.
-        const SEGMENT_REPEAT_X = 4;
-        /// Repeat UVs vertically.
-        const SEGMENT_REPEAT_Y = 8;
-        /// Horizontally follow border-image-repeat: round.
-        const SEGMENT_REPEAT_X_ROUND = 16;
-        /// Vertically follow border-image-repeat: round.
-        const SEGMENT_REPEAT_Y_ROUND = 32;
-        /// Whether to position the repetitions so that the middle tile
-        /// is horizontally centered.
-        const SEGMENT_REPEAT_X_CENTERED = 64;
-        /// Whether to position the repetitions so that the middle tile
-        /// is vertically centered.
-        const SEGMENT_REPEAT_Y_CENTERED = 128;
-        /// Middle (fill) area of a border-image-repeat.
-        const SEGMENT_NINEPATCH_MIDDLE = 256;
-        /// The extra segment data is a texel rect.
-        const SEGMENT_TEXEL_RECT = 512;
-        /// Whether to force the anti-aliasing when the primitive
-        /// is axis-aligned.
-        const FORCE_AA = 1024;
-        /// Specifies UV coordinates are normalized
-        const NORMALIZED_UVS = 2048;
-    }
-}
-
-impl core::fmt::Debug for BrushFlags {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        if self.is_empty() {
-            write!(f, "{:#x}", Self::empty().bits())
-        } else {
-            bitflags::parser::to_writer(self, f)
-        }
-    }
-}
-
-/// Convenience structure to encode into PrimitiveInstanceData.
-pub struct BrushInstance {
-    pub prim_header_index: PrimitiveHeaderIndex,
-    pub clip_task_address: RenderTaskAddress,
-    pub segment_index: i32,
-    pub edge_flags: EdgeMask,
-    pub brush_flags: BrushFlags,
-    pub resource_address: i32,
-}
-
-impl From<BrushInstance> for PrimitiveInstanceData {
-    fn from(instance: BrushInstance) -> Self {
-        PrimitiveInstanceData {
-            data: [
-                instance.prim_header_index.0,
-                instance.clip_task_address.0,
-                instance.segment_index
-                | ((instance.brush_flags.bits() as i32) << 16)
-                | ((instance.edge_flags.bits() as i32) << 28),
-                instance.resource_address,
-            ]
-        }
-    }
-}
-
 // Texture cache resources can be either a simple rect, or define
 // a polygon within a rect by specifying a UV coordinate for each
 // corner. This is useful for rendering screen-space rasterized
@@ -854,23 +774,6 @@ impl ImageSource {
             writer.push_one(to_array(bottom_left));
             writer.push_one(to_array(bottom_right));
         }
-    }
-}
-
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, MallocSizeOf)]
-pub struct BrushSegmentGpuData {
-    pub local_rect: LayoutRect,
-    /// Each brush shader has its own interpretation of this field.
-    pub extra_data: [f32; 4],
-}
-
-impl GpuBufferDataF for BrushSegmentGpuData {
-    const NUM_BLOCKS: usize = VECS_PER_SEGMENT;
-    fn write(&self, writer: &mut GpuBufferWriterF) {
-        writer.push_one(self.local_rect);
-        writer.push_one(self.extra_data);
     }
 }
 

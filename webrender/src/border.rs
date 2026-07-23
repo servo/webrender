@@ -11,8 +11,8 @@ use crate::ellipse::Ellipse;
 use crate::renderer::GpuBufferBuilderF;
 use crate::scene_building::SceneBuilder;
 use crate::spatial_tree::SpatialNodeIndex;
-use crate::gpu_types::{BorderInstance, BorderInstanceGpuData, BorderSegment, BrushFlags};
-use crate::prim_store::{BrushSegment, NinePatchDescriptor};
+use crate::gpu_types::{BorderInstance, BorderInstanceGpuData, BorderSegment};
+use crate::prim_store::NinePatchDescriptor;
 use crate::prim_store::borders::NormalBorderPrim;
 use crate::util::{lerp, RectHelpers};
 use crate::internal_types::LayoutPrimitiveInfo;
@@ -1169,7 +1169,6 @@ pub trait NinePatchDescriptorExt {
         rect: &LayoutRect,
         add_segment: &mut dyn FnMut(&LayoutRect, &TexelRect, EdgeMask, RepeatMode, RepeatMode),
     );
-    fn create_brush_segments(&self, size: LayoutSize) -> Vec<BrushSegment>;
 }
 
 impl NinePatchDescriptorExt for NinePatchDescriptor {
@@ -1317,49 +1316,6 @@ impl NinePatchDescriptorExt for NinePatchDescriptor {
                 self.repeat_vertical,
             );
         }
-    }
-
-    fn create_brush_segments(&self, size: LayoutSize) -> Vec<BrushSegment> {
-        // Build the list of image segments
-        let mut segments = Vec::new();
-
-        let r = LayoutRect::from_size(size);
-        self.for_each_segment(&r, &mut |rect, uv_rect, side, repeat_horizontal, repeat_vertical| {
-            // Use segment relative interpolation for all
-            // instances in this primitive.
-            let mut brush_flags =
-                BrushFlags::SEGMENT_RELATIVE |
-                BrushFlags::SEGMENT_TEXEL_RECT;
-
-            if side == EdgeMask::empty() {
-                brush_flags |= BrushFlags::SEGMENT_NINEPATCH_MIDDLE;
-            }
-
-            // Enable repeat modes on the segment.
-            if repeat_horizontal == RepeatMode::Repeat {
-                brush_flags |= BrushFlags::SEGMENT_REPEAT_X | BrushFlags::SEGMENT_REPEAT_X_CENTERED;
-            } else if repeat_horizontal == RepeatMode::Round {
-                brush_flags |= BrushFlags::SEGMENT_REPEAT_X | BrushFlags::SEGMENT_REPEAT_X_ROUND;
-            }
-
-            if repeat_vertical == RepeatMode::Repeat {
-                brush_flags |= BrushFlags::SEGMENT_REPEAT_Y | BrushFlags::SEGMENT_REPEAT_Y_CENTERED;
-            } else if repeat_vertical == RepeatMode::Round {
-                brush_flags |= BrushFlags::SEGMENT_REPEAT_Y | BrushFlags::SEGMENT_REPEAT_Y_ROUND;
-            }
-
-            let segment = BrushSegment::new(
-                *rect,
-                true,
-                EdgeMask::empty(),
-                uv_rect.to_array(),
-                brush_flags,
-            );
-
-            segments.push(segment);
-        });
-
-        segments
     }
 }
 

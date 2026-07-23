@@ -9,7 +9,7 @@ use crate::pattern::PatternKind;
 use crate::renderer::GpuBufferAddress;
 use crate::spatial_tree::SpatialNodeIndex;
 use glyph_rasterizer::{GlyphFormat, SubpixelDirection};
-use crate::gpu_types::{BrushFlags, PrimitiveHeaders, ZBufferId, ZBufferIdGenerator};
+use crate::gpu_types::{PrimitiveHeaders, ZBufferId, ZBufferIdGenerator};
 use crate::gpu_types::SplitCompositeInstance;
 use crate::gpu_types::{PrimitiveInstanceData, GlyphInstance};
 use crate::gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex};
@@ -806,7 +806,7 @@ impl BatchBuilder {
                     render_task_address: self.batcher.render_task_address,
                     user_data: [
                         uv_rect_address.as_int(),
-                        BrushFlags::PERSPECTIVE_INTERPOLATION.bits() as i32,
+                        0,
                         0,
                         clip_task_address.0 as i32,
                     ],

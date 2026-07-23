@@ -22,7 +22,7 @@ use crate::picture::{PictureCompositeMode, ClusterFlags, SurfaceInfo};
 use crate::tile_cache::TileCacheInstance;
 use crate::picture::{PictureScratch, SurfaceIndex, RasterConfig};
 use crate::tile_cache::SubSliceIndex;
-use crate::prim_store::{ClipSnap, ClipTaskIndex, PictureIndex, PrimitiveKind, SegmentInstanceIndex};
+use crate::prim_store::{ClipSnap, ClipTaskIndex, PictureIndex, PrimitiveKind};
 use crate::prim_store::{PrimitiveStore, PrimitiveInstance, PrimitiveInstanceIndex};
 use crate::prim_store::borders::ImageBorderScratch;
 use crate::prim_store::image::ImageScratch;
@@ -192,13 +192,6 @@ pub struct PrimitiveDrawHeader {
     /// BoxShadow, Rectangle/YuvImage).
     pub kind_scratch: KindScratchHandle,
 
-    /// Index into PrimitiveFrameScratch.segment_instances for prims
-    /// that opt into segmented brush rendering (Rectangle, YuvImage,
-    /// non-tiled Image). UNUSED for prims that don't segment, or for
-    /// the trivial single-segment case. Built fresh each frame in
-    /// build_segments_if_needed.
-    pub segment_instance_index: SegmentInstanceIndex,
-
     /// Per-frame compositing decision for Image / YuvImage primitives.
     /// Set during the visibility pass by tile-cache promotion logic;
     /// `Blit` for kinds that aren't candidates for compositor surfaces
@@ -222,7 +215,6 @@ impl PrimitiveDrawHeader {
             clip_chain: ClipChainInstance::empty(),
             clip_task_index: ClipTaskIndex::INVALID,
             kind_scratch: KindScratchHandle::None,
-            segment_instance_index: SegmentInstanceIndex::UNUSED,
             compositor_surface_kind: CompositorSurfaceKind::Blit,
             snapped_local_rect: LayoutRect::zero(),
         }
@@ -232,7 +224,6 @@ impl PrimitiveDrawHeader {
         self.state = DrawState::Culled;
         self.clip_task_index = ClipTaskIndex::INVALID;
         self.kind_scratch = KindScratchHandle::None;
-        self.segment_instance_index = SegmentInstanceIndex::UNUSED;
         self.compositor_surface_kind = CompositorSurfaceKind::Blit;
     }
 }
