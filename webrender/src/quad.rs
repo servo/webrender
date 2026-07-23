@@ -816,7 +816,6 @@ fn prepare_quad_impl(
                 clip_chain,
                 transform_id,
                 transform,
-                pic_context,
                 ctx,
                 interned_clips,
                 frame_state,
@@ -1126,7 +1125,6 @@ fn prepare_tiles(
     clip_chain: &ClipChainInstance,
     gpu_transform: GpuTransformId,
     transform: &mut QuadTransformState,
-    pic_context: &PictureContext,
     ctx: &PatternBuilderContext,
     interned_clips: &DataStore<ClipIntern>,
     frame_state: &mut FrameBuildingState,
@@ -1139,12 +1137,6 @@ fn prepare_tiles(
     // The coordinates are provided to the shaders:
     //  - in layout space for the render task,
     //  - in device space for the instances that draw into the destination picture.
-
-    let surface = &mut frame_state.surfaces[pic_context.surface_index.0];
-    surface.map_local_to_picture.set_target_spatial_node(
-        transform.prim_spatial_node_index(),
-        ctx.spatial_tree,
-    );
 
     let unclipped_surface_rect = device_bounds.round_out();
 
