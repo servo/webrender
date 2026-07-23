@@ -20,7 +20,7 @@ use crate::transform::GpuTransformId;
 use crate::util::ScaleOffset;
 use crate::internal_types::{CacheTextureId, FastHashMap, FrameAllocator, FrameMemory, FrameVec, TextureSource};
 use crate::svg_filter::FilterGraphOp;
-use crate::picture::{SurfaceInfo, ResolvedSurfaceTexture};
+use crate::picture::ResolvedSurfaceTexture;
 use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::transform::TransformPalette;
 use crate::quad;
@@ -55,7 +55,6 @@ pub struct RenderTargetContext<'a, 'rc> {
     pub batch_lookback_count: usize,
     pub spatial_tree: &'a SpatialTree,
     pub data_stores: &'a DataStores,
-    pub surfaces: &'a [SurfaceInfo],
     pub scratch: &'a PrimitiveScratchBuffer,
     pub screen_world_rect: WorldRect,
     pub globals: &'a FrameGlobalResources,
