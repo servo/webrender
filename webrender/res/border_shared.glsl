@@ -28,6 +28,7 @@ struct BorderInstanceGpuData {
     vec2 widths;
     vec2 radii;
     float shape;
+    vec2 shape_offset;
 };
 
 BorderInstanceGpuData fetch_gpu_data(int index) {
@@ -40,6 +41,7 @@ BorderInstanceGpuData fetch_gpu_data(int index) {
     data.widths = texels[3].xy;
     data.radii = texels[3].zw;
     data.shape = texels[4].x;
+    data.shape_offset = texels[4].yz;
 
     return data;
 }

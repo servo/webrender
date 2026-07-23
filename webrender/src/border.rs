@@ -55,6 +55,7 @@ pub struct BorderSegmentCacheKey {
     pub size: LayoutSizeAu,
     pub radius: LayoutSizeAu,
     pub shape: u32,
+    pub shape_offset: LayoutSizeAu,
     pub side0: BorderSideAu,
     pub side1: BorderSideAu,
     pub segment: BorderSegment,
@@ -542,22 +543,74 @@ pub fn create_border_segments(
         widths.left - overlap.width / 2.0,
     );
 
+    let max_shape_offsets = LayoutSideOffsets::new(
+        rect.width() - border.radius.top_left.width - border.radius.top_right.width,
+        rect.height() - border.radius.top_right.height - border.radius.bottom_right.height,
+        rect.width() - border.radius.bottom_left.width - border.radius.bottom_right.width,
+        rect.height() - border.radius.top_left.height - border.radius.bottom_left.height,
+    );
+
+    let shape_offset_tl = if border.radius.shape_top_left < 0.0 {
+        LayoutSize::new(
+            non_overlapping_widths.top,
+            non_overlapping_widths.left
+        ).min(LayoutSize::new(
+            max_shape_offsets.top,
+            max_shape_offsets.left,
+        ))
+    } else {
+        LayoutSize::zero()
+    };
+    let shape_offset_tr = if border.radius.shape_top_right < 0.0 {
+        LayoutSize::new(
+            non_overlapping_widths.top,
+           non_overlapping_widths.right
+        ).min(LayoutSize::new(
+            max_shape_offsets.top,
+            max_shape_offsets.right,
+        ))
+    } else {
+        LayoutSize::zero()
+    };
+    let shape_offset_br = if border.radius.shape_bottom_right < 0.0 {
+        LayoutSize::new(
+            non_overlapping_widths.bottom,
+           non_overlapping_widths.right
+        ).min(LayoutSize::new(
+            max_shape_offsets.bottom,
+            max_shape_offsets.right,
+        ))
+    } else {
+        LayoutSize::zero()
+    };
+    let shape_offset_bl = if border.radius.shape_bottom_left < 0.0 {
+        LayoutSize::new(
+            non_overlapping_widths.bottom,
+           non_overlapping_widths.left
+        ).min(LayoutSize::new(
+            max_shape_offsets.bottom,
+            max_shape_offsets.left,
+        ))
+    } else {
+        LayoutSize::zero()
+    };
+
     let local_size_tl = LayoutSize::new(
         border.radius.top_left.width.max(widths.left),
         border.radius.top_left.height.max(widths.top),
-    );
+    ) + shape_offset_tl;
     let local_size_tr = LayoutSize::new(
         border.radius.top_right.width.max(widths.right),
         border.radius.top_right.height.max(widths.top),
-    );
+    ) + shape_offset_tr;
     let local_size_br = LayoutSize::new(
         border.radius.bottom_right.width.max(widths.right),
         border.radius.bottom_right.height.max(widths.bottom),
-    );
+    ) + shape_offset_br;
     let local_size_bl = LayoutSize::new(
         border.radius.bottom_left.width.max(widths.left),
         border.radius.bottom_left.height.max(widths.bottom),
-    );
+    ) + shape_offset_bl;
 
     let top_edge_info = get_edge_info(
         border.top.style,
@@ -660,6 +713,7 @@ pub fn create_border_segments(
         LayoutSize::new(widths.left, widths.top),
         border.radius.top_left,
         border.radius.shape_top_left,
+        shape_offset_tl,
         BorderSegment::TopLeft,
         EdgeMask::TOP | EdgeMask::LEFT,
         rect.top_right(),
@@ -687,6 +741,7 @@ pub fn create_border_segments(
         LayoutSize::new(widths.right, widths.top),
         border.radius.top_right,
         border.radius.shape_top_right,
+        shape_offset_tr,
         BorderSegment::TopRight,
         EdgeMask::TOP | EdgeMask::RIGHT,
         rect.min,
@@ -714,6 +769,7 @@ pub fn create_border_segments(
         LayoutSize::new(widths.right, widths.bottom),
         border.radius.bottom_right,
         border.radius.shape_bottom_right,
+        shape_offset_br,
         BorderSegment::BottomRight,
         EdgeMask::BOTTOM | EdgeMask::RIGHT,
         rect.bottom_left(),
@@ -741,6 +797,7 @@ pub fn create_border_segments(
         LayoutSize::new(widths.left, widths.bottom),
         border.radius.bottom_left,
         border.radius.shape_bottom_left,
+        shape_offset_bl,
         BorderSegment::BottomLeft,
         EdgeMask::BOTTOM | EdgeMask::LEFT,
         rect.max,
@@ -763,6 +820,7 @@ fn add_segment(
     widths: DeviceSize,
     radius: DeviceSize,
     shape: f32,
+    shape_offset: DeviceSize,
     do_aa: bool,
     h_adjacent_corner_outer: DevicePoint,
     h_adjacent_corner_radius: DeviceSize,
@@ -781,7 +839,8 @@ fn add_segment(
         color1: color1.premultiplied(),
         widths,
         radius,
-        shape
+        shape,
+        shape_offset,
     };
 
     let base_instance = BorderInstance {
@@ -907,6 +966,7 @@ fn add_corner_segment(
     widths: LayoutSize,
     radius: LayoutSize,
     shape: f32,
+    shape_offset: LayoutSize,
     segment: BorderSegment,
     edge_flags: EdgeMask,
     h_adjacent_corner_outer: LayoutPoint,
@@ -1017,6 +1077,7 @@ fn add_corner_segment(
             segment,
             radius: radius.to_au(),
             shape: shape.to_bits(),
+            shape_offset: shape_offset.to_au(),
             size: widths.to_au(),
             h_adjacent_corner_outer: (h_corner_outer - image_rect.min).to_point().to_au(),
             h_adjacent_corner_radius: h_corner_radius.to_au(),
@@ -1082,6 +1143,7 @@ fn add_edge_segment(
             side1: side.into(),
             radius: LayoutSizeAu::zero(),
             shape: 0,
+            shape_offset: LayoutSizeAu::zero(),
             size: size.to_au(),
             segment,
             h_adjacent_corner_outer: LayoutPointAu::zero(),
@@ -1132,6 +1194,7 @@ pub fn build_border_instances(
     let widths = (LayoutSize::from_au(cache_key.size) * scale).ceil();
     let radius = (LayoutSize::from_au(cache_key.radius) * scale).ceil();
     let shape = f32::from_bits(cache_key.shape);
+    let shape_offset = (LayoutSize::from_au(cache_key.shape_offset) * scale).ceil();
 
     let h_corner_outer = (LayoutPoint::from_au(cache_key.h_adjacent_corner_outer) * scale).round();
     let h_corner_radius = (LayoutSize::from_au(cache_key.h_adjacent_corner_radius) * scale).ceil();
@@ -1149,6 +1212,7 @@ pub fn build_border_instances(
         widths,
         radius,
         shape,
+        shape_offset,
         border.do_aa,
         h_corner_outer,
         h_corner_radius,
