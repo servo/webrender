@@ -4,12 +4,14 @@
 
 /// Box-shadow blur rendering via the quad infrastructure.
 ///
-/// GPU buffer layout at pattern_input.x (5 blocks):
+/// GPU buffer layout at pattern_input.x (7 blocks):
 ///   [0] alloc_size.x, alloc_size.y, dest_rect_size.x, dest_rect_size.y
 ///   [1] dest_rect_offset.x, dest_rect_offset.y, clip_mode (0=outset, 1=inset), 0
 ///   [2] element_offset_rel_prim.x, element_offset_rel_prim.y, element_size.x, element_size.y
 ///   [3] element_radius.tl.w, element_radius.tl.h, element_radius.tr.w, element_radius.tr.h
 ///   [4] element_radius.br.w, element_radius.br.h, element_radius.bl.w, element_radius.bl.h
+///   [5] shape_tl, shape_tr, shape_br, shape_bl
+///   [6] content_device_size.x, content_device_size.y, 0, 0
 ///
 /// For outset: prim_rect == dest_rect, element_offset_rel_prim is typically negative
 ///             (element sits inside the inflated shadow rect).
@@ -60,6 +62,7 @@ void pattern_vertex(PrimitiveInfo info) {
     vec4 data3 = fetch_from_gpu_buffer_1f(info.pattern_input.x + 3);
     vec4 data4 = fetch_from_gpu_buffer_1f(info.pattern_input.x + 4);
     vec4 data5 = fetch_from_gpu_buffer_1f(info.pattern_input.x + 5);
+    vec4 data6 = fetch_from_gpu_buffer_1f(info.pattern_input.x + 6);
 
     vec2 alloc_size     = data0.xy;
     vec2 dest_rect_size = data0.zw;
@@ -78,11 +81,19 @@ void pattern_vertex(PrimitiveInfo info) {
         dest_rect_size.y / alloc_size.y - 0.5
     );
 
+    // Map nine-patch UV=1.0 to the true content edge (uv_p0 + content_device_size)
+    // rather than the rounded atlas entry edge (info.segment.uv_rect.p1). The atlas
+    // allocation is rounded up from content_device_size, so this edge always lies
+    // inside the entry; using it keeps the mapping stable to sub-texel precision as
+    // the blur animates (bug 2002194).
+    vec2 content_device_size = data6.xy;
     vec2 texture_size = vec2(TEX_SIZE(sColor0));
-    v_uv_rect = vec4(info.segment.uv_rect.p0, info.segment.uv_rect.p1) / texture_size.xyxy;
+    vec2 uv_p0 = info.segment.uv_rect.p0;
+    vec2 uv_p1 = uv_p0 + content_device_size;
+    v_uv_rect = vec4(uv_p0, uv_p1) / texture_size.xyxy;
     v_uv_bounds = vec4(
-        info.segment.uv_rect.p0 + vec2(0.5),
-        info.segment.uv_rect.p1 - vec2(0.5)
+        uv_p0 + vec2(0.5),
+        uv_p1 - vec2(0.5)
     ) / texture_size.xyxy;
 
     // Element clip: compute corner centers and radii. The half-space plane

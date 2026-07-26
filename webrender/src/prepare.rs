@@ -452,17 +452,18 @@ fn prepare_prim_for_render(
             let mut content_scale = LayoutToWorldScale::new(1.0) * device_pixel_scale;
             content_scale.0 = clamp_to_scale_factor(content_scale.0, false);
 
-            // Opt B: pre-reduce content_scale so the blur sigma is already within
+            // Pre-reduce content_scale so the blur sigma is already within
             // MAX_BLUR_STD_DEVIATION, eliminating downscale passes inside new_blur.
             //
-            // Use the same rounding as the old code (round to nearest integer) to determine
-            // n_downscales, so mask scale exactly matches what old new_blur downscaling would
-            // have produced. Exception: if rounded sigma is 0 (tiny sigma from to_cache_size
-            // downscaling), use the float sigma to avoid a zero-blur regression.
-            let sigma_rounded = (blur_radius_dp * content_scale.0).round();
-            let sigma_for_n = if sigma_rounded == 0.0 { blur_radius_dp * content_scale.0 } else { sigma_rounded };
-            let n_downscales = if sigma_for_n > MAX_BLUR_STD_DEVIATION {
-                (sigma_for_n / MAX_BLUR_STD_DEVIATION).log2().ceil() as u32
+            // The sigma is kept at full sub-pixel precision (no integer rounding).
+            // Rounding to an integer sigma quantized the cached mask, so an animated
+            // blur transition stepped between a handful of discrete masks instead of
+            // interpolating smoothly (bug 2001865). The mask cache key stores the
+            // sigma as an Au (1/60px), so nearby static shadows still dedupe while
+            // animations get a distinct mask per frame, matching other engines.
+            let sigma = blur_radius_dp * content_scale.0;
+            let n_downscales = if sigma > MAX_BLUR_STD_DEVIATION {
+                (sigma / MAX_BLUR_STD_DEVIATION).log2().ceil() as u32
             } else {
                 0
             };
@@ -470,19 +471,28 @@ fn prepare_prim_for_render(
 
             // Safety cap: reduces content_scale further only for pathological
             // small-blur-huge-element cases where the alloc would exceed the max task size.
-            let cache_size = to_cache_size(shadow_rect_alloc_size, &mut content_scale);
+            let cache_size_rounded = to_cache_size(shadow_rect_alloc_size, &mut content_scale);
 
-            // Blur sigma to pass to new_blur. Use the same rounded value as the old code
-            // (now divided by 2^n instead of being halved inside new_blur), so the blur
-            // intensity is byte-for-byte identical to the old pipeline.
-            let blur_std_dev = if sigma_rounded == 0.0 {
-                blur_radius_dp * content_scale.0
-            } else {
-                sigma_rounded / (1u32 << n_downscales) as f32
-            };
+            // Device-space extent the blurred mask content actually occupies. The
+            // shader maps nine-patch UV=1.0 to this true content edge rather than to
+            // the integer atlas allocation edge; otherwise the sub-texel difference
+            // between `content_device_size` and its rounded allocation shifts the
+            // nine-patch registration as the blur animates, making the shadow edge
+            // jitter / step (bug 2002194 residual). Round the allocation UP so the
+            // content always fits inside it (mapping UV=1.0 to a point outside the
+            // allocation would sample a neighbouring atlas entry).
+            let content_device_size = shadow_rect_alloc_size * content_scale;
+            let cache_size = DeviceIntSize::new(
+                cache_size_rounded.width.max(content_device_size.width.ceil() as i32),
+                cache_size_rounded.height.max(content_device_size.height.ceil() as i32),
+            );
+
+            // Blur sigma to pass to new_blur, at the final mask resolution (after both
+            // the n_downscales reduction and any to_cache_size safety cap).
+            let blur_std_dev = blur_radius_dp * content_scale.0;
             debug_assert!(
                 blur_std_dev <= MAX_BLUR_STD_DEVIATION + 1e-3,
-                "BoxShadow sigma {blur_std_dev} exceeds MAX_BLUR_STD_DEVIATION after Opt B \
+                "BoxShadow sigma {blur_std_dev} exceeds MAX_BLUR_STD_DEVIATION \
                  (n_downscales={n_downscales}, content_scale={})",
                 content_scale.0,
             );
@@ -566,6 +576,7 @@ fn prepare_prim_for_render(
                 color: shadow_data.color,
                 render_task: task_id,
                 shadow_rect_alloc_size,
+                content_device_size,
                 dest_rect_size,
                 dest_rect_offset,
                 clip_mode: shadow_data.clip_mode,
