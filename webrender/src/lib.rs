@@ -5,38 +5,87 @@
 /*!
 A GPU based renderer for the web.
 
-It serves as an experimental render backend for [Servo](https://servo.org/),
-but it can also be used as such in a standalone application.
-
-# External dependencies
-WebRender currently depends on [FreeType](https://www.freetype.org/)
+WebRender turns display lists into GPU draw calls. It is the rendering engine of
+Firefox, and can also be used standalone.
 
 # Api Structure
-The main entry point to WebRender is the [`crate::Renderer`].
 
-By calling [`Renderer::new(...)`](crate::Renderer::new) you get a [`Renderer`], as well as
-a [`RenderApiSender`](api::RenderApiSender). Your [`Renderer`] is responsible to render the
-previously processed frames onto the screen.
+[`create_webrender_instance()`](crate::create_webrender_instance) returns a
+[`Renderer`] plus a [`RenderApiSender`](crate::render_api::RenderApiSender). The
+[`Renderer`] owns the GPU connection and draws frames; the sender is how you talk
+to everything else.
 
-By calling [`yourRenderApiSender.create_api()`](api::RenderApiSender::create_api), you'll
-get a [`RenderApi`](api::RenderApi) instance, which is responsible for managing resources
-and documents. A worker thread is used internally to untie the workload from the application
-thread and therefore be able to make better use of multicore systems.
+[`create_api()`](crate::render_api::RenderApiSender::create_api) gives you a
+[`RenderApi`](crate::render_api::RenderApi), which manages resources and
+documents. Work is submitted as a
+[`Transaction`](crate::render_api::Transaction) — most importantly
+[`set_display_list()`](crate::render_api::Transaction::set_display_list), which
+takes a [`BuiltDisplayList`](api::BuiltDisplayList) produced by finalizing a
+[`DisplayListBuilder`](api::DisplayListBuilder). Display lists nest
+[stacking contexts][stacking_contexts]. Completion is reported through the
+[`RenderNotifier`](api::RenderNotifier) you passed at init.
 
-## Frame
+# Threads
 
-What is referred to as a `frame`, is the current geometry on the screen.
-A new Frame is created by calling [`set_display_list()`](api::Transaction::set_display_list)
-on the [`RenderApi`](api::RenderApi). When the geometry is processed, the application will be
-informed via a [`RenderNotifier`](api::RenderNotifier), a callback which you pass to
-[`Renderer::new`].
-More information about [stacking contexts][stacking_contexts].
+Work is split across threads, and knowing which thread a piece of code runs on
+explains most of the structure here:
 
-[`set_display_list()`](api::Transaction::set_display_list) also needs to be supplied with
-[`BuiltDisplayList`](api::BuiltDisplayList)s. These are obtained by finalizing a
-[`DisplayListBuilder`](api::DisplayListBuilder). These are used to draw your geometry. But it
-doesn't only contain trivial geometry, it can also store another
-[`StackingContext`](api::StackingContext), as they're nestable.
+- **Scene builder thread** (`scene_builder_thread.rs`, `scene_building.rs`)
+  turns display lists into a [`BuiltScene`](crate::scene::BuiltScene). Runs
+  asynchronously; only re-runs when the display list changes.
+- **Render backend thread** (`render_backend.rs`, `frame_builder.rs`) turns a
+  scene plus the current scroll/animation state into a `Frame`. Runs every
+  frame. This is where most of the interesting logic lives.
+- **Render thread** (`renderer/`, `device/`) is the only thread that touches the
+  GPU, and is also the initial entry point into the crate.
+
+The `renderer` module documentation describes the render/render-backend split in
+more detail. Rayon workers and the [`glyph_rasterizer`] are used for parallel
+work underneath these.
+
+# Anatomy of a frame
+
+`FrameBuilder::build` in `frame_builder.rs` runs these stages in order. Each has
+its own module, and this is the sequence to follow when tracing why something
+renders wrongly:
+
+1. **Picture graph passes** (`picture_graph.rs`) walk the picture tree in
+   dependency order, assign off-screen surfaces (`surface.rs`) and propagate
+   bounding rects.
+2. **Visibility** (`visibility.rs`) culls primitives, resolves clip chains
+   (`clip.rs`), snaps rects to the pixel grid, and updates picture-cache tile
+   dependencies (`tile_cache/`, `invalidation/`).
+3. **Prepare** (`prepare.rs`) walks each visible primitive by `PrimitiveKind`,
+   builds its `Pattern` (`pattern/`), requests any render tasks it needs, and
+   emits draw commands into command buffers (`command_buffer.rs`). Most
+   primitives go through the quad path (`quad.rs`).
+4. **Render task graph** (`render_task_graph.rs`) is finalized: tasks are
+   assigned to passes and to render target allocations (`render_target.rs`).
+5. **Batching** (`batch.rs`) replays the command buffers per pass, grouping
+   draws into batches keyed by shader and textures.
+6. **Compositing** (`composite.rs`) builds the list of picture-cache tiles to
+   present, either drawn by us or handed to an OS compositor (`compositor/`).
+
+The [`Renderer`] then submits the resulting `Frame`: it uploads resources,
+executes the passes in order, and composites.
+
+# Further reading
+
+- `gfx/docs/RenderingOverview.md` — how WebRender fits into Gecko, plus the
+  picture / spatial / clip / render-task trees. Note it predates the quad and
+  pattern architecture described above and still describes the retired brush
+  shaders.
+- `gfx/wr/webrender/doc/coordinate-spaces.md` — the spatial tree, and the
+  local / picture / raster / world / device spaces. Predates the `VisPixel`
+  visibility space.
+- `gfx/wr/webrender/doc/text-rendering.md`, `blob.md`,
+  `CLIPPING_AND_POSITIONING.md`, `swizzling.md` — subsystem deep dives, in
+  varying states of currency.
+
+# External dependencies
+
+WebRender depends on [FreeType](https://www.freetype.org/) for font rasterization
+on some platforms.
 
 [stacking_contexts]: https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Positioning/Understanding_z_index/The_stacking_context
 */
