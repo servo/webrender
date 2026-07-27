@@ -100,7 +100,7 @@ use api::units::*;
 use crate::command_buffer::PrimitiveCommand;
 use crate::renderer::GpuBufferBuilderF;
 use crate::box_shadow::BLUR_SAMPLE_SCALE;
-use crate::clip::{ClipNodeId, ClipTreeBuilder};
+use crate::clip::{ClipChainInstance, ClipNodeId, ClipNodeFlags, ClipNodeRange, ClipTreeBuilder};
 use crate::spatial_tree::{SpatialTree, CoordinateSpaceMapping, SpatialNodeIndex, VisibleFace};
 use crate::composite::{tile_kind, CompositeTileSurface, CompositorKind, NativeTileId};
 use crate::composite::{CompositeTileDescriptor, CompositeTile};
@@ -110,17 +110,19 @@ use crate::internal_types::{FastHashMap, PlaneSplitter, Filter};
 use crate::internal_types::{PlaneSplitterIndex, PlaneSplitAnchor, TextureSource};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PictureContext};
 use plane_split::{Clipper, Polygon};
-use crate::prim_store::{PictureIndex, PrimitiveInstance, PrimitiveKind};
-use crate::prim_store::PrimitiveScratchBuffer;
+use crate::prim_store::{PictureIndex, PrimitiveInstance, PrimitiveInstanceIndex, PrimitiveKind};
+use crate::visibility::PrimitiveDrawHeader;
+use crate::prim_store::{PrimitiveScratchBuffer, ClipTaskIndex, ClipMaskKind};
 use crate::prim_store::storage;
 use crate::print_tree::PrintTreePrinter;
 use crate::render_backend::DataStores;
 use crate::render_task_graph::RenderTaskId;
 use crate::render_task::{RenderTask, RenderTaskLocation};
-use crate::render_task::{StaticRenderTaskSurface, RenderTaskKind};
+use crate::render_task::{StaticRenderTaskSurface, RenderTaskKind, EmptyTask};
 use crate::renderer::GpuBufferAddress;
 use crate::resource_cache::ResourceCache;
 use crate::space::{SpaceMapper, SpaceSnapper};
+use crate::quad;
 use crate::scene::SceneProperties;
 use crate::spatial_tree::CoordinateSystemId;
 use crate::surface::{SurfaceDescriptor, SurfaceTileDescriptor, get_surface_rects};
@@ -2294,6 +2296,207 @@ fn compute_subpixel_mode(
     };
 
     subpixel_mode
+}
+
+pub fn prepare_picture_clips(
+    pic: &PictureInstance,
+    prim_instance_index: PrimitiveInstanceIndex,
+    clip_chain: &ClipChainInstance,
+    frame_context: &FrameBuildingContext,
+    frame_state: &mut FrameBuildingState,
+    pic_scratch: &mut PictureScratch,
+    clip_mask_instances: &mut Vec<ClipMaskKind>,
+    draws: &mut [PrimitiveDrawHeader],
+    prim_spatial_node_index: SpatialNodeIndex,
+    data_stores: &DataStores,
+    use_quads: bool,
+    composite_target_clip_range: &mut Option<ClipNodeRange>,
+    pic_context: &PictureContext,
+) {
+    // TODO(gw): Much of the code in this branch could be moved in to a common
+    //           function as we move more primitives to the new clip-mask paths.
+
+    // We are going to split the clip mask tasks in to a list to be rendered
+    // on the source picture, and those to be rendered in to a mask for
+    // compositing the picture in to the target.
+    let mut source_masks = Vec::new();
+    let mut target_masks = Vec::new();
+
+    // For some composite modes, we force target mask due to limitations. That
+    // might results in artifacts for these modes (which are already an existing
+    // problem) but we can handle these cases as follow ups.
+    let force_target_mask = match pic.composite_mode {
+        // We can't currently render over top of these filters as their size
+        // may have changed due to downscaling. We could handle this separate
+        // case as a follow up.
+        Some(PictureCompositeMode::Filter(Filter::Blur { .. })) |
+        Some(PictureCompositeMode::Filter(Filter::DropShadows { .. })) |
+        Some(PictureCompositeMode::SVGFEGraph( .. )) => {
+            true
+        }
+        _ => {
+            false
+        }
+    };
+
+    // Work out which clips get drawn in to the source / target mask
+    for i in 0 .. clip_chain.clips_range.count {
+        let clip_instance = frame_state.clip_store.get_instance_from_range(&clip_chain.clips_range, i);
+
+        if !force_target_mask && clip_instance.flags.contains(ClipNodeFlags::SAME_COORD_SYSTEM) {
+            source_masks.push(i);
+        } else {
+            target_masks.push(i);
+        }
+    }
+
+    let pic_surface_index = pic.raster_config.as_ref().unwrap().surface_index;
+    let prim_local_rect: LayoutRect = frame_state
+        .surfaces[pic_surface_index.0]
+        .clipped_local_rect
+        .cast_unit();
+
+    // Handle masks on the source. This is the common case, and occurs for:
+    // (a) Any masks in the same coord space as the surface
+    // (b) All masks if the surface and parent are axis-aligned
+    if !source_masks.is_empty() {
+        let first_clip_node_index = frame_state.clip_store.clip_node_instances.len() as u32;
+        let parent_task_id = pic_scratch.primary_render_task_id.expect("bug: no composite mode");
+
+        // Construct a new clip node range, also add image-mask dependencies as needed
+        for instance in source_masks {
+            let clip_instance = frame_state.clip_store.get_instance_from_range(&clip_chain.clips_range, instance);
+
+            for tile in frame_state.clip_store.visible_mask_tiles(clip_instance) {
+                frame_state.rg_builder.add_dependency(
+                    parent_task_id,
+                    tile.task_id,
+                );
+            }
+
+            frame_state.clip_store.clip_node_instances.push(clip_instance.clone());
+        }
+
+        let clip_node_range = ClipNodeRange {
+            first: first_clip_node_index,
+            count: frame_state.clip_store.clip_node_instances.len() as u32 - first_clip_node_index,
+        };
+
+        // Add the mask as a sub-pass of the picture
+        let pic_task_id = pic_scratch.primary_render_task_id.expect("uh oh");
+        let pic_task = frame_state.rg_builder.get_task_mut(pic_task_id);
+
+        let RenderTaskKind::Picture(info) = &pic_task.kind else { unreachable!() };
+
+        let task_rect = DeviceRect::from_origin_and_size(
+            info.content_origin,
+            pic_task.get_target_size().to_f32(),
+        );
+
+        quad::prepare_clip_range(
+            clip_node_range,
+            pic_task_id,
+            &task_rect,
+            &prim_local_rect,
+            prim_spatial_node_index,
+            info.raster_spatial_node_index,
+            info.device_pixel_scale,
+            &data_stores.clip,
+            frame_state.clip_store,
+            frame_context.spatial_tree,
+            frame_state.rg_builder,
+            &mut frame_state.frame_gpu_data.f32,
+            frame_state.transforms,
+        );
+    }
+
+    // Handle masks on the target: clips applied while compositing the
+    // picture. This is forced for some composite modes and otherwise
+    // occurs for masks in parent space when non-axis-aligned to the
+    // source space.
+    if !target_masks.is_empty() {
+        // Build a contiguous clip node range for the target masks.
+        let first_clip_node_index = frame_state.clip_store.clip_node_instances.len() as u32;
+        for instance in target_masks {
+            let clip_instance = frame_state.clip_store.get_instance_from_range(&clip_chain.clips_range, instance);
+            frame_state.clip_store.clip_node_instances.push(clip_instance.clone());
+        }
+        let clip_node_range = ClipNodeRange {
+            first: first_clip_node_index,
+            count: frame_state.clip_store.clip_node_instances.len() as u32 - first_clip_node_index,
+        };
+
+        if use_quads {
+            // The quad compositing path applies these clips directly
+            // (it renders/depends on any image-mask tiles itself).
+            *composite_target_clip_range = Some(clip_node_range);
+        } else {
+            // Legacy brush path: draw a screen-space alpha mask that is
+            // sampled when compositing this picture.
+            let surface = &frame_state.surfaces[pic_context.surface_index.0];
+            let coverage_rect = clip_chain.pic_coverage_rect;
+
+            let device_pixel_scale = surface.device_pixel_scale;
+            let raster_spatial_node_index = surface.raster_spatial_node_index;
+
+            let Some(clipped_surface_rect) = surface.get_surface_rect(
+                &coverage_rect,
+                frame_context.spatial_tree,
+            ) else {
+                return;
+            };
+
+            let empty_task = EmptyTask {
+                content_origin: clipped_surface_rect.min.to_f32(),
+                device_pixel_scale,
+                raster_spatial_node_index,
+            };
+
+            let task_size = clipped_surface_rect.size();
+
+            let clip_task_id = frame_state.rg_builder.add().init(RenderTask::new_dynamic(
+                task_size,
+                RenderTaskKind::Empty(empty_task),
+            ));
+
+            // Add image-mask tile dependencies to the mask task.
+            for i in 0 .. clip_node_range.count {
+                let clip_instance = frame_state.clip_store.get_instance_from_range(&clip_node_range, i);
+                for tile in frame_state.clip_store.visible_mask_tiles(clip_instance) {
+                    frame_state.rg_builder.add_dependency(
+                        clip_task_id,
+                        tile.task_id,
+                    );
+                }
+            }
+
+            let task_rect = clipped_surface_rect.to_f32();
+
+            quad::prepare_clip_range(
+                clip_node_range,
+                clip_task_id,
+                &task_rect,
+                &prim_local_rect,
+                prim_spatial_node_index,
+                raster_spatial_node_index,
+                device_pixel_scale,
+                &data_stores.clip,
+                frame_state.clip_store,
+                frame_context.spatial_tree,
+                frame_state.rg_builder,
+                &mut frame_state.frame_gpu_data.f32,
+                frame_state.transforms,
+            );
+
+            let clip_task_index = ClipTaskIndex(clip_mask_instances.len() as _);
+            clip_mask_instances.push(ClipMaskKind::Mask(clip_task_id));
+            draws[prim_instance_index.0 as usize].clip_task_index = clip_task_index;
+            frame_state.surface_builder.add_child_render_task(
+                clip_task_id,
+                frame_state.rg_builder,
+            );
+        }
+    }
 }
 
 #[test]
