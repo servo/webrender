@@ -239,6 +239,7 @@ impl Wrench {
         verbose: bool,
         no_scissor: bool,
         no_batch: bool,
+        color_target_init: bool,
         precache_shaders: bool,
         dump_shader_source: Option<String>,
         notifier: Option<Box<dyn RenderNotifier>>,
@@ -249,6 +250,7 @@ impl Wrench {
         let mut debug_flags = DebugFlags::ECHO_DRIVER_MESSAGES;
         debug_flags.set(DebugFlags::DISABLE_BATCHING, no_batch);
         debug_flags.set(DebugFlags::MISSING_SNAPSHOT_PINK, true);
+        debug_flags.set(DebugFlags::COLOR_TARGET_INIT, color_target_init);
         let callbacks = Arc::new(Mutex::new(blob::BlobCallbacks::new()));
 
         let precache_flags = if precache_shaders {
