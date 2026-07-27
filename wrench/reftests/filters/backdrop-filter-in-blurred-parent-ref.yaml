@@ -1,0 +1,17 @@
+# Inverting the red backdrop gives cyan, so the blurred result should match
+# drawing a cyan rect in place of the backdrop-filter.
+---
+root:
+  items:
+    - type: stacking-context
+      filters: blur(2,2)
+      items:
+        - type: rect
+          bounds: 0 0 256 256
+          color: red
+        - type: rect
+          bounds: 20 20 100 100
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 150 150 60 60
+          color: blue

@@ -1,0 +1,18 @@
+# Tests that content drawn after a backdrop-filter isn't lost when the parent
+# stacking context has a blur filter. The blur samples the same texture that the
+# post-capture content is drawn into, so it has to be scheduled after it.
+---
+root:
+  items:
+    - type: stacking-context
+      filters: blur(2,2)
+      items:
+        - type: rect
+          bounds: 0 0 256 256
+          color: red
+        - type: backdrop-filter
+          bounds: 20 20 100 100
+          filters: invert(1)
+        - type: rect
+          bounds: 150 150 60 60
+          color: blue
