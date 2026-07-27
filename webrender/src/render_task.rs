@@ -731,7 +731,7 @@ impl RenderTaskKind {
                         let mut writer = gpu_buffer.f32.write_blocks(1);
                         writer.push_one(color.to_array());
                         filter_task.extra_gpu_data = Some(writer.finish());
-                     }
+                    }
                     FilterGraphOp::SVGFEGaussianBlur{..} => {}
                     FilterGraphOp::SVGFEIdentity => {}
                     FilterGraphOp::SVGFEImage {..} => {}
@@ -2107,7 +2107,7 @@ impl RenderTask {
         }
 
         output_task_id
-   }
+    }
 
     pub fn uv_rect_kind(&self) -> UvRectKind {
         self.uv_rect_kind

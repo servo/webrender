@@ -2518,7 +2518,7 @@ impl TileCacheInstance {
                                 break;
                             }
                         }
-                   }
+                    }
 
                     // TODO(gw): When we support RGBA images for external surfaces, we also
                     //           need to check if opaque (YUV images are implicitly opaque).

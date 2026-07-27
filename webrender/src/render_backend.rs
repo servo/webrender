@@ -1042,7 +1042,7 @@ impl RenderBackend {
                         }
                         status = RenderBackendStatus::ShutDown(sender);
                         break;
-                   }
+                    }
                     _ => {},
                 }
             }

@@ -914,10 +914,10 @@ impl SpatialTree {
             if index == self.root_reference_frame_index {
                 CoordinateSpaceMapping::Local
             } else {
-              match scroll {
-                TransformScroll::Scrolled => CoordinateSpaceMapping::ScaleOffset(child.content_transform),
-                TransformScroll::Unscrolled => CoordinateSpaceMapping::ScaleOffset(child.viewport_transform),
-              }
+                match scroll {
+                    TransformScroll::Scrolled => CoordinateSpaceMapping::ScaleOffset(child.content_transform),
+                    TransformScroll::Unscrolled => CoordinateSpaceMapping::ScaleOffset(child.viewport_transform),
+                }
             }
         } else {
             let system = &self.coord_systems[child.coordinate_system_id.0 as usize];

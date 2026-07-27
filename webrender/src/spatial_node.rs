@@ -528,20 +528,20 @@ impl SpatialNode {
             }
             SpatialNodeType::StickyFrame(ref mut info) => {
                 let animated_offset = if let Some(transform_binding) = info.transform {
-                  let transform = scene_properties.resolve_layout_transform(&transform_binding);
-                  match ScaleOffset::from_transform(&transform) {
-                    Some(ref scale_offset) => {
-                      debug_assert!(scale_offset.scale == Vector2D::new(1.0, 1.0),
-                                    "Can only animate a translation on sticky elements");
-                      LayoutVector2D::from_untyped(scale_offset.offset)
+                    let transform = scene_properties.resolve_layout_transform(&transform_binding);
+                    match ScaleOffset::from_transform(&transform) {
+                        Some(ref scale_offset) => {
+                            debug_assert!(scale_offset.scale == Vector2D::new(1.0, 1.0),
+                                          "Can only animate a translation on sticky elements");
+                            LayoutVector2D::from_untyped(scale_offset.offset)
+                        }
+                        None => {
+                            debug_assert!(false, "Can only animate a translation on sticky elements");
+                            LayoutVector2D::zero()
+                        }
                     }
-                    None => {
-                      debug_assert!(false, "Can only animate a translation on sticky elements");
-                      LayoutVector2D::zero()
-                    }
-                  }
                 } else {
-                  LayoutVector2D::zero()
+                    LayoutVector2D::zero()
                 };
 
                 let sticky_offset = Self::calculate_sticky_offset(
@@ -576,7 +576,7 @@ impl SpatialNode {
                     .pre_offset(snap_offset(added_offset, state.coordinate_system_relative_scale_offset.scale).to_untyped());
 
                 self.coordinate_system_id = state.current_coordinate_system_id;
-          }
+            }
         }
 
         //TODO: remove the field entirely?
