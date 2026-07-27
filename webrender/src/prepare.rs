@@ -40,7 +40,7 @@ use crate::picture::{ClusterFlags, PictureScratch};
 use crate::picture::{PrimitiveList, PrimitiveCluster, SurfaceIndex, SubpixelMode};
 use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::prim_store::*;
-use crate::quad::{self, QuadTransformState};
+use crate::quad::{self, QuadDescriptor, QuadTransformState};
 use crate::render_backend::DataStores;
 
 
@@ -367,12 +367,14 @@ fn prepare_prim_for_render(
 
                 quad::prepare_repeatable_quad(
                     &pattern,
-                    &prim_info.snapped_local_rect,
-                    &prim_info.clip_chain.local_clip_rect,
+                    &QuadDescriptor {
+                        local_rect: prim_info.snapped_local_rect,
+                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        aligned_aa_edges: prim_data.common.aligned_aa_edges,
+                        transformed_aa_edges: prim_data.common.transformed_aa_edges,
+                    },
                     stretch_size,
                     LayoutSize::zero(),
-                    prim_data.common.aligned_aa_edges,
-                    prim_data.common.transformed_aa_edges,
                     prim_instance_index,
                     &None,
                     &prim_info.clip_chain,
@@ -387,10 +389,12 @@ fn prepare_prim_for_render(
             } else {
                 quad::prepare_quad(
                     &line_dec_data.color,
-                    &prim_info.snapped_local_rect,
-                    &prim_info.clip_chain.local_clip_rect,
-                    prim_data.common.aligned_aa_edges,
-                    prim_data.common.transformed_aa_edges,
+                    &QuadDescriptor {
+                        local_rect: prim_info.snapped_local_rect,
+                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        aligned_aa_edges: prim_data.common.aligned_aa_edges,
+                        transformed_aa_edges: prim_data.common.transformed_aa_edges,
+                    },
                     prim_instance_index,
                     &None,
                     &prim_info.clip_chain,
@@ -482,12 +486,15 @@ fn prepare_prim_for_render(
             let border_data = &prim_data.kind;
 
             border_data.update(
-                &prim_info.snapped_local_rect,
+                &QuadDescriptor {
+                    local_rect: prim_info.snapped_local_rect,
+                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    aligned_aa_edges,
+                    transformed_aa_edges,
+                },
                 &prim_info.clip_chain,
                 prim_spatial_node_index,
                 device_pixel_scale,
-                aligned_aa_edges,
-                transformed_aa_edges,
                 prim_instance_index,
                 quad_transform,
                 frame_context,
@@ -523,9 +530,12 @@ fn prepare_prim_for_render(
                 &border_data.nine_patch,
                 &src_image,
                 size,
-                &prim_rect,
-                aligned_aa_edges,
-                transformed_aa_edges,
+                &QuadDescriptor {
+                    local_rect: prim_rect,
+                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    aligned_aa_edges,
+                    transformed_aa_edges,
+                },
                 prim_instance_index,
                 &prim_info.clip_chain,
                 quad_transform,
@@ -548,10 +558,12 @@ fn prepare_prim_for_render(
 
             quad::prepare_quad(
                 &color,
-                &prim_rect,
-                &prim_info.clip_chain.local_clip_rect,
-                prim_data.common.aligned_aa_edges,
-                prim_data.common.transformed_aa_edges,
+                &QuadDescriptor {
+                    local_rect: prim_rect,
+                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    aligned_aa_edges: prim_data.common.aligned_aa_edges,
+                    transformed_aa_edges: prim_data.common.transformed_aa_edges,
+                },
                 prim_instance_index,
                 &None,
                 &prim_info.clip_chain,
@@ -575,10 +587,12 @@ fn prepare_prim_for_render(
             if prim_info.compositor_surface_kind == CompositorSurfaceKind::Underlay {
                 quad::prepare_quad(
                     &Cutout,
-                    &prim_info.snapped_local_rect,
-                    &prim_info.clip_chain.local_clip_rect,
-                    common_data.aligned_aa_edges,
-                    common_data.transformed_aa_edges,
+                    &QuadDescriptor {
+                        local_rect: prim_info.snapped_local_rect,
+                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        aligned_aa_edges: common_data.aligned_aa_edges,
+                        transformed_aa_edges: common_data.transformed_aa_edges,
+                    },
                     prim_instance_index,
                     &None,
                     &prim_info.clip_chain,
@@ -610,10 +624,12 @@ fn prepare_prim_for_render(
 
             quad::prepare_quad(
                 &pattern,
-                &prim_info.snapped_local_rect,
-                &prim_info.clip_chain.local_clip_rect,
-                common_data.aligned_aa_edges,
-                common_data.transformed_aa_edges,
+                &QuadDescriptor {
+                    local_rect: prim_info.snapped_local_rect,
+                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    aligned_aa_edges: common_data.aligned_aa_edges,
+                    transformed_aa_edges: common_data.transformed_aa_edges,
+                },
                 prim_instance_index,
                 &None,
                 &prim_info.clip_chain,
@@ -640,10 +656,12 @@ fn prepare_prim_for_render(
             if prim_info.compositor_surface_kind == CompositorSurfaceKind::Underlay {
                 quad::prepare_quad(
                     &Cutout,
-                    &prim_rect,
-                    &prim_info.clip_chain.local_clip_rect,
-                    common_data.aligned_aa_edges,
-                    common_data.transformed_aa_edges,
+                    &QuadDescriptor {
+                        local_rect: prim_rect,
+                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        aligned_aa_edges: common_data.aligned_aa_edges,
+                        transformed_aa_edges: common_data.transformed_aa_edges,
+                    },
                     prim_instance_index,
                     &None,
                     &prim_info.clip_chain,
@@ -689,10 +707,13 @@ fn prepare_prim_for_render(
                 quad::prepare_border_nine_patch(
                     &*nine_patch,
                     prim_data,
-                    &prim_rect,
+                    &QuadDescriptor {
+                        local_rect: prim_rect,
+                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        aligned_aa_edges: prim_data.common.aligned_aa_edges,
+                        transformed_aa_edges: prim_data.common.transformed_aa_edges,
+                    },
                     stretch_size,
-                    prim_data.common.aligned_aa_edges,
-                    prim_data.common.transformed_aa_edges,
                     prim_instance_index,
                     &prim_info.clip_chain,
                     quad_transform,
@@ -753,10 +774,12 @@ fn prepare_prim_for_render(
                         };
                         quad::prepare_quad(
                             &pattern,
-                            seg_rect,
-                            &prim_info.clip_chain.local_clip_rect,
-                            EdgeMask::empty(),
-                            edge_aa_mask,
+                            &QuadDescriptor {
+                                local_rect: *seg_rect,
+                                local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                                aligned_aa_edges: EdgeMask::empty(),
+                                transformed_aa_edges: edge_aa_mask,
+                            },
                             prim_instance_index,
                             &None,
                             &prim_info.clip_chain,
@@ -804,12 +827,14 @@ fn prepare_prim_for_render(
             let local_rect = prim_info.snapped_local_rect;
             quad::prepare_repeatable_quad(
                 prim_data,
-                &local_rect,
-                &prim_info.clip_chain.local_clip_rect,
+                &QuadDescriptor {
+                    local_rect,
+                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    aligned_aa_edges: prim_data.common.aligned_aa_edges,
+                    transformed_aa_edges: prim_data.common.transformed_aa_edges,
+                },
                 stretch_size,
                 prim_data.tile_spacing,
-                prim_data.common.aligned_aa_edges,
-                prim_data.common.transformed_aa_edges,
                 prim_instance_index,
                 &cache_key,
                 &prim_info.clip_chain,
@@ -837,10 +862,13 @@ fn prepare_prim_for_render(
                 quad::prepare_border_nine_patch(
                     &*nine_patch,
                     prim_data,
-                    &local_rect,
+                    &QuadDescriptor {
+                        local_rect,
+                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        aligned_aa_edges: prim_data.common.aligned_aa_edges,
+                        transformed_aa_edges: prim_data.common.transformed_aa_edges,
+                    },
                     stretch_size,
-                    prim_data.common.aligned_aa_edges,
-                    prim_data.common.transformed_aa_edges,
                     prim_instance_index,
                     &prim_info.clip_chain,
                     quad_transform,
@@ -856,12 +884,14 @@ fn prepare_prim_for_render(
 
             quad::prepare_repeatable_quad(
                 prim_data,
-                &local_rect,
-                &prim_info.clip_chain.local_clip_rect,
+                &QuadDescriptor {
+                    local_rect,
+                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    aligned_aa_edges: prim_data.common.aligned_aa_edges,
+                    transformed_aa_edges: prim_data.common.transformed_aa_edges,
+                },
                 stretch_size,
                 prim_data.tile_spacing,
-                prim_data.common.aligned_aa_edges,
-                prim_data.common.transformed_aa_edges,
                 prim_instance_index,
                 &None,
                 &prim_info.clip_chain,
@@ -888,10 +918,13 @@ fn prepare_prim_for_render(
                 quad::prepare_border_nine_patch(
                     &*nine_patch,
                     prim_data,
-                    &prim_rect,
+                    &QuadDescriptor {
+                        local_rect: prim_rect,
+                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        aligned_aa_edges: prim_data.common.aligned_aa_edges,
+                        transformed_aa_edges: prim_data.common.transformed_aa_edges,
+                    },
                     stretch_size,
-                    prim_data.common.aligned_aa_edges,
-                    prim_data.common.transformed_aa_edges,
                     prim_instance_index,
                     &prim_info.clip_chain,
                     quad_transform,
@@ -941,12 +974,14 @@ fn prepare_prim_for_render(
             let local_rect = prim_info.snapped_local_rect;
             quad::prepare_repeatable_quad(
                 prim_data,
-                &local_rect,
-                &prim_info.clip_chain.local_clip_rect,
+                &QuadDescriptor {
+                    local_rect,
+                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    aligned_aa_edges: prim_data.common.aligned_aa_edges,
+                    transformed_aa_edges: prim_data.common.transformed_aa_edges,
+                },
                 stretch_size,
                 prim_data.tile_spacing,
-                prim_data.common.aligned_aa_edges,
-                prim_data.common.transformed_aa_edges,
                 prim_instance_index,
                 &cache_key,
                 &prim_info.clip_chain,
@@ -1096,10 +1131,12 @@ fn prepare_prim_for_render(
 
                     quad::prepare_quad(
                         &pattern,
-                        &prim_info.snapped_local_rect,
-                        &prim_info.clip_chain.local_clip_rect,
-                        aligned_aa_edges,
-                        transformed_aa_edges,
+                        &QuadDescriptor {
+                            local_rect: prim_info.snapped_local_rect,
+                            local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                            aligned_aa_edges,
+                            transformed_aa_edges,
+                        },
                         prim_instance_index,
                         &None,
                         &prim_info.clip_chain,

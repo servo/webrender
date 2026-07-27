@@ -9,7 +9,7 @@ use crate::border::{build_border_instances, NormalBorderSegment, MAX_BORDER_RESO
 use crate::clip::{ClipChainInstance, ClipIntern};
 use crate::command_buffer::CommandBufferIndex;
 use crate::pattern::image::ImagePattern;
-use crate::quad::{self, QuadTransformState};
+use crate::quad::{self, QuadDescriptor, QuadTransformState};
 use crate::render_task_cache::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent, to_cache_size};
 use crate::scene_building::{IsVisible};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext};
@@ -21,7 +21,6 @@ use crate::prim_store::{
 use crate::resource_cache::ImageRequest;
 use crate::render_task::{RenderTask, RenderTaskKind};
 use crate::render_task_graph::RenderTaskId;
-use crate::segment::EdgeMask;
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::util::clamp_to_scale_factor;
 
@@ -44,12 +43,10 @@ pub struct NormalBorderData {
 impl NormalBorderData {
     pub fn update(
         &self,
-        local_rect: &LayoutRect,
+        desc: &QuadDescriptor,
         clip_chain: &ClipChainInstance,
         prim_spatial_node_index: SpatialNodeIndex,
         device_pixel_scale: DevicePixelScale,
-        aligned_aa_edges: EdgeMask,
-        transformed_aa_edges: EdgeMask,
         prim_instance_index: PrimitiveInstanceIndex,
         quad_transform: &mut QuadTransformState,
         frame_context: &FrameBuildingContext,
@@ -112,7 +109,7 @@ impl NormalBorderData {
         // lower resolution and stretches them: the right shape, but blurrier.
         let mut segments: SmallVec<[NormalBorderSegment; 8]> = SmallVec::new();
         crate::border::create_border_segments(
-            *local_rect,
+            desc.local_rect,
             &self.border,
             &widths,
             &mut |segment| segments.push(segment.clone()),
@@ -129,19 +126,21 @@ impl NormalBorderData {
 
         for segment in &segments {
             let local_clip_rect = match segment.clip_rect {
-                Some(clip_rect) => clip_chain.local_clip_rect
+                Some(clip_rect) => desc.local_clip_rect
                     .intersection(&clip_rect)
                     .unwrap_or(LayoutRect::zero()),
-                None => clip_chain.local_clip_rect,
+                None => desc.local_clip_rect,
             };
 
             if let Some(color) = &segment.is_solid {
                 quad::prepare_quad(
                     color,
-                    &segment.local_rect,
-                    &local_clip_rect,
-                    segment.edge_flags & aligned_aa_edges,
-                    segment.edge_flags & transformed_aa_edges,
+                    &QuadDescriptor {
+                        local_rect: segment.local_rect,
+                        local_clip_rect,
+                        aligned_aa_edges: desc.aligned_aa_edges & segment.edge_flags,
+                        transformed_aa_edges: desc.transformed_aa_edges & segment.edge_flags,
+                    },
                     prim_instance_index,
                     &None,
                     clip_chain,
@@ -243,12 +242,14 @@ impl NormalBorderData {
 
             quad::prepare_repeatable_quad(
                 &pattern,
-                &segment_local_rect,
-                &local_clip_rect,
+                &QuadDescriptor {
+                    local_rect: segment_local_rect,
+                    local_clip_rect,
+                    aligned_aa_edges: desc.aligned_aa_edges & segment.edge_flags,
+                    transformed_aa_edges: desc.transformed_aa_edges & segment.edge_flags,
+                },
                 stretch_size,
                 spacing,
-                segment.edge_flags & aligned_aa_edges,
-                segment.edge_flags & transformed_aa_edges,
                 prim_instance_index,
                 &None,
                 clip_chain,

@@ -129,7 +129,7 @@ use crate::render_task::{StaticRenderTaskSurface, RenderTaskKind, EmptyTask};
 use crate::renderer::{BlendMode, GpuBufferAddress};
 use crate::resource_cache::ResourceCache;
 use crate::space::{SpaceMapper, SpaceSnapper};
-use crate::quad::{self, QuadTransformState};
+use crate::quad::{self, QuadDescriptor, QuadTransformState};
 use crate::scene::SceneProperties;
 use crate::spatial_tree::CoordinateSystemId;
 use crate::surface::{SurfaceDescriptor, SurfaceTileDescriptor, get_surface_rects};
@@ -2745,10 +2745,12 @@ pub fn prepare_picture_primitive(
             };
             quad::prepare_quad(
                 &shadow_pattern,
-                &shadow_rect,
-                &local_clip_rect,
-                EdgeMask::empty(),
-                EdgeMask::all(),
+                &QuadDescriptor {
+                    local_rect: shadow_rect,
+                    local_clip_rect,
+                    aligned_aa_edges: EdgeMask::empty(),
+                    transformed_aa_edges: EdgeMask::all(),
+                },
                 prim_instance_index,
                 &None,
                 &composite_clip_chain,
@@ -2814,10 +2816,12 @@ pub fn prepare_picture_primitive(
 
     quad::prepare_quad(
         pattern,
-        &pic_local_rect,
-        &local_clip_rect,
-        EdgeMask::empty(),
-        EdgeMask::all(),
+        &QuadDescriptor {
+            local_rect: pic_local_rect,
+            local_clip_rect,
+            aligned_aa_edges: EdgeMask::empty(),
+            transformed_aa_edges: EdgeMask::all(),
+        },
         prim_instance_index,
         &None,
         &composite_clip_chain,

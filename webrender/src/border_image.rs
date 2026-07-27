@@ -12,7 +12,7 @@ use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureCont
 use crate::intern::DataStore;
 use crate::pattern::{PatternBuilder, PatternBuilderContext, PatternBuilderState};
 use crate::pattern::image::ImagePattern;
-use crate::quad::{QuadTransformState, prepare_repeatable_quad};
+use crate::quad::{QuadDescriptor, QuadTransformState, prepare_repeatable_quad};
 use crate::prim_store::{NinePatchDescriptor, PrimitiveInstanceIndex, PrimitiveScratchBuffer};
 use crate::segment::EdgeMask;
 
@@ -21,9 +21,7 @@ pub fn prepare_border_image_nine_patch(
     nine_patch: &NinePatchDescriptor,
     src_image: &ImagePattern,
     src_image_size: DeviceIntSize,
-    local_rect: &LayoutRect,
-    aligned_aa_edges: EdgeMask,
-    transfomed_aa_edges: EdgeMask,
+    desc: &QuadDescriptor,
     prim_instance_index: PrimitiveInstanceIndex,
     clip_chain: &ClipChainInstance,
     transform: &mut QuadTransformState,
@@ -39,7 +37,7 @@ pub fn prepare_border_image_nine_patch(
     let pattern_ctx = PatternBuilderContext {
         spatial_tree: frame_context.spatial_tree,
         fb_config: frame_context.fb_config,
-        prim_origin: local_rect.min,
+        prim_origin: desc.local_rect.min,
     };
 
     let img_pattern = src_image.build(
@@ -52,7 +50,7 @@ pub fn prepare_border_image_nine_patch(
         },
     );
 
-    for_each_border_image_segment(nine_patch, local_rect, src_image_size, &mut|src_rect, dst_rect, side, stretch_size, spacing, offset| {
+    for_each_border_image_segment(nine_patch, &desc.local_rect, src_image_size, &mut|src_rect, dst_rect, side, stretch_size, spacing, offset| {
         let segment_src = frame_state.rg_builder.add_sub_rect(src_image.src_task_id, &src_rect);
 
         let segment_pattern = ImagePattern {
@@ -75,12 +73,14 @@ pub fn prepare_border_image_nine_patch(
 
         prepare_repeatable_quad(
             &segment_pattern,
-            &segment_local_rect,
-            &local_clip_rect,
+            &QuadDescriptor {
+                local_rect: segment_local_rect,
+                local_clip_rect,
+                aligned_aa_edges: desc.aligned_aa_edges & side,
+                transformed_aa_edges: desc.transformed_aa_edges & side,
+            },
             stretch_size,
             spacing,
-            aligned_aa_edges & side,
-            transfomed_aa_edges & side,
             prim_instance_index,
             &None,
             clip_chain,

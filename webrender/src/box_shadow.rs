@@ -10,7 +10,7 @@ use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureCont
 use crate::intern::{Handle as InternHandle, InternDebug, Internable};
 use crate::prim_store::{InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveScratchBuffer};
 use crate::prim_store::{PrimitiveKind, PrimitiveStore};
-use crate::quad::{self, QuadTransformState};
+use crate::quad::{self, QuadDescriptor, QuadTransformState};
 use crate::pattern::box_shadow::BoxShadowPatternData;
 use crate::render_task::{RenderTask, RenderTaskKind, MAX_BLUR_STD_DEVIATION};
 use crate::render_backend::DataStores;
@@ -498,10 +498,12 @@ pub fn prepare_box_shadow(
 
     quad::prepare_quad(
         &pattern,
-        &prim_rect,
-        &clip_chain.local_clip_rect,
-        common_data.aligned_aa_edges,
-        common_data.transformed_aa_edges,
+        &QuadDescriptor {
+            local_rect: prim_rect,
+            local_clip_rect: clip_chain.local_clip_rect,
+            aligned_aa_edges: common_data.aligned_aa_edges,
+            transformed_aa_edges: common_data.transformed_aa_edges,
+        },
         prim_instance_index,
         &None,
         clip_chain,
