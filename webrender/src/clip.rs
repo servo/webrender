@@ -1668,10 +1668,10 @@ impl ClipStore {
                 // Normal Clip rects are already handled by the clip-chain pic_coverage_rect,
                 // no need to do anything here
                 ClipItemKind::Rectangle { mode: ClipMode::Clip, .. } => {}
-                ClipItemKind::RoundedRectangle { mode: ClipMode::Clip, radius, inset: _ } => {
+                ClipItemKind::RoundedRectangle { mode: ClipMode::Clip, radius, inset } => {
                     // Get an inner rect for the rounded-rect clip
                     let radius = clamped_radius(&radius, clip_instance.clip_rect.size());
-                    let local_inner_rect = match extract_inner_rect_safe(&clip_instance.clip_rect, &radius) {
+                    let local_inner_rect = match extract_inner_rect_safe(&clip_instance.clip_rect, &radius, &inset) {
                         Some(rect) => rect,
                         None => return None,
                     };
@@ -2043,9 +2043,9 @@ impl ClipItemKind {
             ClipItemKind::Rectangle { mode } => {
                 (clip_rect, Some(clip_rect), mode)
             }
-            ClipItemKind::RoundedRectangle { ref radius, inset: _, mode } => {
+            ClipItemKind::RoundedRectangle { ref radius, ref inset, mode } => {
                 let clamped = clamped_radius(radius, clip_rect.size());
-                let inner_clip_rect = extract_inner_rect_safe(&clip_rect, &clamped);
+                let inner_clip_rect = extract_inner_rect_safe(&clip_rect, &clamped, &inset);
                 (clip_rect, inner_clip_rect, mode)
             }
             ClipItemKind::Image { .. } => {

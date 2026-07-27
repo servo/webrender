@@ -8,7 +8,7 @@ use api::ColorDepth;
 use crate::image_source::resolve_image;
 use crate::picture::ResolvedSurfaceTexture;
 use crate::renderer::GpuBufferBuilderF;
-use euclid::Box2D;
+use euclid::{Box2D, SideOffsets2D};
 use crate::gpu_types::{ZBufferId, ZBufferIdGenerator};
 use crate::internal_types::{FrameAllocator, FrameMemory, FrameVec, TextureSource};
 use crate::invalidation::compare::ImageDependency;
@@ -854,6 +854,7 @@ impl CompositeState {
                 let inner_rect = match extract_inner_rect_safe(
                     &clip.rect,
                     &clip.radius,
+                    &SideOffsets2D::<f32, DevicePixel>::zero()
                 ) {
                     Some(rect) => rect,
                     None => return,

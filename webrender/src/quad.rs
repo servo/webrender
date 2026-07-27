@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadius, ClipMode, ColorF, units::*};
-use euclid::{Scale, point2};
+use euclid::{Scale, SideOffsets2D, Size2D, point2};
 
 use crate::ItemUid;
 use crate::border::NinePatchDescriptorExt;
@@ -1188,7 +1188,7 @@ fn prepare_tiles(
                 let rect = transform.map_rect(&clip_instance.clip_rect);
                 scratch.retained.quad_tile_classifier.add_clip_rect(rect, mode, applied_as_local_clip);
             }
-            ClipItemKind::RoundedRectangle { mode: ClipMode::Clip, ref radius, inset: _ } => {
+            ClipItemKind::RoundedRectangle { mode: ClipMode::Clip, ref radius, ref inset } => {
                 // For rounded-rects with Clip mode, we need a mask for each corner,
                 // and to add the clip rect itself (to cull tiles outside that rect)
 
@@ -1203,31 +1203,54 @@ fn prepare_tiles(
                 let r_br = transform.map_size(&radius.bottom_right).abs();
                 let r_bl = transform.map_size(&radius.bottom_left).abs();
 
+                let inset: SideOffsets2D<f32, DevicePixel> = transform.map_side_offsets(&inset);
+
+                let i_tl = if radius.shape_top_left < 1.0 {
+                    Size2D::new(inset.top, inset.left)
+                } else {
+                    Size2D::zero()
+                };
+                let i_tr = if radius.shape_top_right < 1.0 {
+                    Size2D::new(inset.top, inset.right)
+                } else {
+                    Size2D::zero()
+                };
+                let i_br = if radius.shape_bottom_right < 1.0 {
+                    Size2D::new(inset.bottom, inset.right)
+                } else {
+                    Size2D::zero()
+                };
+                let i_bl = if radius.shape_bottom_left < 1.0 {
+                    Size2D::new(inset.bottom, inset.left)
+                } else {
+                    Size2D::zero()
+                };
+
                 // Construct the mask regions for each corner
                 let c_tl = DeviceRect::from_origin_and_size(
                     clip_device_rect.min,
-                    r_tl,
+                    r_tl + i_tl,
                 );
                 let c_tr = DeviceRect::from_origin_and_size(
                     DevicePoint::new(
                         clip_device_rect.max.x - r_tr.width,
                         clip_device_rect.min.y,
                     ),
-                    r_tr,
+                    r_tr + i_tr,
                 );
                 let c_br = DeviceRect::from_origin_and_size(
                     DevicePoint::new(
                         clip_device_rect.max.x - r_br.width,
                         clip_device_rect.max.y - r_br.height,
                     ),
-                    r_br,
+                    r_br + i_br,
                 );
                 let c_bl = DeviceRect::from_origin_and_size(
                     DevicePoint::new(
                         clip_device_rect.min.x,
                         clip_device_rect.max.y - r_bl.height,
                     ),
-                    r_bl,
+                    r_bl + i_bl,
                 );
 
                 scratch.retained.quad_tile_classifier.add_clip_rect(clip_device_rect, ClipMode::Clip, applied_as_local_clip);
@@ -1236,11 +1259,11 @@ fn prepare_tiles(
                 scratch.retained.quad_tile_classifier.add_mask_region(c_br);
                 scratch.retained.quad_tile_classifier.add_mask_region(c_bl);
             }
-            ClipItemKind::RoundedRectangle { mode: ClipMode::ClipOut, ref radius , inset: _} => {
+            ClipItemKind::RoundedRectangle { mode: ClipMode::ClipOut, ref radius , ref inset } => {
                 let radius = clamped_radius(radius, clip_instance.clip_rect.size());
                 // Try to find an inner rect within the clip-out rounded rect that we can
                 // use to cull inner tiles. If we can't, the entire rect needs to be masked
-                match extract_inner_rect_k(&clip_instance.clip_rect, &radius, 0.5) {
+                match extract_inner_rect_k(&clip_instance.clip_rect, &radius, &inset, 0.5) {
                     Some(ref inner_rect) => {
                         let rect = transform.map_rect(inner_rect);
                         scratch.retained.quad_tile_classifier.add_clip_rect(rect, ClipMode::ClipOut, false);

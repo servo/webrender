@@ -3,7 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use std::borrow::Cow;
-use euclid::{approxeq::ApproxEq as _, default, point2, point3, Box2D, Point2D, Scale, Size2D, Transform3D, Vector2D};
+use euclid::{approxeq::ApproxEq as _, default, point2, point3, Box2D};
+use euclid::{Point2D, Scale, Size2D, SideOffsets2D, Transform3D, Vector2D};
 use crate::units::{LayoutPixel, WorldPixel};
 
 // Matches the definition of SK_ScalarNearlyZero in Skia.
@@ -206,6 +207,15 @@ impl ScaleOffset {
         Size2D::new(
             size.width * self.scale.x,
             size.height * self.scale.y,
+        )
+    }
+
+    pub fn map_side_offsets<F, T>(&self, side_offsets: &SideOffsets2D<f32, F>) -> SideOffsets2D<f32, T> {
+        SideOffsets2D::new(
+            side_offsets.top * self.scale.y.abs(),
+            side_offsets.right * self.scale.x.abs(),
+            side_offsets.bottom * self.scale.y.abs(),
+            side_offsets.left * self.scale.x.abs(),
         )
     }
 
