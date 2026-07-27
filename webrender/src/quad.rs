@@ -1188,7 +1188,7 @@ fn prepare_tiles(
                 let rect = transform.map_rect(&clip_instance.clip_rect);
                 scratch.retained.quad_tile_classifier.add_clip_rect(rect, mode, applied_as_local_clip);
             }
-            ClipItemKind::RoundedRectangle { mode: ClipMode::Clip, ref radius } => {
+            ClipItemKind::RoundedRectangle { mode: ClipMode::Clip, ref radius, inset: _ } => {
                 // For rounded-rects with Clip mode, we need a mask for each corner,
                 // and to add the clip rect itself (to cull tiles outside that rect)
 
@@ -1236,7 +1236,7 @@ fn prepare_tiles(
                 scratch.retained.quad_tile_classifier.add_mask_region(c_br);
                 scratch.retained.quad_tile_classifier.add_mask_region(c_bl);
             }
-            ClipItemKind::RoundedRectangle { mode: ClipMode::ClipOut, ref radius } => {
+            ClipItemKind::RoundedRectangle { mode: ClipMode::ClipOut, ref radius , inset: _} => {
                 let radius = clamped_radius(radius, clip_instance.clip_rect.size());
                 // Try to find an inner rect within the clip-out rounded rect that we can
                 // use to cull inner tiles. If we can't, the entire rect needs to be masked
@@ -1757,6 +1757,7 @@ pub fn write_rounded_rect_clip_blocks(
     gpu_buffer: &mut GpuBufferBuilderF,
     clip_rect: LayoutRect,
     radius: &BorderRadius,
+    inset: LayoutSideOffsets,
     mode: ClipMode,
 ) -> (GpuBufferAddress, bool) {
     let radius = clamped_radius(radius, clip_rect.size());
@@ -1774,7 +1775,7 @@ pub fn write_rounded_rect_clip_blocks(
 
         (writer.finish(), true)
     } else {
-        let mut writer = gpu_buffer.write_blocks(5);
+        let mut writer = gpu_buffer.write_blocks(6);
         writer.push_one(clip_rect);
         writer.push_one([
             radius.top_left.width,
@@ -1795,6 +1796,7 @@ pub fn write_rounded_rect_clip_blocks(
             radius.shape_bottom_right,
             radius.shape_bottom_left,
         ]);
+        writer.push_one(inset);
 
         (writer.finish(), false)
     }
@@ -1816,11 +1818,12 @@ pub fn prepare_clip_task(
     sub_tasks: &mut SubTaskRange,
 ) {
     let (clip_address, fast_path) = match clip_item.kind {
-        ClipItemKind::RoundedRectangle { radius, mode } => {
+        ClipItemKind::RoundedRectangle { radius, inset, mode } => {
             write_rounded_rect_clip_blocks(
                 gpu_buffer,
                 clip_instance.clip_rect,
                 &radius,
+                inset,
                 mode,
             )
         }

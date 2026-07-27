@@ -13,7 +13,7 @@ use crate::gpu_types::UvRectKind;
 use crate::internal_types::{FrameId, FrameMemory, FrameVec, TextureSource, TextureSourceExternal};
 use crate::renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use crate::util::ScaleOffset;
-use api::units::{DeviceIntRect, DeviceIntSize, DevicePoint, DeviceRect, LayoutRect, PictureRect};
+use api::units::{DeviceIntRect, DeviceIntSize, DevicePoint, DeviceRect, LayoutRect, LayoutSideOffsets, PictureRect};
 use api::{PremultipliedColorF, ImageFormat};
 use crate::device::Texel;
 use crate::render_task::{RenderTaskLocation, StaticRenderTaskSurface};
@@ -191,6 +191,19 @@ impl Into<GpuBufferBlockF> for crate::quad::LayoutOrDeviceRect {
                 self.min.y,
                 self.max.x,
                 self.max.y,
+            ],
+        }
+    }
+}
+
+impl Into<GpuBufferBlockF> for LayoutSideOffsets {
+    fn into(self) -> GpuBufferBlockF {
+        GpuBufferBlockF {
+            data: [
+                self.top,
+                self.right,
+                self.bottom,
+                self.left,
             ],
         }
     }

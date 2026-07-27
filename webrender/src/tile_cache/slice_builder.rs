@@ -570,11 +570,11 @@ fn create_tile_cache(
             match clip_node_data.key.kind {
                 ClipItemKeyKind::ImageMask(..) |
                 ClipItemKeyKind::Rectangle(ClipMode::ClipOut) |
-                ClipItemKeyKind::RoundedRectangle(_, ClipMode::ClipOut) => {
+                ClipItemKeyKind::RoundedRectangle(_, _, ClipMode::ClipOut) => {
                     // Has an image-mask or clip-out clip, we can't handle this as a shared clip
                     false
                 }
-                ClipItemKeyKind::RoundedRectangle(radius, ClipMode::Clip) => {
+                ClipItemKeyKind::RoundedRectangle(radius, _, ClipMode::Clip) => {
                     // The shader and CoreAnimation rely on certain constraints such
                     // as uniform radii to be able to apply the clip during compositing.
                     let br = clamped_radius(&BorderRadius::from(radius), node.unsnapped_clip_rect.size());
@@ -612,7 +612,7 @@ fn create_tile_cache(
                 let can_combine = match (accumulated_rounded_rect, clip_node_data.key.kind) {
                     (
                         Some((acc_rect, acc_radius)),
-                        ClipItemKeyKind::RoundedRectangle(radius, ClipMode::Clip),
+                        ClipItemKeyKind::RoundedRectangle(radius, _, ClipMode::Clip),
                     ) => {
                         let radius = clamped_radius(&BorderRadius::from(radius), node.unsnapped_clip_rect.size());
                         intersect_rounded_rects(
@@ -633,7 +633,7 @@ fn create_tile_cache(
                     // Can't combine, drop children and keep only this clip.
                     shared_clip_node_id = current_node_id;
                     rounded_rect_count = 1;
-                    if let ClipItemKeyKind::RoundedRectangle(radius, ClipMode::Clip) = clip_node_data.key.kind {
+                    if let ClipItemKeyKind::RoundedRectangle(radius, _, ClipMode::Clip) = clip_node_data.key.kind {
                         let radius = clamped_radius(&BorderRadius::from(radius), node.unsnapped_clip_rect.size());
                         accumulated_rounded_rect = Some((node.unsnapped_clip_rect, radius));
                     }

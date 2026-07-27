@@ -170,6 +170,7 @@ pub struct ImageRequestTask {
 pub struct ClipRegionTask {
     pub clip_rect: LayoutRect,
     pub radius: BorderRadius,
+    pub inset: LayoutSideOffsets,
     pub mode: ClipMode,
     pub device_pixel_scale: DevicePixelScale,
 }
@@ -550,12 +551,14 @@ impl RenderTaskKind {
     pub fn new_rounded_rect_mask(
         clip_rect: LayoutRect,
         radius: BorderRadius,
+        inset: LayoutSideOffsets,
         mode: ClipMode,
         device_pixel_scale: DevicePixelScale,
     ) -> Self {
         RenderTaskKind::ClipRegion(ClipRegionTask {
             clip_rect,
             radius,
+            inset,
             mode,
             device_pixel_scale,
         })

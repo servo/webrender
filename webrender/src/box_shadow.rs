@@ -449,6 +449,7 @@ pub fn prepare_box_shadow(
                 RenderTaskKind::new_rounded_rect_mask(
                     minimal_shadow_rect,
                     shadow_radius,
+                    LayoutSideOffsets::zero(),
                     ClipMode::Clip,
                     device_pixel_scale_for_task,
                 ),

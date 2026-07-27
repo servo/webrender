@@ -1538,6 +1538,7 @@ impl DisplayListBuilder {
                     ComplexClipRegion {
                         rect: box_bounds,
                         radii: border_radius,
+                        inset: LayoutSideOffsets::zero(),
                         mode: ClipMode::ClipOut,
                     },
                     spread_radius,
@@ -1552,6 +1553,7 @@ impl DisplayListBuilder {
                         ComplexClipRegion {
                             rect: shadow_rect,
                             radii: shadow_radius,
+                            inset: LayoutSideOffsets::zero(),
                             mode: ClipMode::ClipOut,
                         },
                         spread_radius,
@@ -1568,6 +1570,7 @@ impl DisplayListBuilder {
             ComplexClipRegion {
                 rect: final_prim_rect,
                 radii: clip_radius,
+                inset: LayoutSideOffsets::zero(),
                 mode: ClipMode::Clip,
             },
             0.0,

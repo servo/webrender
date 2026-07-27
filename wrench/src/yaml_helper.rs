@@ -20,6 +20,7 @@ pub trait YamlHelper {
     fn as_pipeline_id(&self) -> Option<PipelineId>;
     fn as_rect(&self) -> Option<LayoutRect>;
     fn as_size(&self) -> Option<LayoutSize>;
+    fn as_side_offsets(&self) -> Option<LayoutSideOffsets>;
     fn as_point(&self) -> Option<LayoutPoint>;
     fn as_vector(&self) -> Option<LayoutVector2D>;
     fn as_matrix4d(&self) -> Option<LayoutTransform>;
@@ -288,6 +289,18 @@ impl YamlHelper for Yaml {
         }
 
         None
+    }
+
+    fn as_side_offsets(&self) -> Option<LayoutSideOffsets> {
+        self.as_vec_f32().and_then(|v| match v.as_slice() {
+            &[top, right, bottom, left] => Some(LayoutSideOffsets::new(
+                top,
+                right,
+                bottom,
+                left
+            )),
+            _ => None,
+        })
     }
 
     fn as_point(&self) -> Option<LayoutPoint> {
@@ -1020,10 +1033,13 @@ impl YamlHelper for Yaml {
         let radius = self["radius"]
             .as_border_radius()
             .unwrap_or_else(BorderRadius::zero);
+        let inset = self["inset"]
+            .as_side_offsets()
+            .unwrap_or_else(LayoutSideOffsets::zero);
         let mode = self["clip-mode"]
             .as_clip_mode()
             .unwrap_or(ClipMode::Clip);
-        ComplexClipRegion::new(rect, radius, mode)
+        ComplexClipRegion::new(rect, radius, inset, mode)
     }
 
     fn as_sticky_offset_bounds(&self) -> StickyOffsetBounds {

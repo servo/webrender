@@ -448,6 +448,7 @@ impl RenderTarget {
                     &mut gpu_buffer_builder.f32,
                     region_task.clip_rect,
                     &region_task.radius,
+                    region_task.inset,
                     region_task.mode,
                 );
 

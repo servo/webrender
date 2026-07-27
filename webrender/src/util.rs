@@ -422,6 +422,9 @@ fn extract_inner_rect_impl<U>(
 
 /// Return an aligned rectangle that is inside the clip region and doesn't intersect
 /// any of the bounding rectangles of the rounded corners.
+/// 
+/// TODO(wsmind): This probably needs to be updated for corner-shape, as corners
+/// can go further inside the rect than with classic border radii.
 pub fn extract_inner_rect_safe<U>(
     rect: &Box2D<f32, U>,
     radii: &BorderRadius,

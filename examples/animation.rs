@@ -85,6 +85,7 @@ impl App {
         let complex_clip = ComplexClipRegion {
             rect: clip_bounds,
             radii: BorderRadius::uniform(30.0),
+            inset: LayoutSideOffsets::zero(),
             mode: ClipMode::Clip,
         };
         let clip_id = builder.define_clip_rounded_rect(

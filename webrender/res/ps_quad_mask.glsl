@@ -42,6 +42,7 @@ struct Clip {
     vec4 radii_bottom;
 
     vec4 shape;
+    vec4 inset;
 #endif
     float mode;
     int space;
@@ -58,12 +59,13 @@ Clip fetch_clip(int index) {
     clip.radii = texels[1];
     clip.mode = texels[2].x;
 #else
-    vec4 texels[5] = fetch_from_gpu_buffer_5f(index);
+    vec4 texels[6] = fetch_from_gpu_buffer_6f(index);
     clip.rect = RectWithEndpoint(texels[0].xy, texels[0].zw);
     clip.radii_top = texels[1];
     clip.radii_bottom = texels[2];
     clip.mode = texels[3].x;
     clip.shape = texels[4];
+    clip.inset = texels[5];
 #endif
 
     return clip;

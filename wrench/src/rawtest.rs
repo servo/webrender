@@ -1359,6 +1359,7 @@ impl<'a> RawtestHarness<'a> {
             ComplexClipRegion::new(
                 *rect,
                 BorderRadius::uniform_size(LayoutSize::new(radius, radius)),
+                LayoutSideOffsets::zero(),
                 ClipMode::Clip
             )
         };

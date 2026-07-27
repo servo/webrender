@@ -44,6 +44,17 @@ vec4[5] fetch_from_gpu_buffer_5f_direct(ivec2 uv) {
     );
 }
 
+vec4[6] fetch_from_gpu_buffer_6f_direct(ivec2 uv) {
+    return vec4[6](
+        TEXEL_FETCH(sGpuBufferF, uv, 0, ivec2(0, 0)),
+        TEXEL_FETCH(sGpuBufferF, uv, 0, ivec2(1, 0)),
+        TEXEL_FETCH(sGpuBufferF, uv, 0, ivec2(2, 0)),
+        TEXEL_FETCH(sGpuBufferF, uv, 0, ivec2(3, 0)),
+        TEXEL_FETCH(sGpuBufferF, uv, 0, ivec2(4, 0)),
+        TEXEL_FETCH(sGpuBufferF, uv, 0, ivec2(5, 0))
+    );
+}
+
 vec4 fetch_from_gpu_buffer_1f(HIGHP_FS_ADDRESS int address) {
     ivec2 uv = get_gpu_buffer_uv(address);
     return texelFetch(sGpuBufferF, uv, 0);
@@ -67,6 +78,11 @@ vec4[4] fetch_from_gpu_buffer_4f(HIGHP_FS_ADDRESS int address) {
 vec4[5] fetch_from_gpu_buffer_5f(HIGHP_FS_ADDRESS int address) {
     ivec2 uv = get_gpu_buffer_uv(address);
     return fetch_from_gpu_buffer_5f_direct(uv);
+}
+
+vec4[6] fetch_from_gpu_buffer_6f(HIGHP_FS_ADDRESS int address) {
+    ivec2 uv = get_gpu_buffer_uv(address);
+    return fetch_from_gpu_buffer_6f_direct(uv);
 }
 
 vec4 fetch_from_gpu_buffer_1f_direct(ivec2 uv) {

@@ -1142,7 +1142,7 @@ impl TileCacheInstance {
                             .get_instance_from_range(&clip_chain.clips_range, i);
                         let clip_node = &frame_state.data_stores.clip[clip_instance.handle];
 
-                        if let ClipItemKind::RoundedRectangle { radius, mode } = clip_node.item.kind {
+                        if let ClipItemKind::RoundedRectangle { radius, inset: _, mode } = clip_node.item.kind {
                             assert_eq!(mode, ClipMode::Clip);
 
                             let radius = clamped_radius(&radius, clip_instance.clip_rect.size());
