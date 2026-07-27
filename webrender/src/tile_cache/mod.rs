@@ -3078,6 +3078,27 @@ impl TileCacheInstance {
                     ));
                     scratch.frame.draws[desc.prim_instance_index.0 as usize].compositor_surface_kind =
                         CompositorSurfaceKind::Blit;
+
+                    let (p0, p1) = self.get_tile_coords_for_rect(&desc.local_rect);
+
+                    for sub_slice in &mut self.sub_slices {
+                        for y in p0.y .. p1.y {
+                            for x in p0.x .. p1.x {
+                                let key = TileOffset::new(x, y);
+
+                                let tile = sub_slice
+                                    .tiles
+                                    .get_mut(&key)
+                                    .expect("bug: no tile for cancelled underlay");
+
+                                tile.invalidate(
+                                    Some(desc.local_rect),
+                                    InvalidationReason::CancelUnderlay,
+                                );
+
+                            }
+                        }
+                    }
                 }
 
                 let mut underlays: Vec<ExternalSurfaceDescriptor> = underlays

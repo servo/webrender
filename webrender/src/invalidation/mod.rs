@@ -107,6 +107,8 @@ pub enum InvalidationReason {
     ScaleChanged,
     // The content of the sampling surface changed
     SurfaceContentChanged,
+    // Cancel underlay
+    CancelUnderlay,
 }
 
 /// The result of a primitive dependency comparison. Size is a u8
