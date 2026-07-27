@@ -786,6 +786,9 @@ bitflags! {
         const EXTERNAL_COMPOSITE_BORDERS = (1 as u64) << 34;
         /// Dump the frame spatial tree to stderr.
         const DUMP_SPATIAL_TREE = (1 as u64) << 35;
+        /// Initialize the pixels of color render targets with an opaque pink
+        /// color, to help spot when unitialized pixels are sampled.
+        const COLOR_TARGET_INIT = (1 as u64) << 36;
     }
 }
 

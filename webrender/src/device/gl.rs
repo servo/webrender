@@ -1259,6 +1259,11 @@ pub struct Device {
     // count created/deleted textures to report in the profiler.
     pub textures_created: u32,
     pub textures_deleted: u32,
+
+    /// When true, the pixels of newly created color render targets are
+    /// initialized with an opaque pink color for debugging purposes.
+    /// Controlled by the `DebugFlags::COLOR_TARGET_INIT` debug flag.
+    initialize_color_targets_with_pink: bool,
 }
 
 /// Contains the parameters necessary to bind a draw target.
@@ -2075,11 +2080,19 @@ impl Device {
 
             textures_created: 0,
             textures_deleted: 0,
+
+            initialize_color_targets_with_pink: false,
         }
     }
 
     pub fn gl(&self) -> &dyn gl::Gl {
         &*self.gl
+    }
+
+    /// If enabled, initialize the pixels of newly created color render targets
+    /// with an opaque pink color for debugging purposes.
+    pub fn set_initialize_color_targets_with_pink(&mut self, enabled: bool) {
+        self.initialize_color_targets_with_pink = enabled;
     }
 
     pub fn rc_gl(&self) -> &Rc<dyn gl::Gl> {
@@ -2785,6 +2798,17 @@ impl Device {
         }
 
         self.textures_created += 1;
+
+        if self.initialize_color_targets_with_pink
+            && format == ImageFormat::BGRA8
+            && render_target.is_some()
+        {
+            self.bind_draw_target(DrawTarget::from_texture(
+                &texture,
+                false,
+            ));
+            self.clear_target(Some([1.0, 0.0, 1.0, 1.0]), None, None);
+        }
 
         texture
     }
