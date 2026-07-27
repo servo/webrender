@@ -418,6 +418,17 @@ pub struct NormalBorder {
     pub top: BorderSide,
     pub bottom: BorderSide,
     pub radius: BorderRadius,
+
+    /// Accumulated inset from the reference shape, in case of inflation/deflation.
+    /// The inset is expected to be already baked in rect and radii, but is necessary
+    /// for the correct computation of corner shapes.
+    ///
+    /// As borders have widths, this value should be calculated for the *outer* edge
+    /// of the border. For instance, a regular shape with a border will have an inset
+    /// of zero, but an outline of 5px, of which the outer edge is 5px away from the
+    /// original border-box, will have an inset of -5px.
+    pub inset: LayoutSideOffsets,
+
     /// Whether to apply anti-aliasing on the border corners.
     ///
     /// Note that for this to be `false` and work, this requires the borders to

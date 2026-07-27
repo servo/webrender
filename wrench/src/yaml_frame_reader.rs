@@ -1100,6 +1100,9 @@ impl YamlFrameReader {
                     let radius = item["radius"]
                         .as_border_radius()
                         .unwrap_or_else(BorderRadius::zero);
+                    let inset = item["inset"]
+                        .as_side_offsets()
+                        .unwrap_or_else(LayoutSideOffsets::zero);
 
                     let colors = broadcast(&colors, 4);
                     let styles = broadcast(&styles, 4);
@@ -1127,6 +1130,7 @@ impl YamlFrameReader {
                         bottom,
                         right,
                         radius,
+                        inset,
                         do_aa,
                     }))
                 }

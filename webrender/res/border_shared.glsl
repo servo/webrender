@@ -29,12 +29,13 @@ struct BorderInstanceGpuData {
     vec2 radii;
     float shape;
     vec2 shape_offset;
+    vec2 inset;
 };
 
 BorderInstanceGpuData fetch_gpu_data(int index) {
     BorderInstanceGpuData data;
 
-    vec4 texels[5] = fetch_from_gpu_buffer_5f(index);
+    vec4 texels[6] = fetch_from_gpu_buffer_6f(index);
     data.rect = texels[0];
     data.color0 = texels[1];
     data.color1 = texels[2];
@@ -42,6 +43,7 @@ BorderInstanceGpuData fetch_gpu_data(int index) {
     data.radii = texels[3].zw;
     data.shape = texels[4].x;
     data.shape_offset = texels[4].yz;
+    data.inset = texels[5].xy;
 
     return data;
 }

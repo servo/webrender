@@ -89,6 +89,7 @@ impl Example for App {
             bottom: border_side,
             left: border_side,
             radius: BorderRadius::uniform(20.0),
+            inset: LayoutSideOffsets::zero(),
             do_aa: true,
         });
 

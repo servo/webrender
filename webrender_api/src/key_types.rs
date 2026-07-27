@@ -13,7 +13,7 @@
 use crate::serde::{Serialize, Deserialize};
 use crate::{ColorU, BorderRadius, BorderSide, BorderStyle, NormalBorder, RepeatMode, GradientStop, PrimitiveFlags};
 use crate::{FillRule, GlyphIndex, POLYGON_CLIP_VERTEX_MAX};
-use crate::units::{LayoutVector2D, WorldVector2D, LayoutPoint, PicturePoint, WorldPoint};
+use crate::units::{LayoutPoint, LayoutSideOffsetsAu, LayoutVector2D, PicturePoint, WorldPoint, WorldVector2D};
 use crate::units::{LayoutSize, LayoutSizeAu, LayoutPointAu, AuHelpers, LayoutSideOffsets, DeviceIntSideOffsets};
 use euclid::{Size2D, SideOffsets2D};
 use peek_poke::PeekPoke;
@@ -198,6 +198,7 @@ pub struct NormalBorderAu {
     pub top: BorderSideAu,
     pub bottom: BorderSideAu,
     pub radius: BorderRadiusAu,
+    pub inset: LayoutSideOffsetsAu,
     /// Whether to apply anti-aliasing on the border corners.
     ///
     /// Note that for this to be `false` and work, this requires the borders to
@@ -225,6 +226,7 @@ impl From<NormalBorder> for NormalBorderAu {
             top: border.top.into(),
             bottom: border.bottom.into(),
             radius: border.radius.into(),
+            inset: border.inset.to_au(),
             do_aa: border.do_aa,
         }
     }
@@ -238,6 +240,7 @@ impl From<NormalBorderAu> for NormalBorder {
             top: border.top.into(),
             bottom: border.bottom.into(),
             radius: border.radius.into(),
+            inset: LayoutSideOffsets::from_au(border.inset),
             do_aa: border.do_aa,
         }
     }
