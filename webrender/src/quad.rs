@@ -1423,7 +1423,7 @@ fn get_prim_render_strategy(
         let clip_instance = clip_store.get_instance_from_range(&clip_chain.clips_range, 0);
         let clip_node = &interned_clips[clip_instance.handle];
 
-        if let ClipItemKind::RoundedRectangle { ref radius, mode: ClipMode::Clip, .. } = clip_node.item.kind {
+        if let ClipItemKind::RoundedRectangle { ref radius, ref inset, mode: ClipMode::Clip } = clip_node.item.kind {
             let size = clip_instance.clip_rect.size();
             let radius = clamped_radius(radius, size);
             let max_corner_width = radius.top_left.width
@@ -1434,9 +1434,28 @@ fn get_prim_render_strategy(
                                         .max(radius.bottom_left.height)
                                         .max(radius.top_right.height)
                                         .max(radius.bottom_right.height);
+            
+            let mut max_inset_width = 0.0f32;
+            let mut max_inset_height = 0.0f32;
+            if radius.shape_top_left < 1.0 {
+                max_inset_width = max_inset_width.max(inset.top);
+                max_inset_height = max_inset_height.max(inset.left);
+            }
+            if radius.shape_top_right < 1.0 {
+                max_inset_width = max_inset_width.max(inset.top);
+                max_inset_height = max_inset_height.max(inset.right);
+            }
+            if radius.shape_bottom_right < 1.0 {
+                max_inset_width = max_inset_width.max(inset.bottom);
+                max_inset_height = max_inset_height.max(inset.right);
+            }
+            if radius.shape_bottom_left < 1.0 {
+                max_inset_width = max_inset_width.max(inset.bottom);
+                max_inset_height = max_inset_height.max(inset.left);
+            }
 
-            if max_corner_width <= 0.5 * size.width &&
-                max_corner_height <= 0.5 * size.height {
+            if (max_corner_width + max_inset_width) <= 0.5 * size.width &&
+                (max_corner_height + max_inset_height) <= 0.5 * size.height {
 
                 let clip_prim_coords_match = spatial_tree.is_matching_coord_system(
                     prim_spatial_node_index,
@@ -1453,7 +1472,7 @@ fn get_prim_render_strategy(
 
                     if let Some(clip_rect) = map_clip_to_prim.map(&clip_instance.clip_rect) {
                         let radius = map_clip_to_prim.map_vector(
-                            LayoutVector2D::new(max_corner_width, max_corner_height)
+                            LayoutVector2D::new(max_corner_width + max_inset_width, max_corner_height + max_inset_height)
                         );
                         return QuadRenderStrategy::NinePatch {
                             radius,
