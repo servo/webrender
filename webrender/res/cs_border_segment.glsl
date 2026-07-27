@@ -46,7 +46,7 @@ flat varying mediump vec4 vClipParams2;
 // Local space position
 varying highp vec2 vPos;
 
-// Border styles as defined in webrender_api/types.rs
+// Must be kept in sync with BorderStyle in webrender_api/src/display_item.rs
 #define BORDER_STYLE_NONE         0
 #define BORDER_STYLE_SOLID        1
 #define BORDER_STYLE_DOUBLE       2

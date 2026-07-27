@@ -318,7 +318,9 @@ impl Filter {
 
 
     pub fn as_int(&self) -> i32 {
-        // Must be kept in sync with brush_blend.glsl
+        // Must be kept in sync with the FILTER_* defines in blend.glsl. Only the
+        // filters handled by that shader are defined there; the rest (blur, drop
+        // shadow, opacity, SVG graph nodes) use other shaders.
         match *self {
             Filter::Identity => 0, // matches `Contrast(1)`
             Filter::Contrast(..) => 0,

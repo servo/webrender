@@ -568,10 +568,10 @@ impl RenderTaskKind {
         &self,
         target_rect: DeviceIntRect,
     ) -> RenderTaskData {
-        // NOTE: The ordering and layout of these structures are
-        //       required to match both the GPU structures declared
-        //       in prim_shared.glsl, and also the uses in submit_batch()
-        //       in renderer.rs.
+        // NOTE: The ordering and layout of these structures are required to
+        //       match the GPU-side RenderTaskData declared in render_task.glsl,
+        //       which is uploaded as `render_task_texture` (renderer/vertex.rs)
+        //       and read through the sRenderTasks sampler.
         // TODO(gw): Maybe there's a way to make this stuff a bit
         //           more type-safe. Although, it will always need
         //           to be kept in sync with the GLSL code anyway.

@@ -18,8 +18,8 @@ flat varying mediump vec2 v_amount;
 flat varying highp mat4 v_color_mat;
 flat varying mediump vec4 v_color_offset;
 
-// The component-transfer function to use for each channel, stored as floats to
-// work around driver bugs with integer varyings (see brush_blend.glsl).
+// The component-transfer function to use for each channel, stored as floats
+// rather than in an ivec4 to work around driver bugs with integer varyings.
 flat varying mediump vec4 v_funcs;
 
 #ifdef WR_VERTEX_SHADER

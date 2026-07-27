@@ -50,7 +50,7 @@ uniform mediump vec2 uTextureSize;
 
 #ifdef WR_VERTEX_SHADER
 // CPU side data is in CompositeInstance (gpu_types.rs) and is
-// converted to GPU data using desc::COMPOSITE (renderer.rs) by
+// converted to GPU data using desc::COMPOSITE (renderer/vertex.rs) by
 // filling vaos.composite_vao with VertexArrayKind::Composite.
 PER_INSTANCE attribute vec4 aDeviceRect;
 PER_INSTANCE attribute vec4 aDeviceClipRect;

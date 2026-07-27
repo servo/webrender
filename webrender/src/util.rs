@@ -426,8 +426,10 @@ pub fn extract_inner_rect_safe<U>(
     rect: &Box2D<f32, U>,
     radii: &BorderRadius,
 ) -> Option<Box2D<f32, U>> {
-    // value of `k==1.0` is used for extraction of the corner rectangles
-    // see `SEGMENT_CORNER_*` in `clip_shared.glsl`
+    // `k == 1.0` excludes each corner's full bounding box, so the result is the
+    // region that the edge and center parts of a nine-patch can cover. See the
+    // rounded-rect case of `SegmentBuilder::push_clip_rect` in segment.rs, which
+    // builds that nine-patch.
     extract_inner_rect_impl(rect, radii, 1.0)
 }
 
