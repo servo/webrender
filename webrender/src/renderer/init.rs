@@ -27,7 +27,8 @@ use crate::render_backend::RenderBackend;
 use crate::texture_cache::TextureCacheConfig;
 use crate::renderer::{
     debug, vertex, gl,
-    Renderer, DebugOverlayState, BufferDamageTracker, PipelineInfo, TextureResolver,
+    debug::DebugOverlayState,
+    Renderer, BufferDamageTracker, PipelineInfo, TextureResolver,
     RendererError, ShaderPrecacheFlags, VERTEX_DATA_TEXTURE_COUNT,
     upload::UploadTexturePool,
     shade::{Shaders, SharedShaders},
