@@ -225,7 +225,7 @@ pub struct PrimitiveInstanceData {
     data: [i32; 4],
 }
 
-// Keep these in sync with the correspondong #defines in shared.glsl
+// Keep these in sync with the corresponding #defines in shared.glsl
 /// Specifies that an RGB CompositeInstance or ScalingInstance's UV coordinates are normalized.
 const UV_TYPE_NORMALIZED: u32 = 0;
 /// Specifies that an RGB CompositeInstance or ScalingInstance's UV coordinates are not normalized.
@@ -673,10 +673,10 @@ impl GpuBufferDataF for QuadSegment {
 }
 
 
-/// The cooridnate space that the clip geometry (the quad rect) is relative to.
+/// The coordinate space that the clip geometry (the quad rect) is relative to.
 ///
 /// Not to confuse with the coordinate space of the primitive's pattern, for example
-/// the rounded rect, which is alreay relative to clip's spatial node.
+/// the rounded rect, which is already relative to clip's spatial node.
 #[derive(Copy, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]

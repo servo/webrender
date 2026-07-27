@@ -151,7 +151,7 @@ impl QuadTransformState {
         self.as_scale_offset.as_ref()
     }
 
-    // X and Y scale facotrs of the local to device transform.
+    // X and Y scale factors of the local to device transform.
     pub fn scale_factors(&self) -> (f32, f32) {
         let s = self.map_prim_to_raster.scale_factors();
 
@@ -297,7 +297,7 @@ pub fn prepare_repeatable_quad(
         },
     );
 
-    // This could move back into preapre_quad_impl if it took the tile's
+    // This could move back into prepare_quad_impl if it took the tile's
     // coverage rect into account rather than the whole primitive's, but
     // for now it does the latter so we might as well not do the work
     // multiple times.
@@ -318,7 +318,7 @@ pub fn prepare_repeatable_quad(
 
     if !needs_repetition {
         // The stretch size may be larger than the local rect's size which
-        // should resut in some stretching (without repetitions). However,
+        // should result in some stretching (without repetitions). However,
         // the non-repeated quad code paths don't take a stretch_size, so
         // we bake it into the local rect and make sure that the local clip
         // prevents the primitive from overflowing its initial bounds.
@@ -2155,7 +2155,7 @@ pub fn add_to_batch<F>(
     mut f: F,
 ) where F: FnMut(BatchKey, PrimitiveInstanceData) {
 
-    // See the corresponfing #defines in ps_quad.glsl
+    // See the corresponding #defines in ps_quad.glsl
     #[repr(u8)]
     enum PartIndex {
         Center = 0,

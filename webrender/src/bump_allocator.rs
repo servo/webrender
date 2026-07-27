@@ -399,7 +399,7 @@ impl ChunkPool {
     ///
     /// # Safety
     ///
-    /// Ownership of the provided chunks is transfered to the pool, nothing
+    /// Ownership of the provided chunks is transferred to the pool, nothing
     /// else can access them after this function runs.
     unsafe fn recycle_chunks(&self, chunk: NonNull<Chunk>) {
         let mut inner = self.inner.lock().unwrap();

@@ -939,7 +939,7 @@ impl RenderTaskGraph {
     pub fn report_memory(&self) -> usize {
         // We can't use wr_malloc_sizeof here because the render task
         // graph's memory is mainly backed by frame's custom allocator.
-        // So we calulate the memory footprint manually.
+        // So we calculate the memory footprint manually.
 
         let mut mem = size_of_frame_vec(&self.tasks)
             +  size_of_frame_vec(&self.task_data)

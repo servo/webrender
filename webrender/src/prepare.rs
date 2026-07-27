@@ -51,7 +51,7 @@ use crate::visibility::{DrawState, KindScratchHandle};
 
 const MAX_MASK_SIZE: i32 = 4096;
 
-/// The entry point of the preapre pass.
+/// The entry point of the prepare pass.
 pub fn prepare_picture(
     pic_index: PictureIndex,
     store: &mut PrimitiveStore,
