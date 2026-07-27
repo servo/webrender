@@ -14,7 +14,7 @@ use crate::spatial_tree::SpatialTree;
 use crate::frame_builder::FrameBuilderConfig;
 use crate::hit_test::{HitTester, HitTestingScene, HitTestingSceneStats};
 use crate::internal_types::{FastHashMap, FastHashSet};
-use crate::picture::SurfaceInfo;
+use crate::surface::SurfaceInfo;
 use crate::picture_graph::PictureGraph;
 use crate::prim_store::{PrimitiveStore, PrimitiveStoreStats, PictureIndex, PrimitiveInstance};
 use crate::tile_cache::TileCacheConfig;

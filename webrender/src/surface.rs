@@ -10,7 +10,7 @@ use api::units::*;
 use crate::box_shadow::BLUR_SAMPLE_SCALE;
 use crate::command_buffer::{CommandBufferBuilderKind, CommandBufferList, CommandBufferBuilder, CommandBufferIndex};
 use crate::internal_types::{FastHashMap, Filter};
-use crate::picture::PictureCompositeMode;
+use crate::picture_composite_mode::PictureCompositeMode;
 use crate::tile_cache::{TileKey, SubSliceIndex, MAX_COMPOSITOR_SURFACES};
 use crate::prim_store::PictureIndex;
 use crate::render_task_graph::{RenderTaskId, RenderTaskGraphBuilder};

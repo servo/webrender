@@ -29,7 +29,8 @@ use crate::pattern::image::ImagePattern;
 use crate::pattern::yuv::YuvPattern;
 use crate::pattern::backdrop::BackdropPattern;
 
-use crate::picture::{calculate_screen_uv, prepare_picture_primitive};
+use crate::picture::prepare_picture_primitive;
+use crate::surface::calculate_screen_uv;
 use crate::space::SpaceMapper;
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
@@ -37,7 +38,8 @@ use crate::gpu_types::UvRectKind;
 
 use crate::internal_types::{FastHashMap, PlaneSplitAnchor};
 use crate::picture::{ClusterFlags, PictureScratch};
-use crate::picture::{PrimitiveList, PrimitiveCluster, SurfaceIndex, SubpixelMode};
+use crate::picture::{PrimitiveList, PrimitiveCluster};
+use crate::surface::{SubpixelMode, SurfaceIndex};
 use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::prim_store::*;
 use crate::quad::{self, QuadDescriptor, QuadTransformState};

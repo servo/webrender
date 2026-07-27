@@ -133,8 +133,7 @@ use crate::quad::{self, QuadDescriptor, QuadTransformState};
 use crate::scene::SceneProperties;
 use crate::spatial_tree::CoordinateSystemId;
 use crate::surface::{SurfaceDescriptor, SurfaceTileDescriptor, get_surface_rects};
-pub use crate::surface::{SurfaceIndex, SurfaceInfo, SubpixelMode};
-pub use crate::surface::calculate_screen_uv;
+use crate::surface::{SurfaceIndex, SurfaceInfo, SubpixelMode};
 use smallvec::SmallVec;
 use std::{mem, u8, u32};
 use std::ops::Range;
@@ -147,7 +146,7 @@ use crate::tile_cache::{TileKey, SubSliceIndex};
 use crate::invalidation::InvalidationReason;
 use crate::tile_cache::MAX_SURFACE_SIZE;
 
-pub use crate::picture_composite_mode::{PictureCompositeMode, prepare_composite_mode};
+use crate::picture_composite_mode::{PictureCompositeMode, prepare_composite_mode};
 
 // Maximum blur radius for blur filter (different than box-shadow blur).
 // Taken from FilterNodeSoftware.cpp in Gecko.

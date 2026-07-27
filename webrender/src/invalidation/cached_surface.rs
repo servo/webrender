@@ -14,7 +14,9 @@ use crate::invalidation::compare::{PrimitiveComparer, PrimitiveDependency, Color
 use crate::invalidation::{InvalidationReason, PrimitiveCompareResult, quadtree::TileNode};
 use crate::invalidation::vert_buffer::{CornersCache, VertRange};
 use crate::intern::ItemUid;
-use crate::picture::{PictureCompositeMode, SurfaceIndex, clampf};
+use crate::picture::clampf;
+use crate::picture_composite_mode::PictureCompositeMode;
+use crate::surface::SurfaceIndex;
 use crate::print_tree::PrintTreePrinter;
 use crate::resource_cache::ResourceCache;
 use crate::space::SpaceMapper;

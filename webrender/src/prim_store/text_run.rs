@@ -9,7 +9,7 @@ use crate::scene_building::{IsVisible};
 use glyph_rasterizer::{FontInstance, FontTransform, GlyphKey, SubpixelDirection, FONT_SIZE_LIMIT};
 use crate::intern;
 use crate::internal_types::LayoutPrimitiveInfo;
-use crate::picture::SurfaceInfo;
+use crate::surface::SurfaceInfo;
 use crate::prim_store::PrimitiveScratchBuffer;
 use crate::prim_store::{PrimitiveStore, PrimKeyCommonData, PrimTemplateCommonData};
 use crate::renderer::{GpuBufferAddress, GpuBufferBuilderF, MAX_VERTEX_TEXTURE_WIDTH};
