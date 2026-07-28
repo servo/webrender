@@ -15,7 +15,6 @@ pub mod mix_blend;
 use api::units::*;
 use api::ColorF;
 
-use crate::frame_builder::FrameBuilderConfig;
 use crate::render_task_graph::RenderTaskId;
 use crate::renderer::{BlendMode, GpuBufferBuilder};
 use crate::spatial_tree::SpatialTree;
@@ -139,7 +138,6 @@ impl PatternTextureInput {
 
 pub struct PatternBuilderContext<'a> {
     pub spatial_tree: &'a SpatialTree,
-    pub fb_config: &'a FrameBuilderConfig,
     pub prim_origin: LayoutPoint,
 }
 

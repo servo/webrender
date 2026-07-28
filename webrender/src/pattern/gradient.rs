@@ -20,7 +20,6 @@ pub fn linear_gradient_pattern(
     end: LayoutPoint,
     extend_mode: ExtendMode,
     stops: &[GradientStop],
-    _is_software: bool,
     gpu_buffer_builder: &mut GpuBufferBuilder
 ) -> Pattern {
     let num_blocks = 2 + gpu_gradient_stops_blocks(stops.len());
@@ -63,7 +62,6 @@ pub fn radial_gradient_pattern(
     ratio_xy: f32,
     extend_mode: ExtendMode,
     stops: &[GradientStop],
-    _is_software: bool,
     gpu_buffer_builder: &mut GpuBufferBuilder
 ) -> Pattern {
     let num_blocks = 2 + gpu_gradient_stops_blocks(stops.len());

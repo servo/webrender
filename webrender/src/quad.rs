@@ -218,7 +218,6 @@ pub fn prepare_quad(
 ) {
     let pattern_ctx = PatternBuilderContext {
         spatial_tree: frame_context.spatial_tree,
-        fb_config: frame_context.fb_config,
         prim_origin: desc.local_rect.min,
     };
 
@@ -283,7 +282,6 @@ pub fn prepare_repeatable_quad(
 ) {
     let pattern_ctx = PatternBuilderContext {
         spatial_tree: frame_context.spatial_tree,
-        fb_config: frame_context.fb_config,
         prim_origin: desc.local_rect.min,
     };
 
@@ -518,7 +516,6 @@ pub fn prepare_border_nine_patch(
 ) {
     let pattern_ctx = PatternBuilderContext {
         spatial_tree: frame_context.spatial_tree,
-        fb_config: frame_context.fb_config,
         prim_origin: desc.local_rect.min,
     };
 

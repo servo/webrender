@@ -6,7 +6,7 @@
 //!
 //! Specification: https://drafts.csswg.org/css-images-4/#linear-gradients
 //!
-//! Linear gradients are rendered via cached render tasks and composited with the image brush.
+//! Linear gradients are rendered as quads with the gradient pattern (ps_quad_gradient).
 
 use euclid::approxeq::ApproxEq;
 use euclid::point2;
@@ -73,7 +73,6 @@ impl PatternBuilder for LinearGradientTemplate {
             end + offset,
             self.extend_mode,
             &self.stops,
-            ctx.fb_config.is_software,
             state.frame_gpu_data,
         )
     }

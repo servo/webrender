@@ -6,7 +6,7 @@
 //!
 //! Specification: https://drafts.csswg.org/css-images-4/#conic-gradients
 //!
-//! Conic gradients are rendered via cached render tasks and composited with the image brush.
+//! Conic gradients are rendered as quads with the gradient pattern (ps_quad_gradient).
 
 use api::{ExtendMode, GradientStop};
 use api::units::*;

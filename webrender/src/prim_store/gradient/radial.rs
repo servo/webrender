@@ -6,7 +6,7 @@
 //!
 //! Specification: https://drafts.csswg.org/css-images-4/#radial-gradients
 //!
-//! Radial gradients are rendered via cached render tasks and composited with the image brush.
+//! Radial gradients are rendered as quads with the gradient pattern (ps_quad_gradient).
 
 use api::{ExtendMode, GradientStop};
 use api::units::*;
@@ -79,7 +79,6 @@ impl PatternBuilder for RadialGradientTemplate {
             self.params.ratio_xy,
             self.extend_mode,
             &self.stops,
-            ctx.fb_config.is_software,
             state.frame_gpu_data,
         )
     }
