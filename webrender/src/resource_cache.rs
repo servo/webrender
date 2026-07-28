@@ -1492,7 +1492,7 @@ impl ResourceCache {
     }
 
     pub fn begin_frame(&mut self, stamp: FrameStamp, profile: &mut TransactionProfile) {
-        profile_scope!("begin_frame");
+        tracy_rs::profile_scope!("begin_frame");
         debug_assert_eq!(self.state, State::Idle);
         self.state = State::AddResources;
         self.texture_cache.begin_frame(stamp, profile);
@@ -1520,7 +1520,7 @@ impl ResourceCache {
         gpu_buffer: &mut GpuBufferBuilder,
         profile: &mut TransactionProfile,
     ) {
-        profile_scope!("block_until_all_resources_added");
+        tracy_rs::profile_scope!("block_until_all_resources_added");
 
         debug_assert_eq!(self.state, State::AddResources);
         self.state = State::QueryResources;
@@ -1578,7 +1578,7 @@ impl ResourceCache {
     }
 
     fn update_texture_cache(&mut self, gpu_buffer: &mut GpuBufferBuilder) {
-        profile_scope!("update_texture_cache");
+        tracy_rs::profile_scope!("update_texture_cache");
 
         if self.fallback_handle == TextureCacheHandle::invalid() {
             let fallback_color = if self.debug_fallback_pink {
@@ -1849,7 +1849,7 @@ impl ResourceCache {
 
     pub fn end_frame(&mut self, profile: &mut TransactionProfile) {
         debug_assert_eq!(self.state, State::QueryResources);
-        profile_scope!("end_frame");
+        tracy_rs::profile_scope!("end_frame");
         self.state = State::Idle;
 
         // GC the render target pool, if it's currently > 64 MB in size.
