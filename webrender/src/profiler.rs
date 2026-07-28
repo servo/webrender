@@ -1378,7 +1378,6 @@ pub fn set_profiler_hooks(hooks: Option<&'static dyn ProfilerHooks>) {
     }
 }
 
-#[allow(unused)]
 /// A simple RAII style struct to manage a profile scope.
 pub struct ProfileScope {
     name: &'static str,
@@ -1431,7 +1430,6 @@ pub fn thread_is_being_profiled() -> bool {
 
 impl ProfileScope {
     /// Begin a new profile scope
-    #[allow(unused)]
     pub fn new(name: &'static str) -> Self {
         unsafe {
             if let Some(ref hooks) = PROFILER_HOOKS {
@@ -1455,19 +1453,10 @@ impl Drop for ProfileScope {
     }
 }
 
-#[cfg(not(feature="tracy"))]
 /// A helper macro to define profile scopes.
 macro_rules! profile_marker {
     ($string:expr) => {
         let _scope = $crate::profiler::ProfileScope::new($string);
-    };
-}
-
-#[cfg(feature="tracy")]
-/// A helper macro to define profile scopes.
-macro_rules! profile_marker {
-    ($string:expr) => {
-        tracy_rs::profile_scope!($string)
     };
 }
 

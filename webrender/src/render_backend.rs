@@ -467,7 +467,7 @@ impl Document {
                 tx.send(self.shared_hit_tester.clone()).unwrap();
             }
             FrameMsg::SetScrollOffsets(id, offset) => {
-                tracy_rs::profile_scope!("SetScrollOffset");
+                profile_scope!("SetScrollOffset");
 
                 if self.set_scroll_offsets(id, offset) {
                     self.hit_tester_is_valid = false;
@@ -1605,7 +1605,7 @@ impl RenderBackend {
         msg: SceneBuilderResult,
         frame_counter: &mut u32,
     ) -> RenderBackendStatus {
-        tracy_rs::profile_scope!("sb_msg");
+        profile_scope!("sb_msg");
 
         match msg {
             SceneBuilderResult::Transactions(txns, result_tx) => {
@@ -1907,7 +1907,7 @@ impl RenderBackend {
             if start_time.is_some() {
               Telemetry::record_time_to_frame_build(Duration::from_nanos(zeitstempel::now() - start_time.unwrap()));
             }
-            tracy_rs::profile_scope!("generate frame");
+            profile_scope!("generate frame");
 
             *frame_counter += 1;
 

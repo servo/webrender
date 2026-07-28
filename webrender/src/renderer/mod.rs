@@ -948,7 +948,7 @@ impl Renderer {
     ///
     /// Should be called before `render()`, as texture cache updates are done here.
     pub fn update(&mut self) {
-        tracy_rs::profile_scope!("update");
+        profile_scope!("update");
 
         // Pull any pending results and return the most recent.
         while let Some(msg) = self.get_next_result_msg() {
@@ -1405,7 +1405,7 @@ impl Renderer {
 
         self.external_composite_debug_items = Vec::new();
 
-        tracy_rs::tracy_frame_marker!();
+        tracy_frame_marker!();
 
         result
     }
@@ -1421,7 +1421,7 @@ impl Renderer {
         mut device_size: Option<DeviceIntSize>,
         buffer_age: usize,
     ) -> Result<RenderResults, Vec<RendererError>> {
-        tracy_rs::profile_scope!("render");
+        profile_scope!("render");
         let mut results = RenderResults::default();
         self.profile.end_time_if_started(profiler::FRAME_SEND_TIME);
         self.profile.start_time(profiler::RENDERER_TIME);
@@ -1788,7 +1788,7 @@ impl Renderer {
                     compositor.end_frame();
                 }
                 CompositorKind::Native { .. } => {
-                    tracy_rs::profile_scope!("compositor.end_frame");
+                    profile_scope!("compositor.end_frame");
                     let compositor = self.compositor_config.compositor().unwrap();
                     compositor.end_frame(&mut self.device);
                 }
@@ -1851,7 +1851,7 @@ impl Renderer {
     }
 
     fn update_texture_cache(&mut self) {
-        tracy_rs::profile_scope!("update_texture_cache");
+        profile_scope!("update_texture_cache");
 
         let _gm = self.gpu_profiler.start_marker("texture cache update");
         let mut pending_texture_updates = mem::replace(&mut self.pending_texture_updates, vec![]);
@@ -2755,7 +2755,7 @@ impl Renderer {
         render_tasks: &RenderTaskGraph,
         stats: &mut RendererStats,
     ) {
-        tracy_rs::profile_scope!("draw_picture_cache_target");
+        profile_scope!("draw_picture_cache_target");
         if let Some(history) = &mut self.command_log {
             history.begin_render_target("Picture tile", draw_target.dimensions());
         }
@@ -3228,7 +3228,7 @@ impl Renderer {
             self.device.ortho_far_plane(),
         );
 
-        tracy_rs::profile_scope!("draw_render_target");
+        profile_scope!("draw_render_target");
         let _gm = self.gpu_profiler.start_marker("render target");
 
         let counter = match target.target_kind {
@@ -3486,7 +3486,7 @@ impl Renderer {
 
     /// Draw all the instances in a clip batcher list to the current target.
     fn bind_frame_data(&mut self, frame: &mut Frame) {
-        tracy_rs::profile_scope!("bind_frame_data");
+        profile_scope!("bind_frame_data");
 
         let _timer = self.gpu_profiler.start_timer(GPU_TAG_SETUP_DATA);
 
@@ -3516,7 +3516,7 @@ impl Renderer {
     }
 
     fn update_native_surfaces(&mut self) {
-        tracy_rs::profile_scope!("update_native_surfaces");
+        profile_scope!("update_native_surfaces");
 
         match self.compositor_config {
             CompositorConfig::Native { ref mut compositor, .. } => {
@@ -3655,7 +3655,7 @@ impl Renderer {
         buffer_age: usize,
         results: &mut RenderResults,
     ) {
-        tracy_rs::profile_scope!("draw_frame");
+        profile_scope!("draw_frame");
 
         // These markers seem to crash a lot on Android, see bug 1559834
         #[cfg(not(target_os = "android"))]
@@ -3763,7 +3763,7 @@ impl Renderer {
             #[cfg(not(target_os = "android"))]
             let _gm = self.gpu_profiler.start_marker(&format!("pass {}", _pass_index));
 
-            tracy_rs::profile_scope!("offscreen target");
+            profile_scope!("offscreen target");
 
             // If this frame has already been drawn, then any texture
             // cache targets have already been updated and can be

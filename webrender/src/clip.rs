@@ -1741,7 +1741,7 @@ impl ClipStore {
             Some(rect) => rect,
             None => return None,
         };
-        tracy_rs::profile_scope!("build_clip_chain_instance");
+        profile_scope!("build_clip_chain_instance");
 
 
         let local_bounding_rect = local_prim_rect.intersection(&local_clip_rect)?;

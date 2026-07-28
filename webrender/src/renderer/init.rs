@@ -330,7 +330,7 @@ pub fn create_webrender_instance(
     if !wr_has_been_initialized() {
         // If the profiler feature is enabled, try to load the profiler shared library
         // if the path was provided.
-        #[cfg(feature = "tracy")]
+        #[cfg(feature = "profiler")]
         unsafe {
             if let Ok(ref tracy_path) = std::env::var("WR_TRACY_PATH") {
                 let ok = tracy_rs::load(tracy_path);
