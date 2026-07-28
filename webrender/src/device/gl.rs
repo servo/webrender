@@ -20,7 +20,6 @@ use std::{
     cell::{Cell, RefCell},
     cmp,
     collections::hash_map::Entry,
-    marker::PhantomData,
     mem,
     num::NonZeroUsize,
     os::raw::c_void,
@@ -429,41 +428,6 @@ impl FBOId {
     }
 }
 
-pub struct Stream<'a> {
-    attributes: &'a [VertexAttribute],
-    vbo: VBOId,
-}
-
-pub struct VBO<V> {
-    id: gl::GLuint,
-    target: gl::GLenum,
-    allocated_count: usize,
-    marker: PhantomData<V>,
-}
-
-impl<V> VBO<V> {
-    pub fn allocated_count(&self) -> usize {
-        self.allocated_count
-    }
-
-    pub fn stream_with<'a>(&self, attributes: &'a [VertexAttribute]) -> Stream<'a> {
-        debug_assert_eq!(
-            mem::size_of::<V>(),
-            attributes.iter().map(|a| a.size_in_bytes() as usize).sum::<usize>()
-        );
-        Stream {
-            attributes,
-            vbo: VBOId(self.id),
-        }
-    }
-}
-
-impl<T> Drop for VBO<T> {
-    fn drop(&mut self) {
-        debug_assert!(thread::panicking() || self.id == 0);
-    }
-}
-
 #[cfg_attr(feature = "replay", derive(Clone))]
 #[derive(Debug)]
 pub struct ExternalTexture {
@@ -644,19 +608,6 @@ impl Program {
 }
 
 impl Drop for Program {
-    fn drop(&mut self) {
-        debug_assert!(
-            thread::panicking() || self.id == 0,
-            "renderer::deinit not called"
-        );
-    }
-}
-
-pub struct CustomVAO {
-    id: gl::GLuint,
-}
-
-impl Drop for CustomVAO {
     fn drop(&mut self) {
         debug_assert!(
             thread::panicking() || self.id == 0,
@@ -1028,8 +979,6 @@ pub struct Capabilities {
     pub supports_multisampling: bool,
     /// Whether the function `glCopyImageSubData` is available.
     pub supports_copy_image_sub_data: bool,
-    /// Whether the RGBAF32 textures can be bound to framebuffers.
-    pub supports_color_buffer_float: bool,
     /// Whether the device supports persistently mapped buffers, via glBufferStorage.
     pub supports_buffer_storage: bool,
     /// Whether advanced blend equations are supported.
@@ -1778,17 +1727,6 @@ impl Device {
             supports_extension(&extensions, "GL_ARB_copy_image")
         };
 
-        // We have seen crashes on x86 PowerVR Rogue G6430 devices during GPU cache
-        // updates using the scatter shader. It seems likely that GL_EXT_color_buffer_float
-        // is broken. See bug 1709408.
-        let is_x86_powervr_rogue_g6430 = renderer_name.starts_with("PowerVR Rogue G6430")
-            && cfg!(target_arch = "x86");
-        let supports_color_buffer_float = match gl.get_type() {
-            gl::GlType::Gl => true,
-            gl::GlType::Gles if is_x86_powervr_rogue_g6430 => false,
-            gl::GlType::Gles => supports_extension(&extensions, "GL_EXT_color_buffer_float"),
-        };
-
         let is_adreno = renderer_name.starts_with("Adreno");
 
         // There appears to be a driver bug on older versions of the Adreno
@@ -2012,7 +1950,6 @@ impl Device {
             capabilities: Capabilities {
                 supports_multisampling: false, //TODO
                 supports_copy_image_sub_data,
-                supports_color_buffer_float,
                 supports_buffer_storage,
                 supports_advanced_blend_equation,
                 supports_dual_source_blending,
@@ -3494,10 +3431,6 @@ impl Device {
         self.bind_vao_impl(vao.id)
     }
 
-    pub fn bind_custom_vao(&mut self, vao: &CustomVAO) {
-        self.bind_vao_impl(vao.id)
-    }
-
     fn create_vao_with_vbos(
         &mut self,
         descriptor: &VertexDescriptor,
@@ -3526,52 +3459,6 @@ impl Device {
         }
     }
 
-    pub fn create_custom_vao(
-        &mut self,
-        streams: &[Stream],
-    ) -> CustomVAO {
-        debug_assert!(self.inside_frame);
-
-        let vao_id = self.gl.gen_vertex_arrays(1)[0];
-        self.bind_vao_impl(vao_id);
-
-        let mut attrib_index = 0;
-        for stream in streams {
-            VertexDescriptor::bind_attributes(
-                stream.attributes,
-                attrib_index,
-                0,
-                self.gl(),
-                stream.vbo,
-            );
-            attrib_index += stream.attributes.len();
-        }
-
-        CustomVAO {
-            id: vao_id,
-        }
-    }
-
-    pub fn delete_custom_vao(&mut self, mut vao: CustomVAO) {
-        self.gl.delete_vertex_arrays(&[vao.id]);
-        vao.id = 0;
-    }
-
-    pub fn create_vbo<T>(&mut self) -> VBO<T> {
-        let ids = self.gl.gen_buffers(1);
-        VBO {
-            id: ids[0],
-            target: gl::ARRAY_BUFFER,
-            allocated_count: 0,
-            marker: PhantomData,
-        }
-    }
-
-    pub fn delete_vbo<T>(&mut self, mut vbo: VBO<T>) {
-        self.gl.delete_buffers(&[vbo.id]);
-        vbo.id = 0;
-    }
-
     pub fn create_vao(&mut self, descriptor: &VertexDescriptor, instance_divisor: u32) -> VAO {
         debug_assert!(self.inside_frame);
 
@@ -3593,43 +3480,6 @@ impl Device {
         }
 
         self.gl.delete_buffers(&[vao.instance_vbo_id.0])
-    }
-
-    pub fn allocate_vbo<V>(
-        &mut self,
-        vbo: &mut VBO<V>,
-        count: usize,
-        usage_hint: VertexUsageHint,
-    ) {
-        debug_assert!(self.inside_frame);
-        vbo.allocated_count = count;
-
-        self.gl.bind_buffer(vbo.target, vbo.id);
-        self.gl.buffer_data_untyped(
-            vbo.target,
-            (count * mem::size_of::<V>()) as _,
-            ptr::null(),
-            usage_hint.to_gl(),
-        );
-    }
-
-    pub fn fill_vbo<V>(
-        &mut self,
-        vbo: &VBO<V>,
-        data: &[V],
-        offset: usize,
-    ) {
-        debug_assert!(self.inside_frame);
-        assert!(offset + data.len() <= vbo.allocated_count);
-        let stride = mem::size_of::<V>();
-
-        self.gl.bind_buffer(vbo.target, vbo.id);
-        self.gl.buffer_sub_data_untyped(
-            vbo.target,
-            (offset * stride) as _,
-            (data.len() * stride) as _,
-            data.as_ptr() as _,
-        );
     }
 
     fn update_vbo_data<V>(
@@ -3789,24 +3639,6 @@ impl Device {
             gl::UNSIGNED_INT,
             first_vertex as u32 * 4,
         );
-    }
-
-    pub fn draw_nonindexed_points(&mut self, first_vertex: i32, vertex_count: i32) {
-        debug_assert!(self.inside_frame);
-        #[cfg(debug_assertions)]
-        debug_assert!(self.shader_is_ready);
-
-        let _guard = if self.annotate_draw_call_crashes {
-            Some(CrashAnnotatorGuard::new(
-                &self.crash_annotator,
-                CrashAnnotation::DrawShader,
-                &self.bound_program_name,
-            ))
-        } else {
-            None
-        };
-
-        self.gl.draw_arrays(gl::POINTS, first_vertex, vertex_count);
     }
 
     pub fn draw_nonindexed_lines(&mut self, first_vertex: i32, vertex_count: i32) {
