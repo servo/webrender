@@ -4,7 +4,29 @@
 
 //! # Visibility pass
 //!
-//! TODO: document what this pass does!
+//! The first of the two frame building traversals of the picture tree, the
+//! second being the [prepare pass](crate::prepare). It is driven by
+//! `FrameBuilder::build_layer_screen_rects_and_cull_layers`, which calls
+//! [`update_prim_visibility`] once per snapshot picture and once per tile cache
+//! slice. From there the pass walks down the picture tree, pushing and popping
+//! off-screen surfaces as it goes.
+//!
+//! For each primitive instance it visits, the pass works out whether the
+//! primitive is drawn this frame and under which clips, and records the answer
+//! in the primitive's [`PrimitiveDrawHeader`], stored in
+//! `scratch.primitive.frame.draws` and indexed by primitive instance index.
+//! Later passes read those headers instead of re-deriving the information.
+//! In addition to visibility calculation, this pass performs snapping and
+//! builds clip chain instances.
+//!
+//! ## Surface bookkeeping
+//!
+//! Alongside the per-primitive state, the traversal accumulates the exact
+//! (clipped) local rect of each off-screen surface from the coverage rects of
+//! the primitives drawn into it, and propagates culling rects from parent to
+//! child surfaces. The prepare pass sizes the surfaces' render tasks from those
+//! accumulated rects, so they must be complete before it runs, which is the
+//! main reason visibility is a separate pass.
 //!
 
 use api::DebugFlags;

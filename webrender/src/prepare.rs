@@ -4,7 +4,36 @@
 
 //! # Prepare pass
 //!
-//! TODO: document this!
+//! The second frame building traversal of the picture tree. It runs after the
+//! [visibility pass](crate::visibility).
+//! Where visibility decides what is drawn, prepare decides how: it turns each
+//! visible primitive into the render tasks, GPU data and draw commands needed
+//! to render it.
+//!
+//! Its outputs are:
+//!
+//! - Render tasks and their dependencies in the render task graph.
+//! - GPU buffer data.
+//! - [`PrimitiveCommand`]s pushed into the command buffers of the surfaces and
+//!   tiles the primitive is drawn into. `batch.rs` replays these at the
+//!   end of frame building to produce the actual draw calls.
+//!
+//! ## Traversal
+//!
+//! [`prepare_picture`] is the entry point. It does a recursive traversal of
+//! the picture and it's visible items.
+//!
+//! ## Per-primitive work
+//!
+//! The bulk of the module is a large match over [`PrimitiveKind`] in
+//! `prepare_prim_for_render`, where each kind:
+//!
+//! - Requests the resources it needs, such as texture cache entries (images,
+//!   glyphs) or render tasks (rasterized borders, blurred box shadow,cached
+//!   gradients, etc.).
+//! - Writes the GPU data for the primitive.
+//! - Push potentially multiple commands to command buffers.
+//!
 
 use api::{ColorF, DebugFlags, ExtendMode, ExternalImageData, ExternalImageType, GradientStop, ImageBufferKind};
 use crate::border_image::prepare_border_image_nine_patch;
