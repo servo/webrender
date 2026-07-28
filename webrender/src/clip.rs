@@ -352,13 +352,6 @@ impl ClipTree {
 
     /// Push a clip root (e.g. when a surface is encountered) that prevents clips
     /// from this node and above being applied to primitives within the root.
-    pub fn push_clip_root_leaf(&mut self, clip_leaf_id: ClipLeafId) {
-        let leaf = &self.leaves[clip_leaf_id.0 as usize];
-        self.clip_root_stack.push(leaf.node_id);
-    }
-
-    /// Push a clip root (e.g. when a surface is encountered) that prevents clips
-    /// from this node and above being applied to primitives within the root.
     pub fn push_clip_root_node(&mut self, clip_node_id: ClipNodeId) {
         self.clip_root_stack.push(clip_node_id);
     }
@@ -1203,12 +1196,6 @@ pub struct ClipNodeInstance {
     pub visible_tiles: Option<ops::Range<usize>>,
 }
 
-impl ClipNodeInstance {
-    pub fn has_visible_tiles(&self) -> bool {
-        self.visible_tiles.is_some()
-    }
-}
-
 // A range of clip node instances that were found by
 // building a clip chain instance.
 #[derive(Debug, Copy, Clone)]
@@ -1601,40 +1588,6 @@ impl ClipStore {
         self.active_local_clip_rect = Some(local_clip_rect);
     }
 
-    /// Setup the active clip chains, based on an existing primitive clip chain instance.
-    pub fn set_active_clips_from_clip_chain(
-        &mut self,
-        prim_clip_chain: &ClipChainInstance,
-        prim_spatial_node_index: SpatialNodeIndex,
-        visibility_spatial_node_index: SpatialNodeIndex,
-        spatial_tree: &SpatialTree,
-    ) {
-        // TODO(gw): Although this does less work than set_active_clips(), it does
-        //           still do some unnecessary work (such as the clip space conversion).
-        //           We could consider optimizing this if it ever shows up in a profile.
-
-        self.active_clip_node_info.clear();
-        self.active_local_clip_rect = Some(prim_clip_chain.local_clip_rect);
-        self.active_pic_coverage_rect = prim_clip_chain.pic_coverage_rect;
-
-        let clip_instances = &self
-            .clip_node_instances[prim_clip_chain.clips_range.to_range()];
-        for clip_instance in clip_instances {
-            let conversion = ClipSpaceConversion::new(
-                prim_spatial_node_index,
-                clip_instance.spatial_node_index,
-                visibility_spatial_node_index,
-                spatial_tree,
-            );
-            self.active_clip_node_info.push(ClipNodeInfo {
-                handle: clip_instance.handle,
-                conversion,
-                spatial_node_index: clip_instance.spatial_node_index,
-                clip_rect: clip_instance.clip_rect,
-            });
-        }
-    }
-
     /// Given a clip-chain instance, return a safe rect within the visible region
     /// that can be assumed to be unaffected by clip radii. Returns None if it
     /// encounters any complex cases, just handling rounded rects in the same
@@ -1693,33 +1646,6 @@ impl ClipStore {
         }
 
         Some(inner_rect)
-    }
-
-    // Directly construct a clip node range, ready for rendering, from an interned clip handle.
-    // Typically useful for drawing specific clips on custom pattern / child render tasks that
-    // aren't primitives.
-    // TODO(gw): For now, we assume they are local clips only - in future we might want to support
-    //           non-local clips.
-    pub fn push_clip_instance(
-        &mut self,
-        handle: ClipDataHandle,
-        spatial_node_index: SpatialNodeIndex,
-        clip_rect: LayoutRect,
-    ) -> ClipNodeRange {
-        let first = self.clip_node_instances.len() as u32;
-
-        self.clip_node_instances.push(ClipNodeInstance {
-            handle,
-            spatial_node_index,
-            clip_rect,
-            flags: ClipNodeFlags::SAME_COORD_SYSTEM | ClipNodeFlags::SAME_SPATIAL_NODE,
-            visible_tiles: None,
-        });
-
-        ClipNodeRange {
-            first,
-            count: 1,
-        }
     }
 
     /// The main interface external code uses. Given a local primitive, positioning
