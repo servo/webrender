@@ -535,14 +535,6 @@ impl Texture {
         self.last_frame_used
     }
 
-    pub fn used_in_frame(&self, frame_id: GpuFrameId) -> bool {
-        self.last_frame_used == frame_id
-    }
-
-    pub fn is_render_target(&self) -> bool {
-        self.fbo.is_some()
-    }
-
     /// Returns true if this texture was used within `threshold` frames of
     /// the current frame.
     pub fn used_recently(&self, current_frame_id: GpuFrameId, threshold: usize) -> bool {
@@ -2049,13 +2041,6 @@ impl Device {
         }
     }
 
-    /// Ensures that the maximum texture size is less than or equal to the
-    /// provided value. If the provided value is less than the value supported
-    /// by the driver, the latter is used.
-    pub fn clamp_max_texture_size(&mut self, size: i32) {
-        self.max_texture_size = self.max_texture_size.min(size);
-    }
-
     /// Returns the limit on texture dimensions (width or height).
     pub fn max_texture_size(&self) -> i32 {
         self.max_texture_size
@@ -2424,26 +2409,6 @@ impl Device {
         FBOId(self.gl.gen_framebuffers(1)[0])
     }
 
-    /// Creates an FBO with the given texture bound as the color attachment.
-    pub fn create_fbo_for_external_texture(&mut self, texture_id: u32) -> FBOId {
-        let fbo = self.create_fbo();
-        fbo.bind(self.gl(), FBOTarget::Draw);
-        self.gl.framebuffer_texture_2d(
-            gl::DRAW_FRAMEBUFFER,
-            gl::COLOR_ATTACHMENT0,
-            gl::TEXTURE_2D,
-            texture_id,
-            0,
-        );
-        debug_assert_eq!(
-            self.gl.check_frame_buffer_status(gl::DRAW_FRAMEBUFFER),
-            gl::FRAMEBUFFER_COMPLETE,
-            "Incomplete framebuffer",
-        );
-        self.bound_draw_fbo.bind(self.gl(), FBOTarget::Draw);
-        fbo
-    }
-
     pub fn delete_fbo(&mut self, fbo: FBOId) {
         self.gl.delete_framebuffers(&[fbo.0]);
     }
@@ -2747,30 +2712,6 @@ impl Device {
             .tex_parameter_i(target, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as gl::GLint);
         self.gl
             .tex_parameter_i(target, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as gl::GLint);
-    }
-
-    /// Copies the entire contents of one texture to another. The dest texture must be at least
-    /// as large as the source texture in each dimension. No scaling is performed, so if the dest
-    /// texture is larger than the source texture then some of its pixels will not be written to.
-    pub fn copy_entire_texture(
-        &mut self,
-        dst: &mut Texture,
-        src: &Texture,
-    ) {
-        debug_assert!(self.inside_frame);
-        debug_assert!(dst.size.width >= src.size.width);
-        debug_assert!(dst.size.height >= src.size.height);
-
-        self.copy_texture_sub_region(
-            src,
-            0,
-            0,
-            dst,
-            0,
-            0,
-            src.size.width as _,
-            src.size.height as _,
-        );
     }
 
     /// Copies the specified subregion from src_texture to dest_texture.
@@ -3379,24 +3320,6 @@ impl Device {
         );
     }
 
-    /// Get texels of a texture into the specified output slice.
-    pub fn get_tex_image_into(
-        &mut self,
-        texture: &Texture,
-        format: ImageFormat,
-        output: &mut [u8],
-    ) {
-        self.bind_texture(DEFAULT_TEXTURE, texture, Swizzle::default());
-        let desc = self.gl_describe_format(format);
-        self.gl.get_tex_image_into_buffer(
-            texture.target,
-            0,
-            desc.external,
-            desc.pixel_type,
-            output,
-        );
-    }
-
     /// Attaches the provided texture to the current Read FBO binding.
     fn attach_read_texture_raw(&mut self, texture_id: gl::GLuint, target: gl::GLuint) {
         self.gl.framebuffer_texture_2d(
@@ -3882,18 +3805,6 @@ impl Device {
             (gl::ZERO, gl::SRC_ALPHA),
         );
     }
-    pub fn set_blend_mode_subpixel_pass0(&mut self) {
-        self.set_blend_factors(
-            (gl::ZERO, gl::ONE_MINUS_SRC_COLOR),
-            (gl::ZERO, gl::ONE_MINUS_SRC_ALPHA),
-        );
-    }
-    pub fn set_blend_mode_subpixel_pass1(&mut self) {
-        self.set_blend_factors(
-            (gl::ONE, gl::ONE),
-            (gl::ONE, gl::ONE),
-        );
-    }
     pub fn set_blend_mode_subpixel_dual_source(&mut self) {
         self.set_blend_factors(
             (gl::ONE, gl::ONE_MINUS_SRC1_COLOR),
@@ -3925,24 +3836,6 @@ impl Device {
         );
     }
 
-    pub fn set_blend_mode_max(&mut self) {
-        self.gl
-            .blend_func_separate(gl::ONE, gl::ONE, gl::ONE, gl::ONE);
-        self.gl.blend_equation_separate(gl::MAX, gl::FUNC_ADD);
-        #[cfg(debug_assertions)]
-        {
-            self.shader_is_ready = false;
-        }
-    }
-    pub fn set_blend_mode_min(&mut self) {
-        self.gl
-            .blend_func_separate(gl::ONE, gl::ONE, gl::ONE, gl::ONE);
-        self.gl.blend_equation_separate(gl::MIN, gl::FUNC_ADD);
-        #[cfg(debug_assertions)]
-        {
-            self.shader_is_ready = false;
-        }
-    }
     pub fn set_blend_mode_advanced(&mut self, mode: MixBlendMode) {
         self.gl.blend_equation(match mode {
             MixBlendMode::Normal => {
