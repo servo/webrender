@@ -37,7 +37,7 @@
 use api::{ColorF, MixBlendMode, TextureCacheCategory};
 use api::{DocumentId, Epoch, ExternalImageHandler, RenderReasons};
 use api::{PipelineId, Checkpoint, NotificationRequest, ImageBufferKind};
-use api::{FramePublishId, ImageFormat};
+use api::{FramePublishId, ImageFormat, RenderBackendId};
 #[cfg(any(feature = "capture", feature = "replay"))]
 use api::{ExternalImageSource, ExternalImageType};
 #[cfg(feature = "replay")]
@@ -708,6 +708,8 @@ impl BufferDamageTracker {
 pub struct Renderer {
     result_rx: Receiver<ResultMsg>,
     api_tx: Sender<ApiMsg>,
+    /// Identifies this renderer's window on a potentially shared backend.
+    backend_id: RenderBackendId,
     /// Keep the `RenderBackendPool` alive for the lifetime of this
     /// `Renderer`. For the private-pool case (pref=0) this is the only
     /// owner, so dropping the renderer drops the pool and triggers its
@@ -1018,17 +1020,23 @@ impl Renderer {
                 ResultMsg::UpdateResources {
                     resource_updates,
                     memory_pressure,
+                    discard_active_documents,
+                    trim_upload_buffers,
                 } => {
-                    if memory_pressure {
-                        // If a memory pressure event arrives _after_ a new scene has
-                        // been published that writes persistent targets (i.e. cached
+                    if memory_pressure || discard_active_documents {
+                        // Resource cleanup can arrive _after_ a new scene has been
+                        // published that writes persistent targets (i.e. cached
                         // render tasks to the texture cache, or picture cache tiles)
-                        // but _before_ the next update/render loop, those targets
-                        // will not be updated due to the active_documents list being
-                        // cleared at the end of this message. To work around that,
-                        // if any of the existing documents have not rendered yet, and
-                        // have picture/texture cache targets, force a render so that
-                        // those targets are updated.
+                        // but _before_ the next update/render loop. Render any such
+                        // document offscreen before discarding it so those persistent
+                        // targets are updated while all referenced textures still
+                        // exist. Paused-window trimming also has to discard already
+                        // rendered documents because their frames may reference pooled
+                        // render targets that are about to be freed; Resume() forces a
+                        // freshly generated frame.
+                        //
+                        // UpdateResources and PublishDocument share the backend's FIFO
+                        // result queue, so the replacement cannot overtake these frees.
                         let active_documents = mem::replace(
                             &mut self.active_documents,
                             FastHashMap::default(),
@@ -1056,20 +1064,9 @@ impl Renderer {
                     self.update_texture_cache();
                     self.update_native_surfaces();
 
-                    // Flush the render target pool on memory pressure.
-                    //
-                    // This needs to be separate from the block below because
-                    // the device module asserts if we delete textures while
-                    // not in a frame.
-                    if memory_pressure {
-                        self.texture_upload_pbo_pool.on_memory_pressure(&mut self.device);
-                        self.staging_texture_pool.delete_textures(&mut self.device);
-                        if let Some(texture) = self.gpu_buffer_texture_f.take() {
-                            self.device.delete_texture(texture);
-                        }
-                        if let Some(texture) = self.gpu_buffer_texture_i.take() {
-                            self.device.delete_texture(texture);
-                        }
+                    // The device asserts if textures are deleted outside a frame.
+                    if memory_pressure || trim_upload_buffers {
+                        self.trim_upload_buffers();
                     }
 
                     self.device.end_frame();
@@ -1281,9 +1278,28 @@ impl Renderer {
         }
     }
 
+    fn trim_upload_buffers(&mut self) {
+        self.texture_upload_pbo_pool.on_memory_pressure(&mut self.device);
+        self.staging_texture_pool.delete_textures(&mut self.device);
+        if let Some(texture) = self.gpu_buffer_texture_f.take() {
+            self.device.delete_texture(texture);
+        }
+        if let Some(texture) = self.gpu_buffer_texture_i.take() {
+            self.device.delete_texture(texture);
+        }
+    }
+
     /// Set a callback for handling external images.
     pub fn set_external_image_handler(&mut self, handler: Box<dyn ExternalImageHandler>) {
         self.external_image_handler = Some(handler);
+    }
+
+    /// Release transient resources while preserving persistent caches.
+    pub fn trim_transient_resources(&self, trim_upload_buffers: bool) {
+        let _ = self.api_tx.send(ApiMsg::TrimTransientResources {
+            backend_id: self.backend_id,
+            trim_upload_buffers,
+        });
     }
 
     /// Retrieve (and clear) the current list of recorded frame profiles.

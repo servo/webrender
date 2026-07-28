@@ -1083,6 +1083,14 @@ pub enum ApiMsg {
     AddDocument(DocumentId, DeviceIntSize, RenderBackendId),
     /// A message targeted at a particular document.
     UpdateDocuments(Vec<Box<TransactionMsg>>),
+    /// Releases inactive render targets and, optionally, transient upload
+    /// buffers without clearing persistent caches.
+    TrimTransientResources {
+        /// Window whose transient resources should be released.
+        backend_id: RenderBackendId,
+        /// Also release transient renderer upload buffers.
+        trim_upload_buffers: bool,
+    },
     /// Flush from the caches anything that isn't necessary, to free some memory.
     MemoryPressure,
     /// Collects a memory report.
@@ -1105,6 +1113,7 @@ impl fmt::Debug for ApiMsg {
             ApiMsg::UnregisterWindow(..) => "ApiMsg::UnregisterWindow",
             ApiMsg::AddDocument(..) => "ApiMsg::AddDocument",
             ApiMsg::UpdateDocuments(..) => "ApiMsg::UpdateDocuments",
+            ApiMsg::TrimTransientResources { .. } => "ApiMsg::TrimTransientResources",
             ApiMsg::MemoryPressure => "ApiMsg::MemoryPressure",
             ApiMsg::ReportMemory(..) => "ApiMsg::ReportMemory",
             ApiMsg::DebugCommand(..) => "ApiMsg::DebugCommand",

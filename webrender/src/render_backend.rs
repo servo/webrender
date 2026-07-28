@@ -1295,6 +1295,46 @@ impl RenderBackend {
                 debug_assert!(old.is_none());
                 self.document_to_window.insert(document_id, backend_id);
             }
+            ApiMsg::TrimTransientResources {
+                backend_id,
+                trim_upload_buffers,
+            } => {
+                // Render targets in this pool are inactive and can be freed
+                // without clearing persistent caches. The last published frame
+                // may still reference them, so the renderer discards that frame
+                // before applying the resulting texture frees.
+                let document_ids = self.documents_for_window(backend_id);
+                for document_id in document_ids {
+                    if let Some(doc) = self.documents.get_mut(&document_id) {
+                        // The built frame graph can reference the cleared render
+                        // targets. Ensure the first GenerateFrame after Resume
+                        // builds and publishes a replacement instead of only
+                        // requesting a composite of the now-discarded frame.
+                        doc.frame_is_valid = false;
+                    }
+                }
+
+                if let Some(win) = self.windows.get_mut(&backend_id) {
+                    win.resource_cache.clear(ClearCache::RENDER_TARGETS);
+
+                    // A paused renderer may not produce another frame, so
+                    // forward the texture frees and wake it immediately.
+                    //
+                    // RenderBackend is the sole ResultMsg producer for this
+                    // window's result channel. This update is therefore a FIFO
+                    // barrier before any replacement PublishDocument generated
+                    // after Resume.
+                    let resource_updates = win.resource_cache.pending_updates();
+                    let msg = ResultMsg::UpdateResources {
+                        resource_updates,
+                        memory_pressure: false,
+                        discard_active_documents: true,
+                        trim_upload_buffers,
+                    };
+                    win.result_tx.send(msg).unwrap();
+                    win.notifier.wake_up(false);
+                }
+            }
             ApiMsg::MemoryPressure => {
                 // This is drastic. It will basically flush everything out of the cache,
                 // and the next frame will have to rebuild all of its resources.
@@ -1319,6 +1359,8 @@ impl RenderBackend {
                     let msg = ResultMsg::UpdateResources {
                         resource_updates,
                         memory_pressure: true,
+                        discard_active_documents: false,
+                        trim_upload_buffers: false,
                     };
                     win.result_tx.send(msg).unwrap();
                     win.notifier.wake_up(false);
@@ -2239,6 +2281,8 @@ impl RenderBackend {
             let msg_update_resources = ResultMsg::UpdateResources {
                 resource_updates: win.resource_cache.pending_updates(),
                 memory_pressure: false,
+                discard_active_documents: false,
+                trim_upload_buffers: false,
             };
             win.result_tx.send(msg_update_resources).unwrap();
             // Save the texture/glyph/image caches.

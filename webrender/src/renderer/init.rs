@@ -757,6 +757,7 @@ pub fn create_webrender_instance(
     let mut renderer = Renderer {
         result_rx,
         api_tx: api_tx.clone(),
+        backend_id,
         _render_backend_pool: owned_pool.clone(),
         device,
         active_documents: FastHashMap::default(),
