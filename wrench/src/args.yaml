@@ -56,6 +56,10 @@ args:
   - no_batch:
       long: no-batch
       help: Disable batching of instanced draw calls
+  - color_target_init:
+      long: color-target-init
+      help: Initialize the pixels of color render targets with pink for debugging
+      global: true
   - chase:
       long: chase
       help: Chase a particular primitive matching the local rect or ID
