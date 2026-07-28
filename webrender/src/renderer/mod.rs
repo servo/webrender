@@ -3932,10 +3932,6 @@ impl Renderer {
             }
         }
 
-        self.device.set_initialize_color_targets_with_pink(
-            flags.contains(DebugFlags::COLOR_TARGET_INIT),
-        );
-
         self.debug_flags = flags;
     }
 
