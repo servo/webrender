@@ -96,7 +96,7 @@ use api::{BorderRadius, ClipMode, ImageMask, ClipId, ClipChainId};
 use api::{FillRule, ImageKey, ImageRendering};
 use api::units::*;
 use crate::image_tiling::{self, Repetition};
-use crate::border::{ensure_no_corner_overlap, BorderRadiusAu};
+use crate::border::BorderRadiusAu;
 use crate::renderer::GpuBufferBuilderF;
 use crate::spatial_tree::{SceneSpatialTree, SpatialTree, SpatialNodeIndex};
 use crate::ellipse::Ellipse;
@@ -1990,9 +1990,51 @@ pub struct ClipItem {
 /// Clamp corner radii so adjacent radii don't overlap along an edge of `size`.
 /// Rounded-rect radii are interned unclamped, so consumers must clamp against
 /// the instance-specific clip rect before use.
+///
+/// Unlike `ensure_no_corner_overlap`, an edge is only constrained when *both*
+/// of its corners are actually curved. A lone oversized radius is left alone:
+/// its arc centre simply falls outside the rect and the arc is cut by the far
+/// edges, which is a perfectly representable shape.
+///
+/// The distinction matters because clips arrive here with *derived* radii.
+/// `background-clip: padding-box|content-box` clips to the inner border edge,
+/// which css-backgrounds-3 4.4 defines as concentric with the outer edge and
+/// radii of `outer - border-width` -- deliberately not re-normalised. Scaling
+/// those down pulled the background away from the border's inner curve and let
+/// a translucent border show over it (bug 1830603).
+///
+/// This is *not* true of every rounded rect. A box-shadow's spread-adjusted
+/// radii are a plain rounded rect and do get the css-backgrounds-3 5.5
+/// f-factor, which is why `ensure_no_corner_overlap` keeps the stricter rule;
+/// Chrome behaves the same way on both counts. Authored radii are already
+/// normalised by Gecko before they reach us (`nsIFrame::ComputeBorderRadii`).
 pub fn clamped_radius(radius: &BorderRadius, size: LayoutSize) -> BorderRadius {
     let mut r = *radius;
-    ensure_no_corner_overlap(&mut r, size);
+    let mut ratio: f32 = 1.0;
+
+    let mut constrain = |extent: f32, a: f32, b: f32| {
+        if a > 0.0 && b > 0.0 && extent < a + b {
+            ratio = f32::min(ratio, extent / (a + b));
+        }
+    };
+
+    if size.width > 0.0 {
+        constrain(size.width, r.top_left.width, r.top_right.width);
+        constrain(size.width, r.bottom_left.width, r.bottom_right.width);
+    }
+    if size.height > 0.0 {
+        constrain(size.height, r.top_left.height, r.bottom_left.height);
+        constrain(size.height, r.top_right.height, r.bottom_right.height);
+    }
+
+    if ratio < 1.0 {
+        for corner in [&mut r.top_left, &mut r.top_right,
+                       &mut r.bottom_left, &mut r.bottom_right] {
+            corner.width *= ratio;
+            corner.height *= ratio;
+        }
+    }
+
     r
 }
 

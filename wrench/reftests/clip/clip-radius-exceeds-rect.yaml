@@ -1,0 +1,35 @@
+# A clip tracing the inner border edge: the padding box is 70x70 and its
+# top-left radius is the outer radius less the border width, 100 - 15 = 85.
+# That exceeds the padding box, but css-backgrounds-3 4.4 makes the inner curve
+# concentric with the outer one, so it must not be scaled down to fit.
+#
+# Reducing it makes the clip *larger* than the border's inner edge, so the cyan
+# spills underneath the border. The border is deliberately translucent, which is
+# the only reason that spill is visible at all - with an opaque border the bug
+# hides completely. That is how bug 1830603 presented: a discoloured band along
+# the arc, not a gap.
+#
+# The reference image was checked against Chrome, which renders the equivalent
+# content pixel-identically.
+---
+root:
+  items:
+    - type: clip
+      id: 100
+      complex:
+        - rect: [20, 20, 70, 70]
+          radius: [85, 0, 0, 0]
+    - type: clip-chain
+      id: 200
+      clips: [100]
+    - type: rect
+      bounds: [20, 20, 70, 70]
+      color: cyan
+      clip-chain: 200
+    - type: border
+      bounds: [5, 5, 100, 100]
+      width: 15
+      border-type: normal
+      style: solid
+      radius: [100, 0, 0, 0]
+      color: [[255.0, 0.0, 255.0, 0.5]]

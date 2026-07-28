@@ -27,3 +27,4 @@ platform(linux,mac) == clip-between-picclip-and-lca.yaml clip-between-picclip-an
 fuzzy(2,1300) == tiled-repeated.yaml tiled-repeated.png
 == extreme-scale-rounded-rect.yaml extreme-scale-rounded-rect.yaml
 == different-scale-rounded-rect.yaml different-scale-rounded-rect-ref.yaml
+== clip-radius-exceeds-rect.yaml clip-radius-exceeds-rect.png

@@ -1,0 +1,26 @@
+# As box-shadow-blurred-overlapping-radii, but with no blur, which takes the
+# zero-blur desugar path (a rect shaped by rounded-rect clips) rather than the
+# blurred one. A box-shadow is a plain rounded rect and so takes the
+# css-backgrounds-3 5.5 reduction: spread -80 shrinks the rect to 105x105 while
+# only taking 80 off the radii, leaving 170, which must scale back to 105 and
+# therefore match a 185 radius. The clips this desugars to are indistinguishable
+# from the ones background-clip emits, which must NOT be reduced, so the
+# reduction happens at the producer (bug 1830603).
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 1000, 1000]
+      items:
+        - type: box-shadow
+          bounds: [ 0, 1, 265, 265 ]
+          color: red
+          clip-mode: outset
+          offset: 350 -1
+          blur-radius: 0
+          spread-radius: -80
+          border-radius:
+            top-left: [250, 250]
+            top-right: [0, 0]
+            bottom-left: [0, 0]
+            bottom-right: [250, 250]
