@@ -242,11 +242,11 @@ impl RenderTarget {
         cmd_buffers: &CommandBufferList,
         gpu_buffer_builder: &mut GpuBufferBuilder,
     ) {
-        profile_scope!("build");
+        tracy_rs::profile_scope!("build");
         let mut merged_batches = AlphaBatchContainer::new(None, &ctx.frame_memory);
 
         for task_id in &self.alpha_tasks {
-            profile_scope!("alpha_task");
+            tracy_rs::profile_scope!("alpha_task");
             let task = &render_tasks[*task_id];
 
             match task.kind {
@@ -334,7 +334,7 @@ impl RenderTarget {
         render_tasks: &RenderTaskGraph,
         transforms: &mut TransformPalette,
     ) {
-        profile_scope!("add_task");
+        tracy_rs::profile_scope!("add_task");
         let task = &render_tasks[task_id];
         let target_rect = task.get_target_rect();
 

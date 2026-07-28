@@ -696,7 +696,7 @@ impl TextureCache {
     /// Called at the beginning of each frame.
     pub fn begin_frame(&mut self, stamp: FrameStamp, profile: &mut TransactionProfile) {
         debug_assert!(!self.now.is_valid());
-        profile_scope!("begin_frame");
+        tracy_rs::profile_scope!("begin_frame");
         self.now = stamp;
 
         // Texture cache eviction is done at the start of the frame. This ensures that

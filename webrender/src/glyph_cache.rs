@@ -199,7 +199,7 @@ impl GlyphCache {
         texture_cache: &mut TextureCache,
         glyph_rasterizer: &mut GlyphRasterizer,
     ) {
-        profile_scope!("begin_frame");
+        tracy_rs::profile_scope!("begin_frame");
         self.current_frame = stamp.frame_id();
         self.clear_evicted(texture_cache);
         // Clearing evicted glyphs and pruning excess usage might have produced empty caches,
