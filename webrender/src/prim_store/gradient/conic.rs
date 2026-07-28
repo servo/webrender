@@ -60,10 +60,6 @@ impl PatternBuilder for ConicGradientTemplate {
         ctx: &PatternBuilderContext,
         state: &mut PatternBuilderState,
     ) -> Pattern {
-        // The scaling parameter is used to compensate for when we reduce the size
-        // of the render task for cached gradients. Here we aren't applying any.
-        let no_scale = DeviceVector2D::one();
-
         // ConicGradientTemplate stores the center point relative to the primitive
         // origin, but the shader works with start/end points in "proper" layout
         // coordinates (relative to the primitive's spatial node).
@@ -71,7 +67,6 @@ impl PatternBuilder for ConicGradientTemplate {
 
         conic_gradient_pattern(
             center,
-            no_scale,
             self.params.angle,
             self.params.start_offset,
             self.params.end_offset,

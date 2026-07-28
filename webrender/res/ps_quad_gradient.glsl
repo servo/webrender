@@ -42,7 +42,6 @@ void linear_gradient_vertex(vec2 position, vec4 data0) {
 
 void radial_gradient_vertex(vec2 position, vec4 data0, vec4 data1) {
     vec2 center = data0.xy;
-    vec2 scale = data0.zw;
     float start_radius = data1.x;
     float end_radius = data1.y;
     float xy_ratio = data1.z;
@@ -58,7 +57,7 @@ void radial_gradient_vertex(vec2 position, vec4 data0, vec4 data1) {
     // v_pos is in a coordinate space relative to the task rect
     // (so it is independent of the task origin).
     start_radius = start_radius * radius_scale;
-    vec2 normalized_pos = (position * scale - center) * radius_scale;
+    vec2 normalized_pos = (position - center) * radius_scale;
     normalized_pos.y *= xy_ratio;
 
     v_interpolated_data = vec4(normalized_pos.x, normalized_pos.y, 0.0, 0.0);
@@ -67,7 +66,6 @@ void radial_gradient_vertex(vec2 position, vec4 data0, vec4 data1) {
 
 void conic_gradient_vertex(vec2 position, vec4 data0, vec4 data1) {
     vec2 center = data0.xy;
-    vec2 scale = data0.zw;
     float start_offset = data1.x;
     float end_offset = data1.y;
     float angle = PI / 2.0 - data1.z;
@@ -78,7 +76,7 @@ void conic_gradient_vertex(vec2 position, vec4 data0, vec4 data1) {
     float offset_scale = d != 0.0 ? 1.0 / d : 0.0;
 
     start_offset = start_offset * offset_scale;
-    vec2 dir = (position * scale - center);
+    vec2 dir = (position - center);
 
     v_interpolated_data = vec4(dir, start_offset, offset_scale);
     v_flat_data = vec4(angle, 0.0, 0.0, 0.0);
