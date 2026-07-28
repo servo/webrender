@@ -1455,7 +1455,7 @@ impl Drop for ProfileScope {
     }
 }
 
-#[cfg(not(feature="profiler"))]
+#[cfg(not(feature="tracy"))]
 /// A helper macro to define profile scopes.
 macro_rules! profile_marker {
     ($string:expr) => {
@@ -1463,7 +1463,7 @@ macro_rules! profile_marker {
     };
 }
 
-#[cfg(feature="profiler")]
+#[cfg(feature="tracy")]
 /// A helper macro to define profile scopes.
 macro_rules! profile_marker {
     ($string:expr) => {

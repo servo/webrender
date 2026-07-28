@@ -27,7 +27,7 @@ python3 -m pip install -r $(dirname ${0})/requirements.txt
 pushd webrender
 cargo check ${CARGOFLAGS} --no-default-features
 cargo check ${CARGOFLAGS} --no-default-features --features capture
-cargo check ${CARGOFLAGS} --features capture,profiler
+cargo check ${CARGOFLAGS} --features capture,tracy
 cargo check ${CARGOFLAGS} --features replay
 popd
 

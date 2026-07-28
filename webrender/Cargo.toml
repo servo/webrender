@@ -10,7 +10,7 @@ edition = "2018"
 
 [features]
 default = ["static_freetype"]
-profiler = ["tracy-rs/enable_profiler"]
+tracy = ["tracy-rs/enable_profiler"]
 capture = ["api/serialize", "ron", "serde", "smallvec/serde", "etagere/serialization", "glyph_rasterizer/capture"]
 replay = ["api/deserialize", "ron", "serde", "smallvec/serde", "etagere/serialization", "glyph_rasterizer/replay"]
 display_list_stats = ["api/display_list_stats"]
