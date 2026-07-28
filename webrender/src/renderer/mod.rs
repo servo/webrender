@@ -4596,6 +4596,9 @@ fn should_skip_batch(kind: &BatchKind, flags: DebugFlags) -> bool {
         BatchKind::TextRun(_) => {
             flags.contains(DebugFlags::DISABLE_TEXT_PRIMS)
         }
+        BatchKind::Quad(PatternKind::Gradient) => {
+            flags.contains(DebugFlags::DISABLE_GRADIENT_PRIMS)
+        }
         _ => false,
     }
 }
