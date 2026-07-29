@@ -119,6 +119,7 @@ pub fn prepare_picture(
     };
 
     frame_state.picture_scratch_handles[pic_index.0] = Some(scratch_handle);
+    frame_state.num_pictures += 1;
 
     prepare_primitives(
         store,
@@ -168,6 +169,8 @@ fn prepare_primitives(
             continue;
         }
         tracy_rs::profile_scope!("cluster");
+        frame_state.num_visited_primitives += cluster.prim_range().len() as u32;
+
         pic_state.map_local_to_pic.set_target_spatial_node(
             cluster.spatial_node_index,
             frame_context.spatial_tree,
@@ -209,6 +212,7 @@ fn prepare_primitives(
                 );
 
                 frame_state.num_visible_primitives += 1;
+                frame_state.num_cmd_targets += cmd_buffer_targets.len() as u32;
                 continue;
             }
 

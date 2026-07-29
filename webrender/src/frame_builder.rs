@@ -126,6 +126,14 @@ pub struct FrameBuildingState<'a> {
     pub dirty_region_stack: Vec<DirtyRegion>,
     pub composite_state: &'a mut CompositeState,
     pub num_visible_primitives: u32,
+    /// Primitives visited by the prepare traversal, whether or not they
+    /// produced a draw. Accumulated here and reported once per frame, in the
+    /// same way as `num_visible_primitives`.
+    pub num_visited_primitives: u32,
+    /// Total (primitive, command buffer) pairs emitted.
+    pub num_cmd_targets: u32,
+    /// Pictures that obtained a context this frame.
+    pub num_pictures: u32,
     pub plane_splitters: &'a mut [PlaneSplitter],
     pub surface_builder: SurfaceBuilder,
     pub cmd_buffers: &'a mut CommandBufferList,
@@ -513,6 +521,9 @@ impl FrameBuilder {
             dirty_region_stack: scratch.frame.dirty_region_stack.take(),
             composite_state,
             num_visible_primitives: 0,
+            num_visited_primitives: 0,
+            num_cmd_targets: 0,
+            num_pictures: 0,
             plane_splitters: &mut self.plane_splitters,
             surface_builder: SurfaceBuilder::new(),
             cmd_buffers,
@@ -603,6 +614,9 @@ impl FrameBuilder {
         frame_state.surface_builder.finalize();
         profile.end_time(profiler::FRAME_PREPARE_TIME);
         profile.set(profiler::VISIBLE_PRIMITIVES, frame_state.num_visible_primitives);
+        profile.set(profiler::PREPARE_VISITED_PRIMS, frame_state.num_visited_primitives);
+        profile.set(profiler::PREPARE_CMD_TARGETS, frame_state.num_cmd_targets);
+        profile.set(profiler::PREPARE_PICTURES, frame_state.num_pictures);
 
         scratch.frame.dirty_region_stack = frame_state.dirty_region_stack.take();
 

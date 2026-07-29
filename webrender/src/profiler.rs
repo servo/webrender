@@ -69,6 +69,9 @@ static PROFILER_PRESETS: &'static[(&'static str, &'static str)] = &[
     (&"Frame times", &"Frame CPU total,Frame building,Visibility,Prepare,Batching,Glyph resolve,Texture cache update,Shader build time,Renderer,GPU"),
     // Stats about the content of the frame.
     (&"Frame stats", &"Primitives,Visible primitives,Draw calls,Vertices,Color passes,Alpha passes,Rendered picture tiles,Rasterized glyphs"),
+    // How much of each frame-building pass's traversal produces a draw, and the
+    // per-prim fan-out across dirty tiles.
+    (&"Frame build traversal", &"Primitives,Visibility visited prims,Prepare visited prims,Visible primitives,Prepare cmd targets,Prepare pictures, ,Visibility,Prepare"),
     // Texture cache allocation stats.
     (&"Texture cache stats", &"Atlas textures mem, Standalone textures mem, Picture tiles mem, Render targets mem, Depth targets mem, Atlas items mem,
         Texture cache standalone pressure, Texture cache eviction count, Texture cache youngest evicted, ,
@@ -277,7 +280,22 @@ pub const COMPOSITOR_SURFACE_UNDERLAYS: usize = 131;
 pub const COMPOSITOR_SURFACE_OVERLAYS: usize = 132;
 pub const COMPOSITOR_SURFACE_BLITS: usize = 133;
 
-pub const NUM_PROFILER_EVENTS: usize = 134;
+/// Primitives visited by the visibility pass (all prims of every visible
+/// cluster it walks). Compare against `VISIBLE_PRIMITIVES` to see how much of
+/// each pass's traversal produces a draw.
+pub const VISIBILITY_VISITED_PRIMS: usize = 134;
+/// Primitives visited by the prepare pass. Lower than
+/// `VISIBILITY_VISITED_PRIMS` when prepare prunes whole picture subtrees whose
+/// surface has no dirty intersection.
+pub const PREPARE_VISITED_PRIMS: usize = 135;
+/// Total (primitive, command buffer) pairs emitted by prepare. Divided by
+/// `VISIBLE_PRIMITIVES` this is the average per-prim fan-out across dirty
+/// tiles and surface tasks.
+pub const PREPARE_CMD_TARGETS: usize = 136;
+/// Pictures that prepare obtained a context for this frame.
+pub const PREPARE_PICTURES: usize = 137;
+
+pub const NUM_PROFILER_EVENTS: usize = 138;
 
 pub struct Profiler {
     counters: Vec<Counter>,
@@ -490,6 +508,11 @@ impl Profiler {
             int("Compositor surface underlays", "", COMPOSITOR_SURFACE_UNDERLAYS, Expected::none()),
             int("Compositor surface overlays", "", COMPOSITOR_SURFACE_OVERLAYS, Expected::none()),
             int("Compositor surface blits", "", COMPOSITOR_SURFACE_BLITS, Expected::none()),
+
+            int("Visibility visited prims", "", VISIBILITY_VISITED_PRIMS, Expected::none()),
+            int("Prepare visited prims", "", PREPARE_VISITED_PRIMS, Expected::none()),
+            int("Prepare cmd targets", "", PREPARE_CMD_TARGETS, Expected::none()),
+            int("Prepare pictures", "", PREPARE_PICTURES, Expected::none()),
         ];
 
         let mut counters = Vec::with_capacity(profile_counters.len());

@@ -34,7 +34,7 @@ use api::units::*;
 use std::usize;
 use crate::clip::ClipStore;
 use crate::composite::CompositeState;
-use crate::profiler::TransactionProfile;
+use crate::profiler::{self, TransactionProfile};
 use crate::renderer::GpuBufferBuilder;
 use crate::spatial_tree::{SpatialTree, SpatialNodeIndex};
 use crate::clip::{ClipChainInstance, ClipTree, ClipNodeId};
@@ -344,6 +344,11 @@ pub fn update_prim_visibility(
         if !cluster.flags.contains(ClusterFlags::IS_VISIBLE) {
             continue;
         }
+
+        frame_state.profile.add(
+            profiler::VISIBILITY_VISITED_PRIMS,
+            cluster.prim_range().len(),
+        );
 
         map_local_to_picture.set_target_spatial_node(
             cluster.spatial_node_index,
