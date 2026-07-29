@@ -8,9 +8,10 @@ use crate::command_buffer::CommandBufferIndex;
 use crate::clip::{ClipChainInstance, ClipNodeId};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext};
 use crate::intern::{Handle as InternHandle, InternDebug, Internable};
-use crate::prim_store::{InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveScratchBuffer};
+use crate::prim_store::{InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveScratchBuffer};
 use crate::prim_store::{PrimitiveKind, PrimitiveStore};
 use crate::quad::{self, QuadDescriptor, QuadTransformState};
+use crate::visibility::PrimitiveDrawIndex;
 use crate::pattern::box_shadow::BoxShadowPatternData;
 use crate::render_task::{RenderTask, RenderTaskKind, MAX_BLUR_STD_DEVIATION};
 use crate::render_backend::DataStores;
@@ -244,7 +245,7 @@ pub fn prepare_box_shadow(
     scratch: &mut PrimitiveScratchBuffer,
     prim_spatial_node_index: SpatialNodeIndex,
     device_pixel_scale: DevicePixelScale,
-    prim_instance_index: PrimitiveInstanceIndex,
+    draw_index: PrimitiveDrawIndex,
     cmd_buffer_targets: &[CommandBufferIndex],
     data_stores: &DataStores,
 ) {
@@ -505,7 +506,7 @@ pub fn prepare_box_shadow(
             aligned_aa_edges: common_data.aligned_aa_edges,
             transformed_aa_edges: common_data.transformed_aa_edges,
         },
-        prim_instance_index,
+        draw_index,
         &None,
         clip_chain,
         quad_transform,

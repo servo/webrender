@@ -11,12 +11,13 @@ use crate::clip::{ClipChainInstance, ClipIntern};
 use crate::command_buffer::CommandBufferIndex;
 use crate::pattern::image::ImagePattern;
 use crate::quad::{QuadDescriptor, QuadTransformState};
+use crate::visibility::PrimitiveDrawIndex;
 use crate::scene_building::{IsVisible};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext};
 use crate::intern::{DataStore, Handle as InternHandle, InternDebug, Internable};
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
-    EdgeMask, InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveInstanceIndex, PrimitiveKind, PrimitiveScratchBuffer, PrimitiveStore
+    EdgeMask, InternablePrimitive, PrimKey, PrimTemplate, PrimTemplateCommonData, PrimitiveKind, PrimitiveScratchBuffer, PrimitiveStore
 };
 use crate::render_target::RenderTargetKind;
 use crate::render_task_graph::RenderTaskId;
@@ -111,7 +112,7 @@ pub fn prepare_image_quads(
     common_data: &PrimTemplateCommonData,
     image_data: &ImageData,
     clip_chain: &ClipChainInstance,
-    prim_instance_index: PrimitiveInstanceIndex,
+    draw_index: PrimitiveDrawIndex,
     quad_transform: &mut QuadTransformState,
     frame_context: &FrameBuildingContext,
     pic_context: &PictureContext,
@@ -220,7 +221,7 @@ pub fn prepare_image_quads(
                 },
                 stretch_size,
                 image_data.tile_spacing,
-                prim_instance_index,
+                draw_index,
                 &None,
                 clip_chain,
                 quad_transform,
@@ -238,11 +239,7 @@ pub fn prepare_image_quads(
             // thing.
             let active_rect = image_properties.visible_rect;
             let visible_rect = compute_conservative_visible_rect(
-                &scratch
-                    .frame
-                    .draw_for_instance(prim_instance_index)
-                    .expect("bug: preparing an image with no draw")
-                    .clip_chain,
+                &scratch.frame.draw(draw_index).clip_chain,
                 frame_state.current_dirty_region().combined,
                 frame_state.current_dirty_region().visibility_spatial_node,
                 quad_transform.prim_spatial_node_index(),
@@ -306,7 +303,7 @@ pub fn prepare_image_quads(
                             aligned_aa_edges,
                             transformed_aa_edges,
                         },
-                        prim_instance_index,
+                        draw_index,
                         &None,
                         clip_chain,
                         quad_transform,

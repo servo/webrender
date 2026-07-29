@@ -13,7 +13,8 @@ use crate::intern::DataStore;
 use crate::pattern::{PatternBuilder, PatternBuilderContext, PatternBuilderState};
 use crate::pattern::image::ImagePattern;
 use crate::quad::{QuadDescriptor, QuadTransformState, prepare_repeatable_quad};
-use crate::prim_store::{NinePatchDescriptor, PrimitiveInstanceIndex, PrimitiveScratchBuffer};
+use crate::visibility::PrimitiveDrawIndex;
+use crate::prim_store::{NinePatchDescriptor, PrimitiveScratchBuffer};
 use crate::segment::EdgeMask;
 
 
@@ -22,7 +23,7 @@ pub fn prepare_border_image_nine_patch(
     src_image: &ImagePattern,
     src_image_size: DeviceIntSize,
     desc: &QuadDescriptor,
-    prim_instance_index: PrimitiveInstanceIndex,
+    draw_index: PrimitiveDrawIndex,
     clip_chain: &ClipChainInstance,
     transform: &mut QuadTransformState,
 
@@ -80,7 +81,7 @@ pub fn prepare_border_image_nine_patch(
             },
             stretch_size,
             spacing,
-            prim_instance_index,
+            draw_index,
             &None,
             clip_chain,
             transform,
