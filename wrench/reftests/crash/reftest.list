@@ -1,2 +1,2 @@
-scale(*) != iframe-dup.yaml blank.yaml
-scale(*) != many-segments.yaml blank.yaml
+!= iframe-dup.yaml blank.yaml
+!= many-segments.yaml blank.yaml
