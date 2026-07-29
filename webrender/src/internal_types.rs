@@ -15,7 +15,7 @@ use crate::frame_builder::Frame;
 use crate::profiler::TransactionProfile;
 use crate::segment::EdgeMask;
 use crate::spatial_tree::SpatialNodeIndex;
-use crate::prim_store::PrimitiveInstanceIndex;
+use crate::visibility::PrimitiveDrawIndex;
 use crate::svg_filter::{FilterGraphNode, FilterGraphOp, FilterGraphPictureReference};
 use rustc_hash::FxHasher;
 use plane_split::BspSplitter;
@@ -181,7 +181,10 @@ impl FrameStamp {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PlaneSplitAnchor {
     pub spatial_node_index: SpatialNodeIndex,
-    pub instance_index: PrimitiveInstanceIndex,
+    /// The draw this plane composites. Both consumers (the draw header lookup
+    /// and the split-composite command) need a draw index, so the anchor carries
+    /// one rather than an instance index the consumer would have to convert.
+    pub draw_index: PrimitiveDrawIndex,
     /// The split picture's unclipped local rect used by the shader to map plane
     /// positions to texture coordinates.
     pub local_rect: LayoutRect,
@@ -190,11 +193,11 @@ pub struct PlaneSplitAnchor {
 impl PlaneSplitAnchor {
     pub fn new(
         spatial_node_index: SpatialNodeIndex,
-        instance_index: PrimitiveInstanceIndex,
+        draw_index: PrimitiveDrawIndex,
     ) -> Self {
         PlaneSplitAnchor {
             spatial_node_index,
-            instance_index,
+            draw_index,
             local_rect: LayoutRect::zero(),
         }
     }
@@ -204,7 +207,7 @@ impl Default for PlaneSplitAnchor {
     fn default() -> Self {
         PlaneSplitAnchor {
             spatial_node_index: SpatialNodeIndex::INVALID,
-            instance_index: PrimitiveInstanceIndex(!0),
+            draw_index: PrimitiveDrawIndex::INVALID,
             local_rect: LayoutRect::zero(),
         }
     }

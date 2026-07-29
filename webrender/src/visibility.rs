@@ -164,17 +164,36 @@ impl KindScratchHandle {
     }
 }
 
+/// Index of a draw in the per-frame `scratch.frame.draws` storage.
+///
+/// Distinct from `PrimitiveInstanceIndex`, which identifies the scene-relative
+/// primitive instance a draw was produced from. The two currently have the same
+/// numeric value because `draws` is identity-indexed by instance, but nothing
+/// may rely on that: use `draw_index_for_instance` to cross between them.
+pub type PrimitiveDrawIndex = storage::Index<PrimitiveDrawHeader>;
+
+/// The draw index for a primitive instance.
+///
+/// This is the single place that depends on `scratch.frame.draws` being
+/// identity-indexed by `PrimitiveInstanceIndex`. When draws become
+/// push-per-draw, callers must instead use the index returned when the draw was
+/// pushed, and this function goes away; grep for it to find every site that
+/// needs revisiting.
+pub fn draw_index_for_instance(
+    prim_instance_index: PrimitiveInstanceIndex,
+) -> PrimitiveDrawIndex {
+    storage::Index::from_u32(prim_instance_index.0)
+}
+
 /// Information stored for a visible primitive about the visible
 /// rect and associated clip information.
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveDrawHeader {
-    /// Back-reference to the prim instance this draw belongs to.
-    /// Currently redundant with the identity-indexed lookup from
-    /// `scratch.frame.draws[PrimitiveInstanceIndex.0]`, but reserved
-    /// for a follow-up that switches the storage to push-per-draw —
-    /// readers iterating draws directly will need this to reach the
-    /// instance.
+    /// Back-reference to the prim instance this draw belongs to. This is the
+    /// only supported way to get from a draw to its instance: consumers reached
+    /// via the command stream hold a `PrimitiveDrawIndex`, which must not be
+    /// reused as an instance index even though the two are currently equal.
     pub prim_instance_index: PrimitiveInstanceIndex,
 
     /// The clip chain instance that was built for this primitive.

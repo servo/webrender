@@ -44,7 +44,7 @@ use crate::space::{SpaceMapper, SpaceSnapper};
 use crate::spatial_tree::{SpatialNodeIndex, SpatialTree};
 use crate::surface::{SubpixelMode, SurfaceIndex, SurfaceInfo};
 use crate::util::{ScaleOffset, MatrixHelpers, MaxRect};
-use crate::visibility::{FrameVisibilityContext, FrameVisibilityState, DrawState, PrimitiveVisibilityFlags};
+use crate::visibility::{draw_index_for_instance, FrameVisibilityContext, FrameVisibilityState, DrawState, PrimitiveVisibilityFlags};
 use euclid::approxeq::ApproxEq;
 use euclid::Box2D;
 use peek_poke::{PeekPoke, ensure_red_zone};
@@ -2092,7 +2092,7 @@ impl TileCacheInstance {
             native_surface_id,
             update_params,
             external_image_id,
-            prim_instance_index,
+            draw_index: draw_index_for_instance(prim_instance_index),
         };
 
         // If the surface is opaque, we can draw it an an underlay (which avoids
@@ -3072,12 +3072,12 @@ impl TileCacheInstance {
             if !cancel_underlays.is_empty() {
                 for desc in cancel_underlays {
                     // Change underlay to blit.
+                    let draw = &mut scratch.frame.draws[desc.draw_index.0 as usize];
                     debug_assert!(matches!(
-                        prim_instances[desc.prim_instance_index.0 as usize].kind,
+                        prim_instances[draw.prim_instance_index.0 as usize].kind,
                         PrimitiveKind::YuvImage { .. }
                     ));
-                    scratch.frame.draws[desc.prim_instance_index.0 as usize].compositor_surface_kind =
-                        CompositorSurfaceKind::Blit;
+                    draw.compositor_surface_kind = CompositorSurfaceKind::Blit;
 
                     let (p0, p1) = self.get_tile_coords_for_rect(&desc.local_rect);
 

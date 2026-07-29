@@ -77,7 +77,7 @@ use crate::render_backend::DataStores;
 
 use crate::render_task::{EmptyTask, RenderTask, RenderTaskKind};
 
-use crate::visibility::{DrawState, KindScratchHandle};
+use crate::visibility::{draw_index_for_instance, DrawState, KindScratchHandle};
 
 
 const MAX_MASK_SIZE: i32 = 4096;
@@ -191,7 +191,7 @@ fn prepare_primitives(
             ) {
                 let plane_split_anchor = PlaneSplitAnchor::new(
                     cluster.spatial_node_index,
-                    PrimitiveInstanceIndex(prim_instance_index as u32),
+                    draw_index_for_instance(PrimitiveInstanceIndex(prim_instance_index as u32)),
                 );
 
                 prepare_prim_for_render(
@@ -1201,7 +1201,7 @@ fn prepare_prim_for_render(
         }
         DrawState::Visible { .. } => {
             frame_state.push_prim(
-                &PrimitiveCommand::simple(storage::Index::from_u32(prim_instance_index.0)),
+                &PrimitiveCommand::simple(draw_index_for_instance(prim_instance_index)),
                 prim_spatial_node_index,
                 targets,
             );

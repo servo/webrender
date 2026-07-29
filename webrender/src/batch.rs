@@ -962,7 +962,10 @@ impl BatchBuilder {
                 "The primitive's bounding box is specified in a different coordinate system from the current batch!");
         }
 
-        let prim_instance = &prim_instances[draw_index.0 as usize];
+        // Reach the instance through the draw header rather than reusing the
+        // draw index. They happen to be equal while `draws` is identity-indexed,
+        // but a draw index is not an instance index.
+        let prim_instance = &prim_instances[prim_info.prim_instance_index.0 as usize];
 
         match prim_instance.kind {
             PrimitiveKind::TextRun { data_handle, .. } => {
