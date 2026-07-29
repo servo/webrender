@@ -354,9 +354,14 @@ pub fn update_prim_visibility(
         //           instance is always reset every frame to catch similar
         //           issues in future.
         for idx in cluster.prim_range() {
-            frame_state.scratch.primitive.frame.draws[idx].reset();
-            frame_state.scratch.primitive.frame.draws[idx].prim_instance_index =
-                PrimitiveInstanceIndex(idx as u32);
+            let prim_instance_index = PrimitiveInstanceIndex(idx as u32);
+            let draw = frame_state
+                .scratch
+                .primitive
+                .frame
+                .draw_for_instance_mut(prim_instance_index);
+            draw.reset();
+            draw.prim_instance_index = prim_instance_index;
         }
 
         // Get the cluster and see if is visible
@@ -396,8 +401,12 @@ pub fn update_prim_visibility(
             let policy = prim_instance.snap_policy(snaps, frame_state.data_stores);
             let snapped_local_rect =
                 snapper.snap_rect_rounded(&prim_instance.unsnapped_prim_rect, policy.rect);
-            frame_state.scratch.primitive.frame.draws[prim_instance_index].snapped_local_rect =
-                snapped_local_rect;
+            frame_state
+                .scratch
+                .primitive
+                .frame
+                .draw_for_instance_mut(PrimitiveInstanceIndex(prim_instance_index as u32))
+                .snapped_local_rect = snapped_local_rect;
 
             // Picture / tile-cache leaves carry `max_rect` (snapping it would
             // overflow the snap transform); pass those through. Otherwise the
@@ -454,7 +463,12 @@ pub fn update_prim_visibility(
 
                 if is_passthrough {
                     // Pass through pictures are always considered visible in all dirty tiles.
-                    frame_state.scratch.primitive.frame.draws[prim_instance_index].state = DrawState::PassThrough;
+                    frame_state
+                        .scratch
+                        .primitive
+                        .frame
+                        .draw_for_instance_mut(PrimitiveInstanceIndex(prim_instance_index as u32))
+                        .state = DrawState::PassThrough;
 
                     continue;
                 } else {
@@ -466,7 +480,12 @@ pub fn update_prim_visibility(
 
             let local_coverage_rect = frame_state.data_stores.get_local_prim_coverage_rect(
                 prim_instance,
-                frame_state.scratch.primitive.frame.draws[prim_instance_index].snapped_local_rect,
+                frame_state
+                    .scratch
+                    .primitive
+                    .frame
+                    .draw_for_instance(PrimitiveInstanceIndex(prim_instance_index as u32))
+                    .snapped_local_rect,
                 &store.pictures,
                 frame_state.surfaces,
             );
@@ -498,12 +517,18 @@ pub fn update_prim_visibility(
                     true,
                 );
 
-            frame_state.scratch.primitive.frame.draws[prim_instance_index].clip_chain = match clip_chain {
+            let clip_chain = match clip_chain {
                 Some(clip_chain) => clip_chain,
                 None => {
                     continue;
                 }
             };
+            frame_state
+                .scratch
+                .primitive
+                .frame
+                .draw_for_instance_mut(PrimitiveInstanceIndex(prim_instance_index as u32))
+                .clip_chain = clip_chain;
 
             let is_mix_blend_picture = |prim_instance: &PrimitiveInstance| {
                 if let PrimitiveKind::Picture { pic_index, .. } = prim_instance.kind {
@@ -519,7 +544,7 @@ pub fn update_prim_visibility(
             };
 
             if is_root_tile_cache && is_mix_blend_picture(prim_instance) {
-                let prim_clip_chain = &frame_state.scratch.primitive.frame.draws[prim_instance_index].clip_chain;
+                let prim_clip_chain = &frame_state.scratch.primitive.frame.draw_for_instance(PrimitiveInstanceIndex(prim_instance_index as u32)).clip_chain;
                 if let Some(tile_cache) = tile_cache {
                     tile_cache.mix_blend_pic_rects.push(prim_clip_chain.pic_coverage_rect);
                 }
@@ -527,7 +552,7 @@ pub fn update_prim_visibility(
 
             {
                 let prim_surface_index = frame_state.surface_stack.last().unwrap().1;
-                let prim_clip_chain = &frame_state.scratch.primitive.frame.draws[prim_instance_index].clip_chain;
+                let prim_clip_chain = &frame_state.scratch.primitive.frame.draw_for_instance(PrimitiveInstanceIndex(prim_instance_index as u32)).clip_chain;
 
                 // Accumulate the exact (clipped) local rect into the parent surface.
                 let surface = &mut frame_state.surfaces[prim_surface_index.0];
@@ -565,7 +590,12 @@ pub fn update_prim_visibility(
                     }
                 }
             };
-            frame_state.scratch.primitive.frame.draws[prim_instance_index].state = new_state;
+            frame_state
+                .scratch
+                .primitive
+                .frame
+                .draw_for_instance_mut(PrimitiveInstanceIndex(prim_instance_index as u32))
+                .state = new_state;
         }
     }
 

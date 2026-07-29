@@ -22,7 +22,7 @@ use crate::resource_cache::ImageProperties;
 use std::{hash, u32, usize};
 use crate::util::Recycler;
 use crate::internal_types::{FastHashSet, LayoutPrimitiveInfo};
-use crate::visibility::PrimitiveDrawHeader;
+use crate::visibility::{draw_index_for_instance, PrimitiveDrawHeader, PrimitiveDrawIndex};
 
 pub mod backdrop;
 pub mod borders;
@@ -510,13 +510,15 @@ pub type GlyphKeyStorage = storage::Storage<GlyphKey>;
 /// `begin_frame`. Anything written here lives only for the current frame.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveFrameScratch {
-    /// Per-frame draw headers, one entry per `PrimitiveInstance`.
-    /// Resized to `prim_instances.len()` at frame start and identity-
-    /// indexed by `PrimitiveInstanceIndex.0` (a follow-up will switch
-    /// this to push-per-draw with `Index<PrimitiveDrawHeader>`). Holds
-    /// visibility state, clip chain and clip-task index for each
-    /// visible primitive.
-    pub draws: Vec<PrimitiveDrawHeader>,
+    /// Per-frame draw headers. Holds visibility state, clip chain and
+    /// clip-task index for each visible primitive.
+    ///
+    /// Deliberately private: reach entries through `draw`/`draw_mut`, keyed by
+    /// `PrimitiveDrawIndex`, so that switching this to push-per-draw storage is
+    /// a change behind these accessors rather than at every call site. Resized
+    /// to `prim_instances.len()` by `reset_draws` and currently identity-indexed
+    /// by `PrimitiveInstanceIndex.0`; only `draw_index_for_instance` knows that.
+    draws: Vec<PrimitiveDrawHeader>,
 
     /// Per-frame scratch for Picture primitives. Holds the picture's
     /// primary/secondary render task ids and any per-composite-mode
@@ -570,6 +572,43 @@ impl Default for PrimitiveFrameScratch {
 }
 
 impl PrimitiveFrameScratch {
+    /// Prepare the draw storage for a new frame over a scene with `prim_count`
+    /// primitive instances.
+    pub fn reset_draws(&mut self, prim_count: usize) {
+        self.draws.clear();
+        self.draws.resize_with(prim_count, PrimitiveDrawHeader::new);
+    }
+
+    /// The draw header for a draw index, as carried by the command stream and
+    /// by consumers such as `PlaneSplitAnchor` and `ExternalSurfaceDescriptor`.
+    pub fn draw(&self, draw_index: PrimitiveDrawIndex) -> &PrimitiveDrawHeader {
+        &self.draws[draw_index.0 as usize]
+    }
+
+    pub fn draw_mut(&mut self, draw_index: PrimitiveDrawIndex) -> &mut PrimitiveDrawHeader {
+        &mut self.draws[draw_index.0 as usize]
+    }
+
+    /// The draw header for a primitive instance.
+    ///
+    /// Convenience for the passes that still walk primitive instances rather
+    /// than draws; goes away once they iterate draws directly. Relies on
+    /// `draw_index_for_instance`, so it inherits the identity-indexing
+    /// assumption documented there.
+    pub fn draw_for_instance(
+        &self,
+        prim_instance_index: PrimitiveInstanceIndex,
+    ) -> &PrimitiveDrawHeader {
+        self.draw(draw_index_for_instance(prim_instance_index))
+    }
+
+    pub fn draw_for_instance_mut(
+        &mut self,
+        prim_instance_index: PrimitiveInstanceIndex,
+    ) -> &mut PrimitiveDrawHeader {
+        self.draw_mut(draw_index_for_instance(prim_instance_index))
+    }
+
     pub fn recycle(&mut self, recycler: &mut Recycler) {
         recycler.recycle_vec(&mut self.draws);
         self.pictures.recycle(recycler);

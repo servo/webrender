@@ -326,11 +326,7 @@ impl FrameBuilder {
         // instance. Identity-indexed by `PrimitiveInstanceIndex.0` for now;
         // a follow-up will switch this to push-per-draw. The per-prim
         // `snapped_local_rect` is filled in by the visibility pass.
-        scratch.primitive.frame.draws.clear();
-        scratch.primitive.frame.draws.resize_with(
-            scene.prim_instances.len(),
-            crate::visibility::PrimitiveDrawHeader::new,
-        );
+        scratch.primitive.frame.reset_draws(scene.prim_instances.len());
 
         // Cluster, prim, and clip-leaf rects are snapped to the device pixel
         // grid as they are produced by the in-frame picture-graph passes:
