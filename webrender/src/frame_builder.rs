@@ -491,6 +491,8 @@ impl FrameBuilder {
                 }
             }
 
+            scratch.primitive.frame.assert_draws_resolved();
+
             profile.end_time(profiler::FRAME_VISIBILITY_TIME);
         }
 

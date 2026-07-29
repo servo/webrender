@@ -604,6 +604,23 @@ impl PrimitiveFrameScratch {
         draw_index
     }
 
+    /// Check that the visibility pass resolved a state for every draw it
+    /// pushed. A draw is pushed before its state is known in the common case
+    /// (the tile-cache dependency update decides it), so a path that pushes and
+    /// then fails to resolve would leave `DrawState::Unset` for prepare and
+    /// batching to trip over.
+    pub fn assert_draws_resolved(&self) {
+        #[cfg(debug_assertions)]
+        {
+            for draw in &self.draws {
+                assert!(
+                    !matches!(draw.state, crate::visibility::DrawState::Unset),
+                    "bug: draw for {:?} left Unset by the visibility pass",
+                    draw.prim_instance_index,
+                );
+            }
+        }
+    }
 
     /// The draw pushed for a primitive instance this frame, if any.
     pub fn draw_index_for_instance(
