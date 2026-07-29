@@ -13,8 +13,8 @@
 //!
 //! For each primitive instance it visits, the pass works out whether the
 //! primitive is drawn this frame and under which clips, and records the answer
-//! in the primitive's [`PrimitiveDrawHeader`], stored in
-//! `scratch.primitive.frame.draws` and indexed by primitive instance index.
+//! in a [`PrimitiveDrawHeader`], pushed into `scratch.primitive.frame.draws`
+//! as each drawn primitive is found.
 //! Later passes read those headers instead of re-deriving the information.
 //! In addition to visibility calculation, this pass performs snapping and
 //! builds clip chain instances.
@@ -119,7 +119,9 @@ bitflags! {
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub enum DrawState {
-    /// Uninitialized - this should never be encountered after prim reset
+    /// No state resolved yet. Only observable between a header being created
+    /// and the visibility pass deciding the primitive's fate; a draw that
+    /// reaches prepare or batching in this state is a bug.
     Unset,
     /// Culled for being off-screen, or not possible to render (e.g. missing image resource)
     Culled,
@@ -167,23 +169,11 @@ impl KindScratchHandle {
 /// Index of a draw in the per-frame `scratch.frame.draws` storage.
 ///
 /// Distinct from `PrimitiveInstanceIndex`, which identifies the scene-relative
-/// primitive instance a draw was produced from. The two currently have the same
-/// numeric value because `draws` is identity-indexed by instance, but nothing
-/// may rely on that: use `draw_index_for_instance` to cross between them.
+/// primitive instance a draw was produced from. Draws are pushed as the
+/// visibility pass finds them, so the two are unrelated numbers; cross between
+/// them with `PrimitiveFrameScratch::draw_index_for_instance` (instance to draw,
+/// fallible) or `PrimitiveDrawHeader::prim_instance_index` (draw to instance).
 pub type PrimitiveDrawIndex = storage::Index<PrimitiveDrawHeader>;
-
-/// The draw index for a primitive instance.
-///
-/// This is the single place that depends on `scratch.frame.draws` being
-/// identity-indexed by `PrimitiveInstanceIndex`. When draws become
-/// push-per-draw, callers must instead use the index returned when the draw was
-/// pushed, and this function goes away; grep for it to find every site that
-/// needs revisiting.
-pub fn draw_index_for_instance(
-    prim_instance_index: PrimitiveInstanceIndex,
-) -> PrimitiveDrawIndex {
-    storage::Index::from_u32(prim_instance_index.0)
-}
 
 /// Information stored for a visible primitive about the visible
 /// rect and associated clip information.
@@ -191,9 +181,8 @@ pub fn draw_index_for_instance(
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveDrawHeader {
     /// Back-reference to the prim instance this draw belongs to. This is the
-    /// only supported way to get from a draw to its instance: consumers reached
-    /// via the command stream hold a `PrimitiveDrawIndex`, which must not be
-    /// reused as an instance index even though the two are currently equal.
+    /// only way to get from a draw to its instance: consumers reached via the
+    /// command stream hold a `PrimitiveDrawIndex`, which is unrelated to it.
     pub prim_instance_index: PrimitiveInstanceIndex,
 
     /// The clip chain instance that was built for this primitive.
@@ -231,8 +220,8 @@ pub struct PrimitiveDrawHeader {
 }
 
 impl PrimitiveDrawHeader {
-    /// Allocate a fresh draw header. `snapped_local_rect` is left at zero
-    /// here; the per-frame snap pass overwrites it before any consumer runs.
+    /// A blank draw header, for the visibility pass to fill in and push once it
+    /// knows the primitive is drawn.
     pub fn new() -> Self {
         PrimitiveDrawHeader {
             prim_instance_index: PrimitiveInstanceIndex::INVALID,
@@ -245,7 +234,11 @@ impl PrimitiveDrawHeader {
         }
     }
 
-    pub fn reset(&mut self) {
+    /// Mark a pushed draw as not drawn after all, for the cases prepare only
+    /// discovers late. Clears the fields prepare may already have filled in as
+    /// well as the state, so that nothing stale is left reachable through the
+    /// header.
+    pub fn mark_culled(&mut self) {
         self.state = DrawState::Culled;
         self.clip_task_index = ClipTaskIndex::INVALID;
         self.kind_scratch = KindScratchHandle::None;
@@ -341,28 +334,8 @@ pub fn update_prim_visibility(
     for cluster in &pic.prim_list.clusters {
         tracy_rs::profile_scope!("cluster");
 
-        // Each prim instance must have reset called each frame, to clear
-        // indices into various scratch buffers. If this doesn't occur,
-        // the primitive may incorrectly be considered visible, which can
-        // cause unexpected conditions to occur later during the frame.
-        // Primitive instances are normally reset in the main loop below,
-        // but we must also reset them in the rare case that the cluster
-        // visibility has changed (due to an invalid transform and/or
-        // backface visibility changing for this cluster).
-        // TODO(gw): This is difficult to test for in CI - as a follow up,
-        //           we should add a debug flag that validates the prim
-        //           instance is always reset every frame to catch similar
-        //           issues in future.
-        for idx in cluster.prim_range() {
-            let prim_instance_index = PrimitiveInstanceIndex(idx as u32);
-            let draw = frame_state
-                .scratch
-                .primitive
-                .frame
-                .draw_for_instance_mut(prim_instance_index);
-            draw.reset();
-            draw.prim_instance_index = prim_instance_index;
-        }
+        // No per-frame reset is needed: a draw exists only if it was pushed
+        // this frame, so stale state from a previous frame cannot be observed.
 
         // Get the cluster and see if is visible
         if !cluster.flags.contains(ClusterFlags::IS_VISIBLE) {
@@ -401,12 +374,12 @@ pub fn update_prim_visibility(
             let policy = prim_instance.snap_policy(snaps, frame_state.data_stores);
             let snapped_local_rect =
                 snapper.snap_rect_rounded(&prim_instance.unsnapped_prim_rect, policy.rect);
-            frame_state
-                .scratch
-                .primitive
-                .frame
-                .draw_for_instance_mut(PrimitiveInstanceIndex(prim_instance_index as u32))
-                .snapped_local_rect = snapped_local_rect;
+
+            // The draw header is accumulated here and pushed only once the
+            // primitive is known to be drawn, so culled primitives cost nothing.
+            let mut draw = PrimitiveDrawHeader::new();
+            draw.prim_instance_index = PrimitiveInstanceIndex(prim_instance_index as u32);
+            draw.snapped_local_rect = snapped_local_rect;
 
             // Picture / tile-cache leaves carry `max_rect` (snapping it would
             // overflow the snap transform); pass those through. Otherwise the
@@ -463,12 +436,8 @@ pub fn update_prim_visibility(
 
                 if is_passthrough {
                     // Pass through pictures are always considered visible in all dirty tiles.
-                    frame_state
-                        .scratch
-                        .primitive
-                        .frame
-                        .draw_for_instance_mut(PrimitiveInstanceIndex(prim_instance_index as u32))
-                        .state = DrawState::PassThrough;
+                    draw.state = DrawState::PassThrough;
+                    frame_state.scratch.primitive.frame.push_draw(draw);
 
                     continue;
                 } else {
@@ -480,12 +449,7 @@ pub fn update_prim_visibility(
 
             let local_coverage_rect = frame_state.data_stores.get_local_prim_coverage_rect(
                 prim_instance,
-                frame_state
-                    .scratch
-                    .primitive
-                    .frame
-                    .draw_for_instance(PrimitiveInstanceIndex(prim_instance_index as u32))
-                    .snapped_local_rect,
+                draw.snapped_local_rect,
                 &store.pictures,
                 frame_state.surfaces,
             );
@@ -523,12 +487,13 @@ pub fn update_prim_visibility(
                     continue;
                 }
             };
-            frame_state
-                .scratch
-                .primitive
-                .frame
-                .draw_for_instance_mut(PrimitiveInstanceIndex(prim_instance_index as u32))
-                .clip_chain = clip_chain;
+            draw.clip_chain = clip_chain;
+
+            // Everything below needs a draw index (the tile-cache dependency
+            // update records one on any compositor surface it promotes), so the
+            // draw is pushed here. A primitive that `update_prim_dependencies`
+            // then culls keeps its draw, and prepare skips it on `DrawState`.
+            let draw_index = frame_state.scratch.primitive.frame.push_draw(draw);
 
             let is_mix_blend_picture = |prim_instance: &PrimitiveInstance| {
                 if let PrimitiveKind::Picture { pic_index, .. } = prim_instance.kind {
@@ -544,25 +509,24 @@ pub fn update_prim_visibility(
             };
 
             if is_root_tile_cache && is_mix_blend_picture(prim_instance) {
-                let prim_clip_chain = &frame_state.scratch.primitive.frame.draw_for_instance(PrimitiveInstanceIndex(prim_instance_index as u32)).clip_chain;
                 if let Some(tile_cache) = tile_cache {
-                    tile_cache.mix_blend_pic_rects.push(prim_clip_chain.pic_coverage_rect);
+                    tile_cache.mix_blend_pic_rects.push(clip_chain.pic_coverage_rect);
                 }
             }
 
             {
                 let prim_surface_index = frame_state.surface_stack.last().unwrap().1;
-                let prim_clip_chain = &frame_state.scratch.primitive.frame.draw_for_instance(PrimitiveInstanceIndex(prim_instance_index as u32)).clip_chain;
 
                 // Accumulate the exact (clipped) local rect into the parent surface.
                 let surface = &mut frame_state.surfaces[prim_surface_index.0];
-                surface.clipped_local_rect = surface.clipped_local_rect.union(&prim_clip_chain.pic_coverage_rect);
+                surface.clipped_local_rect =
+                    surface.clipped_local_rect.union(&clip_chain.pic_coverage_rect);
             }
 
             let new_state = match tile_cache {
                 Some(tile_cache) => {
                     tile_cache.update_prim_dependencies(
-                        PrimitiveInstanceIndex(prim_instance_index as u32),
+                        draw_index,
                         prim_instance,
                         cluster.spatial_node_index,
                         // It's OK to pass the local_coverage_rect here as it's only
@@ -590,12 +554,7 @@ pub fn update_prim_visibility(
                     }
                 }
             };
-            frame_state
-                .scratch
-                .primitive
-                .frame
-                .draw_for_instance_mut(PrimitiveInstanceIndex(prim_instance_index as u32))
-                .state = new_state;
+            frame_state.scratch.primitive.frame.draw_mut(draw_index).state = new_state;
         }
     }
 

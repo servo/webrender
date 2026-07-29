@@ -108,10 +108,8 @@ bitflags! {
 /// The unpacked equivalent to a `Command`.
 ///
 /// Each variant carries an `Index<PrimitiveDrawHeader>` identifying which
-/// per-frame draw header to use. While `scratch.frame.draws` is identity-
-/// indexed by `PrimitiveInstanceIndex.0`, the numerical value of the draw
-/// index equals the prim instance index; a follow-up will make them
-/// physically distinct when draws becomes push-per-draw.
+/// per-frame draw header to use. That is a draw index, not a primitive instance
+/// index: reach the instance through the header's `prim_instance_index`.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub enum PrimitiveCommand {
     Simple {

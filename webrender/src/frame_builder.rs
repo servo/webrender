@@ -322,10 +322,9 @@ impl FrameBuilder {
             false,
         ));
 
-        // Build the per-frame draw header storage with one entry per prim
-        // instance. Identity-indexed by `PrimitiveInstanceIndex.0` for now;
-        // a follow-up will switch this to push-per-draw. The per-prim
-        // `snapped_local_rect` is filled in by the visibility pass.
+        // Empty the per-frame draw storage. The visibility pass pushes into it
+        // as it finds drawn primitives; the scene's primitive count only sizes
+        // the instance-to-draw side table.
         scratch.primitive.frame.reset_draws(scene.prim_instances.len());
 
         // Cluster, prim, and clip-leaf rects are snapped to the device pixel

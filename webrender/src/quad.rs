@@ -29,7 +29,7 @@ use crate::space::SpaceMapper;
 use crate::spatial_tree::{CoordinateSpaceMapping, SpatialNodeIndex, SpatialTree};
 use crate::transform::GpuTransformId;
 use crate::util::{extract_inner_rect_k, MaxRect, ScaleOffset};
-use crate::visibility::compute_conservative_visible_rect;
+use crate::visibility::{compute_conservative_visible_rect, PrimitiveDrawIndex};
 
 /// This type reflects the unfortunate situation with quad coordinates where we
 /// sometimes use layout and sometimes device coordinates.
@@ -198,6 +198,21 @@ pub enum QuadRenderStrategy {
     /// has the opportunity to be drawn directly in the destination target or
     /// via an intermediate target if it is affected by a mask.
     Tiled,
+}
+
+/// The draw index for a primitive that prepare is currently working on.
+///
+/// The quad helpers are handed a `PrimitiveInstanceIndex` by their callers but
+/// emit draw-keyed commands. Threading the draw index down from prepare instead
+/// would remove this lookup.
+fn draw_index_for_prepared_prim(
+    scratch: &PrimitiveScratchBuffer,
+    prim_instance_index: PrimitiveInstanceIndex,
+) -> PrimitiveDrawIndex {
+    scratch
+        .frame
+        .draw_index_for_instance(prim_instance_index)
+        .expect("bug: emitting a quad for a primitive with no draw")
 }
 
 pub fn prepare_quad(
@@ -711,7 +726,7 @@ fn prepare_quad_impl(
                 pattern.kind,
                 pattern.shader_input,
                 pattern.texture_input.task_ids,
-                crate::visibility::draw_index_for_instance(prim_instance_index),
+                draw_index_for_prepared_prim(scratch, prim_instance_index),
                 main_prim_address,
                 transform_id,
                 quad_flags,
@@ -800,7 +815,7 @@ fn prepare_quad_impl(
 
             add_composite_prim(
                 pattern.blend_mode,
-                prim_instance_index,
+                draw_index_for_prepared_prim(scratch, prim_instance_index),
                 &clipped_surface_rect,
                 frame_state,
                 targets,
@@ -1095,7 +1110,7 @@ fn prepare_nine_patch(
         add_pattern_prim(
             pattern,
             local_to_device.inverse(),
-            prim_instance_index,
+            draw_index_for_prepared_prim(scratch, prim_instance_index),
             &device_bounds,
             &device_pattern_rect,
             pattern.is_opaque,
@@ -1108,7 +1123,7 @@ fn prepare_nine_patch(
     if !scratch.frame.quad_indirect_segments.is_empty() {
         add_composite_prim(
             pattern.blend_mode,
-            prim_instance_index,
+            draw_index_for_prepared_prim(scratch, prim_instance_index),
             &device_bounds,
             frame_state,
             targets,
@@ -1365,7 +1380,7 @@ fn prepare_tiles(
         add_pattern_prim(
             pattern,
             local_to_device.inverse(),
-            prim_instance_index,
+            draw_index_for_prepared_prim(scratch, prim_instance_index),
             &device_bounds,
             &device_pattern_rect,
             pattern.is_opaque,
@@ -1378,7 +1393,7 @@ fn prepare_tiles(
     if !scratch.frame.quad_indirect_segments.is_empty() {
         add_composite_prim(
             pattern.blend_mode,
-            prim_instance_index,
+            draw_index_for_prepared_prim(scratch, prim_instance_index),
             device_bounds,
             frame_state,
             targets,
@@ -1654,7 +1669,7 @@ fn add_render_task_with_mask(
 fn add_pattern_prim(
     pattern: &Pattern,
     pattern_transform: ScaleOffset,
-    prim_instance_index: PrimitiveInstanceIndex,
+    draw_index: PrimitiveDrawIndex,
     coverage_rect: &DeviceRect,
     pattern_rect: &DeviceRect,
     is_opaque: bool,
@@ -1685,7 +1700,7 @@ fn add_pattern_prim(
             pattern.kind,
             pattern.shader_input,
             pattern.texture_input.task_ids,
-            crate::visibility::draw_index_for_instance(prim_instance_index),
+            draw_index,
             prim_address,
             GpuTransformId::IDENTITY,
             quad_flags,
@@ -1699,7 +1714,7 @@ fn add_pattern_prim(
 
 fn add_composite_prim(
     blend_mode: BlendMode,
-    prim_instance_index: PrimitiveInstanceIndex,
+    draw_index: PrimitiveDrawIndex,
     rect: &DeviceRect,
     frame_state: &mut FrameBuildingState,
     targets: &[CommandBufferIndex],
@@ -1734,7 +1749,7 @@ fn add_composite_prim(
                 crate::pattern::TEXTURED_SHADER_MAP_TO_SEGMENT,
             ),
             [RenderTaskId::INVALID; 3],
-            crate::visibility::draw_index_for_instance(prim_instance_index),
+            draw_index,
             composite_prim_address,
             GpuTransformId::IDENTITY,
             quad_flags,

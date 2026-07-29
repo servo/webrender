@@ -22,7 +22,7 @@ use crate::resource_cache::ImageProperties;
 use std::{hash, u32, usize};
 use crate::util::Recycler;
 use crate::internal_types::{FastHashSet, LayoutPrimitiveInfo};
-use crate::visibility::{draw_index_for_instance, PrimitiveDrawHeader, PrimitiveDrawIndex};
+use crate::visibility::{PrimitiveDrawHeader, PrimitiveDrawIndex};
 
 pub mod backdrop;
 pub mod borders;
@@ -513,12 +513,22 @@ pub struct PrimitiveFrameScratch {
     /// Per-frame draw headers. Holds visibility state, clip chain and
     /// clip-task index for each visible primitive.
     ///
+    /// Densely populated: the visibility pass pushes one entry per primitive it
+    /// finds is drawn, so the length tracks drawn primitives rather than scene
+    /// size, and an entry existing at all means it was written this frame.
+    ///
     /// Deliberately private: reach entries through `draw`/`draw_mut`, keyed by
-    /// `PrimitiveDrawIndex`, so that switching this to push-per-draw storage is
-    /// a change behind these accessors rather than at every call site. Resized
-    /// to `prim_instances.len()` by `reset_draws` and currently identity-indexed
-    /// by `PrimitiveInstanceIndex.0`; only `draw_index_for_instance` knows that.
+    /// `PrimitiveDrawIndex`. Use `draw_index_for_instance` to go from a
+    /// primitive instance to its draw, and `PrimitiveDrawHeader`'s
+    /// `prim_instance_index` to go back.
     draws: Vec<PrimitiveDrawHeader>,
+
+    /// Maps a primitive instance to the draw pushed for it this frame, or
+    /// `PrimitiveDrawIndex::INVALID` when the instance produced no draw (it was
+    /// culled, or its cluster was not visited). Exists because the visibility
+    /// and prepare passes both walk primitive instances; it becomes redundant
+    /// once they iterate draws directly.
+    instance_to_draw: Vec<PrimitiveDrawIndex>,
 
     /// Per-frame scratch for Picture primitives. Holds the picture's
     /// primary/secondary render task ids and any per-composite-mode
@@ -559,6 +569,7 @@ impl Default for PrimitiveFrameScratch {
     fn default() -> Self {
         PrimitiveFrameScratch {
             draws: Vec::new(),
+            instance_to_draw: Vec::new(),
             pictures: storage::Storage::new(0),
             text_runs: storage::Storage::new(0),
             glyph_keys: GlyphKeyStorage::new(0),
@@ -576,7 +587,36 @@ impl PrimitiveFrameScratch {
     /// primitive instances.
     pub fn reset_draws(&mut self, prim_count: usize) {
         self.draws.clear();
-        self.draws.resize_with(prim_count, PrimitiveDrawHeader::new);
+        self.instance_to_draw.clear();
+        self.instance_to_draw.resize(prim_count, PrimitiveDrawIndex::INVALID);
+    }
+
+    /// Record a draw for the primitive instance named by the header, and return
+    /// its index. Called once per drawn primitive by the visibility pass.
+    pub fn push_draw(&mut self, header: PrimitiveDrawHeader) -> PrimitiveDrawIndex {
+        let prim_instance_index = header.prim_instance_index;
+        debug_assert!(prim_instance_index.0 != PrimitiveInstanceIndex::INVALID.0);
+
+        let draw_index = PrimitiveDrawIndex::from_u32(self.draws.len() as u32);
+        self.draws.push(header);
+        self.instance_to_draw[prim_instance_index.0 as usize] = draw_index;
+
+        draw_index
+    }
+
+
+    /// The draw pushed for a primitive instance this frame, if any.
+    pub fn draw_index_for_instance(
+        &self,
+        prim_instance_index: PrimitiveInstanceIndex,
+    ) -> Option<PrimitiveDrawIndex> {
+        let draw_index = self.instance_to_draw[prim_instance_index.0 as usize];
+
+        if draw_index == PrimitiveDrawIndex::INVALID {
+            None
+        } else {
+            Some(draw_index)
+        }
     }
 
     /// The draw header for a draw index, as carried by the command stream and
@@ -589,28 +629,21 @@ impl PrimitiveFrameScratch {
         &mut self.draws[draw_index.0 as usize]
     }
 
-    /// The draw header for a primitive instance.
-    ///
-    /// Convenience for the passes that still walk primitive instances rather
-    /// than draws; goes away once they iterate draws directly. Relies on
-    /// `draw_index_for_instance`, so it inherits the identity-indexing
-    /// assumption documented there.
+    /// The draw header for a primitive instance, if it produced a draw this
+    /// frame. Convenience for the passes that still walk primitive instances
+    /// rather than draws; goes away once they iterate draws directly.
     pub fn draw_for_instance(
         &self,
         prim_instance_index: PrimitiveInstanceIndex,
-    ) -> &PrimitiveDrawHeader {
-        self.draw(draw_index_for_instance(prim_instance_index))
+    ) -> Option<&PrimitiveDrawHeader> {
+        self.draw_index_for_instance(prim_instance_index)
+            .map(|draw_index| self.draw(draw_index))
     }
 
-    pub fn draw_for_instance_mut(
-        &mut self,
-        prim_instance_index: PrimitiveInstanceIndex,
-    ) -> &mut PrimitiveDrawHeader {
-        self.draw_mut(draw_index_for_instance(prim_instance_index))
-    }
 
     pub fn recycle(&mut self, recycler: &mut Recycler) {
         recycler.recycle_vec(&mut self.draws);
+        recycler.recycle_vec(&mut self.instance_to_draw);
         self.pictures.recycle(recycler);
         self.text_runs.recycle(recycler);
         self.glyph_keys.recycle(recycler);

@@ -238,7 +238,11 @@ pub fn prepare_image_quads(
             // thing.
             let active_rect = image_properties.visible_rect;
             let visible_rect = compute_conservative_visible_rect(
-                &scratch.frame.draw_for_instance(prim_instance_index).clip_chain,
+                &scratch
+                    .frame
+                    .draw_for_instance(prim_instance_index)
+                    .expect("bug: preparing an image with no draw")
+                    .clip_chain,
                 frame_state.current_dirty_region().combined,
                 frame_state.current_dirty_region().visibility_spatial_node,
                 quad_transform.prim_spatial_node_index(),
