@@ -1185,7 +1185,8 @@ static int blendYUV(P* buf, int span, S0 sampler0, vec2 uv0,
                     const mat3_scalar& rgb_from_debiased_ycbcr,
                     int rescaleFactor, C color = C()) {
   if (!swgl_isTextureLinear(sampler0) || !swgl_isTextureLinear(sampler1) ||
-      !swgl_isTextureLinear(sampler2)) {
+      !swgl_isTextureLinear(sampler2) || sampler0->format != sampler1->format ||
+      sampler0->format != sampler2->format) {
     return 0;
   }
   LINEAR_QUANTIZE_UV(sampler0, uv0, uv_step0, uv_rect0, min_uv0, max_uv0);
