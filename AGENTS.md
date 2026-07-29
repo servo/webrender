@@ -60,3 +60,48 @@ distrobox enter dev-wrench -- bash -c \
   "cd gfx/wr/wrench && python3 script/headless.py reftest" \
   > artifacts/wrench-reftest.log 2>&1
 ```
+
+## Screenshots of real WebRender output
+Automated screenshots do **not** show WebRender output by default. WebDriver,
+Marionette and the DevTools/MCP screenshot tools all re-render the document
+through the software `drawSnapshot` (`CrossProcessPaint`) path, which bypasses
+the compositor — a capture can look correct while the real on-screen output is
+wrong. Never conclude a rendering bug is fixed, or fails to reproduce, from a
+default screenshot.
+
+Set `remote.screenshot.use_readback` to `true` to capture the composited
+framebuffer instead. See `gfx/docs/DebuggingWebRenderScreenshots.md` for the
+mechanism and the full list of limitations, and `remote/doc/Prefs.md` for the
+pref itself. The limitations that matter most in practice:
+
+- Every capture degrades to the content area of the foreground tab;
+  full-document, element and clip-region captures all return the viewport.
+- The session must be in **content** scope. In chrome scope there is no content
+  area to read back and the capture silently falls back to `drawSnapshot`.
+- Unsupported on macOS: the parent process only honours the GPU process's
+  readback request in automation, and otherwise `IPC_FAIL`s (killing the GPU
+  process, or crashing the parent in a debug build).
+- **Headless still does not show hardware WebRender.** Headless force-disables
+  `HW_COMPOSITING` (`gfxPlatform::InitCompositorAccelerationPrefs`), so a
+  headless readback captures software WebRender. Run on a real display to
+  reproduce hardware-specific artifacts.
+- Readback flushes scene builds and forces a fresh frame
+  (`FlushFrameGeneration(RenderReasons::SNAPSHOT)`) before reading pixels, so it
+  is a poor tool for artifacts that only appear through partial present or
+  damage tracking — capturing repaints what you are trying to observe.
+- The capture reflects whatever is currently composited, so apply zoom, scroll
+  or DOM changes *before* capturing.
+
+Because every readback returns the whole viewport, crop to the region of
+interest before looking at the image — a full viewport costs far more tokens
+than the few hundred pixels that actually matter. The PNG is in device pixels
+(content area scaled by the chrome window's `devicePixelRatio`, see
+`remote/shared/Capture.sys.mjs`), so coordinates read out of a WR display list
+or capture already have DPR baked in and can be used directly; only a
+`getBoundingClientRect()` rect is in CSS pixels and needs scaling first. Take
+the rect from one of those rather than eyeballing it, then:
+
+```
+magick in.png -crop 30x30+30+30 out.png           # WxH+X+Y, out of place
+magick mogrify -crop 30x30+30+30 a.png            # in place
+```
