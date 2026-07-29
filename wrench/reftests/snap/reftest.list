@@ -1,17 +1,17 @@
 platform(linux,mac) == snap.yaml snap.png
 == transform.yaml transform.png
 platform(linux,mac) == preserve-3d.yaml preserve-3d.png
-fuzzy(128,200) == subpixel-raster-root.yaml subpixel-raster-root-ref.yaml
+scale(*) fuzzy(128,200) == subpixel-raster-root.yaml subpixel-raster-root-ref.yaml
 platform(linux,mac) == fractional-filter.yaml fractional-filter-ref.yaml
 platform(linux,mac) == backdrop-filter-snap.yaml backdrop-filter-snap-ref.yaml
-== backdrop-filter-scroll-readback.yaml backdrop-filter-scroll-readback-ref.yaml
-max_surface_size(256) == 1761299.yaml 1761299.yaml
+scale(*) == backdrop-filter-scroll-readback.yaml backdrop-filter-scroll-readback-ref.yaml
+scale(*) max_surface_size(256) == 1761299.yaml 1761299.yaml
 == content-offset.yaml content-offset-ref.yaml
 == fractional-root-frame.yaml fractional-root-frame-ref.yaml
 
-== refframe-origin-quantize.yaml refframe-origin-quantize-ref.yaml
+scale(*) == refframe-origin-quantize.yaml refframe-origin-quantize-ref.yaml
 
-== refframe-text-snap.yaml refframe-text-snap-ref.yaml
+scale(*) == refframe-text-snap.yaml refframe-text-snap-ref.yaml
 
 == line-decoration-thickness.yaml line-decoration-thickness-ref.yaml
 
