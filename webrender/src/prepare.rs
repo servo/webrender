@@ -1039,7 +1039,7 @@ fn prepare_prim_for_render(
                 return;
             };
 
-            prepare_picture_primitive(
+            let clip_task_index = prepare_picture_primitive(
                 pic,
                 raster_config,
                 prim_instance_index,
@@ -1056,6 +1056,11 @@ fn prepare_prim_for_render(
                 &mut quad_transform,
                 targets,
             );
+
+            if let Some(clip_task_index) = clip_task_index {
+                scratch.frame.draws[prim_instance_index.0 as usize].clip_task_index =
+                    clip_task_index;
+            }
 
             return;
         }
