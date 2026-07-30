@@ -100,7 +100,6 @@ pub struct SceneView {
 
 enum RenderBackendStatus {
     Continue,
-    StopRenderBackend,
     ShutDown(Option<Sender<()>>),
 }
 
@@ -776,6 +775,12 @@ pub struct WindowState {
     /// Outgoing channel to the `Renderer` that owns this window's GL context.
     result_tx: Sender<ResultMsg>,
 
+    /// Set by `SceneBuilderResult::StopWindow` once the window's `Renderer` is
+    /// about to be destroyed. The receiving end of `result_tx` dies with it, so a
+    /// stopped window must not build frames or produce results any more, even
+    /// though it stays registered until `ApiMsg::UnregisterWindow` arrives.
+    stopped: bool,
+
     notifier: Box<dyn RenderNotifier>,
     sampler: Option<Box<dyn AsyncPropertySampler + Send>>,
 
@@ -804,6 +809,13 @@ pub struct WindowState {
 
     #[cfg(feature = "replay")]
     loaded_resource_sequence_id: u32,
+}
+
+impl WindowState {
+    /// Send a message to this window's `Renderer` (infallible).
+    fn send(&self, msg: ResultMsg) {
+        self.result_tx.send(msg).unwrap();
+    }
 }
 
 /// The render backend is responsible for transforming high level display lists into
@@ -934,6 +946,7 @@ impl RenderBackend {
 
         let window = WindowState {
             result_tx,
+            stopped: false,
             notifier,
             sampler,
             resource_cache,
@@ -976,6 +989,13 @@ impl RenderBackend {
             let _ = self.scene_tx.send(SceneBuilderRequest::SetSceneBuilderHooks(id, None));
             win.notifier.shut_down();
         }
+    }
+
+    /// The given window, if it is still able to receive results -- registered,
+    /// and not stopped by `stop_render_backend`. Use this rather than
+    /// `windows.get_mut` on any path that ends in `WindowState::publish`.
+    fn live_window(&mut self, id: RenderBackendId) -> Option<&mut WindowState> {
+        self.windows.get_mut(&id).filter(|win| !win.stopped)
     }
 
     /// Returns the documents owned by the given window. Used to scope
@@ -1022,43 +1042,19 @@ impl RenderBackend {
             // (and the RenderApi instances using it) are dropped.
         }
 
-        if let RenderBackendStatus::StopRenderBackend = status {
-            while let Ok(msg) = self.api_rx.recv() {
-                match msg {
-                    ApiMsg::SceneBuilderResult(SceneBuilderResult::ExternalEvent(backend_id, evt)) => {
-                        if let Some(win) = self.windows.get_mut(&backend_id) {
-                            win.notifier.external_event(evt);
-                        }
-                    }
-                    ApiMsg::SceneBuilderResult(SceneBuilderResult::FlushComplete(tx)) => {
-                        // If somebody's blocked waiting for a flush, how did they
-                        // trigger the RB thread to shut down? This shouldn't happen
-                        // but handle it gracefully anyway.
-                        debug_assert!(false);
-                        tx.send(()).ok();
-                    }
-                    ApiMsg::SceneBuilderResult(SceneBuilderResult::ShutDown(sender)) => {
-                        for (_, win) in &self.windows {
-                            info!("Recycling stats: {:?}", win.recycler);
-                        }
-                        status = RenderBackendStatus::ShutDown(sender);
-                        break;
-                    }
-                    _ => {},
-                }
-            }
-        }
-
         // Drain remaining api messages until the scene builder confirms it
         // has exited. This lets the SB push out its in-flight results
         // (including transactions and flush responses) without panicking on
-        // a closed channel, and lets late `UnregisterWindow` / shutdown
-        // calls from the api side get their ack channels signaled before
-        // we drop the receiver.
+        // a closed channel, and lets late `UnregisterWindow` / `StopWindow` /
+        // shutdown calls from the api side get their ack channels signaled
+        // before we drop the receiver.
         while let Ok(msg) = self.api_rx.recv() {
             match msg {
                 ApiMsg::SceneBuilderResult(SceneBuilderResult::ShutDown(_)) => break,
                 ApiMsg::SceneBuilderResult(SceneBuilderResult::FlushComplete(tx)) => {
+                    let _ = tx.send(());
+                }
+                ApiMsg::SceneBuilderResult(SceneBuilderResult::StopWindow(_, tx)) => {
                     let _ = tx.send(());
                 }
                 ApiMsg::UnregisterWindow(_, Some(ack)) => {
@@ -1087,25 +1083,35 @@ impl RenderBackend {
     fn process_transaction(
         &mut self,
         mut txns: Vec<Box<BuiltTransaction>>,
-        result_tx: Option<Sender<SceneSwapResult>>,
+        mut result_tx: Option<Sender<SceneSwapResult>>,
         frame_counter: &mut u32,
     ) -> bool {
         self.maybe_force_nop_documents(
             frame_counter,
             |document_id| txns.iter().any(|txn| txn.document_id == document_id));
 
+        if result_tx.is_some() {
+            // TODO: The scene swap handshake logic below is bogus and only works
+            // because in practice there scene swapping batches of transaction only
+            // contain a single transaction. The result_tx should be associated
+            // to the transaction that does the swap.
+            debug_assert!(txns.len() == 1);
+        }
+
         let mut built_frame = false;
         for mut txn in txns.drain(..) {
            let has_built_scene = txn.built_scene.is_some();
 
-            // Look up the window that owns this document. The window may
-            // have been unregistered between the scene builder enqueueing
-            // this transaction and us getting here, in which case both the
-            // document and the routing entry are gone — drop the txn.
+            // Look up the window that owns this document. Between the scene
+            // builder enqueueing this transaction and us getting here the
+            // window may have been unregistered (both the document and the
+            // routing entry are gone) or stopped (its `Renderer`, and with it
+            // the receiving end of `result_tx`, is gone). Either way there is
+            // nobody left to consume the results, so drop the txn.
             let win_id = match self.document_to_window.get(&txn.document_id) {
-                Some(id) => *id,
-                None => {
-                    if let Some(ref tx) = result_tx {
+                Some(&id) if self.windows.get(&id).is_some_and(|win| !win.stopped) => id,
+                _ => {
+                    if let Some(tx) = result_tx.take() {
                         tx.send(SceneSwapResult::Aborted).unwrap();
                     }
                     continue;
@@ -1168,7 +1174,7 @@ impl RenderBackend {
                     doc.rebuild_hit_tester();
                 }
 
-                if let Some(ref tx) = result_tx {
+                if let Some(tx) = result_tx.take() {
                     let (resume_tx, resume_rx) = single_msg_channel();
                     tx.send(SceneSwapResult::Complete(resume_tx)).unwrap();
                     // Block until the post-swap hook has completed on
@@ -1204,7 +1210,7 @@ impl RenderBackend {
                         rendered_document,
                         pending_update,
                     );
-                    win.result_tx.send(msg).unwrap();
+                    win.send(msg);
 
                     let params = api::FrameReadyParams {
                         present: false,
@@ -1223,7 +1229,7 @@ impl RenderBackend {
                 // The document was removed while we were building it, skip it.
                 // TODO: we might want to just ensure that removed documents are
                 // always forwarded to the scene builder thread to avoid this case.
-                if let Some(ref tx) = result_tx {
+                if let Some(tx) = result_tx.take() {
                     tx.send(SceneSwapResult::Aborted).unwrap();
                 }
                 continue;
@@ -1355,15 +1361,21 @@ impl RenderBackend {
                         tile_cache.memory_pressure(&mut win.resource_cache);
                     }
 
-                    let resource_updates = win.resource_cache.pending_updates();
-                    let msg = ResultMsg::UpdateResources {
-                        resource_updates,
-                        memory_pressure: true,
-                        discard_active_documents: false,
-                        trim_upload_buffers: false,
-                    };
-                    win.result_tx.send(msg).unwrap();
-                    win.notifier.wake_up(false);
+                    // A stopped window has no `Renderer` left to carry out the
+                    // resulting texture deletions, and its GPU resources go away
+                    // with the device anyway. Freeing the cpu-side caches above
+                    // and the chunk pool below is still worth doing.
+                    if !win.stopped {
+                        let resource_updates = win.resource_cache.pending_updates();
+                        let msg = ResultMsg::UpdateResources {
+                            resource_updates,
+                            memory_pressure: true,
+                            discard_active_documents: false,
+                            trim_upload_buffers: false,
+                        };
+                        win.send(msg);
+                        win.notifier.wake_up(false);
+                    }
 
                     win.chunk_pool.purge_all_chunks();
                 }
@@ -1610,8 +1622,8 @@ impl RenderBackend {
                     }
                     _ => ResultMsg::DebugCommand(option),
                 };
-                if let Some(win) = self.windows.get_mut(&backend_id) {
-                    win.result_tx.send(msg).unwrap();
+                if let Some(win) = self.live_window(backend_id) {
+                    win.send(msg);
                     win.notifier.wake_up(true);
                 }
             }
@@ -1722,6 +1734,15 @@ impl RenderBackend {
             SceneBuilderResult::FlushComplete(tx) => {
                 tx.send(()).ok();
             }
+            SceneBuilderResult::StopWindow(backend_id, tx) => {
+                // Everything this window submitted before `stop_render_backend`
+                // has been processed by now: this took the slow path through the
+                // scene builder and arrived on the api channel behind it all.
+                if let Some(win) = self.windows.get_mut(&backend_id) {
+                    win.stopped = true;
+                }
+                let _ = tx.send(());
+            }
             SceneBuilderResult::ExternalEvent(backend_id, evt) => {
                 if let Some(win) = self.windows.get_mut(&backend_id) {
                     win.notifier.external_event(evt);
@@ -1739,15 +1760,12 @@ impl RenderBackend {
                 self.document_to_window.remove(&document_id);
             }
             SceneBuilderResult::SetParameter(backend_id, param) => {
-                if let Some(win) = self.windows.get_mut(&backend_id) {
+                if let Some(win) = self.live_window(backend_id) {
                     if let Parameter::Bool(BoolParameter::Multithreading, enabled) = param {
                         win.resource_cache.enable_multithreading(enabled);
                     }
-                    let _ = win.result_tx.send(ResultMsg::SetParameter(param));
+                    win.send(ResultMsg::SetParameter(param));
                 }
-            }
-            SceneBuilderResult::StopRenderBackend => {
-                return RenderBackendStatus::StopRenderBackend;
             }
             SceneBuilderResult::ShutDown(sender) => {
                 for (_, win) in &self.windows {
@@ -1868,6 +1886,14 @@ impl RenderBackend {
 
         let win_id = *self.document_to_window.get(&document_id)
             .expect("update_document for unknown document");
+
+        // A stopped window has lost the receiving end of its `result_tx` along
+        // with its `Renderer`, so there is nobody left to consume a frame.
+        // Dropping `notifications` here notifies `Checkpoint::TransactionDropped`.
+        if self.windows.get(&win_id).is_none_or(|win| win.stopped) {
+            return false;
+        }
+
         self.last_touched_window = Some(win_id);
         let win = self.windows.get_mut(&win_id).unwrap();
         let requested_frame = render_frame || win.frame_config.force_invalidation;
@@ -1933,7 +1959,7 @@ impl RenderBackend {
             doc.rendered_frame_is_valid = false;
             if doc.scene.config.compositor_kind.should_redraw_on_invalidation() {
                 let msg = ResultMsg::ForceRedraw;
-                win.result_tx.send(msg).unwrap();
+                win.send(msg);
             }
         }
 
@@ -2028,7 +2054,7 @@ impl RenderBackend {
             rendered_document.profile.set(profiler::UPDATE_DOCUMENT_TIME, update_doc_time);
 
             let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
-            win.result_tx.send(msg).unwrap();
+            win.send(msg);
 
             // Publish the frame
             win.frame_publish_id.advance();
@@ -2038,14 +2064,14 @@ impl RenderBackend {
                 rendered_document,
                 pending_update,
             );
-            win.result_tx.send(msg).unwrap();
+            win.send(msg);
         } else if requested_frame {
             // WR-internal optimization to avoid doing a bunch of render work if
             // there's no pixels. We still want to pretend to render and request
             // a render to make sure that the callbacks (particularly the
             // new_frame_ready callback below) has the right flags.
             let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
-            win.result_tx.send(msg).unwrap();
+            win.send(msg);
         }
 
         drain_filter(
@@ -2055,7 +2081,7 @@ impl RenderBackend {
         );
 
         if !notifications.is_empty() {
-            win.result_tx.send(ResultMsg::AppendNotificationRequests(notifications)).unwrap();
+            win.send(ResultMsg::AppendNotificationRequests(notifications));
         }
 
         // Always forward the transaction to the renderer if a frame was requested,
@@ -2123,7 +2149,9 @@ impl RenderBackend {
         // serializes its own documents. The plumbing iterates `windows` so
         // that multiple windows on the same backend can capture independently.
         let active_windows: Vec<RenderBackendId> = self.windows.iter()
-            .filter_map(|(id, w)| if w.capture_config.is_some() { Some(*id) } else { None })
+            .filter_map(|(id, w)| {
+                if w.capture_config.is_some() && !w.stopped { Some(*id) } else { None }
+            })
             .collect();
         for backend_id in active_windows {
             let owned_doc_views: FastHashMap<DocumentId, DocumentView> = self.document_to_window.iter()
@@ -2143,7 +2171,7 @@ impl RenderBackend {
 
                 if !deferred.is_empty() {
                     let msg = ResultMsg::DebugOutput(DebugOutput::SaveCapture(config.clone(), deferred));
-                    win.result_tx.send(msg).unwrap();
+                    win.send(msg);
                 }
             }
         }
@@ -2284,7 +2312,7 @@ impl RenderBackend {
                 discard_active_documents: false,
                 trim_upload_buffers: false,
             };
-            win.result_tx.send(msg_update_resources).unwrap();
+            win.send(msg_update_resources);
             // Save the texture/glyph/image caches.
             info!("\tresource cache");
             let caches = win.resource_cache.save_caches(&config.root);
@@ -2374,7 +2402,7 @@ impl RenderBackend {
             let msg_load = ResultMsg::DebugOutput(
                 DebugOutput::LoadCapture(config.clone(), plain_externals)
             );
-            win.result_tx.send(msg_load).unwrap();
+            win.send(msg_load);
         }
 
         win.frame_config = backend.frame_config;
@@ -2480,7 +2508,7 @@ impl RenderBackend {
                         },
                         win.resource_cache.pending_updates(),
                     );
-                    win.result_tx.send(msg_publish).unwrap();
+                    win.send(msg_publish);
 
                     let params = api::FrameReadyParams {
                         present: true,

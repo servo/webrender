@@ -108,8 +108,13 @@ pub enum SceneBuilderRequest {
     SimulateLongSceneBuild(u32),
     ExternalEvent(RenderBackendId, ExternalEvent),
     WakeUp,
-    StopRenderBackend,
     ShutDown(Option<Sender<()>>),
+    /// Stop producing results for a window without unregistering it.
+    ///
+    /// Sent on the low-priority scene channel by `stop_render_backend` and
+    /// forwarded to the render backend, so that it cannot overtake work queued
+    /// earlier on either scene channel. See `RenderApi::stop_render_backend`.
+    StopWindow(RenderBackendId, Sender<()>),
     Flush(Sender<()>),
     SetFlags(DebugFlags),
     SetFrameBuilderConfig(RenderBackendId, FrameBuilderConfig),
@@ -141,7 +146,9 @@ pub enum SceneBuilderResult {
     GetGlyphDimensions(RenderBackendId, GlyphDimensionRequest),
     GetGlyphIndices(RenderBackendId, GlyphIndexRequest),
     SetParameter(RenderBackendId, Parameter),
-    StopRenderBackend,
+    /// Forwarded `SceneBuilderRequest::StopWindow`. The backend marks the window
+    /// stopped and acks on the channel, releasing `stop_render_backend`.
+    StopWindow(RenderBackendId, Sender<()>),
     ShutDown(Option<Sender<()>>),
 
     #[cfg(feature = "capture")]
@@ -353,6 +360,9 @@ impl SceneBuilderThread {
                 Ok(SceneBuilderRequest::Flush(tx)) => {
                     self.send(SceneBuilderResult::FlushComplete(tx));
                 }
+                Ok(SceneBuilderRequest::StopWindow(backend_id, tx)) => {
+                    self.send(SceneBuilderResult::StopWindow(backend_id, tx));
+                }
                 Ok(SceneBuilderRequest::SetFlags(debug_flags)) => {
                     self.debug_flags = debug_flags;
                 }
@@ -396,9 +406,6 @@ impl SceneBuilderThread {
                 }
                 Ok(SceneBuilderRequest::GetGlyphIndices(backend_id, request)) => {
                     self.send(SceneBuilderResult::GetGlyphIndices(backend_id, request));
-                }
-                Ok(SceneBuilderRequest::StopRenderBackend) => {
-                    self.send(SceneBuilderResult::StopRenderBackend);
                 }
                 Ok(SceneBuilderRequest::ShutDown(sync)) => {
                     self.send(SceneBuilderResult::ShutDown(sync));
