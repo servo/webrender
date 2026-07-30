@@ -178,6 +178,8 @@ mod scene_builder_thread;
 mod scene_building;
 mod screen_capture;
 mod segment;
+#[cfg(test)]
+mod shutdown_test;
 mod spatial_node;
 mod surface;
 mod texture_pack;
