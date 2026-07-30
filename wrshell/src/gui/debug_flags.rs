@@ -22,6 +22,7 @@ pub fn ui(app: &mut Gui, ui: &mut egui::Ui) {
         | debug_flag(app, ui, DebugFlags::PICTURE_CACHING_DBG, "Picture cache")
         | debug_flag(app, ui, DebugFlags::PICTURE_BORDERS, "Picture borders")
         | debug_flag(app, ui, DebugFlags::HIGHLIGHT_BACKDROP_FILTERS, "Highlight backdrop filters")
+        | debug_flag(app, ui, DebugFlags::COLOR_TARGET_INIT, "Initialize color targets with opaque pink")
         | debug_flag(app, ui, DebugFlags::DISABLE_ALPHA_PASS, "Skip alpha pass")
         | debug_flag(app, ui, DebugFlags::DISABLE_OPAQUE_PASS, "Skip opaque pass")
         | debug_flag(app, ui, DebugFlags::SHOW_OVERDRAW, "Show overdraw");
