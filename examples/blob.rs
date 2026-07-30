@@ -240,6 +240,7 @@ impl Example for App {
             api::AlphaType::PremultipliedAlpha,
             blob_img1.as_image(),
             ColorF::WHITE,
+            None,
         );
 
         let size2 = DeviceIntSize::new(256, 256);
@@ -264,6 +265,7 @@ impl Example for App {
             api::AlphaType::PremultipliedAlpha,
             blob_img2.as_image(),
             ColorF::WHITE,
+            None,
         );
 
         builder.pop_stacking_context();

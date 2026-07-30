@@ -1268,6 +1268,7 @@ impl DisplayListBuilder {
         alpha_type: di::AlphaType,
         key: ImageKey,
         color: ColorF,
+        sub_rect: Option<DeviceIntRect>,
     ) {
         let (common, offset) = self.normalize_common(common);
         let item = di::DisplayItem::Image(di::ImageDisplayItem {
@@ -1277,6 +1278,7 @@ impl DisplayListBuilder {
             image_rendering,
             alpha_type,
             color,
+            sub_rect,
         });
 
         self.push_item(&item);

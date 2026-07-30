@@ -1,0 +1,13 @@
+# A CSS sprite sheet: the whole 48x48 sheet is pushed, scaled so each 16x16
+# cell covers 40x40, and clipped down to the centre cell. That cell is uniform
+# 0x7f and every neighbour is 0xff, so without the sub-rect restricting
+# sampling the edges lerp towards white. See bug 1452337.
+#
+# The sub-rect restricts sampling only; the image still maps onto the whole
+# bounds, which is why the bounds cover the sheet rather than the cell.
+root:
+  items:
+    - image: checkerboard(0, 16, 16, 3, 3)
+      bounds: [-40, -40, 120, 120]
+      clip-rect: [0, 0, 40, 40]
+      sub-rect: [16, 16, 16, 16]

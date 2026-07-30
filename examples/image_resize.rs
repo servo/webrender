@@ -59,6 +59,7 @@ impl Example for App {
             AlphaType::PremultipliedAlpha,
             self.image_key,
             ColorF::WHITE,
+            None,
         );
 
         builder.push_image(
@@ -71,6 +72,7 @@ impl Example for App {
             AlphaType::PremultipliedAlpha,
             self.image_key,
             ColorF::WHITE,
+            None,
         );
 
         builder.pop_stacking_context();
