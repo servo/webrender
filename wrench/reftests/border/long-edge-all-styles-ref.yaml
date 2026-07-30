@@ -1,0 +1,60 @@
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 20000, 20000]
+      color: [255, 255, 255, 1.0]
+
+    - type: border
+      bounds: [10, 10, 400, 400]
+      clip-rect: [10, 10, 180, 180]
+      width: 12
+      border-type: normal
+      style: solid
+      radius: 36
+      color: [ [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0] ]
+
+    - type: border
+      bounds: [200, 10, 400, 400]
+      clip-rect: [200, 10, 180, 180]
+      width: 12
+      border-type: normal
+      style: double
+      radius: 36
+      color: [ [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0] ]
+
+    - type: border
+      bounds: [390, 10, 400, 400]
+      clip-rect: [390, 10, 180, 180]
+      width: 12
+      border-type: normal
+      style: groove
+      radius: 36
+      color: [ [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0] ]
+
+    - type: border
+      bounds: [10, 200, 400, 400]
+      clip-rect: [10, 200, 180, 180]
+      width: 12
+      border-type: normal
+      style: ridge
+      radius: 36
+      color: [ [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0] ]
+
+    - type: border
+      bounds: [200, 200, 400, 400]
+      clip-rect: [200, 200, 180, 180]
+      width: 12
+      border-type: normal
+      style: inset
+      radius: 36
+      color: [ [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0] ]
+
+    - type: border
+      bounds: [390, 200, 400, 400]
+      clip-rect: [390, 200, 180, 180]
+      width: 12
+      border-type: normal
+      style: outset
+      radius: 36
+      color: [ [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0] ]

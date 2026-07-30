@@ -1,0 +1,69 @@
+# The border styles that are uniform along an edge, each on a border whose sides
+# are much longer than MAX_BORDER_RESOLUTION (2048px). Their sides are rendered
+# into a short render task and stretched, so the length of the sides must not
+# affect what the corners and the sides look like. Each border is clipped to a
+# small window around its top-left corner; the reference draws the same corner on
+# a border short enough that no scale clamping can kick in.
+#
+# Dashed and dotted are left out on purpose: their pattern is a function of the
+# edge length, so a shorter reference border legitimately renders differently.
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 20000, 20000]
+      color: [255, 255, 255, 1.0]
+
+    - type: border
+      bounds: [10, 10, 16496, 16496]
+      clip-rect: [10, 10, 180, 180]
+      width: 12
+      border-type: normal
+      style: solid
+      radius: 36
+      color: [ [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0] ]
+
+    - type: border
+      bounds: [200, 10, 16496, 16496]
+      clip-rect: [200, 10, 180, 180]
+      width: 12
+      border-type: normal
+      style: double
+      radius: 36
+      color: [ [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0] ]
+
+    - type: border
+      bounds: [390, 10, 16496, 16496]
+      clip-rect: [390, 10, 180, 180]
+      width: 12
+      border-type: normal
+      style: groove
+      radius: 36
+      color: [ [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0] ]
+
+    - type: border
+      bounds: [10, 200, 16496, 16496]
+      clip-rect: [10, 200, 180, 180]
+      width: 12
+      border-type: normal
+      style: ridge
+      radius: 36
+      color: [ [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0] ]
+
+    - type: border
+      bounds: [200, 200, 16496, 16496]
+      clip-rect: [200, 200, 180, 180]
+      width: 12
+      border-type: normal
+      style: inset
+      radius: 36
+      color: [ [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0] ]
+
+    - type: border
+      bounds: [390, 200, 16496, 16496]
+      clip-rect: [390, 200, 180, 180]
+      width: 12
+      border-type: normal
+      style: outset
+      radius: 36
+      color: [ [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0], [200, 30, 30, 1.0] ]
