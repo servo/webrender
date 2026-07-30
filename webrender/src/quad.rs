@@ -460,7 +460,17 @@ pub fn prepare_repeatable_quad(
     let repetitions = crate::image_tiling::repetitions(&desc.local_rect, &visible_rect, stride);
     for tile in repetitions {
         let tile_rect = LayoutRect::from_origin_and_size(tile.origin, stretch_size);
-        let clip_rect = desc.local_clip_rect.intersection_unchecked(&tile_rect);
+        // The last tile of each row/column typically extends past the primitive
+        // rect, so clip against it in addition to the local clip rect. We can't
+        // rely on the local clip rect bounding the primitive: some primitives
+        // (radial gradients, see `optimize_radial_gradient`) shrink their local
+        // rect without shrinking the clip rect.
+        let clip_rect = desc.local_clip_rect
+            .intersection_unchecked(&tile_rect)
+            .intersection_unchecked(&desc.local_rect);
+        if clip_rect.is_empty() {
+            continue;
+        }
         let pattern_offset = tile.origin - desc.local_rect.min;
         let pattern = pattern_builder.build(
             None,

@@ -1,0 +1,14 @@
+# Bug 2057205: a non-repeating radial gradient whose bounds and size make the
+# optimize_radial_gradient / simplify_repeated_primitive round-trip leave the
+# stretch ratio just below 1.0, which used to make the quad path treat the
+# primitive as repeating and emit a spurious second tile below the first one.
+root:
+  items:
+    - type: rect
+      bounds: 0 0 800 600
+      color: white
+    - type: radial-gradient
+      bounds: 473.234 56.316 230.31900024414062 230.31900024414062
+      center: 115.15950012207031 0
+      radius: 96.73397827148438 91.24916076660156
+      stops: [0.0, transparent, 0.95, transparent, 0.95, red, 1.0, transparent]

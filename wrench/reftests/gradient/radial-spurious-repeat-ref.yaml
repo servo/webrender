@@ -1,0 +1,15 @@
+# Same as radial-spurious-repeat.yaml, with the area below the gradient's
+# primitive rect painted over, so that only the single legitimate tile can show.
+root:
+  items:
+    - type: rect
+      bounds: 0 0 800 600
+      color: white
+    - type: radial-gradient
+      bounds: 473.234 56.316 230.31900024414062 230.31900024414062
+      center: 115.15950012207031 0
+      radius: 96.73397827148438 91.24916076660156
+      stops: [0.0, transparent, 0.95, transparent, 0.95, red, 1.0, transparent]
+    - type: rect
+      bounds: 0 148 800 452
+      color: white
