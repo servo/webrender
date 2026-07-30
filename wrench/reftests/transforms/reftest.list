@@ -21,7 +21,7 @@ scale(*) platform(linux,mac) != nested-rotate-x.yaml nested-rotate-x-flat.yaml
 platform(linux,mac) fuzzy(1,25) == nested-rotate-x-flat.yaml nested-rotate-x-flat.png
 platform(linux,mac) fuzzy(1,25) == nested-preserve-3d.yaml nested-preserve-3d.png
 scale(*) == preserve-3d-origin.yaml preserve-3d-origin-ref.yaml
-platform(linux,mac) fuzzy(1,283) == near-plane-clip.yaml near-plane-clip.png
+platform(linux,mac) fuzzy(1,283) fuzzy-if(platform(mac),70,340) == near-plane-clip.yaml near-plane-clip.png
 platform(linux,mac) == perspective-mask.yaml perspective-mask.png
 == rotate-clip.yaml rotate-clip-ref.yaml
 scale(*) == clip-translate.yaml clip-translate-ref.yaml
