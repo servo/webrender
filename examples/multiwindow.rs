@@ -33,11 +33,6 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-/// App units per device pixel that the examples declare for their display lists.
-/// Same value Gecko uses at dpr 1.0, matching wrench, so the examples exercise the
-/// real external scroll offset normalization arithmetic (bug 2059570).
-const AU_PER_DEV_PX: f32 = 60.0;
-
 struct Notifier {
     events_proxy: winit::event_loop::EventLoopProxy<()>,
 }
@@ -213,7 +208,7 @@ impl Window {
         let mut txn = Transaction::new();
         let mut builder = DisplayListBuilder::new(self.pipeline_id);
         let space_and_clip = SpaceAndClipInfo::root_scroll(self.pipeline_id);
-        builder.begin(AU_PER_DEV_PX);
+        builder.begin();
 
         builder.push_simple_stacking_context(
             space_and_clip.spatial_id,

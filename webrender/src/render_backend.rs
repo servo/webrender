@@ -129,18 +129,12 @@ macro_rules! declare_data_stores {
                 updates: InternerUpdates,
                 profile: &mut TransactionProfile,
             ) {
-                let mut insertions = 0;
-                let mut removals = 0;
                 $(
-                    let (added, removed) = self.$name.apply_updates(
+                    self.$name.apply_updates(
                         updates.$name,
                         profile,
                     );
-                    insertions += added;
-                    removals += removed;
                 )+
-                profile.set(profiler::INTERN_INSERTIONS, insertions);
-                profile.set(profiler::INTERN_REMOVALS, removals);
             }
 
             /// Fill in any data store slots that are missing relative to the
