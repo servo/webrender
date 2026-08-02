@@ -11,7 +11,7 @@ extern crate winit;
 #[path = "common/boilerplate.rs"]
 mod boilerplate;
 
-use crate::boilerplate::Example;
+use crate::boilerplate::{Example, AU_PER_DEV_PX};
 use euclid::Scale;
 use webrender::api::*;
 use webrender::render_api::*;
@@ -102,7 +102,7 @@ impl Example for App {
             let mut builder = DisplayListBuilder::new(
                 doc.pipeline_id,
             );
-            builder.begin();
+            builder.begin(AU_PER_DEV_PX);
             let local_rect = LayoutRect::from_size(doc.content_rect.size());
 
             builder.push_simple_stacking_context(
