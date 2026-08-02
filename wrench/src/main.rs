@@ -11,6 +11,13 @@ extern crate serde;
 #[macro_use]
 extern crate tracy_rs;
 
+/// App units per device pixel that wrench declares for its display lists.
+/// WebRender normalizes items by their accumulated external scroll offset in whole
+/// app units on this grid, so declaring the same value Gecko uses at dpr 1.0 means
+/// wrench exercises the same arithmetic rather than a bypass. Yaml coordinates are
+/// therefore quantized to 1/60 px (bug 2059570).
+pub const AU_PER_DEV_PX: f32 = 60.0;
+
 mod angle;
 mod blob;
 #[cfg(target_os = "windows")]

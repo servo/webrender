@@ -645,6 +645,8 @@ impl SceneBuilderThread {
                     profile.set(profiler::CONTENT_SEND_TIME, content_send_time);
                     profile.set(profiler::DISPLAY_LIST_BUILD_TIME, dl_build_time);
                     profile.set(profiler::DISPLAY_LIST_MEM, profiler::bytes_to_mb(display_list.size_in_bytes()));
+                    // Should be zero: see profiler::OFF_GRID_COORDS.
+                    profile.add(profiler::OFF_GRID_COORDS, display_list.off_grid_coords());
 
                     let (gecko_display_list_time, full_display_list) = display_list.gecko_display_list_stats();
                     frame_stats.full_display_list = full_display_list;

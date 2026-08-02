@@ -233,7 +233,7 @@ impl<'a> RawtestHarness<'a> {
         ctx: &mut SnapTestContext,
     ) -> bool {
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id);
-        builder.begin();
+        builder.begin(crate::AU_PER_DEV_PX);
 
         let result = (test.f)(&mut builder, ctx);
 

@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use crate::AU_PER_DEV_PX;
 use euclid::SideOffsets2D;
 use gleam::gl;
 use image::GenericImageView;
@@ -524,7 +525,7 @@ impl YamlFrameReader {
         self.spatial_id_stack.clear();
         self.spatial_id_stack.push(SpatialId::root_scroll_node(pipeline_id));
 
-        builder.begin();
+        builder.begin(AU_PER_DEV_PX);
 
         // Apply the requested device pixel scale to the root pipeline by
         // wrapping its content in a scale reference frame. In this architecture
