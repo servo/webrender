@@ -182,12 +182,16 @@ impl<I: Internable> Default for DataStore<I> {
 
 impl<I: Internable> DataStore<I> {
     /// Apply any updates from the scene builder thread to
-    /// this data store.
+    /// this data store. Returns the (insertion, removal) counts, which the
+    /// caller aggregates across every interner into `INTERN_INSERTIONS` /
+    /// `INTERN_REMOVALS`.
     pub fn apply_updates(
         &mut self,
         update_list: UpdateList<I::Key>,
         profile: &mut TransactionProfile,
-    ) {
+    ) -> (usize, usize) {
+        let counts = (update_list.insertions.len(), update_list.removals.len());
+
         for insertion in update_list.insertions {
             self.items
                 .entry(insertion.index)
@@ -199,6 +203,8 @@ impl<I: Internable> DataStore<I> {
         }
 
         profile.set(I::PROFILE_COUNTER, self.items.len());
+
+        counts
     }
 }
 

@@ -96,7 +96,7 @@ static PROFILER_PRESETS: &'static[(&'static str, &'static str)] = &[
     (&"GPU Memory", &"External image mem, Atlas textures mem, Standalone textures mem, Picture tiles mem, Render targets mem, Depth targets mem, Atlas items mem, GPU cache mem, GPU buffer mem, GPU total mem"),
     (&"CPU Memory", &"Image templates, Image templates mem, Font templates,Font templates mem, DisplayList mem"),
     (&"Memory", &"$CPU,CPU Memory, ,$GPU,GPU Memory"),
-    (&"Interners", "Interned primitives,Interned clips,Interned pictures,Interned text runs,Interned normal borders,Interned image borders,Interned images,Interned YUV images,Interned line decorations,Interned linear gradients,Interned radial gradients,Interned conic gradients,Interned filter data,Interned backdrop renders, Interned backdrop captures"),
+    (&"Interners", "Intern insertions,Intern removals, ,Interned primitives,Interned clips,Interned pictures,Interned text runs,Interned normal borders,Interned image borders,Interned images,Interned YUV images,Interned line decorations,Interned linear gradients,Interned radial gradients,Interned conic gradients,Interned filter data,Interned backdrop renders, Interned backdrop captures"),
     // Gpu sampler queries (need the pref gfx.webrender.debug.gpu-sampler-queries).
     (&"GPU samplers", &"Alpha targets samplers,Transparent pass samplers,Opaque pass samplers,Total samplers"),
 
@@ -295,7 +295,17 @@ pub const PREPARE_CMD_TARGETS: usize = 136;
 /// Pictures that prepare obtained a context for this frame.
 pub const PREPARE_PICTURES: usize = 137;
 
-pub const NUM_PROFILER_EVENTS: usize = 138;
+/// New entries added to any interner by the scene build applied this frame.
+/// Only set on frames that applied a scene build, so an absent value means no
+/// scene was built. A repaint that changes nothing an interning key can see
+/// (notably a pure scroll, whose external scroll offset is normalised out in
+/// the display list builder) must report zero.
+pub const INTERN_INSERTIONS: usize = 138;
+/// Entries garbage-collected from any interner by the scene build applied this
+/// frame. Counterpart to `INTERN_INSERTIONS`; a churning key shows up as both.
+pub const INTERN_REMOVALS: usize = 139;
+
+pub const NUM_PROFILER_EVENTS: usize = 140;
 
 pub struct Profiler {
     counters: Vec<Counter>,
@@ -513,6 +523,9 @@ impl Profiler {
             int("Prepare visited prims", "", PREPARE_VISITED_PRIMS, Expected::none()),
             int("Prepare cmd targets", "", PREPARE_CMD_TARGETS, Expected::none()),
             int("Prepare pictures", "", PREPARE_PICTURES, Expected::none()),
+
+            int("Intern insertions", "", INTERN_INSERTIONS, Expected::none()),
+            int("Intern removals", "", INTERN_REMOVALS, Expected::none()),
         ];
 
         let mut counters = Vec::with_capacity(profile_counters.len());
