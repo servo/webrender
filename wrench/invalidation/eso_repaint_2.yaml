@@ -1,0 +1,38 @@
+# Frame 2 of the external-scroll-offset repaint pair; see eso_repaint_1.yaml.
+#
+# Same visual state as frame 1, but Gecko has now repainted at scroll 60: the
+# 60px lives in external-scroll-offset, the async delta is zero, and every
+# coordinate inside the scroll frame is shifted by -60. The scroll frame's own
+# bounds and content-size are in the parent space and so are unchanged.
+#
+# The resulting scroll node offset is -(async + external) = -60 in both frames,
+# so nothing moves on screen; the only difference is how the 60px is split.
+
+root:
+  items:
+    - type: scroll-frame
+      id: 2
+      bounds: [0, 0, 200, 200]
+      content-size: [200, 400]
+      external-scroll-offset: [0, 60]
+      scroll-offset: [0, 0]
+      clip-to-frame: true
+      items:
+        - type: clip
+          id: 3
+          bounds: [0, -60, 200, 400]
+        - type: rect
+          bounds: [0, -60, 200, 400]
+          color: white
+          clip-chain: [2, 3]
+        - type: rect
+          bounds: [0, 40, 200, 40]
+          color: green
+          clip-chain: [2, 3]
+        - type: text
+          origin: [10, 120]
+          text: "Scrolled text"
+          font: "../reftests/text/FreeSans.ttf"
+          size: 20
+          color: [0, 0, 0, 1]
+          clip-chain: [2, 3]

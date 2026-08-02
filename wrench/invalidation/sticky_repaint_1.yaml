@@ -1,0 +1,34 @@
+# Frame 1 of the sticky repaint pair. The scroll frame is scrolled to y=60 and
+# the sticky element is stuck to the viewport top, but Gecko painted it at its
+# natural (unstuck) position and reports no previously-applied offset, so
+# WebRender applies the whole 60px itself.
+#
+# Paired with sticky_repaint_2.yaml, which is the same visual state after Gecko
+# repaints having baked the 60px into the coordinates it emits. Since
+# `previously_applied_offset` now only feeds display-list-builder normalization,
+# both frames must normalize to the same unstuck geometry, intern identical
+# values, and leave the tile valid.
+
+root:
+  items:
+    - type: scroll-frame
+      id: 2
+      bounds: [0, 0, 200, 200]
+      content-size: [200, 800]
+      scroll-offset: [0, 60]
+      clip-to-frame: true
+      items:
+        - type: rect
+          bounds: [0, 0, 200, 800]
+          color: white
+          clip-chain: [2]
+        - type: sticky-frame
+          bounds: [0, 0, 200, 40]
+          margin-top: 0
+          vertical-offset-bounds: [0, 600]
+          previously-applied-offset: [0, 0]
+          items:
+            - type: rect
+              bounds: [0, 0, 200, 40]
+              color: green
+              clip-chain: [2]

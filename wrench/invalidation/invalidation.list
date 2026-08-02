@@ -9,6 +9,18 @@
 # Moving a rect within a tile requires a composite (and dirty tile)
 != composite_nop_1.yaml composite_nop_2.yaml
 
+# A repaint that moves scroll offset from the async delta into
+# external-scroll-offset (shifting every coordinate inside the scroll frame to
+# match) is normalized out by the display list builder, so nothing an interning
+# key can see changes and the tile must stay valid. Guards the scroll-invariance
+# the interned prim uid relies on; scroll_subpic above only covers async
+# scrolling, which never re-runs scene building.
+== eso_repaint_1.yaml eso_repaint_2.yaml
+
+# Same, for a repaint that bakes the sticky offset into the emitted coordinates
+# and reports it as previously-applied-offset.
+== sticky_repaint_1.yaml sticky_repaint_2.yaml
+
 # Text under an animated transform is rasterized in local space; when the
 # animation ends it must return to the crisp device path. A bound transform only
 # counts as animating once it has actually moved (bug 2051166), so the sequence

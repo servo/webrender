@@ -1,0 +1,31 @@
+# Frame 2 of the sticky repaint pair; see sticky_repaint_1.yaml.
+#
+# Same visual state as frame 1, but Gecko has repainted with the 60px of sticky
+# offset baked into the emitted coordinates and reported back as
+# previously-applied-offset. The display list builder subtracts it again, so the
+# sticky frame and its contents normalize to the same unstuck geometry as frame
+# 1 and WebRender re-applies the same 60px at frame time.
+
+root:
+  items:
+    - type: scroll-frame
+      id: 2
+      bounds: [0, 0, 200, 200]
+      content-size: [200, 800]
+      scroll-offset: [0, 60]
+      clip-to-frame: true
+      items:
+        - type: rect
+          bounds: [0, 0, 200, 800]
+          color: white
+          clip-chain: [2]
+        - type: sticky-frame
+          bounds: [0, 60, 200, 40]
+          margin-top: 0
+          vertical-offset-bounds: [0, 600]
+          previously-applied-offset: [0, 60]
+          items:
+            - type: rect
+              bounds: [0, 60, 200, 40]
+              color: green
+              clip-chain: [2]
