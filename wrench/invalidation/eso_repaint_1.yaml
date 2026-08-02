@@ -1,0 +1,47 @@
+# Frame 1 of the external-scroll-offset repaint pair. Gecko has scrolled the
+# frame to y=60, but has not repainted yet: the display list is still the one
+# painted at scroll 0 (external-scroll-offset zero) and the whole 60px is carried
+# as an async scroll delta.
+#
+# Paired with eso_repaint_2.yaml, which is the same visual state after Gecko
+# repaints at scroll 60 - the 60px moves from the async delta into
+# external-scroll-offset, and every coordinate inside the scroll frame shifts by
+# -60 to match. The display list builder normalizes that shift back out, so both
+# frames must intern identical values and leave the tile valid.
+#
+# The content deliberately spans the whole scrollable range and the scroll delta
+# is smaller than the viewport, so a normalization failure leaves content
+# visible (just misplaced) and dirties the tile, rather than pushing everything
+# off-screen and producing a vacuous pass.
+
+root:
+  items:
+    - type: scroll-frame
+      id: 2
+      bounds: [0, 0, 200, 200]
+      content-size: [200, 400]
+      external-scroll-offset: [0, 0]
+      scroll-offset: [0, 60]
+      clip-to-frame: true
+      items:
+        # A clip defined inside the scroll frame, so it is subject to the same
+        # normalization as the primitives (unlike the clip-to-frame clip above,
+        # which lives in the parent space).
+        - type: clip
+          id: 3
+          bounds: [0, 0, 200, 400]
+        - type: rect
+          bounds: [0, 0, 200, 400]
+          color: white
+          clip-chain: [2, 3]
+        - type: rect
+          bounds: [0, 100, 200, 40]
+          color: green
+          clip-chain: [2, 3]
+        - type: text
+          origin: [10, 180]
+          text: "Scrolled text"
+          font: "../reftests/text/FreeSans.ttf"
+          size: 20
+          color: [0, 0, 0, 1]
+          clip-chain: [2, 3]
