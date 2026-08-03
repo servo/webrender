@@ -583,6 +583,7 @@ impl Wrench {
 
             txn.set_display_list(
                 Epoch(*frame_number),
+                self.api.get_namespace_id(),
                 (display_list.pipeline, display_list.payload),
             );
 
