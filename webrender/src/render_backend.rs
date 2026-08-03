@@ -234,6 +234,20 @@ impl DataStores {
         }
     }
 
+    /// The primitive's authored local rect, before device-pixel snapping. Lives
+    /// in the interned template; picture prims have no common data (and their
+    /// snapped rect is discarded in favour of the surface coverage rect, see
+    /// `get_local_prim_coverage_rect`) so they report an empty rect.
+    pub fn prim_rect(
+        &self,
+        prim_inst: &PrimitiveInstance,
+    ) -> LayoutRect {
+        match prim_inst.kind {
+            PrimitiveKind::Picture { .. } => LayoutRect::zero(),
+            _ => self.as_common_data(prim_inst).prim_rect,
+        }
+    }
+
     pub fn as_common_data(
         &self,
         prim_inst: &PrimitiveInstance

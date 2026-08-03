@@ -13,7 +13,7 @@
 use crate::serde::{Serialize, Deserialize};
 use crate::{ColorU, BorderRadius, BorderSide, BorderStyle, NormalBorder, RepeatMode, GradientStop, PrimitiveFlags};
 use crate::{FillRule, GlyphIndex, POLYGON_CLIP_VERTEX_MAX};
-use crate::units::{LayoutPoint, LayoutSideOffsetsAu, LayoutVector2D, PicturePoint, WorldPoint, WorldVector2D};
+use crate::units::{LayoutPoint, LayoutRect, LayoutSideOffsetsAu, LayoutVector2D, PicturePoint, PictureRect, WorldPoint, WorldRect, WorldVector2D};
 use crate::units::{LayoutSize, LayoutSizeAu, LayoutPointAu, AuHelpers, LayoutSideOffsets, DeviceIntSideOffsets};
 use euclid::{Size2D, SideOffsets2D};
 use peek_poke::PeekPoke;
@@ -77,6 +77,12 @@ pub struct PrimKeyCommonData {
     pub flags: PrimitiveFlags,
     pub aligned_aa_edges: EdgeMask,
     pub transformed_aa_edges: EdgeMask,
+    /// Local-space rect of the primitive as authored by the display list, not
+    /// snapped to the device pixel grid. Part of the key, so a primitive that
+    /// moves in local space gets a new uid; the display-list builder normalizes
+    /// away the external scroll offset in whole app units first, so scrolling
+    /// does not change this.
+    pub prim_rect: RectKey,
 }
 
 /// A hashable vector for use as a fragment of an interning key; the raw `f32`
@@ -295,6 +301,87 @@ pub fn ensure_no_corner_overlap(
 
         bottom_right_radius.width *= ratio;
         bottom_right_radius.height *= ratio;
+    }
+}
+
+/// A hashable rect for use as a fragment of an interning key; the raw `f32`
+/// bits are hashed.
+#[derive(Copy, Debug, Clone, MallocSizeOf, PartialEq, Serialize, Deserialize)]
+pub struct RectKey {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+}
+
+impl RectKey {
+    pub fn intersects(&self, other: &Self) -> bool {
+        self.x0 < other.x1
+            && other.x0 < self.x1
+            && self.y0 < other.y1
+            && other.y0 < self.y1
+    }
+}
+
+impl Eq for RectKey {}
+
+impl Hash for RectKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.x0.to_bits().hash(state);
+        self.y0.to_bits().hash(state);
+        self.x1.to_bits().hash(state);
+        self.y1.to_bits().hash(state);
+    }
+}
+
+impl From<RectKey> for LayoutRect {
+    fn from(key: RectKey) -> LayoutRect {
+        LayoutRect {
+            min: LayoutPoint::new(key.x0, key.y0),
+            max: LayoutPoint::new(key.x1, key.y1),
+        }
+    }
+}
+
+impl From<RectKey> for WorldRect {
+    fn from(key: RectKey) -> WorldRect {
+        WorldRect {
+            min: WorldPoint::new(key.x0, key.y0),
+            max: WorldPoint::new(key.x1, key.y1),
+        }
+    }
+}
+
+impl From<LayoutRect> for RectKey {
+    fn from(rect: LayoutRect) -> RectKey {
+        RectKey {
+            x0: rect.min.x,
+            y0: rect.min.y,
+            x1: rect.max.x,
+            y1: rect.max.y,
+        }
+    }
+}
+
+impl From<PictureRect> for RectKey {
+    fn from(rect: PictureRect) -> RectKey {
+        RectKey {
+            x0: rect.min.x,
+            y0: rect.min.y,
+            x1: rect.max.x,
+            y1: rect.max.y,
+        }
+    }
+}
+
+impl From<WorldRect> for RectKey {
+    fn from(rect: WorldRect) -> RectKey {
+        RectKey {
+            x0: rect.min.x,
+            y0: rect.min.y,
+            x1: rect.max.x,
+            y1: rect.max.y,
+        }
     }
 }
 

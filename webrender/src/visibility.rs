@@ -372,8 +372,9 @@ pub fn update_prim_visibility(
                 != ClipNodeId::INVALID;
 
             let policy = prim_instance.snap_policy(snaps, frame_state.data_stores);
+            let unsnapped_prim_rect = frame_state.data_stores.prim_rect(prim_instance);
             let snapped_local_rect =
-                snapper.snap_rect_rounded(&prim_instance.unsnapped_prim_rect, policy.rect);
+                snapper.snap_rect_rounded(&unsnapped_prim_rect, policy.rect);
 
             // The draw header is accumulated here and pushed only once the
             // primitive is known to be drawn, so culled primitives cost nothing.
