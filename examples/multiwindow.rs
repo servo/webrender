@@ -305,7 +305,6 @@ impl Window {
 
         txn.set_display_list(
             self.epoch,
-            self.api.get_namespace_id(),
             builder.end(),
         );
         txn.set_root_pipeline(self.pipeline_id);

@@ -637,7 +637,6 @@ impl SceneBuilderThread {
                     epoch,
                     pipeline_id,
                     display_list,
-                    namespace,
                 } => {
                     let (builder_start_time_ns, builder_end_time_ns, send_time_ns) =
                       display_list.times();
@@ -666,7 +665,6 @@ impl SceneBuilderThread {
                     scene.set_display_list(
                         pipeline_id,
                         epoch,
-                        namespace,
                         display_list,
                     );
                 }

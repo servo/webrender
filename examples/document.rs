@@ -119,7 +119,6 @@ impl Example for App {
             let mut txn = Transaction::new();
             txn.set_display_list(
                 Epoch(0),
-                api.get_namespace_id(),
                 builder.end(),
             );
             txn.generate_frame(0, true, false, RenderReasons::empty());
