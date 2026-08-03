@@ -522,15 +522,25 @@ impl TextRunTemplate {
             }))
         } else if let Some(anchor_world) = anchor_world {
             // Device mode.
-            let anchor_device = anchor_world * dps;
-
+            //
             // No run-level snap. Each glyph is placed at its exact device
-            // position; the per-glyph floor + subpixel GlyphKey carry the
+            // position; the per-glyph snap + subpixel GlyphKey carry the
             // fractional part, so the glyph renders exactly where Gecko put it
             // (bug 2050692). The run has no single snapped anchor to fold into the
             // glyphs, so a run never shifts relative to its clip/box. Stability
             // under scrolling comes from the spatial tree, which already snaps
             // scroll offsets (and should_snap frame transforms) to the device grid.
+            //
+            // Store the *unsnapped* absolute device pen and let the shader snap
+            // it. Which bias to use isn't known here: a glyph that rasterizes
+            // from an embedded bitmap strike ignores the sub-pixel offset the
+            // key asks for and lands on the grid, so it must round to nearest
+            // rather than floor with the sub-pixel bias (bug 2056856). That is
+            // only known once the glyph is rasterized, which happens after this
+            // point. Snapping a value the shader receives verbatim keeps the
+            // arithmetic exact - re-deriving the pen from the transform GPU-side
+            // would risk landing on the wrong side of a `floor` boundary at the
+            // exactly-representable fractions layout produces (x.5, x.875).
             glyph_offsets.reserve(self.glyphs.len());
 
             scratch.frame.glyph_keys.extend(self.glyphs.iter().map(|src| {
@@ -540,12 +550,7 @@ impl TextRunTemplate {
                     .unwrap_or(anchor_world);
                 let device_pen = glyph_world * dps;
 
-                // Floor to the device grid and store relative to the unsnapped
-                // anchor; the shader re-adds the unsnapped anchor, recovering this
-                // position. The subpixel GlyphKey (fractional part of `device_pen`)
-                // rasterizes the glyph at its exact sub-pixel offset.
-                let snapped = (device_pen + snap_bias).floor();
-                glyph_offsets.push(snapped - anchor_device);
+                glyph_offsets.push(device_pen.to_vector());
 
                 GlyphKey::new(src.index, device_pen, subpx_dir)
             }))

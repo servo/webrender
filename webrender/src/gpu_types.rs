@@ -529,12 +529,14 @@ impl GlyphInstance {
         subpx_offset_x: u8,
         subpx_offset_y: u8,
         is_packed_glyph: bool,
+        is_bitmap_strike: bool,
     ) -> PrimitiveInstanceData {
         // Pack subpixel offsets and multi-variant flag into upper 16 bits of data[2]
         // After instance.flags extraction (>> 16), shader sees:
         // bits 0-3: color_mode, bits 4-5: subpx_offset_x, bits 6-7: subpx_offset_y,
-        // bits 8-9: subpx_dir, bit 10: is_packed_glyph
-        let packed_flags = (((is_packed_glyph as u32) & 0x1) << 26)
+        // bits 8-9: subpx_dir, bit 10: is_packed_glyph, bit 11: is_bitmap_strike
+        let packed_flags = (((is_bitmap_strike as u32) & 0x1) << 27)
+            | (((is_packed_glyph as u32) & 0x1) << 26)
             | (((subpx_dir as u32) & 0x3) << 24)
             | (((subpx_offset_y as u32) & 0x3) << 22)
             | (((subpx_offset_x as u32) & 0x3) << 20)

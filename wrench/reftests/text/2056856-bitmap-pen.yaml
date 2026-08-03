@@ -1,0 +1,74 @@
+# Regression test for bug 2056856: a glyph that rasterizes from an embedded
+# bitmap strike must round its pen to nearest, not floor it with the sub-pixel
+# bias.
+#
+# Proggy carries an embedded bitmap strike at ppem 11 (its outlines are empty,
+# so `embedded-bitmaps: true` + size 11 selects the strike). A strike ignores the
+# quantized sub-pixel offset its glyph key asks for and lands on the device grid,
+# so the floor(pen + 0.125) bias - which only makes sense paired with an offset
+# the rasterizer honours - just drags the glyph up to 0.875px to the left of
+# where it was placed. Rounding to nearest instead keeps it within 0.5px, and on
+# the same grid line as any nearest-snapped clip or mask edge.
+#
+# Each row draws 'w' at a fractional x; the reference draws it at round(x). Rows
+# with a fraction below 0.5 (and at/above 0.875) round the same way either way
+# and guard against the pen moving when it should not; rows in between move by a
+# whole pixel and are what a pre-fix build gets wrong.
+
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 240, 160]
+      color: white
+    # fraction < 0.5: rounds down, unchanged by the fix
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.1, 24]
+      text: "w"
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.3, 40]
+      text: "w"
+    # 0.5 <= fraction < 0.875: rounds up, floored down before the fix
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.5, 56]
+      text: "w"
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.6, 72]
+      text: "w"
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.7, 88]
+      text: "w"
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.8, 104]
+      text: "w"
+    # fraction >= 0.875: the floor bias already rounds up, unchanged by the fix
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100.9, 120]
+      text: "w"

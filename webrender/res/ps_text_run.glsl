@@ -79,12 +79,19 @@ void main() {
     int subpx_offset_y = (instance.flags >> 6) & 0x3;
     int subpx_dir = (instance.flags >> 8) & 0x3;
     int is_packed_glyph = (instance.flags >> 10) & 0x1;
+    // Set when the glyph rasterized from an embedded bitmap strike, which
+    // ignores the sub-pixel offset the key asked for and lands on the device
+    // grid. Such a glyph must round its pen to nearest, or it sits up to
+    // 0.875px left of where layout put it and a snapped clip or mask edge
+    // shaves its leading column (bug 2056856).
+    int is_bitmap_strike = (instance.flags >> 11) & 0x1;
 
     TextRun text = fetch_text_run(ph.specific_prim_address);
 
-    // Per-glyph device-space offset: the glyph pen position snapped to the
-    // device grid on the CPU (`request_resources`), expressed relative to the
-    // transformed run anchor. No transform or snapping is applied to it here.
+    // Per-glyph pen position from the CPU (`request_resources`): in device mode
+    // the exact unsnapped pen in absolute device space, snapped below; in
+    // local-raster mode the already-snapped absolute raster-space pen, used as
+    // is. No transform is applied to it here.
     Glyph glyph = fetch_glyph(ph.specific_prim_address, glyph_index);
 
     GlyphResource res = fetch_glyph_resource(instance.resource_address);
@@ -99,12 +106,23 @@ void main() {
         res.uv_rect.z = res.uv_rect.x + quarter_width;
     }
 
-    // Device-space position of the run anchor (`ph.local_rect.p0`, the prim
-    // rect origin), via the same prim -> raster transform + device pixel scale
-    // the rest of the pipeline uses. The CPU computed the per-glyph offsets
-    // relative to this exact value, so the absolute device positions
-    // reconstruct here.
-    vec2 device_anchor = (transform.m * vec4(ph.local_rect.p0, 0.0, 1.0)).xy * task.device_pixel_scale;
+    // Snap the glyph pen to the device grid. In device mode `glyph.offset` is
+    // the CPU's exact unsnapped pen in absolute device space, so this floor
+    // operates on a value received verbatim and is bit-exact with what the CPU
+    // would have computed. A strike glyph rounds to nearest; everything else
+    // keeps the sub-pixel axis's floor bias, which pairs with the quarter-pixel
+    // offset baked into the rasterized variant.
+    vec2 snap_bias;
+    if (is_bitmap_strike != 0) {
+        snap_bias = vec2(0.5);
+    } else if (subpx_dir == SUBPX_DIR_HORIZONTAL) {
+        snap_bias = vec2(0.125, 0.5);
+    } else if (subpx_dir == SUBPX_DIR_VERTICAL) {
+        snap_bias = vec2(0.5, 0.125);
+    } else {
+        snap_bias = vec2(0.5);
+    }
+    vec2 device_pen = floor(glyph.offset + snap_bias);
 
     float inv_dps = 1.0 / task.device_pixel_scale;
 
@@ -120,7 +138,7 @@ void main() {
     // AABB stays clean) and let `v_uv_clip` mask the rotated glyph within it.
     // When the glyph fits entirely inside the clip rect there is nothing to
     // clamp, so use the exact rotated corners to avoid the AABB's overdraw.
-    vec2 device_origin = device_anchor + glyph.offset + res.scale * res.offset;
+    vec2 device_origin = device_pen + res.scale * res.offset;
     vec2 device_size = res.scale * (res.uv_rect.zw - res.uv_rect.xy);
 
     vec2 c0 = (transform.inv_m * vec4(device_origin * inv_dps, 0.0, 1.0)).xy;
@@ -147,7 +165,7 @@ void main() {
         // Device mode, axis-aligned: the device rect maps to an axis-aligned
         // local rect, so the clip clamp is clean — map this vertex's device
         // corner straight to local.
-        vec2 device_origin = device_anchor + glyph.offset + res.scale * res.offset;
+        vec2 device_origin = device_pen + res.scale * res.offset;
         vec2 device_size = res.scale * (res.uv_rect.zw - res.uv_rect.xy);
         vec2 device_corner = mix(device_origin, device_origin + device_size, aPosition.xy);
         vec2 local_pos = (transform.inv_m * vec4(device_corner * inv_dps, 0.0, 1.0)).xy;

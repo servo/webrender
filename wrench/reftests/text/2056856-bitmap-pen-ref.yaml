@@ -1,0 +1,58 @@
+# Reference for 2056856-bitmap-pen.yaml: each glyph at round(x) of the test's
+# fractional origin, i.e. where a strike glyph's pen belongs. An integer origin
+# snaps the same way under either bias, so this reference is stable.
+
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 240, 160]
+      color: white
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100, 24]
+      text: "w"
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [100, 40]
+      text: "w"
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [101, 56]
+      text: "w"
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [101, 72]
+      text: "w"
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [101, 88]
+      text: "w"
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [101, 104]
+      text: "w"
+    - type: text
+      font: Proggy.ttf
+      size: 11
+      embedded-bitmaps: true
+      color: black
+      origin: [101, 120]
+      text: "w"

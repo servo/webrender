@@ -1020,6 +1020,18 @@ impl BatchBuilder {
 
                         let subpx_dir = subpx_dir.limit_by(glyph_format);
 
+                        // A glyph that rasterized from a bitmap strike ignored the
+                        // sub-pixel offset its key asked for and landed on the device
+                        // grid, so its pen rounds to nearest rather than flooring with
+                        // the sub-pixel bias (bug 2056856). Only known once the glyph is
+                        // rasterized, which is why it is resolved here rather than in
+                        // `request_resources`. Batches are keyed by glyph format, so this
+                        // is uniform across the batch.
+                        let is_bitmap_strike = matches!(
+                            glyph_format,
+                            GlyphFormat::Bitmap | GlyphFormat::ColorBitmap
+                        );
+
                         let textures = BatchTextures::prim_textured(
                             texture_id,
                             clip_mask_texture_id,
@@ -1071,10 +1083,14 @@ impl BatchBuilder {
                         // branch's `raster_text_offset` then reduces to the reference-frame
                         // device snap that `request_resources` applies.
                         let tight_bounding_rect = {
-                            let snap_bias = match subpx_dir {
-                                SubpixelDirection::None => DeviceVector2D::new(0.5, 0.5),
-                                SubpixelDirection::Horizontal => DeviceVector2D::new(0.125, 0.5),
-                                SubpixelDirection::Vertical => DeviceVector2D::new(0.5, 0.125),
+                            let snap_bias = if is_bitmap_strike {
+                                DeviceVector2D::new(0.5, 0.5)
+                            } else {
+                                match subpx_dir {
+                                    SubpixelDirection::None => DeviceVector2D::new(0.5, 0.5),
+                                    SubpixelDirection::Horizontal => DeviceVector2D::new(0.125, 0.5),
+                                    SubpixelDirection::Vertical => DeviceVector2D::new(0.5, 0.125),
+                                }
                             };
                             let text_offset = LayoutVector2D::zero();
 
@@ -1189,6 +1205,7 @@ impl BatchBuilder {
                                 glyph.subpx_offset_x,
                                 glyph.subpx_offset_y,
                                 glyph.is_packed_glyph,
+                                is_bitmap_strike,
                             ));
                         }
                     },
