@@ -45,8 +45,11 @@ pub fn save<P: Clone + AsRef<Path>>(
         if let Ok(existing_image) = image::open(path.clone()) {
             let old_dims = existing_image.dimensions();
             println!("Crop from {:?} to {:?}", size, old_dims);
-            width = old_dims.0;
-            height = old_dims.1;
+            // Cropping can only shrink: image::imageops::crop clamps the crop
+            // rect to the source buffer, so trusting a larger existing image
+            // would make the dimensions disagree with the pixel data.
+            width = old_dims.0.min(width);
+            height = old_dims.1.min(height);
             buffer = image::imageops::crop(
                 &mut buffer,
                 0,
