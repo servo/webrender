@@ -115,15 +115,29 @@ pub trait MatrixHelpers<Src, Dst> {
     /// Defined in the SkMatrix44 class.
     fn preserves_2d_axis_alignment(&self) -> bool;
     fn has_perspective_component(&self) -> bool;
-    /// Returns true only if the perspective divide varies across the z=0 plane
-    /// (`m14`/`m24` non-zero), i.e. a coplanar 2D surface is mapped with a
-    /// non-constant `w` (a true keystone). A perspective matrix whose only
-    /// perspective terms are `m34`/`m44` still maps a z=0 surface affinely
-    /// (constant `w`), so it returns false here even though
-    /// `has_perspective_component` is true. Used to decide whether coplanar
-    /// content (e.g. text) can still be rasterized and snapped in device space
-    /// (bug 2052019).
-    fn has_2d_plane_perspective(&self) -> bool;
+    /// Returns true if this transform maps coplanar `z=0` content exactly as the
+    /// plain 2D transform in its `m11`/`m12`/`m21`/`m22`/`m41`/`m42` terms would,
+    /// *and* `inverse()` maps it back the same way. Content that is rasterized
+    /// and positioned in device space (e.g. text) needs both halves, because it
+    /// round-trips through device space: the CPU places it with this transform
+    /// and the shader maps the result back with `inv_m`, forcing `z` to 0 again.
+    ///
+    /// This is `Transform3D::is_2d()` weakened where the extra 3D terms can't be
+    /// observed on that plane:
+    ///  * `m33` is free: nothing reads the mapped `z`.
+    ///  * only *one* of the third row (`m31`/`m32`/`m34`) and the third column
+    ///    (`m13`/`m23`/`m43`) has to vanish, not both. Mapping the plane reads
+    ///    rows and columns 1, 2 and 4, and that block of the inverse picks up a
+    ///    `-b*c/m33` correction from those two groups - so with either one zero
+    ///    the block is still the 2D inverse. A flat `perspective` (bug 2052019)
+    ///    and a bare `translateZ` are each clean on one side; pairing them, or
+    ///    rotating in 3D, is not, and no longer round-trips (bug 2060342).
+    ///
+    /// `m14`/`m24` and `m44` must still be 2D-exact: a `w` that varies across the
+    /// plane is a true keystone, which can't be rasterized into an axis-aligned
+    /// device rect at all, and a constant `w != 1` would need the perspective
+    /// divide that mapping through `inv_m` skips.
+    fn is_2d_on_z_plane(&self) -> bool;
     fn has_2d_inverse(&self) -> bool;
     /// Check if the matrix post-scaling on either the X or Y axes could cause geometry
     /// transformed by this matrix to have scaling exceeding the supplied limit.
@@ -189,9 +203,21 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for Transform3D<f32, Src, Dst> {
          (self.m44 - 1.0).abs() > NEARLY_ZERO
     }
 
-    fn has_2d_plane_perspective(&self) -> bool {
-         self.m14.abs() > NEARLY_ZERO ||
-         self.m24.abs() > NEARLY_ZERO
+    fn is_2d_on_z_plane(&self) -> bool {
+        if self.m14.abs() > NEARLY_ZERO ||
+           self.m24.abs() > NEARLY_ZERO ||
+           (self.m44 - 1.0).abs() > NEARLY_ZERO {
+            return false;
+        }
+
+        let z_in = self.m31.abs() > NEARLY_ZERO ||
+                   self.m32.abs() > NEARLY_ZERO ||
+                   self.m34.abs() > NEARLY_ZERO;
+        let z_out = self.m13.abs() > NEARLY_ZERO ||
+                    self.m23.abs() > NEARLY_ZERO ||
+                    self.m43.abs() > NEARLY_ZERO;
+
+        !z_in || !z_out
     }
 
     fn has_2d_inverse(&self) -> bool {
@@ -498,6 +524,34 @@ pub mod test {
     use crate::clip::{is_left_of_line, polygon_contains_point};
     use crate::prim_store::PolygonKey;
     use api::FillRule;
+
+    #[test]
+    fn is_2d_on_z_plane() {
+        // A z=0 point mapped by each of these, then mapped back by the inverse
+        // with its z forced to 0 again (what the device-space text path does),
+        // lands where it started exactly when this returns true.
+        let flat_perspective = Transform3D::new(
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            -7.9, -1.8375, 1.0, -0.025,
+            0.0, 0.0, 0.0, 1.0,
+        );
+        let translate_z = Transform3D::translation(0.0, 0.0, 5.0);
+        // Neither side is clean once the two are paired.
+        let perspective_and_translate_z = translate_z.then(&flat_perspective);
+        let rotate_y = Transform3D::rotation(0.0, 1.0, 0.0, Angle::degrees(35.0));
+        let mut w_scale = Transform3D::identity();
+        w_scale.m44 = 2.0;
+
+        assert!(flat_perspective.is_2d_on_z_plane());
+        assert!(translate_z.is_2d_on_z_plane());
+        assert!(Transform3D::scale(2.0, 3.0, 4.0).is_2d_on_z_plane());
+        assert!(!perspective_and_translate_z.is_2d_on_z_plane());
+        assert!(!rotate_y.is_2d_on_z_plane());
+        assert!(!w_scale.is_2d_on_z_plane());
+        assert!(!Transform3D::perspective(40.0).pre_translate(
+            euclid::vec3(0.0, 0.0, 1.0)).is_2d_on_z_plane());
+    }
 
     #[test]
     fn inverse_project() {

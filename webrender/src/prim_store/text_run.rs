@@ -284,13 +284,13 @@ impl TextRunTemplate {
         // Only support transforms that can be coerced to simple 2D transforms.
         // Add texture padding to the rasterized glyph buffer when one anticipates
         // the glyph will need to be scaled when rendered.
-        // A perspective component that only involves m34/m44 maps the glyphs'
-        // (coplanar, z=0) plane affinely, so they can still be rasterized and
-        // device-snapped in screen space; only a perspective that varies across
-        // the plane (m14/m24, a true keystone) needs local-raster rasterization.
-        // Using `has_2d_plane_perspective` instead of `has_perspective_component`
-        // keeps flat `perspective` ancestors on the sharp device path (bug 2052019)
-        // while genuinely 3D-transformed text still falls back to local raster.
+        // Glyphs are coplanar, so the device path only needs the transform to be
+        // 2D on their z=0 plane rather than 2D outright: `is_2d_on_z_plane` keeps
+        // a flat `perspective` ancestor sharp there (bug 2052019) while sending
+        // the transforms whose device round-trip the shader can't invert - a
+        // `translateZ` under that perspective, or a 3D rotation - back to local
+        // raster, instead of displacing every glyph and shaving a slice off it
+        // (bug 2060342).
         // Color bitmap glyphs (Apple Color Emoji and any CBDT/sbix font with
         // embedded bitmap strikes) can't have a rotation or skew baked into their
         // rasterization: the platform backends force an identity glyph shape for
@@ -308,7 +308,7 @@ impl TextRunTemplate {
         // scale+translation is fine on the device path (the uniform scale already
         // folds into the font size), so those are left untouched.
         let (use_subpixel_aa, transform_glyphs, texture_padding, oversized) = if raster_space != RasterSpace::Screen ||
-            transform.has_2d_plane_perspective() || !transform.has_2d_inverse() ||
+            !transform.is_2d_on_z_plane() || !transform.has_2d_inverse() ||
             has_bitmap_strikes
         {
             (false, false, true, device_font_size > FONT_SIZE_LIMIT)

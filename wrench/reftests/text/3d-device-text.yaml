@@ -1,0 +1,41 @@
+--- # Text under 3D transforms, which the device-space glyph path must either map
+# exactly or leave to local raster (bug 2060342).
+# Row 1: no transform, for comparison.
+# Row 2: flat perspective (m43 = 0, m44 = 1), the z=0 plane maps to the z=0
+#        plane, so this stays on the device path and matches row 1.
+# Row 3: the same perspective paired with translateZ(1px): a uniform 1.025641x
+#        scale about the perspective origin.
+# Row 4: rotateY(35deg), no perspective at all: foreshortened by cos(35deg).
+root:
+  items:
+    - text: "Can you see this text?"
+      origin: 20 40
+      size: 40
+      font: "FreeSans.ttf"
+
+    - type: stacking-context
+      bounds: [0, 100, 700, 80]
+      transform: [1, 0, 0, 0, 0, 1, 0, 0, -7.9, -1.8375, 1, -0.025, 0, 0, 0, 1]
+      items:
+        - text: "Can you see this text?"
+          origin: 20 40
+          size: 40
+          font: "FreeSans.ttf"
+
+    - type: stacking-context
+      bounds: [0, 200, 700, 80]
+      transform: [1, 0, 0, 0, 0, 1, 0, 0, -7.9, -1.8375, 1, -0.025, -7.9, -1.8375, 1, 0.975]
+      items:
+        - text: "Can you see this text?"
+          origin: 20 40
+          size: 40
+          font: "FreeSans.ttf"
+
+    - type: stacking-context
+      bounds: [0, 300, 700, 80]
+      transform: [0.81915, 0, -0.57358, 0, 0, 1, 0, 0, 0.57358, 0, 0.81915, 0, 0, 0, 0, 1]
+      items:
+        - text: "Can you see this text?"
+          origin: 20 40
+          size: 40
+          font: "FreeSans.ttf"
