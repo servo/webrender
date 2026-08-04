@@ -928,22 +928,24 @@ impl ApplicationHandler for WrenchApp {
             }
             "perf" => {
                 wrench.rebuild_display_lists = true;
+                let rx = rx.unwrap();
                 let harness = PerfHarness::new(
                     &mut wrench,
                     &mut window,
-                    rx.unwrap(),
+                    &rx,
                     self.perf_warmup_frames,
                     self.perf_sample_count,
                 );
                 let base_manifest = Path::new(&self.perf_benchmark);
                 harness.run(base_manifest, &self.perf_filename, self.perf_as_csv);
-                wrench.renderer.deinit();
+                wrench.shut_down(rx);
                 event_loop.exit();
             }
             "test_invalidation" => {
-                let harness = test_invalidation::TestHarness::new(&mut wrench, &mut window, rx.unwrap());
+                let rx = rx.unwrap();
+                let harness = test_invalidation::TestHarness::new(&mut wrench, &mut window, &rx);
                 let num_failures = harness.run();
-                wrench.renderer.deinit();
+                wrench.shut_down(rx);
                 self.exit_code = num_failures as i32;
                 event_loop.exit();
             }
@@ -1438,22 +1440,24 @@ fn run_headless(args: clap::ArgMatches) -> i32 {
         }
         "perf" => {
             wrench.rebuild_display_lists = true;
+            let rx = rx.unwrap();
             let harness = PerfHarness::new(
                 &mut wrench,
                 &mut window,
-                rx.unwrap(),
+                &rx,
                 app.perf_warmup_frames,
                 app.perf_sample_count,
             );
             let base_manifest = Path::new(&app.perf_benchmark);
             harness.run(base_manifest, &app.perf_filename, app.perf_as_csv);
-            wrench.renderer.deinit();
+            wrench.shut_down(rx);
             0
         }
         "test_invalidation" => {
-            let harness = test_invalidation::TestHarness::new(&mut wrench, &mut window, rx.unwrap());
+            let rx = rx.unwrap();
+            let harness = test_invalidation::TestHarness::new(&mut wrench, &mut window, &rx);
             let num_failures = harness.run();
-            wrench.renderer.deinit();
+            wrench.shut_down(rx);
             num_failures as i32
         }
         "compare_perf" => {

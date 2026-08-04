@@ -162,7 +162,7 @@ impl Profile {
 pub struct PerfHarness<'a> {
     wrench: &'a mut Wrench,
     window: &'a mut WindowWrapper,
-    rx: Receiver<NotifierEvent>,
+    rx: &'a Receiver<NotifierEvent>,
     warmup_frames: usize,
     sample_count: usize,
 }
@@ -170,7 +170,7 @@ pub struct PerfHarness<'a> {
 impl<'a> PerfHarness<'a> {
     pub fn new(wrench: &'a mut Wrench,
                window: &'a mut WindowWrapper,
-               rx: Receiver<NotifierEvent>,
+               rx: &'a Receiver<NotifierEvent>,
                warmup_frames: Option<usize>,
                sample_count: Option<usize>) -> Self {
         PerfHarness {

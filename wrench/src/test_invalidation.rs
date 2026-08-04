@@ -79,7 +79,7 @@ fn parse_manifest(path: &Path) -> Vec<InvalidationTest> {
 pub struct TestHarness<'a> {
     wrench: &'a mut Wrench,
     window: &'a mut WindowWrapper,
-    rx: Receiver<NotifierEvent>,
+    rx: &'a Receiver<NotifierEvent>,
 }
 
 struct RenderResult {
@@ -99,7 +99,7 @@ impl<'a> TestHarness<'a> {
     pub fn new(
         wrench: &'a mut Wrench,
         window: &'a mut WindowWrapper,
-        rx: Receiver<NotifierEvent>
+        rx: &'a Receiver<NotifierEvent>
     ) -> Self {
         TestHarness {
             wrench,
