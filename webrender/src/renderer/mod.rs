@@ -700,6 +700,10 @@ impl BufferDamageTracker {
     }
 }
 
+fn preferred_gpu_buffer_texture_height(required_height: i32) -> i32 {
+    ((required_height + 7) & !7).max(8)
+}
+
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
 ///
@@ -3610,7 +3614,7 @@ impl Renderer {
         }
 
         if dst_texture.is_none() {
-            let height = ((buffer.size.height + 7) & !7).max(8);
+            let height = preferred_gpu_buffer_texture_height(buffer.size.height);
             assert!(height >= buffer.size.height);
             *dst_texture = Some(
                 device.create_texture(
@@ -3649,7 +3653,9 @@ impl Renderer {
         texture_too_large: &mut i32,
     ) {
         if let Some(tex) = texture {
-            if tex.get_dimensions().height > gpu_buffer_height * 2 {
+            if tex.get_dimensions().height > gpu_buffer_height * 2
+                && tex.get_dimensions().height
+                    > preferred_gpu_buffer_texture_height(gpu_buffer_height) {
                 *texture_too_large += 1;
             } else {
                 *texture_too_large = 0;
