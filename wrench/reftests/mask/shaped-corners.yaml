@@ -5,7 +5,7 @@ root:
       id: 2
       complex:
         - rect: [10, 10, 200, 200]
-          radius: [200, 200, 200, 200, 8.2, 0, -2.8, +Inf]
+          radius: [100, 100, 100, 100, 8.2, 0, -2.8, +Inf]
     - type: rect
       clip-chain: [2]
       bounds: [10, 10, 200, 200]
