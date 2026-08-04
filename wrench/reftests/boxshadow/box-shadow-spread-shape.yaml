@@ -1,0 +1,128 @@
+# Test box shadows with inset and outset superellipses.
+#
+# Some tests are disabled as they don't render correctly (yet).
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 1000, 1000]
+      items:
+        - type: box-shadow
+          bounds: [ 20, 20, 80, 80 ]
+          color: blue
+          clip-mode: inset
+          spread-radius: 10
+          border-radius: [ 0, 20, 20, 20, 1.0, -0.7, -Inf, 0.0 ]
+
+        - type: box-shadow
+          bounds: [ 120, 20, 80, 80 ]
+          color: blue
+          clip-mode: inset
+          spread-radius: 10
+          border-radius: [ [10, 40], [40, 10], 25, 25, 0.4, -0.7, -Inf, 0.0 ]
+
+        # - type: box-shadow
+        #   bounds: [ 220, 20, 80, 80 ]
+        #   color: blue
+        #   clip-mode: inset
+        #   spread-radius: 10
+        #   border-radius: [ 0, 10, 10, 10, 1.0, -0.7, -Inf, 0.0 ]
+
+        # - type: box-shadow
+        #   bounds: [ 320, 20, 80, 80 ]
+        #   color: blue
+        #   clip-mode: inset
+        #   spread-radius: 10
+        #   border-radius: [ 4, 4, 4, 4, 1.0, -0.7, -Inf, 0.0 ]
+
+        - type: box-shadow
+          bounds: [ 30, 130, 60, 60 ]
+          color: red
+          clip-mode: outset
+          spread-radius: 10
+          border-radius: [ 0, 20, 20, 20, 1.0, -0.7, -Inf, 0.0 ]
+
+        - type: box-shadow
+          bounds: [ 130, 130, 60, 60 ]
+          color: red
+          clip-mode: outset
+          spread-radius: 10
+          border-radius: [ [10, 40], [40, 10], 25, 25, 0.4, -0.7, -Inf, 0.0 ]
+
+        - type: box-shadow
+          bounds: [ 230, 130, 60, 60 ]
+          color: red
+          clip-mode: outset
+          spread-radius: 10
+          border-radius: [ 0, 10, 10, 10, 1.0, -0.7, -Inf, 0.0 ]
+
+        - type: box-shadow
+          bounds: [ 330, 130, 60, 60 ]
+          color: red
+          clip-mode: outset
+          spread-radius: 10
+          border-radius: [ 4, 4, 4, 4, 1.0, -0.7, -Inf, 0.0 ]
+
+        - type: box-shadow
+          bounds: [ 20, 220, 80, 80 ]
+          color: blue
+          clip-mode: inset
+          spread-radius: 10
+          blur-radius: 1
+          border-radius: [ 0, 20, 20, 20, 1.0, -0.7, -Inf, 0.0 ]
+
+        - type: box-shadow
+          bounds: [ 120, 220, 80, 80 ]
+          color: blue
+          clip-mode: inset
+          spread-radius: 10
+          blur-radius: 1
+          border-radius: [ 25, 25, 25, 25, 1.0, -0.7, -Inf, 0.0 ]
+
+        # - type: box-shadow
+        #   bounds: [ 220, 220, 80, 80 ]
+        #   color: blue
+        #   clip-mode: inset
+        #   spread-radius: 10
+        #   blur-radius: 1
+        #   border-radius: [ 0, 10, 10, 10, 1.0, -0.7, -Inf, 0.0 ]
+
+        # - type: box-shadow
+        #   bounds: [ 320, 220, 80, 80 ]
+        #   color: blue
+        #   clip-mode: inset
+        #   spread-radius: 10
+        #   blur-radius: 1
+        #   border-radius: [ 4, 4, 4, 4, 1.0, -0.7, -Inf, 0.0 ]
+
+        - type: box-shadow
+          bounds: [ 30, 330, 60, 60 ]
+          color: red
+          clip-mode: outset
+          spread-radius: 10
+          blur-radius: 1
+          border-radius: [ 0, 20, 20, 20, 1.0, -0.7, -Inf, 0.0 ]
+
+        - type: box-shadow
+          bounds: [ 130, 330, 60, 60 ]
+          color: red
+          clip-mode: outset
+          spread-radius: 10
+          blur-radius: 1
+          border-radius: [ 25, 25, 25, 25, 1.0, -0.7, -Inf, 0.0 ]
+
+        - type: box-shadow
+          bounds: [ 230, 330, 60, 60 ]
+          color: red
+          clip-mode: outset
+          spread-radius: 10
+          blur-radius: 1
+          border-radius: [ 0, 10, 10, 10, 1.0, -0.7, -Inf, 0.0 ]
+
+        - type: box-shadow
+          bounds: [ 330, 330, 60, 60 ]
+          color: red
+          clip-mode: outset
+          spread-radius: 10
+          blur-radius: 1
+          border-radius: [ 4, 4, 4, 4, 1.0, -0.7, -Inf, 0.0 ]

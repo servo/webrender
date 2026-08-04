@@ -1684,8 +1684,10 @@ impl DisplayListBuilder {
         let border_radius = normalized(&box_bounds, border_radius);
         let shadow_radius = normalized(&shadow_rect, shadow_radius);
 
+        let shadow_inset = LayoutSideOffsets::new_all_same(-spread_amount);
+
         let mut clips: Vec<di::ClipId> = Vec::with_capacity(2);
-        let (final_prim_rect, clip_radius) = match clip_mode {
+        let (final_prim_rect, clip_radius, clip_inset) = match clip_mode {
             BoxShadowClipMode::Outset => {
                 if shadow_rect.is_empty() {
                     return;
@@ -1702,7 +1704,7 @@ impl DisplayListBuilder {
                     spread_radius,
                 ));
 
-                (shadow_rect, shadow_radius)
+                (shadow_rect, shadow_radius, shadow_inset)
             }
             BoxShadowClipMode::Inset => {
                 if !shadow_rect.is_empty() {
@@ -1711,14 +1713,14 @@ impl DisplayListBuilder {
                         ComplexClipRegion {
                             rect: shadow_rect,
                             radii: shadow_radius,
-                            inset: LayoutSideOffsets::zero(),
+                            inset: shadow_inset,
                             mode: ClipMode::ClipOut,
                         },
                         spread_radius,
                     ));
                 }
 
-                (box_bounds, border_radius)
+                (box_bounds, border_radius, LayoutSideOffsets::zero())
             }
         };
 
@@ -1728,7 +1730,7 @@ impl DisplayListBuilder {
             ComplexClipRegion {
                 rect: final_prim_rect,
                 radii: clip_radius,
-                inset: LayoutSideOffsets::zero(),
+                inset: clip_inset,
                 mode: ClipMode::Clip,
             },
             0.0,
