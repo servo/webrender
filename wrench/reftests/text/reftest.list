@@ -75,10 +75,11 @@ fuzzy(1,21) platform(linux) force_subpixel_aa_where_possible(true) == text-fixed
 fuzzy(1,21) platform(linux) force_subpixel_aa_where_possible(false) == text-fixed-slice.yaml text-fixed-slice-fast.png
 
 # a 8544x8544 raster root vs. 2136x2136
-# most pixels are off by a small amount, but a few pixels on the edge vary by a lot, pushing up the fuzzy max-diff;
+# both sides now rasterize at their true scale, so most of the image matches exactly and the
+# remaining differences are glyph outlines rasterized at a different sub-pixel phase;
 # the main goal of the test is that everything is in the same place, at the same scale, clipped the same way,
 # despite 4x on-the-fly scale change.
-skip_on(android) fuzzy(120,20800) == raster_root_C_8192.yaml raster_root_C_ref.yaml
+skip_on(android) fuzzy(240,8000) == raster_root_C_8192.yaml raster_root_C_ref.yaml
 == subpx-bg-mask.yaml subpx-bg-mask-ref.yaml
 scale(*) platform(linux,mac) == rotate-snap-clip.yaml rotate-snap-clip-ref.yaml
 scale(*) platform(linux,mac) == rotate-snap-filter.yaml rotate-snap-filter-ref.yaml
