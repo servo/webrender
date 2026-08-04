@@ -192,7 +192,8 @@ vec4 pattern_fragment(vec4 base_color) {
             vec4(c_br, elem_shape.z == 1.0 ? inverse_radii_squared(r_br) : inverse_radii(r_br)),
             vec4(c_bl, elem_shape.w == 1.0 ? inverse_radii_squared(r_bl) : inverse_radii(r_bl)),
             elem_bounds,
-            elem_shape
+            elem_shape,
+            vec4(0.0)
         );
     }
 

@@ -212,7 +212,8 @@ vec4 pattern_fragment(vec4 _base_color) {
             vClipCenter_Radius_BR,
             vClipCenter_Radius_BL,
             vTransformBounds,
-            vClipShape
+            vClipShape,
+            vec4(0.0)
         );
     }
 #endif
