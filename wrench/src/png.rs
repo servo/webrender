@@ -82,7 +82,7 @@ pub fn png(
     surface: ReadSurface,
     window: &mut WindowWrapper,
     mut reader: YamlFrameReader,
-    rx: Receiver<NotifierEvent>,
+    rx: &Receiver<NotifierEvent>,
     out_path: Option<PathBuf>,
 ) {
     reader.do_frame(wrench);
