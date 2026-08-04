@@ -645,6 +645,9 @@ SI vec2 min(vec2 a, Float b) { return vec2(min(a.x, b), min(a.y, b)); }
 SI vec2_scalar min(vec2_scalar a, vec2_scalar b) {
   return vec2_scalar{min(a.x, b.x), min(a.y, b.y)};
 }
+SI vec2_scalar min(vec2_scalar a, float b) {
+  return vec2_scalar{min(a.x, b), min(a.y, b)};
+}
 
 SI vec2 if_then_else(I32 c, vec2 t, vec2 e) {
   return vec2(if_then_else(c, t.x, e.x), if_then_else(c, t.y, e.y));
@@ -1743,6 +1746,9 @@ SI vec3 min(vec3 a, Float b) {
 SI vec3_scalar min(vec3_scalar a, vec3_scalar b) {
   return vec3_scalar{min(a.x, b.x), min(a.y, b.y), min(a.z, b.z)};
 }
+SI vec3_scalar min(vec3_scalar a, float b) {
+  return vec3_scalar{min(a.x, b), min(a.y, b), min(a.z, b)};
+}
 
 SI vec3 max(vec3 a, vec3 b) {
   return vec3(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z));
@@ -1752,6 +1758,9 @@ SI vec3 max(vec3 a, Float b) {
 }
 SI vec3_scalar max(vec3_scalar a, vec3_scalar b) {
   return vec3_scalar{max(a.x, b.x), max(a.y, b.y), max(a.z, b.z)};
+}
+SI vec3_scalar max(vec3_scalar a, float b) {
+  return vec3_scalar{max(a.x, b), max(a.y, b), max(a.z, b)};
 }
 
 vec3 pow(vec3 x, vec3 y) {
@@ -2276,6 +2285,32 @@ vec4 step(vec4 edge, vec4 x) {
 vec4_scalar step(vec4_scalar edge, vec4_scalar x) {
   return vec4_scalar(step(edge.x, x.x), step(edge.y, x.y), step(edge.z, x.z),
                      step(edge.w, x.w));
+}
+
+SI vec4 min(vec4 a, vec4 b) {
+  return vec4(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z), min(a.w, b.w));
+}
+SI vec4 min(vec4 a, Float b) {
+  return vec4(min(a.x, b), min(a.y, b), min(a.z, b), min(a.w, b));
+}
+SI vec4_scalar min(vec4_scalar a, vec4_scalar b) {
+  return vec4_scalar{min(a.x, b.x), min(a.y, b.y), min(a.z, b.z), min(a.w, b.w)};
+}
+SI vec4_scalar min(vec4_scalar a, float b) {
+  return vec4_scalar{min(a.x, b), min(a.y, b), min(a.z, b), min(a.w, b)};
+}
+
+SI vec4 max(vec4 a, vec4 b) {
+  return vec4(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z), max(a.w, b.w));
+}
+SI vec4 max(vec4 a, Float b) {
+  return vec4(max(a.x, b), max(a.y, b), max(a.z, b), max(a.w, b));
+}
+SI vec4_scalar max(vec4_scalar a, vec4_scalar b) {
+  return vec4_scalar{max(a.x, b.x), max(a.y, b.y), max(a.z, b.z), max(a.w, b.w)};
+}
+SI vec4_scalar max(vec4_scalar a, float b) {
+  return vec4_scalar{max(a.x, b), max(a.y, b), max(a.z, b), max(a.w, b)};
 }
 
 template <typename T>
