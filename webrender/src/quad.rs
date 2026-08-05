@@ -689,7 +689,6 @@ fn prepare_quad_impl(
     };
 
     let local_bounds = desc.bounds
-        .intersection_unchecked(&desc.local_rect)
         .intersection_unchecked(&clip_chain.local_clip_rect);
     let local_pattern_rect = desc.local_rect;
 
