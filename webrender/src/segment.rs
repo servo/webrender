@@ -193,8 +193,8 @@ pub struct SegmentBuilder {
 }
 
 impl SegmentBuilder {
-    // Create a new segment builder, supplying the primitive
-    // local rect and associated local clip rect.
+    // Create a new segment builder; call `initialize` with the primitive's
+    // bounds before pushing any clips.
     pub fn new() -> SegmentBuilder {
         SegmentBuilder {
             items: Vec::with_capacity(4),
@@ -208,19 +208,17 @@ impl SegmentBuilder {
 
     pub fn initialize(
         &mut self,
-        local_rect: LayoutRect,
+        bounds: LayoutRect,
         inner_rect: Option<LayoutRect>,
-        local_clip_rect: LayoutRect,
     ) {
         self.items.clear();
         self.inner_rect = inner_rect;
-        self.bounding_rect = Some(local_rect);
+        self.bounding_rect = Some(bounds);
 
-        self.push_clip_rect(local_rect, None, None, ClipMode::Clip);
-        self.push_clip_rect(local_clip_rect, None, None, ClipMode::Clip);
+        self.push_clip_rect(bounds, None, None, ClipMode::Clip);
 
-        // This must be set after the push_clip_rect calls above, since we
-        // want to skip segment building if those are the only clips.
+        // This must be set after the push_clip_rect call above, since we
+        // want to skip segment building if that is the only clip.
         self.has_interesting_clips = false;
 
         #[cfg(debug_assertions)]
@@ -644,9 +642,8 @@ mod test {
     ) {
         let mut sb = SegmentBuilder::new();
         sb.initialize(
-            local_rect,
+            local_rect.intersection_unchecked(&local_clip_rect),
             inner_rect,
-            local_clip_rect,
         );
         sb.push_clip_rect(local_rect, None, None, ClipMode::Clip);
         sb.push_clip_rect(local_clip_rect, None, None, ClipMode::Clip);

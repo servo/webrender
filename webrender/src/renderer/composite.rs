@@ -801,7 +801,6 @@ impl Renderer {
                     segment_builder.initialize(
                         rect.cast_unit(),
                         None,
-                        rect.cast_unit(),
                     );
                     segment_builder.push_clip_rect(
                         clip.rect.cast_unit(),
@@ -1056,7 +1055,6 @@ impl Renderer {
                     segment_builder.initialize(
                         rect.cast_unit(),
                         None,
-                        rect.cast_unit(),
                     );
                     segment_builder.push_clip_rect(
                         clip.rect.cast_unit(),
