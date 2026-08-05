@@ -118,6 +118,7 @@ impl<'a> TestHarness<'a> {
         self.test_scroll_subpic();
         self.test_clip_promotion();
         self.test_rounded_rect_intersection();
+        self.test_promotion_shapes();
 
         // Run manifest-based tests
         let manifest_path = PathBuf::from("invalidation/invalidation.list");
@@ -297,6 +298,61 @@ impl<'a> TestHarness<'a> {
             shape_bottom_right: 1.0,
         };
         assert_eq!(clip.radius, expected_radius, "Combined clip radii");
+    }
+
+    /// Check which rounded-rect clip shapes are accepted as compositor clips.
+    ///
+    /// The reftests in reftests/compositor-clip/ check that both paths produce the
+    /// same pixels, but they cannot tell which path ran. This pins that: only
+    /// shapes the compositing shader can represent (round corner shapes, circular
+    /// radii, radii fitting in their quadrant, clip mode, root coordinate system)
+    /// may become a compositor clip. Anything else must fall back to the regular
+    /// per-primitive clip path, where it is still applied correctly.
+    fn test_promotion_shapes(&mut self) {
+        // (reftest yaml, whether the slice should end up with a compositor clip)
+        let cases = [
+            ("rounded-clip", true),
+            ("per-corner-radius", true),
+            ("radius-clamped", true),
+            ("two-clips-combined", true),
+            ("rect-and-rounded", true),
+            ("tile-boundary", true),
+            ("larger-than-tile", true),
+            // Not representable by the compositing shader: elliptical radii and
+            // non-round corner shapes are rejected by can_use_fast_path_in.
+            ("elliptical-radius", false),
+            ("corner-shape", false),
+            // A scroll frame is an axis-aligned translation, so it stays in the
+            // root coordinate system and the clip is still promoted.
+            ("scrolled-clip", true),
+            // A rotation does leave the root coordinate system, so this one is
+            // not promotable. It has no reftest listing: the test side rasterizes
+            // into an axis-aligned surface and resamples it while the reference
+            // rasterizes the clip rotated, which differs legitimately.
+            ("rotated-clip", false),
+            // Not at the root of the stacking context stack.
+            ("nested-clip", false),
+            // Clipped out entirely, so there is nothing to apply. Note this one
+            // depends on the window being smaller than the clip's offset.
+            ("clipped-out", false),
+        ];
+
+        for (name, expect_clip) in cases {
+            let path = PathBuf::from(format!("reftests/compositor-clip/{}.yaml", name));
+            let results = self.render_yaml_path(&path);
+
+            let has_clip = results
+                .pc_debug
+                .slices
+                .values()
+                .any(|slice| slice.compositor_clip.is_some());
+
+            assert_eq!(
+                has_clip, expect_clip,
+                "{}: expected compositor clip on a slice: {}, got: {}",
+                name, expect_clip, has_clip,
+            );
+        }
     }
 
     /// Render a YAML file by name (relative to invalidation/), and return the picture cache debug info

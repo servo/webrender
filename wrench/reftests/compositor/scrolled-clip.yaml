@@ -1,0 +1,23 @@
+# A rounded clip defined inside a scroll frame, so its spatial node is not in the
+# root coordinate system and the clip is not promotable. Even with
+# `enable-compositor-clips` this must fall back to an intermediate surface and the
+# quad-shader clip path.
+---
+root:
+  items:
+    - type: scroll-frame
+      bounds: [0, 0, 800, 700]
+      clip-rect: [0, 0, 800, 700]
+      content-size: [800, 1400]
+      items:
+        - type: clip
+          id: 2
+          complex:
+            - rect: [100, 100, 500, 400]
+              radius: 60
+        - type: stacking-context
+          clip-chain: [2]
+          items:
+            - type: rect
+              bounds: [50, 50, 700, 600]
+              color: green

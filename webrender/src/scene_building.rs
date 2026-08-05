@@ -503,6 +503,10 @@ pub struct SceneBuilder<'a> {
     /// here and set a boolean on the inner stacking context info to remember to
     /// pop from this stack (see StackingContextInfo::needs_extra_stacking_context)
     extra_stacking_context_stack: Vec<StackingContextInfo>,
+
+    /// Debug flags for the current scene build. Consulted e.g. to optionally
+    /// disable promoting rounded-rect clips to compositor clips.
+    debug_flags: DebugFlags,
 }
 
 impl<'a> SceneBuilder<'a> {
@@ -558,6 +562,7 @@ impl<'a> SceneBuilder<'a> {
             surfaces: mem::take(&mut recycler.surfaces),
             clip_tree_builder: recycler.clip_tree_builder.take().unwrap_or_else(|| ClipTreeBuilder::new()),
             extra_stacking_context_stack: Vec::new(),
+            debug_flags,
         };
 
         // Reset
@@ -2136,7 +2141,12 @@ impl<'a> SceneBuilder<'a> {
                 // surface — equivalent to the intermediate surface approach.
                 // This allows tile cache barriers to fire normally, enabling
                 // proper picture caching with multiple slices.
-                if !self.sc_stack.is_empty() ||
+                //
+                // When DISABLE_COMPOSITOR_CLIPS is set, we never take this fast
+                // path, so the clip is always applied via an intermediate
+                // surface and the quad-shader clip path (useful for testing).
+                if self.debug_flags.contains(DebugFlags::DISABLE_COMPOSITOR_CLIPS) ||
+                   !self.sc_stack.is_empty() ||
                    !self.clip_tree_builder.clip_chain_complex_clips_are_promotable(
                        clip_chain_id,
                        &self.interners,

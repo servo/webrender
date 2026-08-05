@@ -578,7 +578,8 @@ fn create_tile_cache(
                     // The shader and CoreAnimation rely on certain constraints such
                     // as uniform radii to be able to apply the clip during compositing.
                     let br = clamped_radius(&BorderRadius::from(radius), node.unsnapped_clip_rect.size());
-                    if br.can_use_fast_path_in(&node.unsnapped_clip_rect) {
+                    if !debug_flags.contains(DebugFlags::DISABLE_COMPOSITOR_CLIPS) &&
+                       br.can_use_fast_path_in(&node.unsnapped_clip_rect) {
                         rounded_rect_count += 1;
 
                         if accumulated_rounded_rect.is_none() {

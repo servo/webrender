@@ -1,0 +1,18 @@
+# A root-level stacking context clipped by a fixed-position rounded rectangle.
+# With `enable-compositor-clips` this takes the compositor clip fast path;
+# otherwise it is applied via the quad-shader path. Either way the result must
+# match the reference, which applies the same clip directly to the primitive.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [40, 40, 320, 240]
+          radius: 30
+    - type: stacking-context
+      clip-chain: [2]
+      items:
+        - type: rect
+          bounds: [0, 0, 400, 400]
+          color: green

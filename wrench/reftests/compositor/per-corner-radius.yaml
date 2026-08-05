@@ -1,0 +1,16 @@
+# Four different circular corner radii, to check each corner is lowered to the
+# right slot of the compositor clip rather than all taking a single radius.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [100, 100, 500, 400]
+          radius: [10, 40, 80, 120]
+    - type: stacking-context
+      clip-chain: [2]
+      items:
+        - type: rect
+          bounds: [50, 50, 600, 500]
+          color: green

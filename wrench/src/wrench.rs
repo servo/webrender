@@ -224,6 +224,14 @@ pub struct Wrench {
     pub frame_start_sender: chase_lev::Worker<Instant>,
 
     pub callbacks: Arc<Mutex<blob::BlobCallbacks>>,
+
+    /// The base debug flags configured at startup. Used as the baseline when
+    /// toggling individual flags per test (e.g. DISABLE_COMPOSITOR_CLIPS).
+    debug_flags: DebugFlags,
+
+    /// Set by the `--compositor-clips` command line argument. When set it
+    /// overrides whatever each subcommand would otherwise pick.
+    compositor_clips_override: Option<bool>,
 }
 
 impl Wrench {
@@ -244,6 +252,7 @@ impl Wrench {
         dump_shader_source: Option<String>,
         notifier: Option<Box<dyn RenderNotifier>>,
         layer_compositor: Option<Box<dyn LayerCompositor>>,
+        compositor_clips_override: Option<bool>,
     ) -> Self {
         println!("Shader override path: {:?}", shader_override_path);
 
@@ -251,6 +260,9 @@ impl Wrench {
         debug_flags.set(DebugFlags::DISABLE_BATCHING, no_batch);
         debug_flags.set(DebugFlags::MISSING_SNAPSHOT_PINK, true);
         debug_flags.set(DebugFlags::COLOR_TARGET_INIT, color_target_init);
+        if let Some(enabled) = compositor_clips_override {
+            debug_flags.set(DebugFlags::DISABLE_COMPOSITOR_CLIPS, !enabled);
+        }
         let callbacks = Arc::new(Mutex::new(blob::BlobCallbacks::new()));
 
         let precache_flags = if precache_shaders {
@@ -325,6 +337,9 @@ impl Wrench {
             frame_start_sender: timing_sender,
 
             callbacks,
+
+            debug_flags,
+            compositor_clips_override,
         };
 
         wrench.set_title("start");
@@ -339,6 +354,21 @@ impl Wrench {
         let mut txn = Transaction::new();
         txn.set_quality_settings(settings);
         self.api.send_transaction(self.document_id, txn);
+    }
+
+    /// Enable or disable promoting rounded-rect clips to compositor clips (the
+    /// "fast path"). Sent via set_debug_flags (not send_debug_cmd) so that it
+    /// reaches the scene builder, where the promotion decision is made. Because
+    /// this goes through the scene sender, it is ordered before any display
+    /// list submitted afterwards.
+    ///
+    /// The `--compositor-clips` command line argument, if specified, takes
+    /// precedence over `enabled`.
+    pub fn set_compositor_clips_enabled(&mut self, enabled: bool) {
+        let enabled = self.compositor_clips_override.unwrap_or(enabled);
+        let mut flags = self.debug_flags;
+        flags.set(DebugFlags::DISABLE_COMPOSITOR_CLIPS, !enabled);
+        self.api.set_debug_flags(flags);
     }
 
     pub fn layout_simple_ascii(

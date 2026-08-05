@@ -1,0 +1,28 @@
+# Reference for the test of the same name: the clip is applied directly to the
+# primitive, and an extra unclipped primitive keeps it out of the slice's shared
+# clips, so this always goes through the per-primitive quad-shader clip path.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [100, 100, 500, 400]
+          radius: 60
+    - type: clip
+      id: 3
+      complex:
+        - rect: [200, 150, 500, 400]
+    # An extra primitive that is NOT under the rounded clip. Without it the clipped
+    # rect would be the only primitive in the slice, so its clip chain would be the
+    # slice's shared clip chain and the rounded clip would be hoisted into a
+    # compositor clip -- making this reference take the same fast path as the test
+    # instead of the quad-shader path it is supposed to provide. White on the white
+    # background, so it does not change the output.
+    - type: rect
+      bounds: [50, 50, 700, 600]
+      color: white
+    - type: rect
+      bounds: [50, 50, 700, 600]
+      color: green
+      clip-chain: [2, 3]

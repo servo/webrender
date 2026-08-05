@@ -1,0 +1,16 @@
+# A rounded clip entirely off-screen, so the whole slice is clipped out. Checks
+# the empty-clip path neither draws anything nor registers bogus occluders.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [2400, 1400, 300, 200]
+          radius: 40
+    - type: stacking-context
+      clip-chain: [2]
+      items:
+        - type: rect
+          bounds: [0, 0, 1800, 1000]
+          color: green
