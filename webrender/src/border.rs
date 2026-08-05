@@ -530,8 +530,8 @@ pub struct NormalBorderSegment {
     /// For corners this is the full corner image rect, which may extend past
     /// the visible area when an adjacent corner overlaps it; for edges it is
     /// the edge rect.
-    pub local_rect: LayoutRect,
-    /// Sub-rect of `local_rect` the drawn texture is clipped to. `Some` for
+    pub pattern_rect: LayoutRect,
+    /// Sub-rect of `pattern_rect` the drawn texture is clipped to. `Some` for
     /// corners (the visible, non-overlapping part); `None` for edges, which
     /// need no per-segment clip.
     pub clip_rect: Option<LayoutRect>,
@@ -1095,7 +1095,7 @@ fn add_corner_segment(
     };
 
     segment_cb(&NormalBorderSegment {
-        local_rect: image_rect,
+        pattern_rect: image_rect,
         clip_rect: Some(segment_rect),
         repeat_x: RepeatMode::Stretch,
         repeat_y: RepeatMode::Stretch,
@@ -1169,7 +1169,7 @@ fn add_edge_segment(
     };
 
     segment_cb(&NormalBorderSegment {
-        local_rect: image_rect,
+        pattern_rect: image_rect,
         clip_rect: None,
         repeat_x,
         repeat_y,

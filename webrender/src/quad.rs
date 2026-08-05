@@ -2124,7 +2124,7 @@ fn write_prim_blocks(
 /// Write the gpu blocks for a primitive in device space.
 pub fn write_device_prim_blocks(
     builder: &mut GpuBufferBuilderF,
-    prim_rect: &DeviceRect,
+    bounds: &DeviceRect,
     pattern_rect: &DeviceRect,
     pattern_base_color: ColorF,
     pattern_texture_input: RenderTaskId,
@@ -2133,7 +2133,7 @@ pub fn write_device_prim_blocks(
 ) -> GpuBufferAddress {
     write_prim_blocks_impl(
         builder,
-        prim_rect.to_untyped(),
+        bounds.to_untyped(),
         pattern_rect.to_untyped(),
         pattern_base_color,
         pattern_texture_input,
@@ -2164,9 +2164,8 @@ pub fn write_layout_prim_blocks(
 
 fn write_prim_blocks_impl(
     builder: &mut GpuBufferBuilderF,
-    // The (clipped) coverage rect: the caller has already folded the clip rect
-    // into this.
-    prim_rect: LayoutOrDeviceRect,
+    // The coverage rect: the caller has already folded every clip into this.
+    bounds: LayoutOrDeviceRect,
     pattern_rect: LayoutOrDeviceRect,
     pattern_base_color: ColorF,
     pattern_texture_input: RenderTaskId,
@@ -2176,7 +2175,7 @@ fn write_prim_blocks_impl(
     let mut writer = builder.write_blocks(5 + segments.len() * 2);
 
     writer.push(&QuadPrimitive {
-        bounds: prim_rect,
+        bounds,
         pattern_rect,
         input_task: pattern_texture_input,
         pattern_scale_offset,

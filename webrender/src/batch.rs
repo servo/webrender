@@ -784,7 +784,7 @@ impl BatchBuilder {
             PrimitiveCommand::Simple { draw_index } => {
                 draw_index
             }
-            PrimitiveCommand::SplitComposite { draw_index, polygons_address, transform_id, src_task_id, local_rect } => {
+            PrimitiveCommand::SplitComposite { draw_index, polygons_address, transform_id, src_task_id, pattern_rect } => {
                 let prim_info = ctx.scratch.frame.draw(*draw_index);
 
                 let (clip_task_address, clip_mask_texture_id) = ctx.get_prim_clip_task_and_texture(
@@ -798,7 +798,7 @@ impl BatchBuilder {
                 let z_id = z_generator.next();
 
                 let prim_header = PrimitiveHeader {
-                    pattern_rect: *local_rect,
+                    pattern_rect: *pattern_rect,
                     bounds: prim_info.clip_chain.local_clip_rect,
                     specific_prim_address: GpuBufferAddress::INVALID.as_int(),
                     transform_id: *transform_id,
@@ -987,7 +987,7 @@ impl BatchBuilder {
                     // the run anchor, and glyph ink routinely extends past the
                     // authored rect. Do not fold the prim rect into `bounds` -
                     // that would start clipping glyphs by it.
-                    pattern_rect: run_scratch.local_rect,
+                    pattern_rect: run_scratch.pattern_rect,
                     bounds: prim_info.clip_chain.local_clip_rect,
                     transform_id,
                     z: z_id,

@@ -368,7 +368,7 @@ pub struct PrimitiveInstance {
     /// `PrimTemplateCommonData.prim_size` but is per-instance now so that the
     /// intern key can deduplicate across differently-sized instances of the
     /// same prim shape.
-    pub unsnapped_prim_rect: LayoutRect,
+    pub unsnapped_pattern_rect: LayoutRect,
 }
 
 /// How a primitive's clips round to the device pixel grid. Distinct from how
@@ -404,12 +404,12 @@ impl PrimitiveInstance {
     pub fn new(
         kind: PrimitiveKind,
         clip_leaf_id: ClipLeafId,
-        unsnapped_prim_rect: LayoutRect,
+        unsnapped_pattern_rect: LayoutRect,
     ) -> Self {
         PrimitiveInstance {
             kind,
             clip_leaf_id,
-            unsnapped_prim_rect,
+            unsnapped_pattern_rect,
         }
     }
 

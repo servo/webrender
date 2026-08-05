@@ -959,7 +959,7 @@ impl PictureInstance {
                         child.gpu_address,
                         transform_id,
                         src_task_id,
-                        child.anchor.local_rect,
+                        child.anchor.pattern_rect,
                     );
 
                     frame_state.push_prim(
@@ -993,7 +993,7 @@ impl PictureInstance {
         plane_split_anchor: PlaneSplitAnchor,
     ) -> bool {
         let plane_split_anchor = PlaneSplitAnchor {
-            local_rect: original_local_rect,
+            pattern_rect: original_local_rect,
             ..plane_split_anchor
         };
 

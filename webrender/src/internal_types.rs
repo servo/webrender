@@ -187,7 +187,7 @@ pub struct PlaneSplitAnchor {
     pub draw_index: PrimitiveDrawIndex,
     /// The split picture's unclipped local rect used by the shader to map plane
     /// positions to texture coordinates.
-    pub local_rect: LayoutRect,
+    pub pattern_rect: LayoutRect,
 }
 
 impl PlaneSplitAnchor {
@@ -198,7 +198,7 @@ impl PlaneSplitAnchor {
         PlaneSplitAnchor {
             spatial_node_index,
             draw_index,
-            local_rect: LayoutRect::zero(),
+            pattern_rect: LayoutRect::zero(),
         }
     }
 }
@@ -208,7 +208,7 @@ impl Default for PlaneSplitAnchor {
         PlaneSplitAnchor {
             spatial_node_index: SpatialNodeIndex::INVALID,
             draw_index: PrimitiveDrawIndex::INVALID,
-            local_rect: LayoutRect::zero(),
+            pattern_rect: LayoutRect::zero(),
         }
     }
 }

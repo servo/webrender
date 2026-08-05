@@ -237,7 +237,7 @@ impl<'a> SceneBuilder<'a> {
 pub fn prepare_box_shadow(
     shadow_data: &BoxShadowData,
     common_data: &PrimTemplateCommonData,
-    unsnapped_prim_rect: &LayoutRect,
+    unsnapped_pattern_rect: &LayoutRect,
     clip_chain: &ClipChainInstance,
     quad_transform: &mut QuadTransformState,
     frame_context: &FrameBuildingContext,
@@ -261,7 +261,7 @@ pub fn prepare_box_shadow(
     // re-inflate.
     //
     // The element rect's relation to the per-instance
-    // `unsnapped_prim_rect` differs by clip_mode (set up in
+    // `unsnapped_pattern_rect` differs by clip_mode (set up in
     // `box_shadow::add_box_shadow`):
     //   - Outset: prim rect = element.translate.inflate(spread)
     //                                  .inflate(blur_offset);
@@ -269,11 +269,11 @@ pub fn prepare_box_shadow(
     //   - Inset:  prim rect = element directly.
     let blur_offset = (BLUR_SAMPLE_SCALE * blur_radius).ceil();
     let unsnapped_element_rect = match shadow_data.clip_mode {
-        BoxShadowClipMode::Outset => unsnapped_prim_rect
+        BoxShadowClipMode::Outset => unsnapped_pattern_rect
             .inflate(-blur_offset, -blur_offset)
             .inflate(-shadow_data.spread_amount, -shadow_data.spread_amount)
             .translate(-shadow_data.box_offset),
-        BoxShadowClipMode::Inset => *unsnapped_prim_rect,
+        BoxShadowClipMode::Inset => *unsnapped_pattern_rect,
     };
     let element_rect = {
         // Snap into the prim's surface raster space, matching how the

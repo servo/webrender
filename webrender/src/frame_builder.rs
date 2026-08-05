@@ -330,7 +330,7 @@ impl FrameBuilder {
         // Cluster, prim, and clip-leaf rects are snapped to the device pixel
         // grid as they are produced by the in-frame picture-graph passes:
         // `propagate_bounding_rects` snaps each cluster bounding rect, and the
-        // visibility pass snaps each prim's `snapped_local_rect` and clip-leaf
+        // visibility pass snaps each prim's `snapped_pattern_rect` and clip-leaf
         // rect. Both snap against the consuming surface's raster node, so only
         // pictures reachable this frame are touched.
         scene.picture_graph.propagate_bounding_rects(

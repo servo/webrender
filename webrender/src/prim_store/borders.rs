@@ -138,8 +138,8 @@ impl NormalBorderData {
                 quad::prepare_quad(
                     color,
                     &QuadDescriptor {
-                        pattern_rect: segment.local_rect,
-                        bounds: segment_bounds(&segment.local_rect),
+                        pattern_rect: segment.pattern_rect,
+                        bounds: segment_bounds(&segment.pattern_rect),
                         aligned_aa_edges: desc.aligned_aa_edges & segment.edge_flags,
                         transformed_aa_edges: desc.transformed_aa_edges & segment.edge_flags,
                     },
@@ -204,13 +204,13 @@ impl NormalBorderData {
             // corners that is the natural corner-image size, which may
             // extend past the visible area). `clip_rect` crops it back to
             // the visible part for corners whose adjacent corner overlaps.
-            let segment_local_rect = segment.local_rect;
+            let segment_pattern_rect = segment.pattern_rect;
 
-            let mut stretch_size = segment_local_rect.size();
+            let mut stretch_size = segment_pattern_rect.size();
             let mut spacing = LayoutSize::zero();
             let mut _repeat_offset = LayoutVector2D::zero();
             crate::border::compute_border_repetition(
-                segment_local_rect.size(),
+                segment_pattern_rect.size(),
                 cache_size.to_f32(),
                 segment.repeat_x,
                 segment.repeat_y,
@@ -227,7 +227,7 @@ impl NormalBorderData {
             // an integer number of repetitions fills the space.
 
             if segment.repeat_x == RepeatMode::Repeat {
-                let w = segment_local_rect.width();
+                let w = segment_pattern_rect.width();
                 let sw = stretch_size.width;
                 let scale = w / ((w / sw).round() * sw);
 
@@ -235,7 +235,7 @@ impl NormalBorderData {
             }
 
             if segment.repeat_y == RepeatMode::Repeat {
-                let h = segment_local_rect.height();
+                let h = segment_pattern_rect.height();
                 let sh = stretch_size.height;
                 let scale = h / ((h / sh).round() * sh);
 
@@ -245,8 +245,8 @@ impl NormalBorderData {
             quad::prepare_repeatable_quad(
                 &pattern,
                 &QuadDescriptor {
-                    pattern_rect: segment_local_rect,
-                    bounds: segment_bounds(&segment_local_rect),
+                    pattern_rect: segment_pattern_rect,
+                    bounds: segment_bounds(&segment_pattern_rect),
                     aligned_aa_edges: desc.aligned_aa_edges & segment.edge_flags,
                     transformed_aa_edges: desc.transformed_aa_edges & segment.edge_flags,
                 },

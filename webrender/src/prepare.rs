@@ -328,10 +328,10 @@ fn prepare_prim_for_render(
         };
 
         if should_update_clip_task {
-            let snapped_local_rect = scratch.frame.draw(draw_index).snapped_local_rect;
+            let snapped_pattern_rect = scratch.frame.draw(draw_index).snapped_pattern_rect;
             let prim_rect = data_stores.get_local_prim_rect(
                 prim_instance,
-                snapped_local_rect,
+                snapped_pattern_rect,
                 &store.pictures,
                 frame_state.surfaces,
             );
@@ -369,7 +369,7 @@ fn prepare_prim_for_render(
             prepare_box_shadow(
                 &prim_data.kind,
                 &prim_data.common,
-                &prim_instance.unsnapped_prim_rect,
+                &prim_instance.unsnapped_pattern_rect,
                 &prim_info.clip_chain,
                 &mut quad_transform,
                 frame_context,
@@ -391,7 +391,7 @@ fn prepare_prim_for_render(
             let line_dec_data = &prim_data.kind;
 
             let task = prim_data.kind.prepare(
-                prim_info.snapped_local_rect.size(),
+                prim_info.snapped_pattern_rect.size(),
                 prim_spatial_node_index,
                 frame_context,
                 frame_state,
@@ -409,7 +409,7 @@ fn prepare_prim_for_render(
                 quad::prepare_repeatable_quad(
                     &pattern,
                     &QuadDescriptor {
-                        pattern_rect: prim_info.snapped_local_rect,
+                        pattern_rect: prim_info.snapped_pattern_rect,
                         bounds: prim_info.clip_chain.local_coverage_rect,
                         aligned_aa_edges: prim_data.common.aligned_aa_edges,
                         transformed_aa_edges: prim_data.common.transformed_aa_edges,
@@ -431,7 +431,7 @@ fn prepare_prim_for_render(
                 quad::prepare_quad(
                     &line_dec_data.color,
                     &QuadDescriptor {
-                        pattern_rect: prim_info.snapped_local_rect,
+                        pattern_rect: prim_info.snapped_pattern_rect,
                         bounds: prim_info.clip_chain.local_coverage_rect,
                         aligned_aa_edges: prim_data.common.aligned_aa_edges,
                         transformed_aa_edges: prim_data.common.transformed_aa_edges,
@@ -471,7 +471,7 @@ fn prepare_prim_for_render(
             // positions in the template are stored relative to it. Use the
             // unsnapped rect so the anchor matches what the shader receives in
             // `PrimitiveHeader.local_rect`.
-            let pattern_rect = prim_instance.unsnapped_prim_rect;
+            let pattern_rect = prim_instance.unsnapped_pattern_rect;
 
             let surface = &frame_state.surfaces[pic_context.surface_index.0];
 
@@ -528,7 +528,7 @@ fn prepare_prim_for_render(
 
             border_data.update(
                 &QuadDescriptor {
-                    pattern_rect: prim_info.snapped_local_rect,
+                    pattern_rect: prim_info.snapped_pattern_rect,
                     bounds: prim_info.clip_chain.local_coverage_rect,
                     aligned_aa_edges,
                     transformed_aa_edges,
@@ -557,7 +557,7 @@ fn prepare_prim_for_render(
 
             let (task_id, size, is_opaque) = border_data.update(frame_state);
 
-            let prim_rect = prim_info.snapped_local_rect;
+            let prim_rect = prim_info.snapped_pattern_rect;
 
             let src_image = ImagePattern {
                 src_task_id: task_id,
@@ -594,7 +594,7 @@ fn prepare_prim_for_render(
             tracy_rs::profile_scope!("Rectangle");
 
             let prim_data = &data_stores.prim[*data_handle];
-            let prim_rect = prim_info.snapped_local_rect;
+            let prim_rect = prim_info.snapped_pattern_rect;
             let color = prim_data.resolve(frame_context.scene_properties);
 
             quad::prepare_quad(
@@ -629,7 +629,7 @@ fn prepare_prim_for_render(
                 quad::prepare_quad(
                     &Cutout,
                     &QuadDescriptor {
-                        pattern_rect: prim_info.snapped_local_rect,
+                        pattern_rect: prim_info.snapped_pattern_rect,
                         bounds: prim_info.clip_chain.local_coverage_rect,
                         aligned_aa_edges: common_data.aligned_aa_edges,
                         transformed_aa_edges: common_data.transformed_aa_edges,
@@ -666,7 +666,7 @@ fn prepare_prim_for_render(
             quad::prepare_quad(
                 &pattern,
                 &QuadDescriptor {
-                    pattern_rect: prim_info.snapped_local_rect,
+                    pattern_rect: prim_info.snapped_pattern_rect,
                     bounds: prim_info.clip_chain.local_coverage_rect,
                     aligned_aa_edges: common_data.aligned_aa_edges,
                     transformed_aa_edges: common_data.transformed_aa_edges,
@@ -692,7 +692,7 @@ fn prepare_prim_for_render(
             let common_data = &prim_data.common;
             let image_data = &prim_data.kind;
 
-            let prim_rect = prim_info.snapped_local_rect;
+            let prim_rect = prim_info.snapped_pattern_rect;
 
             if prim_info.compositor_surface_kind == CompositorSurfaceKind::Underlay {
                 quad::prepare_quad(
@@ -738,7 +738,7 @@ fn prepare_prim_for_render(
         PrimitiveKind::LinearGradient { data_handle, .. } => {
             tracy_rs::profile_scope!("LinearGradient");
             let prim_data = &data_stores.linear_grad[*data_handle];
-            let prim_rect = prim_info.snapped_local_rect;
+            let prim_rect = prim_info.snapped_pattern_rect;
             let stretch_size = LayoutSize::new(
                 prim_data.stretch_ratio.width * prim_rect.size().width,
                 prim_data.stretch_ratio.height * prim_rect.size().height,
@@ -865,7 +865,7 @@ fn prepare_prim_for_render(
                 None
             };
 
-            let pattern_rect = prim_info.snapped_local_rect;
+            let pattern_rect = prim_info.snapped_pattern_rect;
             quad::prepare_repeatable_quad(
                 prim_data,
                 &QuadDescriptor {
@@ -893,7 +893,7 @@ fn prepare_prim_for_render(
         PrimitiveKind::RadialGradient { data_handle, .. } => {
             tracy_rs::profile_scope!("RadialGradient");
             let prim_data = &data_stores.radial_grad[*data_handle];
-            let pattern_rect = prim_info.snapped_local_rect;
+            let pattern_rect = prim_info.snapped_pattern_rect;
             let stretch_size = LayoutSize::new(
                 prim_data.stretch_ratio.width * pattern_rect.size().width,
                 prim_data.stretch_ratio.height * pattern_rect.size().height,
@@ -949,7 +949,7 @@ fn prepare_prim_for_render(
         PrimitiveKind::ConicGradient { data_handle, .. } => {
             tracy_rs::profile_scope!("ConicGradient");
             let prim_data = &data_stores.conic_grad[*data_handle];
-            let prim_rect = prim_info.snapped_local_rect;
+            let prim_rect = prim_info.snapped_pattern_rect;
             let stretch_size = LayoutSize::new(
                 prim_data.stretch_ratio.width * prim_rect.size().width,
                 prim_data.stretch_ratio.height * prim_rect.size().height,
@@ -1012,7 +1012,7 @@ fn prepare_prim_for_render(
                 None
             };
 
-            let pattern_rect = prim_info.snapped_local_rect;
+            let pattern_rect = prim_info.snapped_pattern_rect;
             quad::prepare_repeatable_quad(
                 prim_data,
                 &QuadDescriptor {
@@ -1145,7 +1145,7 @@ fn prepare_prim_for_render(
                         frame_context.spatial_tree,
                     );
 
-                    let prim_rect = prim_info.snapped_local_rect;
+                    let prim_rect = prim_info.snapped_pattern_rect;
                     let points = [
                         map_prim_to_backdrop.map_point(prim_rect.top_left()),
                         map_prim_to_backdrop.map_point(prim_rect.top_right()),
@@ -1177,7 +1177,7 @@ fn prepare_prim_for_render(
                     quad::prepare_quad(
                         &pattern,
                         &QuadDescriptor {
-                            pattern_rect: prim_info.snapped_local_rect,
+                            pattern_rect: prim_info.snapped_pattern_rect,
                             bounds: prim_info.clip_chain.local_coverage_rect,
                             aligned_aa_edges,
                             transformed_aa_edges,
