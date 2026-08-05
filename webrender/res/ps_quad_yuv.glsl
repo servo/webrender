@@ -67,7 +67,7 @@ void pattern_vertex(PrimitiveInfo info) {
     vFormat.x = yuv.format;
 
     // Normalized position within the primitive rect.
-    RectWithEndpoint rect = info.local_prim_rect;
+    RectWithEndpoint rect = info.pattern_rect;
     vec2 f = (info.local_pos - rect.p0) / rect_size(rect);
 
     // The Y plane uv rect travels through the standard quad primitive block (as

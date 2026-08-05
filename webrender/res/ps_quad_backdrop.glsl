@@ -30,7 +30,7 @@ void pattern_vertex(PrimitiveInfo info) {
     vec4 uvs[4] = fetch_from_gpu_buffer_4f(info.pattern_input.x);
 
     // Normalized position within the primitive rect.
-    RectWithEndpoint rect = info.local_prim_rect;
+    RectWithEndpoint rect = info.pattern_rect;
     vec2 f = (info.local_pos - rect.p0) / rect_size(rect);
 
     // Bilinearly interpolate the homogeneous corners, then do the perspective

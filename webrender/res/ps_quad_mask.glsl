@@ -100,8 +100,8 @@ void pattern_vertex(PrimitiveInfo prim_info) {
         vTransformBounds = vec4(clip.rect.p0, clip.rect.p1);
     } else {
         RectWithEndpoint xf_bounds = RectWithEndpoint(
-            max(clip.rect.p0, prim_info.local_clip_rect.p0),
-            min(clip.rect.p1, prim_info.local_clip_rect.p1)
+            max(clip.rect.p0, prim_info.bounds.p0),
+            min(clip.rect.p1, prim_info.bounds.p1)
         );
         vTransformBounds = vec4(xf_bounds.p0, xf_bounds.p1);
     }

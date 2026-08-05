@@ -70,7 +70,7 @@ void pattern_vertex(PrimitiveInfo info) {
     v_uv_scale_inset    = vec4(vec2(1.0) / alloc_size, data1.z, 0.0);
 
     v_shadow_pos_local_pos = vec4(
-        info.local_pos - info.local_prim_rect.p0 - dest_rect_off,
+        info.local_pos - info.pattern_rect.p0 - dest_rect_off,
         info.local_pos
     );
 
@@ -99,7 +99,7 @@ void pattern_vertex(PrimitiveInfo info) {
     // Element clip: compute corner centers and radii. The half-space plane
     // constants and the element rect bounds are reconstructed from these in the
     // fragment shader, to keep the varying count low (see bug 2043249).
-    vec2 elem_p0 = info.local_prim_rect.p0 + data2.xy;
+    vec2 elem_p0 = info.pattern_rect.p0 + data2.xy;
     vec2 elem_p1 = elem_p0 + data2.zw;
 
     vec2 r_tl = data3.xy;

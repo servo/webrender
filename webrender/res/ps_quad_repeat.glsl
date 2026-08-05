@@ -29,13 +29,13 @@ RepeatedPattern fetch_repated_pattern(int address) {
 
 void pattern_vertex(PrimitiveInfo info) {
     RepeatedPattern pattern = fetch_repated_pattern(info.pattern_input.x);
-    vec2 f = (info.local_pos - info.local_prim_rect.p0) / rect_size(info.local_prim_rect);
+    vec2 f = (info.local_pos - info.pattern_rect.p0) / rect_size(info.pattern_rect);
 
     // In layout coordinates.
     vec2 inv_repeated_size = vec2(1.0) / (pattern.stretch_size + pattern.spacing);
 
     // Number of repetitions on the x and y axis.
-    vec2 repeat = rect_size(info.local_prim_rect) * inv_repeated_size;
+    vec2 repeat = rect_size(info.pattern_rect) * inv_repeated_size;
     v_repetitions = repeat;
 
     // Normalized relative to the source uv bounds.

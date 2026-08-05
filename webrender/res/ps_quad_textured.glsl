@@ -24,7 +24,7 @@ void pattern_vertex(PrimitiveInfo info) {
     if (info.pattern_input.x != SHADER_MODE_COLOR) {
         // Textured (or alpha-only)
 
-        RectWithEndpoint pattern_rect = info.local_prim_rect;
+        RectWithEndpoint pattern_rect = info.pattern_rect;
         if (info.pattern_input.y == MAP_TO_SEGMENT) {
             pattern_rect = info.segment.rect;
         }

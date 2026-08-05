@@ -27,7 +27,7 @@ flat varying mediump vec4 v_funcs;
 void pattern_vertex(PrimitiveInfo info) {
     // The source maps to the primitive rect; the uv rect is provided via the
     // segment (resolved from the source render task).
-    vec2 f = (info.local_pos - info.local_prim_rect.p0) / rect_size(info.local_prim_rect);
+    vec2 f = (info.local_pos - info.pattern_rect.p0) / rect_size(info.pattern_rect);
     vs_init_sample_color0(f, info.segment.uv_rect);
 
     int filter_mode = info.pattern_input.x;
