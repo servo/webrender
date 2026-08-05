@@ -26,6 +26,10 @@
 #     under 'rr record'), or 'gdb', 'rust-gdb', or 'cgdb' (run under the given
 #     debugger, and arrange to supply ARGS to the wrench debuggee, not the
 #     debugger)
+#
+# MESA_SHADER_CACHE_DIR: Honoured by Mesa itself. If unset, this script points
+#     it inside the target directory, to keep the vendored OSMesa away from the
+#     system Mesa's shader cache (see set_osmesa_env)
 
 from __future__ import print_function
 import contextlib
@@ -96,6 +100,14 @@ def optimized_build():
 
 def set_osmesa_env(bin_path):
     """Set proper LD_LIBRARY_PATH and DRIVE for software rendering on Linux and OSX"""
+    # The vendored OSMesa predates Mesa's 32-byte BLAKE3 cache keys, so it sizes
+    # the shader cache index for 20-byte SHA-1 keys and truncates a newer Mesa's
+    # index on open. That SIGBUSes any process which already has the longer
+    # mapping, so don't let it share a cache with the system Mesa. It is old
+    # enough to only know MESA_GLSL_CACHE_DIR, so set both spellings.
+    cache_dir = path.abspath(path.join(bin_path, 'mesa-shader-cache'))
+    os.environ.setdefault("MESA_SHADER_CACHE_DIR", cache_dir)
+    os.environ.setdefault("MESA_GLSL_CACHE_DIR", cache_dir)
     base = find_dep_path_newest('osmesa-src', bin_path)
     osmesa_path = path.join(base, "out", "mesa", "src", "gallium", "targets", "osmesa")
     os.environ["GALLIUM_DRIVER"] = "llvmpipe"
