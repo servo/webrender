@@ -11,6 +11,7 @@
 //! channel to install per-window state.
 
 use std::io;
+use std::mem;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
@@ -69,6 +70,9 @@ struct PoolMember {
 /// A round-robin pool of render-backend threads. See module docs.
 pub struct RenderBackendPool {
     members: Vec<PoolMember>,
+    /// Join handles of every thread spawned by the pool, waited on when the
+    /// pool is dropped.
+    handles: Vec<thread::JoinHandle<()>>,
     next: AtomicUsize,
 }
 
@@ -82,11 +86,15 @@ impl RenderBackendPool {
     {
         let size = size.max(1).min(16);
         let mut members = Vec::with_capacity(size);
+        let mut handles = Vec::with_capacity(size * 3);
         for i in 0..size {
-            members.push(Self::spawn_member(member_setup(i))?);
+            let (member, member_handles) = Self::spawn_member(member_setup(i))?;
+            members.push(member);
+            handles.extend(member_handles);
         }
         Ok(Arc::new(Self {
             members,
+            handles,
             next: AtomicUsize::new(0),
         }))
     }
@@ -110,7 +118,9 @@ impl RenderBackendPool {
         }
     }
 
-    fn spawn_member(setup: PoolMemberSetup) -> io::Result<PoolMember> {
+    fn spawn_member(
+        setup: PoolMemberSetup,
+    ) -> io::Result<(PoolMember, Vec<thread::JoinHandle<()>>)> {
         let PoolMemberSetup {
             frame_builder_config,
             fonts,
@@ -130,13 +140,15 @@ impl RenderBackendPool {
         let (scene_builder_channels, scene_tx) =
             SceneBuilderThreadChannels::new(api_tx.clone());
 
+        let mut handles = Vec::with_capacity(3);
+
         // Scene builder thread.
         let sb_fonts = fonts.clone();
         let sb_config = frame_builder_config.clone();
         let sb_size_of_ops =
             size_of_op.map(|o| MallocSizeOfOps::new(o, enclosing_size_of_op));
         let sb_thread_name = scene_thread_name.clone();
-        thread::Builder::new().name(scene_thread_name).spawn(move || {
+        handles.push(thread::Builder::new().name(scene_thread_name).spawn(move || {
             register_thread_with_profiler(sb_thread_name.clone());
             profiler::register_thread(&sb_thread_name);
 
@@ -149,7 +161,7 @@ impl RenderBackendPool {
             scene_builder.run();
 
             profiler::unregister_thread();
-        })?;
+        })?);
 
         // Low-priority scene builder thread (optional).
         let lp_scene_tx = if support_low_priority_transactions {
@@ -160,7 +172,7 @@ impl RenderBackendPool {
                 tile_pool: api::BlobTilePool::new(),
             };
             let lp_thread_name = lp_scene_thread_name.clone();
-            thread::Builder::new().name(lp_scene_thread_name).spawn(move || {
+            handles.push(thread::Builder::new().name(lp_scene_thread_name).spawn(move || {
                 register_thread_with_profiler(lp_thread_name.clone());
                 profiler::register_thread(&lp_thread_name);
 
@@ -168,7 +180,7 @@ impl RenderBackendPool {
                 scene_builder.run();
 
                 profiler::unregister_thread();
-            })?;
+            })?);
             lp_scene_tx
         } else {
             scene_tx.clone()
@@ -179,7 +191,7 @@ impl RenderBackendPool {
         let rb_size_of_ops =
             size_of_op.map(|o| MallocSizeOfOps::new(o, enclosing_size_of_op));
         let rb_thread_name_clone = rb_thread_name.clone();
-        thread::Builder::new().name(rb_thread_name).spawn(move || {
+        handles.push(thread::Builder::new().name(rb_thread_name).spawn(move || {
             if let Some(hooks) = render_backend_hooks {
                 hooks.init_thread();
             }
@@ -196,13 +208,16 @@ impl RenderBackendPool {
             drop(backend);
 
             profiler::unregister_thread();
-        })?;
+        })?);
 
-        Ok(PoolMember {
-            api_tx,
-            scene_tx,
-            lp_scene_tx,
-        })
+        Ok((
+            PoolMember {
+                api_tx,
+                scene_tx,
+                lp_scene_tx,
+            },
+            handles,
+        ))
     }
 }
 
@@ -219,8 +234,24 @@ impl Drop for RenderBackendPool {
         // one was spawned). SB forwards `SceneBuilderResult::ShutDown` back
         // to RB, RB drains its api channel and exits, threads unwind, and
         // every receiver closes cleanly.
-        for m in &self.members {
+        let members = mem::take(&mut self.members);
+        for m in &members {
             let _ = m.lp_scene_tx.send(SceneBuilderRequest::ShutDown(None));
+        }
+
+        // Drop the pool's own channel clones *before* joining below. The
+        // `SceneBuilderResult::ShutDown` above is consumed by the render
+        // backend's main loop, so its drain loop can only end when every
+        // `api_tx` clone is gone and `recv()` fails. Holding on to the
+        // members while joining deadlocks.
+        drop(members);
+
+        // Wait for the threads to exit. They register themselves with the
+        // embedder's profiler, which in Gecko lazily creates an nsThread
+        // wrapper that is only released once the thread exits, so a thread
+        // still winding down at process shutdown is reported as a leak.
+        for handle in mem::take(&mut self.handles) {
+            let _ = handle.join();
         }
     }
 }
