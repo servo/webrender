@@ -1453,7 +1453,17 @@ pub struct ClipChainInstance {
     pub clips_range: ClipNodeRange,
     // Combined clip rect for clips that are in the
     // same coordinate system as the primitive.
+    //
+    // Does not include the primitive's own extent, so callers drawing something
+    // whose extent is not the primitive's rect (a drop shadow, a border segment,
+    // box shadow's re-derived rect) combine this with their own extent instead
+    // of using `local_coverage_rect`.
     pub local_clip_rect: LayoutRect,
+    // The primitive's coverage rect: `local_clip_rect` intersected with the
+    // primitive's own extent. The only rect that bounds where the primitive
+    // covers pixels; the rect that situates its pattern contributes nothing to
+    // it beyond that extent.
+    pub local_coverage_rect: LayoutRect,
     pub has_non_local_clips: bool,
     // If true, this clip chain requires allocation
     // of a clip mask.
@@ -1473,6 +1483,7 @@ impl ClipChainInstance {
                 count: 0,
             },
             local_clip_rect: LayoutRect::zero(),
+            local_coverage_rect: LayoutRect::zero(),
             has_non_local_clips: false,
             needs_mask: false,
             pic_coverage_rect: PictureRect::zero(),
@@ -1775,6 +1786,7 @@ impl ClipStore {
             clips_range,
             has_non_local_clips,
             local_clip_rect,
+            local_coverage_rect: local_bounding_rect,
             pic_coverage_rect,
             pic_spatial_node_index: prim_to_pic_mapper.ref_spatial_node_index,
             needs_mask,
