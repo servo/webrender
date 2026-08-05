@@ -138,6 +138,16 @@ pub trait MatrixHelpers<Src, Dst> {
     /// device rect at all, and a constant `w != 1` would need the perspective
     /// divide that mapping through `inv_m` skips.
     fn is_2d_on_z_plane(&self) -> bool;
+    /// Scale factors for content that is coplanar in the source space (z=0),
+    /// which is the case for the contents of a picture surface. Returns `None`
+    /// if the perspective divide varies across that plane, where no single
+    /// scale factor is correct.
+    ///
+    /// Much weaker than `is_2d_on_z_plane`: this only asks how the plane is
+    /// mapped, not that mapping it back through `inverse()` agrees, so a
+    /// constant `w != 1` is fine (it divides out) and the `z` terms don't
+    /// matter at all.
+    fn coplanar_scale_factors(&self) -> Option<(f32, f32)>;
     fn has_2d_inverse(&self) -> bool;
     /// Check if the matrix post-scaling on either the X or Y axes could cause geometry
     /// transformed by this matrix to have scaling exceeding the supplied limit.
@@ -218,6 +228,25 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for Transform3D<f32, Src, Dst> {
                     self.m43.abs() > NEARLY_ZERO;
 
         !z_in || !z_out
+    }
+
+    fn coplanar_scale_factors(&self) -> Option<(f32, f32)> {
+        // `w` varies across the z=0 plane: a true keystone, with no single scale.
+        if self.m14.abs() > NEARLY_ZERO ||
+           self.m24.abs() > NEARLY_ZERO {
+            return None;
+        }
+
+        // `w` is constant over that plane, so the mapping is affine with its
+        // 2d part divided through by `m44`. A non-positive `w` means the plane
+        // is degenerate or behind the eye.
+        if self.m44 < NEARLY_ZERO {
+            return None;
+        }
+
+        let (major, minor) = scale_factors(self);
+
+        Some((major / self.m44, minor / self.m44))
     }
 
     fn has_2d_inverse(&self) -> bool {

@@ -572,14 +572,6 @@ impl<Src, Dst> CoordinateSpaceMapping<Src, Dst> {
         }
     }
 
-    pub fn is_perspective(&self) -> bool {
-        match *self {
-            CoordinateSpaceMapping::Local |
-            CoordinateSpaceMapping::ScaleOffset(_) => false,
-            CoordinateSpaceMapping::Transform(ref transform) => transform.has_perspective_component(),
-        }
-    }
-
     pub fn is_2d_axis_aligned(&self) -> bool {
         match *self {
             CoordinateSpaceMapping::Local |
@@ -601,6 +593,14 @@ impl<Src, Dst> CoordinateSpaceMapping<Src, Dst> {
             CoordinateSpaceMapping::Local => (1.0, 1.0),
             CoordinateSpaceMapping::ScaleOffset(ref scale_offset) => (scale_offset.scale.x.abs(), scale_offset.scale.y.abs()),
             CoordinateSpaceMapping::Transform(ref transform) => scale_factors(transform),
+        }
+    }
+
+    pub fn coplanar_scale_factors(&self) -> Option<(f32, f32)> {
+        match *self {
+            CoordinateSpaceMapping::Local => Some((1.0, 1.0)),
+            CoordinateSpaceMapping::ScaleOffset(ref scale_offset) => Some((scale_offset.scale.x.abs(), scale_offset.scale.y.abs())),
+            CoordinateSpaceMapping::Transform(ref transform) => transform.coplanar_scale_factors(),
         }
     }
 

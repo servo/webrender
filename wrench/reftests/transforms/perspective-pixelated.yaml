@@ -1,0 +1,17 @@
+# A perspective surface whose content is coplanar is mapped affinely, so it must be
+# rasterized at the scale its content is actually drawn at. Rasterizing at the parent
+# scale and bilinear-upscaling loses the nearest-neighbour sampling of `pixelated`.
+---
+root:
+  items:
+    - type: "stacking-context"
+      perspective: 1000
+      transform-style: preserve-3d
+      items:
+        - type: "stacking-context"
+          transform-origin: 0 0
+          transform: scale(40)
+          items:
+            - image: checkerboard(0, 1, 1, 8, 8)
+              bounds: [0, 0, 8, 8]
+              rendering: pixelated

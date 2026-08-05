@@ -57,6 +57,10 @@ skip_on(android) == raster-root-scaling-2.yaml raster-root-scaling-2-ref.yaml
 != non-inversible-world-rect.yaml blank.yaml
 scale(*) == nested-local-scale.yaml nested-local-scale-ref.yaml
 platform(linux,mac) fuzzy(1,25) == perspective-surface-scale.yaml perspective-surface-scale.png
+# Only integer scales: at a fractional scale the surface raster grid and the
+# directly-drawn reference land on different sub-pixel phases, so the nearest
+# neighbour sample boundaries differ by a pixel along each swatch edge.
+scale(1.0, 2.0) == perspective-pixelated.yaml perspective-pixelated-ref.yaml
 fuzzy(1,8762) == computed-rotation-yflip.yaml computed-rotation-yflip.png
 fuzzy(5,100) fuzzy-if(platform(win),1,201) == corner-scale.yaml corner-scale-2.yaml
 # Run the scaled version only on linux to avoid complicated fuzzy annotations.

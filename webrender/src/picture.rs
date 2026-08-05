@@ -1170,17 +1170,24 @@ impl PictureInstance {
                                 parent_surface.surface_spatial_node_index,
                             );
 
-                        // Since we can't determine reasonable scale factors for transforms
-                        // with perspective, just use a scale of (1,1) for now, which is
-                        // what Gecko does when it choosed to supplies a scale factor anyway.
-                        // In future, we might be able to improve the quality here by taking
-                        // into account the screen rect after clipping, but for now this gives
-                        // better results than just taking the matrix scale factors.
-                        let scale_factors = if local_to_surface.is_perspective() {
-                            (1.0, 1.0)
-                        } else {
-                            local_to_surface.scale_factors()
-                        };
+                        // The contents of this surface are coplanar, so a perspective
+                        // transform whose only perspective terms are m34/m44 still maps
+                        // them with a constant w, and exact scale factors exist. Only a
+                        // true keystone (m14/m24 non-zero) has no single reasonable
+                        // scale; there, use (1,1), which is what Gecko does when it
+                        // chooses to supply a scale factor anyway. In future, we might be
+                        // able to improve the quality for those by taking into account
+                        // the screen rect after clipping, but for now this gives better
+                        // results than just taking the matrix scale factors.
+                        //
+                        // Only ever scale up: a perspective surface that is minified
+                        // gains nothing from rasterizing smaller, and the foreshortening
+                        // at the perspective origin makes the exact scale marginally less
+                        // than one for content that is essentially flat, which would
+                        // resample it for no reason.
+                        let scale_factors = local_to_surface
+                            .coplanar_scale_factors()
+                            .map_or((1.0, 1.0), |(x, y)| (x.max(1.0), y.max(1.0)));
 
                         let scale_factors = (
                             scale_factors.0 * parent_surface.world_scale_factors.0,
