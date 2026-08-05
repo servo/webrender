@@ -1,0 +1,19 @@
+---
+# Nine-patch border widths larger than the border box, so the segment rects
+# `NinePatchDescriptor::for_each_segment` produces extend past it. Their
+# coverage must still be confined to the box. See border-widths-exceed-box.yaml.
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 200, 200]
+      color: white
+    - type: border
+      bounds: [90, 90, 20, 20]
+      width: 100
+      border-type: image
+      image-source: "border-image-src.png"
+      image-width: 96
+      image-height: 96
+      slice: [ 32, 32, 32, 32 ]
+      repeat-vertical: stretch
+      repeat-horizontal: stretch

@@ -1,0 +1,20 @@
+---
+# Border widths larger than the border box. The segment rects that
+# `create_border_segments` produces for the corners are built from the raw
+# widths, so they extend well past the box; the segments' coverage must still be
+# confined to it. Nothing but WebRender's own API can express this (a CSS border
+# box always contains its widths), so it is easy to regress unnoticed.
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 200, 200]
+      color: white
+    - type: border
+      bounds: [90, 90, 20, 20]
+      # [top, left, bottom, right]. Asymmetric on purpose: with equal widths the
+      # reduced `non_overlapping_widths` still tile the box, so the corner clip
+      # rects hide the overflow.
+      width: [100, 100, 0, 0]
+      border-type: normal
+      style: solid
+      color: blue

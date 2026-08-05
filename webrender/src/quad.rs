@@ -609,11 +609,9 @@ pub fn prepare_border_nine_patch(
             &img_pattern,
             &QuadDescriptor {
                 local_rect: *dst_rect,
-                // Each segment covers its own destination rect, clipped by the
-                // chain. Deliberately not `desc.bounds`: that would also clip
-                // the segments to the primitive's rect, which is a change in
-                // behavior for nine patches whose segments escape it.
-                bounds: clip_chain.local_clip_rect.intersection_unchecked(dst_rect),
+                // Each segment covers its own destination rect, within the
+                // primitive's bounds.
+                bounds: desc.bounds.intersection_unchecked(dst_rect),
                 aligned_aa_edges: desc.aligned_aa_edges & side,
                 transformed_aa_edges: desc.transformed_aa_edges & side,
             },

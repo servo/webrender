@@ -8,6 +8,8 @@ scale(*) == border-none.yaml border-none-ref.yaml
 fuzzy(128,69) fuzzy-if(platform(swgl),2,118) == border-overlapping-corner.yaml border-overlapping-corner-ref.yaml
 scale(*) == border-overlapping-edge.yaml border-overlapping-edge-ref.yaml
 fuzzy(20,100) == border-fractional-overlap.yaml border-fractional-overlap-ref.yaml
+== border-widths-exceed-box.yaml border-widths-exceed-box-ref.yaml
+== border-image-widths-exceed-box.yaml border-image-widths-exceed-box-ref.yaml
 scale(*) == long-solid-edge-with-rounded-corner.yaml long-solid-edge-with-rounded-corner-ref.yaml
 scale(*) == long-edge-all-styles.yaml long-edge-all-styles-ref.yaml
 scale(*) == border-invisible.yaml border-invisible-ref.yaml

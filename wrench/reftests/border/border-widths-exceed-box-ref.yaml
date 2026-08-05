@@ -1,0 +1,11 @@
+---
+# The top and left segments of the test's border, confined to the border box,
+# fill it completely with the border color.
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 200, 200]
+      color: white
+    - type: rect
+      bounds: [90, 90, 20, 20]
+      color: blue

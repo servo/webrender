@@ -67,7 +67,7 @@ pub fn prepare_border_image_nine_patch(
         // For centered (Repeat) tiling we expand the rect leftwards/upwards
         // so a partial tile spans the gap; clip back to the original dst_rect
         // so the fill doesn't bleed into the surrounding edges and corners.
-        let segment_bounds = clip_chain.local_clip_rect
+        let segment_bounds = desc.bounds
             .intersection_unchecked(dst_rect)
             .intersection_unchecked(&segment_local_rect);
 

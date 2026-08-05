@@ -127,8 +127,7 @@ impl NormalBorderData {
 
         for segment in &segments {
             let segment_bounds = |extent: &LayoutRect| {
-                let mut bounds = clip_chain.local_clip_rect
-                    .intersection_unchecked(extent);
+                let mut bounds = desc.bounds.intersection_unchecked(extent);
                 if let Some(clip_rect) = segment.clip_rect {
                     bounds = bounds.intersection_unchecked(&clip_rect);
                 }
