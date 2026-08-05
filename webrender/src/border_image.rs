@@ -67,15 +67,15 @@ pub fn prepare_border_image_nine_patch(
         // For centered (Repeat) tiling we expand the rect leftwards/upwards
         // so a partial tile spans the gap; clip back to the original dst_rect
         // so the fill doesn't bleed into the surrounding edges and corners.
-        let local_clip_rect = clip_chain.local_clip_rect
-            .intersection(dst_rect)
-            .unwrap_or(LayoutRect::zero());
+        let segment_bounds = clip_chain.local_clip_rect
+            .intersection_unchecked(dst_rect)
+            .intersection_unchecked(&segment_local_rect);
 
         prepare_repeatable_quad(
             &segment_pattern,
             &QuadDescriptor {
                 local_rect: segment_local_rect,
-                local_clip_rect,
+                bounds: segment_bounds,
                 aligned_aa_edges: desc.aligned_aa_edges & side,
                 transformed_aa_edges: desc.transformed_aa_edges & side,
             },

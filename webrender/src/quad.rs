@@ -59,8 +59,8 @@ pub struct QuadCacheKey {
 pub struct QuadDescriptor {
     /// The primitive's rect in its local space.
     pub local_rect: LayoutRect,
-    /// Clips the primitive, in the same local space as `local_rect`.
-    pub local_clip_rect: LayoutRect,
+    /// The coverage rect in local space.
+    pub bounds: LayoutRect,
     /// Which edges are anti-aliased if the primitive is axis-aligned.
     ///
     /// Typically no edges for CSS primitives and all edges for SVG primitives:
@@ -318,14 +318,15 @@ pub fn prepare_repeatable_quad(
         // The stretch size may be larger than the local rect's size which
         // should result in some stretching (without repetitions). However,
         // the non-repeated quad code paths don't take a stretch_size, so
-        // we bake it into the local rect and make sure that the local clip
-        // prevents the primitive from overflowing its initial bounds.
+        // we bake it into the local rect. The bounds are unchanged: the
+        // stretched rect only situates the pattern, and since there are no
+        // repetitions it contains the original rect, so it cannot shrink the
+        // coverage either.
         let stretched_desc = QuadDescriptor {
             local_rect: LayoutRect::from_origin_and_size(
                 desc.local_rect.min,
                 stretch_size,
             ),
-            local_clip_rect: desc.local_clip_rect.intersection_unchecked(&desc.local_rect),
             ..*desc
         };
 
@@ -454,21 +455,17 @@ pub fn prepare_repeatable_quad(
         frame_state.current_dirty_region().visibility_spatial_node,
         transform.prim_spatial_node_index(),
         frame_context.spatial_tree,
-    ).intersection_unchecked(&desc.local_clip_rect);
+    ).intersection_unchecked(&desc.bounds);
 
     let stride = stretch_size + tile_spacing;
     let repetitions = crate::image_tiling::repetitions(&desc.local_rect, &visible_rect, stride);
     for tile in repetitions {
         let tile_rect = LayoutRect::from_origin_and_size(tile.origin, stretch_size);
-        // The last tile of each row/column typically extends past the primitive
-        // rect, so clip against it in addition to the local clip rect. We can't
-        // rely on the local clip rect bounding the primitive: some primitives
-        // (radial gradients, see `optimize_radial_gradient`) shrink their local
-        // rect without shrinking the clip rect.
-        let clip_rect = desc.local_clip_rect
-            .intersection_unchecked(&tile_rect)
-            .intersection_unchecked(&desc.local_rect);
-        if clip_rect.is_empty() {
+        // The last tile of each row/column typically extends past the
+        // primitive, so the tile rect is part of each tile's coverage on top of
+        // the primitive's own bounds.
+        let tile_bounds = desc.bounds.intersection_unchecked(&tile_rect);
+        if tile_bounds.is_empty() {
             continue;
         }
         let pattern_offset = tile.origin - desc.local_rect.min;
@@ -487,7 +484,7 @@ pub fn prepare_repeatable_quad(
             &pattern,
             &QuadDescriptor {
                 local_rect: tile_rect,
-                local_clip_rect: clip_rect,
+                bounds: tile_bounds,
                 aligned_aa_edges: desc.aligned_aa_edges & tile.edge_flags,
                 transformed_aa_edges: desc.transformed_aa_edges & tile.edge_flags,
             },
@@ -612,7 +609,11 @@ pub fn prepare_border_nine_patch(
             &img_pattern,
             &QuadDescriptor {
                 local_rect: *dst_rect,
-                local_clip_rect: desc.local_clip_rect,
+                // Each segment covers its own destination rect, clipped by the
+                // chain. Deliberately not `desc.bounds`: that would also clip
+                // the segments to the primitive's rect, which is a change in
+                // behavior for nine patches whose segments escape it.
+                bounds: clip_chain.local_clip_rect.intersection_unchecked(dst_rect),
                 aligned_aa_edges: desc.aligned_aa_edges & side,
                 transformed_aa_edges: desc.transformed_aa_edges & side,
             },
@@ -687,7 +688,7 @@ fn prepare_quad_impl(
         desc.transformed_aa_edges
     };
 
-    let local_bounds = desc.local_clip_rect
+    let local_bounds = desc.bounds
         .intersection_unchecked(&desc.local_rect)
         .intersection_unchecked(&clip_chain.local_clip_rect);
     let local_pattern_rect = desc.local_rect;

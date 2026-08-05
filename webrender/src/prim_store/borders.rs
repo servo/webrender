@@ -126,11 +126,13 @@ impl NormalBorderData {
         scale.0 = scale.0.min(max_scale.0);
 
         for segment in &segments {
-            let local_clip_rect = match segment.clip_rect {
-                Some(clip_rect) => desc.local_clip_rect
-                    .intersection(&clip_rect)
-                    .unwrap_or(LayoutRect::zero()),
-                None => desc.local_clip_rect,
+            let segment_bounds = |extent: &LayoutRect| {
+                let mut bounds = clip_chain.local_clip_rect
+                    .intersection_unchecked(extent);
+                if let Some(clip_rect) = segment.clip_rect {
+                    bounds = bounds.intersection_unchecked(&clip_rect);
+                }
+                bounds
             };
 
             if let Some(color) = &segment.is_solid {
@@ -138,7 +140,7 @@ impl NormalBorderData {
                     color,
                     &QuadDescriptor {
                         local_rect: segment.local_rect,
-                        local_clip_rect,
+                        bounds: segment_bounds(&segment.local_rect),
                         aligned_aa_edges: desc.aligned_aa_edges & segment.edge_flags,
                         transformed_aa_edges: desc.transformed_aa_edges & segment.edge_flags,
                     },
@@ -245,7 +247,7 @@ impl NormalBorderData {
                 &pattern,
                 &QuadDescriptor {
                     local_rect: segment_local_rect,
-                    local_clip_rect,
+                    bounds: segment_bounds(&segment_local_rect),
                     aligned_aa_edges: desc.aligned_aa_edges & segment.edge_flags,
                     transformed_aa_edges: desc.transformed_aa_edges & segment.edge_flags,
                 },

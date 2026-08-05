@@ -410,7 +410,7 @@ fn prepare_prim_for_render(
                     &pattern,
                     &QuadDescriptor {
                         local_rect: prim_info.snapped_local_rect,
-                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        bounds: prim_info.clip_chain.local_coverage_rect,
                         aligned_aa_edges: prim_data.common.aligned_aa_edges,
                         transformed_aa_edges: prim_data.common.transformed_aa_edges,
                     },
@@ -432,7 +432,7 @@ fn prepare_prim_for_render(
                     &line_dec_data.color,
                     &QuadDescriptor {
                         local_rect: prim_info.snapped_local_rect,
-                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        bounds: prim_info.clip_chain.local_coverage_rect,
                         aligned_aa_edges: prim_data.common.aligned_aa_edges,
                         transformed_aa_edges: prim_data.common.transformed_aa_edges,
                     },
@@ -529,7 +529,7 @@ fn prepare_prim_for_render(
             border_data.update(
                 &QuadDescriptor {
                     local_rect: prim_info.snapped_local_rect,
-                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    bounds: prim_info.clip_chain.local_coverage_rect,
                     aligned_aa_edges,
                     transformed_aa_edges,
                 },
@@ -573,7 +573,7 @@ fn prepare_prim_for_render(
                 size,
                 &QuadDescriptor {
                     local_rect: prim_rect,
-                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    bounds: prim_info.clip_chain.local_coverage_rect,
                     aligned_aa_edges,
                     transformed_aa_edges,
                 },
@@ -601,7 +601,7 @@ fn prepare_prim_for_render(
                 &color,
                 &QuadDescriptor {
                     local_rect: prim_rect,
-                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    bounds: prim_info.clip_chain.local_coverage_rect,
                     aligned_aa_edges: prim_data.common.aligned_aa_edges,
                     transformed_aa_edges: prim_data.common.transformed_aa_edges,
                 },
@@ -630,7 +630,7 @@ fn prepare_prim_for_render(
                     &Cutout,
                     &QuadDescriptor {
                         local_rect: prim_info.snapped_local_rect,
-                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        bounds: prim_info.clip_chain.local_coverage_rect,
                         aligned_aa_edges: common_data.aligned_aa_edges,
                         transformed_aa_edges: common_data.transformed_aa_edges,
                     },
@@ -667,7 +667,7 @@ fn prepare_prim_for_render(
                 &pattern,
                 &QuadDescriptor {
                     local_rect: prim_info.snapped_local_rect,
-                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    bounds: prim_info.clip_chain.local_coverage_rect,
                     aligned_aa_edges: common_data.aligned_aa_edges,
                     transformed_aa_edges: common_data.transformed_aa_edges,
                 },
@@ -699,7 +699,7 @@ fn prepare_prim_for_render(
                     &Cutout,
                     &QuadDescriptor {
                         local_rect: prim_rect,
-                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        bounds: prim_info.clip_chain.local_coverage_rect,
                         aligned_aa_edges: common_data.aligned_aa_edges,
                         transformed_aa_edges: common_data.transformed_aa_edges,
                     },
@@ -750,7 +750,7 @@ fn prepare_prim_for_render(
                     prim_data,
                     &QuadDescriptor {
                         local_rect: prim_rect,
-                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        bounds: prim_info.clip_chain.local_coverage_rect,
                         aligned_aa_edges: prim_data.common.aligned_aa_edges,
                         transformed_aa_edges: prim_data.common.transformed_aa_edges,
                     },
@@ -817,7 +817,7 @@ fn prepare_prim_for_render(
                             &pattern,
                             &QuadDescriptor {
                                 local_rect: *seg_rect,
-                                local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                                bounds: *seg_rect,
                                 aligned_aa_edges: EdgeMask::empty(),
                                 transformed_aa_edges: edge_aa_mask,
                             },
@@ -870,7 +870,7 @@ fn prepare_prim_for_render(
                 prim_data,
                 &QuadDescriptor {
                     local_rect,
-                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    bounds: prim_info.clip_chain.local_coverage_rect,
                     aligned_aa_edges: prim_data.common.aligned_aa_edges,
                     transformed_aa_edges: prim_data.common.transformed_aa_edges,
                 },
@@ -905,7 +905,7 @@ fn prepare_prim_for_render(
                     prim_data,
                     &QuadDescriptor {
                         local_rect,
-                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        bounds: prim_info.clip_chain.local_coverage_rect,
                         aligned_aa_edges: prim_data.common.aligned_aa_edges,
                         transformed_aa_edges: prim_data.common.transformed_aa_edges,
                     },
@@ -927,7 +927,7 @@ fn prepare_prim_for_render(
                 prim_data,
                 &QuadDescriptor {
                     local_rect,
-                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    bounds: prim_info.clip_chain.local_coverage_rect,
                     aligned_aa_edges: prim_data.common.aligned_aa_edges,
                     transformed_aa_edges: prim_data.common.transformed_aa_edges,
                 },
@@ -961,7 +961,7 @@ fn prepare_prim_for_render(
                     prim_data,
                     &QuadDescriptor {
                         local_rect: prim_rect,
-                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        bounds: prim_info.clip_chain.local_coverage_rect,
                         aligned_aa_edges: prim_data.common.aligned_aa_edges,
                         transformed_aa_edges: prim_data.common.transformed_aa_edges,
                     },
@@ -1017,7 +1017,7 @@ fn prepare_prim_for_render(
                 prim_data,
                 &QuadDescriptor {
                     local_rect,
-                    local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                    bounds: prim_info.clip_chain.local_coverage_rect,
                     aligned_aa_edges: prim_data.common.aligned_aa_edges,
                     transformed_aa_edges: prim_data.common.transformed_aa_edges,
                 },
@@ -1178,7 +1178,7 @@ fn prepare_prim_for_render(
                         &pattern,
                         &QuadDescriptor {
                             local_rect: prim_info.snapped_local_rect,
-                            local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                            bounds: prim_info.clip_chain.local_coverage_rect,
                             aligned_aa_edges,
                             transformed_aa_edges,
                         },

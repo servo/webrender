@@ -521,7 +521,10 @@ pub fn prepare_box_shadow(
         &pattern,
         &QuadDescriptor {
             local_rect: prim_rect,
-            local_clip_rect: clip_chain.local_clip_rect,
+            // `prim_rect` is re-derived here by snapping the element rect and
+            // re-inflating, so it differs from the prim rect the clip chain was
+            // built with; `clip_chain.local_coverage_rect` does not apply.
+            bounds: clip_chain.local_clip_rect.intersection_unchecked(&prim_rect),
             aligned_aa_edges: common_data.aligned_aa_edges,
             transformed_aa_edges: common_data.transformed_aa_edges,
         },
