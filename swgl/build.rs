@@ -69,7 +69,7 @@ fn translate_shader(
     shader_dir: &str,
     suppressed_env_vars: &mut Option<Vec<EnvVarGuard>>,
 ) {
-    let mut imported = String::from("#define SWGL 1\n#define __VERSION__ 150\n");
+    let mut imported = String::from("#define SWGL 1\n#define __SWGL_GLSL_VERSION__ 150\n");
     let _ = writeln!(
         imported,
         "#define WR_MAX_VERTEX_TEXTURE_WIDTH {}U",

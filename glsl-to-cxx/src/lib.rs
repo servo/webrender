@@ -3399,8 +3399,12 @@ pub fn show_preprocessor_else(state: &OutputState) {
     state.write("#else\n");
 }
 
+fn replace_macros(condition: &str) -> String {
+    condition.replace("__VERSION__", "__SWGL_GLSL_VERSION__")
+}
+
 pub fn show_preprocessor_elseif(state: &OutputState, pei: &syntax::PreprocessorElseIf) {
-    let _ = write!(state, "#elseif {}\n", pei.condition);
+    let _ = write!(state, "#elseif {}\n", replace_macros(&pei.condition));
 }
 
 pub fn show_preprocessor_error(state: &OutputState, pe: &syntax::PreprocessorError) {
@@ -3412,7 +3416,7 @@ pub fn show_preprocessor_endif(state: &OutputState) {
 }
 
 pub fn show_preprocessor_if(state: &OutputState, pi: &syntax::PreprocessorIf) {
-    let _ = write!(state, "#if {}\n", pi.condition);
+    let _ = write!(state, "#if {}\n", replace_macros(&pi.condition));
 }
 
 pub fn show_preprocessor_ifdef(state: &OutputState, pid: &syntax::PreprocessorIfDef) {
