@@ -2749,7 +2749,7 @@ pub fn prepare_picture_primitive(
             quad::prepare_quad(
                 &shadow_pattern,
                 &QuadDescriptor {
-                    local_rect: shadow_rect,
+                    pattern_rect: shadow_rect,
                     bounds: local_clip_rect.intersection_unchecked(&shadow_rect),
                     aligned_aa_edges: EdgeMask::empty(),
                     transformed_aa_edges: EdgeMask::all(),
@@ -2820,7 +2820,7 @@ pub fn prepare_picture_primitive(
     quad::prepare_quad(
         pattern,
         &QuadDescriptor {
-            local_rect: pic_local_rect,
+            pattern_rect: pic_local_rect,
             bounds: local_clip_rect.intersection_unchecked(&pic_local_rect),
             aligned_aa_edges: EdgeMask::empty(),
             transformed_aa_edges: EdgeMask::all(),

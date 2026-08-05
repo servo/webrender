@@ -110,7 +110,7 @@ impl NormalBorderData {
         // lower resolution and stretches them: the right shape, but blurrier.
         let mut segments: SmallVec<[NormalBorderSegment; 8]> = SmallVec::new();
         crate::border::create_border_segments(
-            desc.local_rect,
+            desc.pattern_rect,
             &self.border,
             &widths,
             &mut |segment| segments.push(segment.clone()),
@@ -138,7 +138,7 @@ impl NormalBorderData {
                 quad::prepare_quad(
                     color,
                     &QuadDescriptor {
-                        local_rect: segment.local_rect,
+                        pattern_rect: segment.local_rect,
                         bounds: segment_bounds(&segment.local_rect),
                         aligned_aa_edges: desc.aligned_aa_edges & segment.edge_flags,
                         transformed_aa_edges: desc.transformed_aa_edges & segment.edge_flags,
@@ -245,7 +245,7 @@ impl NormalBorderData {
             quad::prepare_repeatable_quad(
                 &pattern,
                 &QuadDescriptor {
-                    local_rect: segment_local_rect,
+                    pattern_rect: segment_local_rect,
                     bounds: segment_bounds(&segment_local_rect),
                     aligned_aa_edges: desc.aligned_aa_edges & segment.edge_flags,
                     transformed_aa_edges: desc.transformed_aa_edges & segment.edge_flags,

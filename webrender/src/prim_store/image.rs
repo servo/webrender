@@ -250,7 +250,7 @@ pub fn prepare_image_quads(
             quad::prepare_repeatable_quad(
                 &image_pattern,
                 &QuadDescriptor {
-                    local_rect,
+                    pattern_rect: local_rect,
                     bounds: tight_clip_rect.intersection_unchecked(&local_rect),
                     aligned_aa_edges: common_data.aligned_aa_edges,
                     transformed_aa_edges: common_data.transformed_aa_edges,
@@ -334,7 +334,7 @@ pub fn prepare_image_quads(
                     quad::prepare_quad(
                         &image_pattern,
                         &QuadDescriptor {
-                            local_rect: tile.rect,
+                            pattern_rect: tile.rect,
                             bounds: tight_clip_rect.intersection_unchecked(&tile.rect),
                             aligned_aa_edges,
                             transformed_aa_edges,

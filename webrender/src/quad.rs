@@ -57,8 +57,11 @@ pub struct QuadCacheKey {
 /// The geometry and anti-aliasing parameters that most quad primitives need.
 #[derive(Copy, Clone, Debug)]
 pub struct QuadDescriptor {
-    /// The primitive's rect in its local space.
-    pub local_rect: LayoutRect,
+    /// Situates the pattern (gradient line, image UV space, box shadow geometry,
+    /// ...) in the primitive's local space. Contributes nothing to coverage, and
+    /// is unconstrained relative to `bounds`: it can be larger, smaller or
+    /// disjoint.
+    pub pattern_rect: LayoutRect,
     /// The coverage rect in local space.
     pub bounds: LayoutRect,
     /// Which edges are anti-aliased if the primitive is axis-aligned.
@@ -218,7 +221,7 @@ pub fn prepare_quad(
 ) {
     let pattern_ctx = PatternBuilderContext {
         spatial_tree: frame_context.spatial_tree,
-        prim_origin: desc.local_rect.min,
+        prim_origin: desc.pattern_rect.min,
     };
 
     let pattern = pattern_builder.build(
@@ -282,7 +285,7 @@ pub fn prepare_repeatable_quad(
 ) {
     let pattern_ctx = PatternBuilderContext {
         spatial_tree: frame_context.spatial_tree,
-        prim_origin: desc.local_rect.min,
+        prim_origin: desc.pattern_rect.min,
     };
 
     let pattern = pattern_builder.build(
@@ -311,8 +314,8 @@ pub fn prepare_repeatable_quad(
         ),
     };
 
-    let needs_repetition = stretch_size.width < desc.local_rect.width()
-        || stretch_size.height < desc.local_rect.height();
+    let needs_repetition = stretch_size.width < desc.pattern_rect.width()
+        || stretch_size.height < desc.pattern_rect.height();
 
     if !needs_repetition {
         // The stretch size may be larger than the local rect's size which
@@ -323,8 +326,8 @@ pub fn prepare_repeatable_quad(
         // repetitions it contains the original rect, so it cannot shrink the
         // coverage either.
         let stretched_desc = QuadDescriptor {
-            local_rect: LayoutRect::from_origin_and_size(
-                desc.local_rect.min,
+            pattern_rect: LayoutRect::from_origin_and_size(
+                desc.pattern_rect.min,
                 stretch_size,
             ),
             ..*desc
@@ -351,7 +354,7 @@ pub fn prepare_repeatable_quad(
     }
 
     let pattern_rect = LayoutRect::from_origin_and_size(
-        desc.local_rect.min,
+        desc.pattern_rect.min,
         stretch_size,
     );
 
@@ -365,7 +368,7 @@ pub fn prepare_repeatable_quad(
 
     // If the number of repetitions is high, we are better off using the repeat shader,
     // but we want to avoid the extra render task if it is large.
-    let num_repetitions = desc.local_rect.area() / stretch_size.area();
+    let num_repetitions = desc.pattern_rect.area() / stretch_size.area();
     let repeat_using_a_shader = src_task_id.is_some()
         || (num_repetitions > 16.0 && surface_rect.width() < 1024.0 && surface_rect.height() < 1024.0)
         || (num_repetitions > 64.0 && surface_rect.area() < 1024.0 * 1024.0);
@@ -458,7 +461,7 @@ pub fn prepare_repeatable_quad(
     ).intersection_unchecked(&desc.bounds);
 
     let stride = stretch_size + tile_spacing;
-    let repetitions = crate::image_tiling::repetitions(&desc.local_rect, &visible_rect, stride);
+    let repetitions = crate::image_tiling::repetitions(&desc.pattern_rect, &visible_rect, stride);
     for tile in repetitions {
         let tile_rect = LayoutRect::from_origin_and_size(tile.origin, stretch_size);
         // The last tile of each row/column typically extends past the
@@ -468,7 +471,7 @@ pub fn prepare_repeatable_quad(
         if tile_bounds.is_empty() {
             continue;
         }
-        let pattern_offset = tile.origin - desc.local_rect.min;
+        let pattern_offset = tile.origin - desc.pattern_rect.min;
         let pattern = pattern_builder.build(
             None,
             pattern_offset,
@@ -483,7 +486,7 @@ pub fn prepare_repeatable_quad(
             strategy,
             &pattern,
             &QuadDescriptor {
-                local_rect: tile_rect,
+                pattern_rect: tile_rect,
                 bounds: tile_bounds,
                 aligned_aa_edges: desc.aligned_aa_edges & tile.edge_flags,
                 transformed_aa_edges: desc.transformed_aa_edges & tile.edge_flags,
@@ -523,7 +526,7 @@ pub fn prepare_border_nine_patch(
 ) {
     let pattern_ctx = PatternBuilderContext {
         spatial_tree: frame_context.spatial_tree,
-        prim_origin: desc.local_rect.min,
+        prim_origin: desc.pattern_rect.min,
     };
 
     let pattern = pattern_builder.build(
@@ -550,12 +553,12 @@ pub fn prepare_border_nine_patch(
     let scales = transform.scale_factors();
     let base_indirect_transform = ScaleOffset::from_scale(scales.into());
 
-    nine_patch.for_each_segment(&desc.local_rect, &mut|dst_rect, src_rect, side, _repeat_h, _repeat_v| {
+    nine_patch.for_each_segment(&desc.pattern_rect, &mut|dst_rect, src_rect, side, _repeat_h, _repeat_v| {
         // First find the sub-rect of the source pattern that this segment is using.
-        let min_x = desc.local_rect.min.x + stretch_size.width * src_rect.uv0.x;
-        let min_y = desc.local_rect.min.y + stretch_size.height * src_rect.uv0.y;
-        let max_x = desc.local_rect.min.x + stretch_size.width * src_rect.uv1.x;
-        let max_y = desc.local_rect.min.y + stretch_size.height * src_rect.uv1.y;
+        let min_x = desc.pattern_rect.min.x + stretch_size.width * src_rect.uv0.x;
+        let min_y = desc.pattern_rect.min.y + stretch_size.height * src_rect.uv0.y;
+        let max_x = desc.pattern_rect.min.x + stretch_size.width * src_rect.uv1.x;
+        let max_y = desc.pattern_rect.min.y + stretch_size.height * src_rect.uv1.y;
         let pattern_rect = LayoutRect {
             min: point2(min_x, min_y),
             max: point2(max_x, max_y),
@@ -608,7 +611,7 @@ pub fn prepare_border_nine_patch(
             strategy,
             &img_pattern,
             &QuadDescriptor {
-                local_rect: *dst_rect,
+                pattern_rect: *dst_rect,
                 // Each segment covers its own destination rect, within the
                 // primitive's bounds.
                 bounds: desc.bounds.intersection_unchecked(dst_rect),
@@ -688,7 +691,7 @@ fn prepare_quad_impl(
 
     let local_bounds = desc.bounds
         .intersection_unchecked(&clip_chain.local_clip_rect);
-    let local_pattern_rect = desc.local_rect;
+    let local_pattern_rect = desc.pattern_rect;
 
     // We round the coordinates of non-antialiased edges of the primitive.
     // This allows us to ensure that indirect axis-aligned primitives cover the render
@@ -1496,15 +1499,15 @@ fn get_prim_render_strategy(
 /// maximum size.
 /// Also ensure that near-zero size tasks do are at least
 fn adjust_indirect_pattern_resolution(
-    local_rect: &LayoutRect,
+    pattern_rect: &LayoutRect,
     max_device_size: f32,
     device_rect: &mut DeviceRect,
     indirect_transform: &mut ScaleOffset,
 ) {
     // This catches invalid cases such as NaNs or zeroes that would have caused us
     // to loop forever.
-    let valid = local_rect.width() > 0.0
-        && local_rect.height() > 0.0
+    let valid = pattern_rect.width() > 0.0
+        && pattern_rect.height() > 0.0
         && indirect_transform.scale.x != 0.0
         && indirect_transform.scale.y != 0.0;
 
@@ -1515,21 +1518,21 @@ fn adjust_indirect_pattern_resolution(
     // Down-scale until the render task fits in the provided maximum size.
     while device_rect.width() > max_device_size {
         indirect_transform.scale.x *= 0.5;
-        *device_rect = indirect_transform.map_rect(local_rect);
+        *device_rect = indirect_transform.map_rect(pattern_rect);
     }
     while device_rect.height() > max_device_size {
         indirect_transform.scale.y *= 0.5;
-        *device_rect = indirect_transform.map_rect(local_rect);
+        *device_rect = indirect_transform.map_rect(pattern_rect);
     }
 
     // Up-scale until the render task size rounds to at least one pixel.
     while device_rect.width() <= 0.5 {
         indirect_transform.scale.x *= 2.0;
-        *device_rect = indirect_transform.map_rect(local_rect);
+        *device_rect = indirect_transform.map_rect(pattern_rect);
     }
     while device_rect.height() <= 0.5 {
         indirect_transform.scale.y *= 2.0;
-        *device_rect = indirect_transform.map_rect(local_rect);
+        *device_rect = indirect_transform.map_rect(pattern_rect);
     }
 }
 

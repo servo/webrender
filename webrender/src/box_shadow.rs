@@ -520,7 +520,7 @@ pub fn prepare_box_shadow(
     quad::prepare_quad(
         &pattern,
         &QuadDescriptor {
-            local_rect: prim_rect,
+            pattern_rect: prim_rect,
             // `prim_rect` is re-derived here by snapping the element rect and
             // re-inflating, so it differs from the prim rect the clip chain was
             // built with; `clip_chain.local_coverage_rect` does not apply.
