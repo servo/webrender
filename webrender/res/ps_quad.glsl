@@ -373,11 +373,10 @@ void antialiasing_vertex(PrimitiveInfo prim) {
     // This does the setup that is required for init_tranform_vs.
 
     // The "transform bounds" define the edges along which anti-aliasing
-    // is applied in the fragment shader.
-    RectWithEndpoint xf_bounds = RectWithEndpoint(
-        max(prim.local_prim_rect.p0, prim.local_clip_rect.p0),
-        min(prim.local_prim_rect.p1, prim.local_clip_rect.p1)
-    );
+    // is applied in the fragment shader. `local_clip_rect` is the primitive's
+    // coverage rect, which is the only thing these edges depend on:
+    // `local_prim_rect` situates the pattern and must not affect coverage.
+    RectWithEndpoint xf_bounds = prim.local_clip_rect;
 
     // In order to prevent the edges with no anti-aliasing from getting
     // anti-aliased, we have to move the aa rect *away* from them.
