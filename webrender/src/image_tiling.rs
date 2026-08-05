@@ -76,50 +76,50 @@ impl Iterator for RepetitionIterator {
     }
 }
 
+/// Enumerate the repetitions of a pattern that cover `coverage_rect`.
 pub fn repetitions(
-    prim_rect: &LayoutRect,
-    visible_rect: &LayoutRect,
+    pattern_rect: &LayoutRect,
+    coverage_rect: &LayoutRect,
     stride: LayoutSize,
 ) -> RepetitionIterator {
-    let visible_rect = match prim_rect.intersection(&visible_rect) {
-        Some(rect) => rect,
-        None => {
-            return RepetitionIterator {
-                current_origin: LayoutPoint::zero(),
-                initial_origin: LayoutPoint::zero(),
-                current_x: 0,
-                current_y: 0,
-                x_count: 0,
-                y_count: 0,
-                stride,
-                row_flags: EdgeMask::empty(),
-            }
+    if coverage_rect.is_empty() {
+        return RepetitionIterator {
+            current_origin: LayoutPoint::zero(),
+            initial_origin: LayoutPoint::zero(),
+            current_x: 0,
+            current_y: 0,
+            x_count: 0,
+            y_count: 0,
+            stride,
+            row_flags: EdgeMask::empty(),
         }
-    };
+    }
 
     assert!(stride.width > 0.0);
     assert!(stride.height > 0.0);
 
-    let nx = if visible_rect.min.x > prim_rect.min.x {
-        f32::floor((visible_rect.min.x - prim_rect.min.x) / stride.width)
+    let nx = if coverage_rect.min.x > pattern_rect.min.x {
+        f32::floor((coverage_rect.min.x - pattern_rect.min.x) / stride.width)
     } else {
         0.0
     };
 
-    let ny = if visible_rect.min.y > prim_rect.min.y {
-        f32::floor((visible_rect.min.y - prim_rect.min.y) / stride.height)
+    let ny = if coverage_rect.min.y > pattern_rect.min.y {
+        f32::floor((coverage_rect.min.y - pattern_rect.min.y) / stride.height)
     } else {
         0.0
     };
 
-    let x0 = prim_rect.min.x + nx * stride.width;
-    let y0 = prim_rect.min.y + ny * stride.height;
+    let x0 = pattern_rect.min.x + nx * stride.width;
+    let y0 = pattern_rect.min.y + ny * stride.height;
 
-    let x_most = visible_rect.max.x;
-    let y_most = visible_rect.max.y;
+    let x_most = coverage_rect.max.x;
+    let y_most = coverage_rect.max.y;
 
-    let mut x_count = f32::ceil((x_most - x0) / stride.width);
-    let mut y_count = f32::ceil((y_most - y0) / stride.height);
+    // The coverage rect can lie entirely before the anchor, which yields a
+    // negative count.
+    let mut x_count = f32::ceil((x_most - x0) / stride.width).max(0.0);
+    let mut y_count = f32::ceil((y_most - y0) / stride.height).max(0.0);
 
     // Sanity-check that we don't have anything that may cause the iterator
     // to run indefinitely.

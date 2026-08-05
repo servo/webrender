@@ -287,7 +287,7 @@ pub fn prepare_image_quads(
 
             let repetitions = image_tiling::repetitions(
                 prim_rect,
-                &visible_rect,
+                &visible_rect.intersection_unchecked(&tight_clip_rect),
                 stride,
             );
 

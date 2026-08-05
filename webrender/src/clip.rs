@@ -1353,7 +1353,7 @@ impl ClipNodeInfo {
 
                     let repetitions = image_tiling::repetitions(
                         &rect,
-                        &visible_rect,
+                        &visible_rect.intersection_unchecked(&rect),
                         rect.size(),
                     );
 
