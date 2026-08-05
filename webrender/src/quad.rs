@@ -669,8 +669,8 @@ fn prepare_quad_impl(
 
     let mut quad_flags = QuadFlags::empty();
 
-    // Only use AA edge instances if the primitive is large enough to require it
-    let prim_size = desc.local_rect.size();
+    // Only use AA edge instances if the drawn area is large enough to require it
+    let prim_size = desc.bounds.size();
     if prim_size.width > MIN_AA_SEGMENTS_SIZE && prim_size.height > MIN_AA_SEGMENTS_SIZE {
         quad_flags |= QuadFlags::USE_AA_SEGMENTS;
     }
