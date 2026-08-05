@@ -451,8 +451,8 @@ impl PrimitiveHeaders {
         let id = self.headers_float.len();
 
         self.headers_float.push(PrimitiveHeaderF {
-            local_rect: prim_header.local_rect,
-            local_clip_rect: prim_header.local_clip_rect,
+            pattern_rect: prim_header.pattern_rect,
+            bounds: prim_header.bounds,
         });
 
         self.headers_int.push(PrimitiveHeaderI {
@@ -471,8 +471,11 @@ impl PrimitiveHeaders {
 // the common parts around during batching.
 #[derive(Debug)]
 pub struct PrimitiveHeader {
-    pub local_rect: LayoutRect,
-    pub local_clip_rect: LayoutRect,
+    /// Situates the primitive's content. For a text run this is the run
+    /// anchor: only `.min` is read by the shader, the extent is unused.
+    pub pattern_rect: LayoutRect,
+    /// The primitive's coverage rect: the only rect that clips it.
+    pub bounds: LayoutRect,
     pub specific_prim_address: i32,
     pub transform_id: GpuTransformId,
     pub z: ZBufferId,
@@ -486,8 +489,8 @@ pub struct PrimitiveHeader {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveHeaderF {
-    pub local_rect: LayoutRect,
-    pub local_clip_rect: LayoutRect,
+    pub pattern_rect: LayoutRect,
+    pub bounds: LayoutRect,
 }
 
 // i32 parts of a primitive header
