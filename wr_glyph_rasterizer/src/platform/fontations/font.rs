@@ -1,14 +1,16 @@
 use std::{path::PathBuf, sync::Arc};
-use api::{ColorU, FontInstanceKey, FontKey, FontRenderMode, GlyphDimensions, NativeFontHandle};
+use api::{
+    ColorU, FontInstanceFlags, FontInstanceKey, FontKey, FontRenderMode, GlyphDimensions,
+    NativeFontHandle,
+};
 use memmap2::Mmap;
 use skrifa::charmap::Charmap;
-use skrifa::instance::Location;
 use skrifa::metrics::GlyphMetrics;
 use skrifa::outline::{DrawSettings, HintingInstance, HintingOptions, OutlinePen};
 use skrifa::prelude::{LocationRef, Size};
 use skrifa::raw::{FileRef};
-use skrifa::{GlyphId, MetadataProvider as _};
-use vello_cpu::kurbo::{Affine, BezPath, Shape as _};
+use skrifa::{GlyphId, MetadataProvider as _, Tag};
+use vello_cpu::kurbo::{expand_path, Affine, BezPath, Diagonal2, Join, Shape as _};
 use vello_cpu::peniko::{self, Blob};
 use vello_cpu::{PaintType, PixmapMut, RenderContext, RenderSettings, Resources};
 
@@ -154,7 +156,6 @@ pub struct FontContext {
 /// already applied.
 struct LoadedGlyph {
     path: BezPath,
-    scale: f32,
     dimensions: GlyphDimensions,
 }
 
@@ -250,27 +251,61 @@ impl FontContext {
         let data: &[u8] = font.data.as_ref().as_ref();
         let font_ref = skrifa::FontRef::from_index(data, font.index).ok()?;
 
-        // TODO: set variation axis
-        //
-        // let location = font_ref.axes().location(
-        //     variations
-        //         .iter()
-        //         .map(|v| (Tag::new(&v.tag.to_le_bytes()), v.value)),
-        // );
-        // let location_ref = LocationRef::from(&location);
-        let location = Location::new(0);
+        let location = font_ref.axes().location(
+            font_instance
+                .base
+                .variations
+                .iter()
+                .map(|v| (Tag::from_be_bytes(v.tag.to_be_bytes()), v.value)),
+        );
         let location_ref = LocationRef::from(&location);
 
-        let font_size = font_instance.size.to_f32_px();
+        let req_size = font_instance.size.to_f64_px();
         let (x_scale, y_scale) = font_instance
             .transform
             .compute_scale()
             .unwrap_or((1.0, 1.0));
-        let scale = ((x_scale + y_scale) / 2.0) as f32;
-        let font_size = font_size * scale;
+        // Rasterize at a uniform size scaled by the transform's y-scale; the
+        // x/y aspect ratio and the residual (unit-determinant) part of the
+        // transform are applied to the outline path below.
+        let font_size = (req_size * y_scale) as f32;
+
+        // The residual shape of the transform once the scale is factored out,
+        // expressed directly in our y-down path coordinate space.
+        let mut shape = font_instance.transform.invert_scale(x_scale, y_scale);
+        if font_instance.flags.contains(FontInstanceFlags::FLIP_X) {
+            shape = shape.flip_x();
+        }
+        if font_instance.flags.contains(FontInstanceFlags::FLIP_Y) {
+            shape = shape.flip_y();
+        }
+        if font_instance.flags.contains(FontInstanceFlags::TRANSPOSE) {
+            shape = shape.swap_xy();
+        }
+        let (mut tx, mut ty) = (0.0, 0.0);
+        if font_instance.synthetic_italics.is_enabled() {
+            let (shape_, (tx_, ty_)) =
+                font_instance.synthesize_italics(shape, req_size * y_scale);
+            shape = shape_;
+            tx = tx_;
+            ty = ty_;
+        }
+        let aspect = x_scale / y_scale;
+        // Column-major [a, b, c, d, e, f]: x' = a*x + c*y + e, y' = b*x + d*y + f.
+        let affine = Affine::new([
+            shape.scale_x as f64 * aspect,
+            shape.skew_y as f64 * aspect,
+            shape.skew_x as f64,
+            shape.scale_y as f64,
+            tx,
+            ty,
+        ]);
+        let identity_shape = affine == Affine::IDENTITY;
 
         let glyph_metrics = GlyphMetrics::new(&font_ref, Size::new(font_size), location_ref);
-        let advance = glyph_metrics.advance_width(GlyphId::new(key.index()))?;
+        let mut advance = glyph_metrics.advance_width(GlyphId::new(key.index()))?;
+        // The advance is a horizontal vector; transform it like the outline.
+        advance *= (shape.scale_x as f64 * aspect) as f32;
 
         let outlines = font_ref.outline_glyphs();
         let glyph_outline = outlines.get(GlyphId::new(key.index()))?;
@@ -305,6 +340,22 @@ impl FontContext {
         }
         let mut path = outline_path.path;
 
+        if !identity_shape {
+            path.apply_affine(affine);
+        }
+
+        // Synthetic bold: fatten the outline like FreeType's
+        // mozilla_glyphslot_embolden_less (half of FT_GlyphSlot_Embolden's
+        // strength): the glyph grows by size/48 px in each axis, i.e. an
+        // expansion radius of size/96 px per side, and the advance grows by
+        // the same total amount.
+        if font_instance.flags.contains(FontInstanceFlags::SYNTHETIC_BOLD) {
+            let strength = req_size * y_scale / 48.0;
+            let radius = strength * 0.5;
+            path = expand_path(&path, Diagonal2::new(radius, radius), Join::Miter, 4.0, 0.1);
+            advance += strength as f32;
+        }
+
         // Apply the subpixel offset to the path so that both the bounding box
         // and the rasterisation account for it exactly.
         let (dx, dy) = font_instance.get_subpx_offset(key);
@@ -337,7 +388,6 @@ impl FontContext {
 
         Some(LoadedGlyph {
             path,
-            scale,
             dimensions,
         })
     }
@@ -400,7 +450,9 @@ impl FontContext {
             left: dimensions.left as f32,
             width: width as i32,
             height: height as i32,
-            scale: 1.0 / glyph.scale,
+            // The transform (including scale) is fully baked into the
+            // rasterized outline.
+            scale: 1.0,
             format: GlyphFormat::Alpha,
             bytes: buffer,
             is_packed_glyph: false,
