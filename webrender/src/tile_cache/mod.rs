@@ -225,7 +225,7 @@ impl TileSurface {
 pub struct Tile {
     /// The grid position of this tile within the picture cache
     pub tile_offset: TileOffset,
-    /// The current world rect of this tile.
+    /// The current device space rect of this tile.
     pub device_tile_rect: DeviceRect,
     /// The device space dirty rect for this tile.
     /// TODO(gw): We have multiple dirty rects available due to the quadtree above. In future,
@@ -1468,15 +1468,15 @@ impl TileCacheInstance {
             for tile in sub_slice.tiles.values_mut() {
                 tile.pre_update(&ctx);
 
-                // Only include the tiles that are currently in view into the world culling
+                // Only include the tiles that are currently in view into the device culling
                 // rect. This is a very important optimization for a couple of reasons:
                 // (1) Primitives that intersect with tiles in the grid that are not currently
                 //     visible can be skipped from primitive preparation, clip chain building
                 //     and tile dependency updates.
                 // (2) When we need to allocate an off-screen surface for a child picture (for
-                //     example a CSS filter) we clip the size of the GPU surface to the world
+                //     example a CSS filter) we clip the size of the GPU surface to the device
                 //     culling rect below (to ensure we draw enough of it to be sampled by any
-                //     tiles that reference it). Making the world culling rect only affected
+                //     tiles that reference it). Making the device culling rect only affected
                 //     by visible tiles (rather than the entire virtual tile display port) can
                 //     result in allocating _much_ smaller GPU surfaces for cases where the
                 //     true off-screen surface size is very large.
@@ -1857,7 +1857,7 @@ impl TileCacheInstance {
 
         let device_clip_rect = pic_to_root_mapper
             .map(&prim_info.prim_clip_box)
-            .expect("bug: unable to map clip to world space");
+            .expect("bug: unable to map clip to device space");
 
         let is_visible = device_clip_rect.intersects(&frame_context.global_screen_device_rect);
         if !is_visible {
@@ -3099,7 +3099,7 @@ impl TileCacheInstance {
             }
         }
 
-        let pic_to_world_mapper = SpaceMapper::new_with_target(
+        let pic_to_root_mapper = SpaceMapper::new_with_target(
             frame_context.root_spatial_node_index,
             self.spatial_node_index,
             frame_context.global_screen_device_rect,
@@ -3107,7 +3107,7 @@ impl TileCacheInstance {
         );
 
         let ctx = TileUpdateDirtyContext {
-            pic_to_device_mapper: pic_to_world_mapper,
+            pic_to_device_mapper: pic_to_root_mapper,
             opacity_bindings: &self.opacity_bindings,
             color_bindings: &self.color_bindings,
             local_rect: self.local_rect,
@@ -3206,13 +3206,13 @@ impl TileCacheInstance {
 
         // Register any underlays as occluders where possible
         for underlay in &self.underlays {
-            if let Some(world_surface_rect) = underlay.get_occluder_rect(
+            if let Some(occluder_rect) = underlay.get_occluder_rect(
                 &self.local_clip_rect,
                 &map_pic_to_root,
             ) {
                 composite_state.register_occluder(
                     underlay.z_id,
-                    world_surface_rect,
+                    occluder_rect,
                     self.compositor_clip,
                 );
             }
@@ -3221,13 +3221,13 @@ impl TileCacheInstance {
         for sub_slice in &self.sub_slices {
             for compositor_surface in &sub_slice.compositor_surfaces {
                 if compositor_surface.is_opaque {
-                    if let Some(world_surface_rect) = compositor_surface.descriptor.get_occluder_rect(
+                    if let Some(occluder_rect) = compositor_surface.descriptor.get_occluder_rect(
                         &self.local_clip_rect,
                         &map_pic_to_root,
                     ) {
                         composite_state.register_occluder(
                             compositor_surface.descriptor.z_id,
-                            world_surface_rect,
+                            occluder_rect,
                             self.compositor_clip,
                         );
                     }
@@ -3247,15 +3247,15 @@ impl TileCacheInstance {
                 });
 
             if let Some(backdrop_rect) = backdrop_rect {
-                let world_backdrop_rect = map_pic_to_root
+                let device_backdrop_rect = map_pic_to_root
                     .map(&backdrop_rect)
-                    .expect("bug: unable to map backdrop to world space");
+                    .expect("bug: unable to map backdrop to device space");
 
                 // Since we register the entire backdrop rect, use the opaque z-id for the
                 // picture cache slice.
                 composite_state.register_occluder(
                     z_id_backdrop,
-                    world_backdrop_rect,
+                    device_backdrop_rect,
                     self.compositor_clip,
                 );
             }
@@ -3370,7 +3370,7 @@ impl Display for SurfacePromotionFailure {
 
 // Immutable context passed to picture cache tiles during pre_update
 struct TilePreUpdateContext {
-    /// Maps from picture cache coords -> world space coords.
+    /// Maps from picture cache coords -> device space coords.
     pic_to_device_mapper: SpaceMapper<PicturePixel, DevicePixel>,
 
     /// The optional background color of the picture cache instance
