@@ -588,11 +588,11 @@ impl FontContext {
             .strikes
             .glyph_for_size(Size::new((req_size * y_scale) as f32), glyph_id)?;
 
+        // Zero-sized bitmaps (e.g. spaces) are kept so their metrics
+        // (notably the advance) are still reported, matching FreeType;
+        // rasterization rejects them below.
         let width = bitmap.width as i32;
         let height = bitmap.height as i32;
-        if width <= 0 || height <= 0 {
-            return None;
-        }
 
         let ppem = bitmap.ppem_y;
         let scale = req_size as f32 / ppem;
@@ -711,6 +711,10 @@ impl FontContext {
         key: &GlyphKey,
     ) -> GlyphRasterResult {
         if let Some(bitmap) = self.load_bitmap(font_instance, key) {
+            // Handle zero-sized bitmap glyphs (e.g. space chars)
+            if bitmap.width == 0 || bitmap.height == 0 {
+                return Err(GlyphRasterError::LoadFailed);
+            }
             return self.rasterize_bitmap(font_instance, bitmap);
         }
         let glyph = self
