@@ -25,12 +25,6 @@ pub(crate) struct OutlinePath {
 }
 
 impl OutlinePath {
-    pub(crate) fn new() -> Self {
-        Self {
-            path: BezPath::new(),
-        }
-    }
-
     pub(crate) fn reuse(&mut self) {
         self.path.truncate(0);
     }
@@ -149,6 +143,10 @@ trait RasterContext {
 pub struct FontContext {
     font_cache: FastHashMap<FontKey, PenikoFont>,
     hinting_instance_cache: FastHashMap<(FontInstanceKey, u32), Option<HintingInstance>>,
+    // Scratch state reused between glyphs to avoid per-glyph allocations.
+    render_context: RenderContext,
+    resources: Resources,
+    scratch_path: BezPath,
 }
 
 /// A glyph outline loaded for a particular font instance, in y-down
@@ -166,9 +164,18 @@ impl FontContext {
         true
     }
     pub fn new() -> FontContext {
+        // Single-threaded rendering: WebRender already distributes glyph
+        // rasterization across its own worker threads.
+        let render_settings = RenderSettings {
+            num_threads: 0,
+            ..RenderSettings::default()
+        };
         FontContext {
             font_cache: Default::default(),
             hinting_instance_cache: Default::default(),
+            render_context: RenderContext::new_with(0, 0, render_settings),
+            resources: Resources::new(),
+            scratch_path: BezPath::new(),
         }
     }
     pub fn begin_rasterize(font: &FontInstance) {
@@ -288,8 +295,14 @@ impl FontContext {
             None => DrawSettings::unhinted(Size::new(font_size), location_ref),
         };
 
-        let mut outline_path = OutlinePath::new();
-        glyph_outline.draw(draw_settings, &mut outline_path).ok()?;
+        let mut outline_path = OutlinePath {
+            path: std::mem::take(&mut self.scratch_path),
+        };
+        outline_path.reuse();
+        if glyph_outline.draw(draw_settings, &mut outline_path).is_err() {
+            self.scratch_path = outline_path.path;
+            return None;
+        }
         let mut path = outline_path.path;
 
         // Apply the subpixel offset to the path so that both the bounding box
@@ -335,7 +348,9 @@ impl FontContext {
         key: &GlyphKey,
     ) -> Option<GlyphDimensions> {
         let glyph = self.load_glyph(font_instance, key)?;
-        Some(glyph.dimensions)
+        let dimensions = glyph.dimensions;
+        self.scratch_path = glyph.path;
+        Some(dimensions)
     }
     pub fn rasterize_glyph(
         &mut self,
@@ -349,19 +364,15 @@ impl FontContext {
 
         // Handle zero-sized glyphs (e.g. space chars)
         if dimensions.width == 0 || dimensions.height == 0 {
+            self.scratch_path = glyph.path;
             return Err(GlyphRasterError::LoadFailed);
         }
 
         let width = dimensions.width as u16;
         let height = dimensions.height as u16;
 
-        // TODO: reuse RenderContext between glyphs
-        let render_settings = RenderSettings {
-            num_threads: 1,
-            ..RenderSettings::default()
-        };
-        let mut render_context = RenderContext::new_with(width, height, render_settings);
-        let mut resources = Resources::new();
+        let render_context = &mut self.render_context;
+        render_context.reset_and_resize(width, height);
 
         // Render white coverage; the actual text color is applied by
         // WebRender's shaders when compositing the glyph from the atlas.
@@ -379,8 +390,10 @@ impl FontContext {
         let mut buffer = vec![0; width as usize * height as usize * 4];
         render_context.render(
             PixmapMut::new(width, height, &mut buffer).unwrap(),
-            &mut resources,
+            &mut self.resources,
         );
+
+        self.scratch_path = glyph.path;
 
         Ok(RasterizedGlyph {
             top: dimensions.top as f32,
