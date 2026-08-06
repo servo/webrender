@@ -4,11 +4,12 @@ use api::{
     NativeFontHandle,
 };
 use memmap2::Mmap;
+use skrifa::bitmap::{BitmapData, BitmapFormat, BitmapStrikes, Origin};
 use skrifa::charmap::Charmap;
 use skrifa::metrics::GlyphMetrics;
 use skrifa::outline::{DrawSettings, Engine, HintingInstance, HintingOptions, OutlinePen, SmoothMode, Target};
 use skrifa::prelude::{LocationRef, Size};
-use skrifa::raw::{FileRef};
+use skrifa::raw::{FileRef, TableProvider as _};
 use skrifa::{GlyphId, MetadataProvider as _, Tag};
 use vello_cpu::kurbo::{expand_path, Affine, BezPath, Diagonal2, Join, Shape as _};
 use vello_cpu::peniko::{self, Blob};
@@ -219,6 +220,23 @@ pub struct FontContext {
 struct LoadedGlyph {
     path: BezPath,
     dimensions: GlyphDimensions,
+}
+
+/// An embedded bitmap glyph decoded to premultiplied BGRA8 at the strike's
+/// native resolution, with placement in strike pixels.
+struct LoadedBitmap {
+    buffer: Vec<u8>,
+    width: i32,
+    height: i32,
+    /// Left bearing in strike pixels.
+    left: i32,
+    /// Distance from the baseline up to the top edge, in strike pixels.
+    top: i32,
+    /// Scale from strike pixels to requested device pixels.
+    scale: f32,
+    /// Advance in requested device pixels.
+    advance: f32,
+    format: GlyphFormat,
 }
 
 impl FontContext {
@@ -458,11 +476,151 @@ impl FontContext {
         })
     }
 
+    /// Load an embedded bitmap (sbix/CBDT/EBDT) for a glyph, if the font
+    /// provides one and the instance permits its use. Mirrors the FreeType
+    /// backend: monochrome (EBDT) strikes require the EMBEDDED_BITMAPS
+    /// flag, while color strikes are always used.
+    fn load_bitmap(&self, font_instance: &FontInstance, key: &GlyphKey) -> Option<LoadedBitmap> {
+        let font = self.font_cache.get(&font_instance.font_key)?;
+        let data: &[u8] = font.data.as_ref().as_ref();
+        let font_ref = skrifa::FontRef::from_index(data, font.index).ok()?;
+
+        let strikes = BitmapStrikes::new(&font_ref);
+        match strikes.format()? {
+            BitmapFormat::Sbix | BitmapFormat::Cbdt => {}
+            BitmapFormat::Ebdt => {
+                if !font_instance.flags.contains(FontInstanceFlags::EMBEDDED_BITMAPS) {
+                    return None;
+                }
+            }
+        }
+
+        let req_size = font_instance.size.to_f64_px();
+        let (_, y_scale) = font_instance
+            .transform
+            .compute_scale()
+            .unwrap_or((1.0, 1.0));
+        let glyph_id = GlyphId::new(key.index());
+        let bitmap = strikes.glyph_for_size(Size::new((req_size * y_scale) as f32), glyph_id)?;
+
+        let width = bitmap.width as i32;
+        let height = bitmap.height as i32;
+        if width <= 0 || height <= 0 {
+            return None;
+        }
+
+        let ppem = bitmap.ppem_y;
+        let scale = req_size as f32 / ppem;
+        let upem = font_ref.head().ok()?.units_per_em() as f32;
+        let units_to_px = ppem / upem;
+
+        let left = (bitmap.bearing_x * units_to_px + bitmap.inner_bearing_x).round() as i32;
+        let top = match bitmap.placement_origin {
+            Origin::TopLeft => bitmap.inner_bearing_y.round() as i32,
+            Origin::BottomLeft => {
+                (bitmap.bearing_y * units_to_px + bitmap.inner_bearing_y).round() as i32 + height
+            }
+        };
+
+        let advance = match bitmap.advance {
+            Some(advance) => advance * scale,
+            None => {
+                let location = font_ref.axes().location(
+                    font_instance
+                        .base
+                        .variations
+                        .iter()
+                        .map(|v| (Tag::from_be_bytes(v.tag.to_be_bytes()), v.value)),
+                );
+                GlyphMetrics::new(
+                    &font_ref,
+                    Size::new((req_size * y_scale) as f32),
+                    LocationRef::from(&location),
+                )
+                .advance_width(glyph_id)
+                .unwrap_or(0.0)
+            }
+        };
+
+        let num_pixels = width as usize * height as usize;
+        let (buffer, format) = match &bitmap.data {
+            BitmapData::Bgra(bytes) => {
+                // Already premultiplied BGRA8.
+                if bytes.len() < num_pixels * 4 {
+                    return None;
+                }
+                (bytes[.. num_pixels * 4].to_vec(), GlyphFormat::ColorBitmap)
+            }
+            BitmapData::Png(bytes) => {
+                let mut decoder = png::Decoder::new(std::io::Cursor::new(*bytes));
+                decoder.set_transformations(
+                    png::Transformations::ALPHA |
+                        png::Transformations::EXPAND |
+                        png::Transformations::STRIP_16,
+                );
+                let mut reader = decoder.read_info().ok()?;
+                let mut rgba = vec![0u8; reader.output_buffer_size()?];
+                let info = reader.next_frame(&mut rgba).ok()?;
+                if info.width as i32 != width ||
+                    info.height as i32 != height ||
+                    info.color_type != png::ColorType::Rgba
+                {
+                    return None;
+                }
+                // Convert RGBA to premultiplied BGRA.
+                let mut buffer = vec![0u8; num_pixels * 4];
+                for (src, dst) in rgba.chunks_exact(4).zip(buffer.chunks_exact_mut(4)) {
+                    let a = src[3] as u32;
+                    dst[0] = ((src[2] as u32 * a + 128) / 255) as u8;
+                    dst[1] = ((src[1] as u32 * a + 128) / 255) as u8;
+                    dst[2] = ((src[0] as u32 * a + 128) / 255) as u8;
+                    dst[3] = a as u8;
+                }
+                (buffer, GlyphFormat::ColorBitmap)
+            }
+            BitmapData::Mask(mask) => {
+                let alpha = mask.decode(bitmap.width, bitmap.height).ok()?;
+                let mut buffer = vec![0u8; num_pixels * 4];
+                for (a, dst) in alpha.iter().zip(buffer.chunks_exact_mut(4)) {
+                    dst.fill(*a);
+                }
+                (buffer, GlyphFormat::Bitmap)
+            }
+        };
+
+        Some(LoadedBitmap {
+            buffer,
+            width,
+            height,
+            left,
+            top,
+            scale,
+            advance,
+            format,
+        })
+    }
+
     pub fn get_glyph_dimensions(
         &mut self,
         font_instance: &FontInstance,
         key: &GlyphKey,
     ) -> Option<GlyphDimensions> {
+        if let Some(bitmap) = self.load_bitmap(font_instance, key) {
+            // Report dimensions scaled to the requested size, rounded
+            // outward, matching the FreeType backend.
+            let scale = bitmap.scale;
+            let x0 = bitmap.left as f32 * scale;
+            let x1 = bitmap.width as f32 * scale + x0;
+            let y1 = bitmap.top as f32 * scale;
+            let y0 = y1 - bitmap.height as f32 * scale;
+            return Some(GlyphDimensions {
+                left: x0.round() as i32,
+                top: y1.round() as i32,
+                width: (x1.ceil() - x0.floor()) as i32,
+                height: (y1.ceil() - y0.floor()) as i32,
+                advance: bitmap.advance,
+            });
+        }
         let glyph = self.load_glyph(font_instance, key)?;
         let dimensions = glyph.dimensions;
         self.scratch_path = glyph.path;
@@ -473,6 +631,9 @@ impl FontContext {
         font_instance: &FontInstance,
         key: &GlyphKey,
     ) -> GlyphRasterResult {
+        if let Some(bitmap) = self.load_bitmap(font_instance, key) {
+            return self.rasterize_bitmap(font_instance, bitmap);
+        }
         let glyph = self
             .load_glyph(font_instance, key)
             .ok_or(GlyphRasterError::LoadFailed)?;
@@ -525,6 +686,54 @@ impl FontContext {
             // rasterized outline.
             scale: 1.0,
             format: GlyphFormat::Alpha,
+            bytes: buffer,
+            is_packed_glyph: false,
+        })
+    }
+
+    /// Package a decoded embedded bitmap as a rasterized glyph at the
+    /// strike's native resolution; WebRender scales it at composite time
+    /// via the reported `scale`.
+    fn rasterize_bitmap(
+        &mut self,
+        font_instance: &FontInstance,
+        bitmap: LoadedBitmap,
+    ) -> GlyphRasterResult {
+        let LoadedBitmap {
+            buffer,
+            width,
+            height,
+            mut left,
+            mut top,
+            scale,
+            advance: _,
+            format,
+        } = bitmap;
+
+        let (buffer, width, height) = if font_instance.use_texture_padding() {
+            let padded_width = width + 2;
+            let padded_height = height + 2;
+            let mut padded = vec![0u8; padded_width as usize * padded_height as usize * 4];
+            let src_stride = width as usize * 4;
+            let dst_stride = padded_width as usize * 4;
+            for (row, src) in buffer.chunks_exact(src_stride).enumerate() {
+                let dst = (row + 1) * dst_stride + 4;
+                padded[dst .. dst + src_stride].copy_from_slice(src);
+            }
+            left -= 1;
+            top += 1;
+            (padded, padded_width, padded_height)
+        } else {
+            (buffer, width, height)
+        };
+
+        Ok(RasterizedGlyph {
+            top: top as f32,
+            left: left as f32,
+            width,
+            height,
+            scale,
+            format,
             bytes: buffer,
             is_packed_glyph: false,
         })

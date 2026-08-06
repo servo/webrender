@@ -3950,6 +3950,7 @@ dependencies = [
  "malloc_size_of_derive",
  "memmap2",
  "objc",
+ "png 0.18.1",
  "rayon",
  "rustc-hash 2.1.1",
  "serde",
