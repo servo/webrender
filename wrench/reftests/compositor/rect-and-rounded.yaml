@@ -1,0 +1,21 @@
+# A plain rectangle clip alongside a rounded clip in the same chain. Rectangle
+# clips are promotable, so the slice keeps the rounded compositor clip while the
+# rect narrows the visible region.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [100, 100, 500, 400]
+          radius: 60
+    - type: clip
+      id: 3
+      complex:
+        - rect: [200, 150, 500, 400]
+    - type: stacking-context
+      clip-chain: [2, 3]
+      items:
+        - type: rect
+          bounds: [50, 50, 700, 600]
+          color: green

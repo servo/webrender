@@ -1,0 +1,18 @@
+# Reference for the test of the same name: the same clip applied directly to the
+# primitive, so it always goes through the regular per-primitive clip path.
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 800, 700]
+      transform: rotate-z(15)
+      items:
+        - type: clip
+          id: 2
+          complex:
+            - rect: [100, 100, 500, 400]
+              radius: 60
+        - type: rect
+          bounds: [50, 50, 700, 600]
+          color: green
+          clip-chain: [2]

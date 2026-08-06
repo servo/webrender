@@ -1,0 +1,17 @@
+# A rounded clip straddling the tile boundaries at x=1024 and y=512, so each
+# corner arc lands in a different picture cache tile and the tile segmentation
+# against the compositor clip is exercised.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [800, 300, 500, 400]
+          radius: 60
+    - type: stacking-context
+      clip-chain: [2]
+      items:
+        - type: rect
+          bounds: [700, 200, 700, 600]
+          color: green

@@ -1,0 +1,23 @@
+# Two concentric rounded clips in the same chain. They combine into a single
+# compositor clip whose rect is the intersection and whose radii are taken per
+# corner. Pixel counterpart of test_rounded_rect_intersection in
+# wrench/src/test_invalidation.rs.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [100, 100, 600, 500]
+          radius: 40
+    - type: clip
+      id: 3
+      complex:
+        - rect: [100, 100, 600, 420]
+          radius: 25
+    - type: stacking-context
+      clip-chain: [2, 3]
+      items:
+        - type: rect
+          bounds: [50, 50, 700, 600]
+          color: green

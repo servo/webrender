@@ -1,8 +1,35 @@
-color_targets(3) == rounded-corners-1.yaml rounded-corners-1-ref.yaml
-# color_targets(2) == rounded-corners-2.yaml rounded-corners-2-ref.yaml
-== rounded-corners-3.yaml rounded-corners-3-ref.yaml
-# fuzzy(2,106) == rounded-corners-4.yaml rounded-corners-4-ref.yaml
-# fuzzy(1,6) == rounded-yuv-surface.yaml rounded-yuv-surface-ref.yaml
-color_targets(1) == rounded-corners-5.yaml rounded-corners-5-ref.yaml
-scale(*) == rounded-rgb-surface.yaml rounded-rgb-surface-ref.yaml
-== tile-occlusion.yaml tile-occlusion-ref.yaml
+# Coverage for the compositor rounded-rect clip fast path: the path that applies
+# a root-level fixed-position rounded clip when compositing a tile cache slice,
+# instead of rendering the while painting into a picture target.
+#
+# Each test runs with `options(enable-compositor-clips)`, so the test yaml is
+# allowed to use the compositor clipping path, while the reference invisible
+# (white) unclipped rectangles that prevent the compositor clipping path from
+# kicking in.
+#
+# Tests in the other wrench reftest directories run with enable-compositor-clips
+# so they never exercise the compositor clip code path.
+
+options(enable-compositor-clips) color_targets(3) == rounded-corners-1.yaml rounded-corners-1-ref.yaml
+# options(enable-compositor-clips) color_targets(2) == rounded-corners-2.yaml rounded-corners-2-ref.yaml
+options(enable-compositor-clips) == rounded-corners-3.yaml rounded-corners-3-ref.yaml
+# options(enable-compositor-clips) fuzzy(2,106) == rounded-corners-4.yaml rounded-corners-4-ref.yaml
+# options(enable-compositor-clips) fuzzy(1,6) == rounded-yuv-surface.yaml rounded-yuv-surface-ref.yaml
+options(enable-compositor-clips) color_targets(1) == rounded-corners-5.yaml rounded-corners-5-ref.yaml
+options(enable-compositor-clips) scale(*) == rounded-rgb-surface.yaml rounded-rgb-surface-ref.yaml
+options(enable-compositor-clips) == tile-occlusion.yaml tile-occlusion-ref.yaml
+options(enable-compositor-clips) color_targets(1) == rounded-clip.yaml rounded-clip-ref.yaml
+options(enable-compositor-clips) fuzzy(1,50) == per-corner-radius.yaml per-corner-radius-ref.yaml
+options(enable-compositor-clips) fuzzy(1,50) == radius-clamped.yaml radius-clamped-ref.yaml
+options(enable-compositor-clips) fuzzy(1,50) == fractional-radius.yaml fractional-radius-ref.yaml
+options(enable-compositor-clips) fuzzy(1,50) == two-clips-combined.yaml two-clips-combined-ref.yaml
+options(enable-compositor-clips) == two-clips-offset.yaml two-clips-offset-ref.yaml
+options(enable-compositor-clips) fuzzy(1,50) == rect-and-rounded.yaml rect-and-rounded-ref.yaml
+options(enable-compositor-clips) fuzzy(1,50) == tile-boundary.yaml tile-boundary-ref.yaml
+options(enable-compositor-clips) fuzzy(1,50) == larger-than-tile.yaml larger-than-tile-ref.yaml
+options(enable-compositor-clips) == clipped-out.yaml clipped-out-ref.yaml
+options(enable-compositor-clips) == elliptical-radius.yaml elliptical-radius-ref.yaml
+options(enable-compositor-clips) == corner-shape.yaml corner-shape-ref.yaml
+options(enable-compositor-clips) fuzzy(1,50) == scrolled-clip.yaml scrolled-clip-ref.yaml
+options(enable-compositor-clips) fuzzy(1,50) == nested-clip.yaml nested-clip-ref.yaml
+options(enable-compositor-clips) scale(1,2) fuzzy(1,400) == rounded-clip.yaml rounded-clip-ref.yaml

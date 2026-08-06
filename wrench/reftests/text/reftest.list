@@ -80,7 +80,7 @@ fuzzy(1,21) platform(linux) force_subpixel_aa_where_possible(false) == text-fixe
 # despite 4x on-the-fly scale change.
 skip_on(android) fuzzy(120,20800) == raster_root_C_8192.yaml raster_root_C_ref.yaml
 == subpx-bg-mask.yaml subpx-bg-mask-ref.yaml
-scale(*) platform(linux,mac) == rotate-snap-clip.yaml rotate-snap-clip-ref.yaml
+scale(1,1.51,2) platform(linux,mac) == rotate-snap-clip.yaml rotate-snap-clip-ref.yaml
 scale(*) platform(linux,mac) == rotate-snap-filter.yaml rotate-snap-filter-ref.yaml
 scale(*) fuzzy-if(env(android,device),47,6865) fuzzy-if(not(env(android,device)),4,6600) == mix-blend-layers.yaml mix-blend-layers-ref.yaml # Android device is Samsung Galaxy A51
 

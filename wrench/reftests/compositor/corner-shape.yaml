@@ -1,0 +1,22 @@
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [100, 100, 500, 400]
+          radius:
+            top-left: 40
+            top-right: 40
+            bottom-left: 40
+            bottom-right: 40
+            shape-top-left: 2.5
+            shape-top-right: 2.5
+            shape-bottom-left: 2.5
+            shape-bottom-right: 2.5
+    - type: stacking-context
+      clip-chain: [2]
+      items:
+        - type: rect
+          bounds: [50, 50, 600, 500]
+          color: green

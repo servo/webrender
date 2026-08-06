@@ -1,0 +1,14 @@
+# Reference for the test of the same name: the same clip applied directly to
+# the primitive, so it always goes through the regular per-primitive clip path.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [2400, 1400, 300, 200]
+          radius: 40
+    - type: rect
+      bounds: [0, 0, 1800, 1000]
+      color: green
+      clip-chain: [2]

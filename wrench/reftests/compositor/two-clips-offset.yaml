@@ -1,0 +1,21 @@
+# Two rounded clips offset diagonally, so their corner arcs interleave and the
+# intersection is not expressible as a single rounded rect.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [100, 100, 400, 400]
+          radius: 80
+    - type: clip
+      id: 3
+      complex:
+        - rect: [250, 250, 400, 400]
+          radius: 80
+    - type: stacking-context
+      clip-chain: [2, 3]
+      items:
+        - type: rect
+          bounds: [50, 50, 700, 700]
+          color: green

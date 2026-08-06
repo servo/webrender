@@ -60,6 +60,11 @@ args:
       long: color-target-init
       help: Initialize the pixels of color render targets with pink for debugging
       global: true
+  - compositor_clips:
+      long: compositor-clips
+      help: 'Force compositor clips on or off (true/false), overriding the default of the sub-command'
+      takes_value: true
+      global: true
   - chase:
       long: chase
       help: Chase a particular primitive matching the local rect or ID

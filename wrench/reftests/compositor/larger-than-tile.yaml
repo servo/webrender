@@ -1,0 +1,17 @@
+# A rounded clip larger than a single tile, so interior tiles fall entirely
+# inside the clip and take the mask-free interior fast path while only the edge
+# tiles carry the rounded corners.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [100, 100, 1600, 800]
+          radius: 120
+    - type: stacking-context
+      clip-chain: [2]
+      items:
+        - type: rect
+          bounds: [0, 0, 1800, 1000]
+          color: green

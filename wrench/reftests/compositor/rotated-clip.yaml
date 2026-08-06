@@ -1,0 +1,22 @@
+# A rounded clip under a rotation, so its spatial node is not in the root
+# coordinate system and the clip can be neither promoted nor hoisted into the
+# slice's shared clip. Unlike a scroll frame, which is an axis-aligned
+# translation and stays in the root coordinate system, a rotation leaves it.
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 800, 700]
+      transform: rotate-z(15)
+      items:
+        - type: clip
+          id: 2
+          complex:
+            - rect: [100, 100, 500, 400]
+              radius: 60
+        - type: stacking-context
+          clip-chain: [2]
+          items:
+            - type: rect
+              bounds: [50, 50, 700, 600]
+              color: green

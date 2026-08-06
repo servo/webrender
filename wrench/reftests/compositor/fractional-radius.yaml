@@ -1,0 +1,16 @@
+# A fractional corner radius, which the compositor clip rounds to a whole
+# number of device pixels.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [100, 100, 500, 400]
+          radius: 30.5
+    - type: stacking-context
+      clip-chain: [2]
+      items:
+        - type: rect
+          bounds: [50, 50, 600, 500]
+          color: green

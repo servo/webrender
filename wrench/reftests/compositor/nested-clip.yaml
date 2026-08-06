@@ -1,0 +1,21 @@
+# A rounded clip on a stacking context nested inside another surface-forming
+# stacking context. Promotion only applies at the root of the stacking context
+# stack, so even with `enable-compositor-clips` this must be applied via the
+# quad-shader clip path.
+---
+root:
+  items:
+    - type: stacking-context
+      filters: [opacity(0.5)]
+      items:
+        - type: clip
+          id: 2
+          complex:
+            - rect: [100, 100, 500, 400]
+              radius: 60
+        - type: stacking-context
+          clip-chain: [2]
+          items:
+            - type: rect
+              bounds: [50, 50, 700, 600]
+              color: green

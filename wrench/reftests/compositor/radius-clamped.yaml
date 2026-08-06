@@ -1,0 +1,16 @@
+# Corner radii larger than half the clip rect, so clamped_radius scales them
+# down. Checks the clamp is applied identically on both paths.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [100, 100, 400, 200]
+          radius: 300
+    - type: stacking-context
+      clip-chain: [2]
+      items:
+        - type: rect
+          bounds: [50, 50, 500, 300]
+          color: green
