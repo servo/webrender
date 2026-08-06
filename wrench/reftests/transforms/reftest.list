@@ -64,5 +64,4 @@ scale(1.0, 2.0) == perspective-pixelated.yaml perspective-pixelated-ref.yaml
 fuzzy(1,8762) == computed-rotation-yflip.yaml computed-rotation-yflip.png
 fuzzy(5,100) fuzzy-if(platform(win),1,201) == corner-scale.yaml corner-scale-2.yaml
 # Run the scaled version only on linux to avoid complicated fuzzy annotations.
-scale(1,2) platform(linux) fuzzy(5,100) == corner-scale.yaml corner-scale-2.yaml
-scale(0.51,1.51) platform(linux) fuzzy(72,700) == corner-scale.yaml corner-scale-2.yaml
+scale(*) platform(linux) fuzzy(5,100) == corner-scale.yaml corner-scale-2.yaml
