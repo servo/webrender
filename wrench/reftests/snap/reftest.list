@@ -13,8 +13,10 @@ scale(*) == refframe-origin-quantize.yaml refframe-origin-quantize-ref.yaml
 
 scale(*) == refframe-text-snap.yaml refframe-text-snap-ref.yaml
 
-== line-decoration-thickness.yaml line-decoration-thickness-ref.yaml
-
-== border-thickness.yaml border-thickness-ref.yaml
-
-== border-even-thickness.yaml border-even-thickness-ref.yaml
+# The next three tests assert thicknesses expressed in device pixels (a
+# sub-device-pixel edge snapped up to one whole device pixel), while their
+# references can only express them in layout units, which the emulated device
+# pixel scale multiplies. So we only test them at a scale of 1.
+scale(1.0) == line-decoration-thickness.yaml line-decoration-thickness-ref.yaml
+scale(1.0) == border-thickness.yaml border-thickness-ref.yaml
+scale(1.0) == border-even-thickness.yaml border-even-thickness-ref.yaml
