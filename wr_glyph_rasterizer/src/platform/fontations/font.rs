@@ -1,14 +1,14 @@
 use std::{path::PathBuf, sync::Arc};
-use api::{FontInstanceKey, FontKey, GlyphDimensions, NativeFontHandle};
+use api::{ColorU, FontInstanceKey, FontKey, FontRenderMode, GlyphDimensions, NativeFontHandle};
 use memmap2::Mmap;
 use skrifa::charmap::Charmap;
 use skrifa::instance::Location;
 use skrifa::metrics::GlyphMetrics;
-use skrifa::outline::{DrawSettings, HintingInstance, OutlinePen};
+use skrifa::outline::{DrawSettings, HintingInstance, HintingOptions, OutlinePen};
 use skrifa::prelude::{LocationRef, Size};
 use skrifa::raw::{FileRef};
 use skrifa::{GlyphId, MetadataProvider as _};
-use vello_cpu::kurbo::{BezPath, Shape as _};
+use vello_cpu::kurbo::{Affine, BezPath, Shape as _};
 use vello_cpu::peniko::{self, Blob};
 use vello_cpu::{PaintType, PixmapMut, RenderContext, RenderSettings, Resources};
 
@@ -36,26 +36,27 @@ impl OutlinePath {
     }
 }
 
-// Note that we flip the y-axis to match our coordinate system.
+// Note that we flip the y-axis to match our coordinate system (y-down, origin
+// at the baseline).
 impl OutlinePen for OutlinePath {
     #[inline]
     fn move_to(&mut self, x: f32, y: f32) {
-        self.path.move_to((x, y));
+        self.path.move_to((x, -y));
     }
 
     #[inline]
     fn line_to(&mut self, x: f32, y: f32) {
-        self.path.line_to((x, y));
+        self.path.line_to((x, -y));
     }
 
     #[inline]
     fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
-        self.path.curve_to((cx0, cy0), (cx1, cy1), (x, y));
+        self.path.curve_to((cx0, -cy0), (cx1, -cy1), (x, -y));
     }
 
     #[inline]
     fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
-        self.path.quad_to((cx, cy), (x, y));
+        self.path.quad_to((cx, -cy), (x, -y));
     }
 
     #[inline]
@@ -147,7 +148,16 @@ trait RasterContext {
 
 pub struct FontContext {
     font_cache: FastHashMap<FontKey, PenikoFont>,
-    hinting_instance_cache: FastHashMap<FontInstanceKey, HintingInstance>,
+    hinting_instance_cache: FastHashMap<(FontInstanceKey, u32), Option<HintingInstance>>,
+}
+
+/// A glyph outline loaded for a particular font instance, in y-down
+/// coordinates relative to the baseline origin, with the subpixel offset
+/// already applied.
+struct LoadedGlyph {
+    path: BezPath,
+    scale: f32,
+    dimensions: GlyphDimensions,
 }
 
 impl FontContext {
@@ -169,11 +179,25 @@ impl FontContext {
     }
 
     pub fn prepare_font(font: &mut FontInstance) {
-        // Perhaps not needed for fontations?
+        // Subpixel AA (LCD) rendering is not supported yet; fall back to
+        // grayscale alpha so WebRender does not expect per-channel coverage.
+        font.disable_subpixel_aa();
+        match font.render_mode {
+            FontRenderMode::Mono => {
+                // In mono mode the color of the font is irrelevant.
+                font.color = ColorU::new(0xFF, 0xFF, 0xFF, 0xFF);
+                // Subpixel positioning is disabled in mono mode.
+                font.disable_subpixel_position();
+            }
+            FontRenderMode::Alpha | FontRenderMode::Subpixel => {
+                // We produce coverage in all channels, so color is unused.
+                font.color = ColorU::new(0xFF, 0xFF, 0xFF, 0xFF);
+            }
+        }
     }
     pub fn delete_font_instance(&mut self, instance: &FontInstance) {
         self.hinting_instance_cache
-            .remove(&instance.base.instance_key);
+            .retain(|(key, _), _| *key != instance.base.instance_key);
     }
 
     pub fn add_raw_font(&mut self, font_key: &FontKey, bytes: Arc<Vec<u8>>, index: u32) {
@@ -207,11 +231,14 @@ impl FontContext {
         Some(glyph_id.to_u32())
     }
 
-    pub fn get_glyph_dimensions(
+    /// Load the outline for a glyph, hinted if possible, with the subpixel
+    /// offset applied. Returns the path (y-down, baseline origin) together
+    /// with metrics and the tight device-pixel dimensions of the path.
+    fn load_glyph(
         &mut self,
         font_instance: &FontInstance,
         key: &GlyphKey,
-    ) -> Option<GlyphDimensions> {
+    ) -> Option<LoadedGlyph> {
         let font = self.font_cache.get(&font_instance.font_key)?;
         let data: &[u8] = font.data.as_ref().as_ref();
         let font_ref = skrifa::FontRef::from_index(data, font.index).ok()?;
@@ -237,77 +264,93 @@ impl FontContext {
 
         let glyph_metrics = GlyphMetrics::new(&font_ref, Size::new(font_size), location_ref);
         let advance = glyph_metrics.advance_width(GlyphId::new(key.index()))?;
-        // let bounds = glyph_metrics.bounds(GlyphId::new(key.index()))?;
 
         let outlines = font_ref.outline_glyphs();
         let glyph_outline = outlines.get(GlyphId::new(key.index()))?;
 
-        let draw_settings = if let Some(hinting_instance) = None {
-            DrawSettings::hinted(hinting_instance, false)
-        } else {
-            DrawSettings::unhinted(Size::new(font_size), location_ref)
+        // Hinting instances are cached per (instance, size), since the
+        // effective size depends on the transform scale.
+        let hinting_instance = self
+            .hinting_instance_cache
+            .entry((font_instance.base.instance_key, font_size.to_bits()))
+            .or_insert_with(|| {
+                HintingInstance::new(
+                    &outlines,
+                    Size::new(font_size),
+                    location_ref,
+                    HintingOptions::default(),
+                )
+                .ok()
+            });
+
+        let draw_settings = match hinting_instance {
+            Some(hinting_instance) => DrawSettings::hinted(hinting_instance, false),
+            None => DrawSettings::unhinted(Size::new(font_size), location_ref),
         };
 
         let mut outline_path = OutlinePath::new();
         glyph_outline.draw(draw_settings, &mut outline_path).ok()?;
+        let mut path = outline_path.path;
 
-        let bounds = outline_path.path.bounding_box();
+        // Apply the subpixel offset to the path so that both the bounding box
+        // and the rasterisation account for it exactly.
+        let (dx, dy) = font_instance.get_subpx_offset(key);
+        if dx != 0.0 || dy != 0.0 {
+            path.apply_affine(Affine::translate((dx, dy)));
+        }
 
-        // The outline is in font coordinates (Y up, origin at the baseline).
-        // Floor/ceil round outward from the fractional bounding box. Width gets an
-        // extra pixel to accommodate the horizontal subpixel offset (up to 0.75 px)
-        // applied when rasterising into the atlas. Both axes get an extra pixel of
-        // padding on each side because rasterisation is hinted while the bounds are
-        // computed from the unhinted outline, and hinting can move the outline by
-        // up to a pixel.
-        let min_x = bounds.x0.floor() as i32 - 1;
-        let max_x = bounds.x1.ceil() as i32 + 2;
-        let min_y = bounds.y0.floor() as i32 - 1;
-        let max_y = bounds.y1.ceil() as i32 + 1;
+        // The path is in y-down coordinates with the origin at the baseline.
+        // Round outward to device pixel boundaries.
+        let bounds = path.bounding_box();
+        let (min_x, max_x, min_y, max_y) = if bounds.is_zero_area() {
+            (0, 0, 0, 0)
+        } else {
+            (
+                bounds.x0.floor() as i32,
+                bounds.x1.ceil() as i32,
+                bounds.y0.floor() as i32,
+                bounds.y1.ceil() as i32,
+            )
+        };
 
-        let width = max_x - min_x;
-        let height = max_y - min_y;
-
-        Some(GlyphDimensions {
+        let dimensions = GlyphDimensions {
             advance,
             left: min_x,
-            top: max_y,
-            width,
-            height,
+            // Distance from the baseline up to the top of the glyph.
+            top: -min_y,
+            width: max_x - min_x,
+            height: max_y - min_y,
+        };
+
+        Some(LoadedGlyph {
+            path,
+            scale,
+            dimensions,
         })
+    }
+
+    pub fn get_glyph_dimensions(
+        &mut self,
+        font_instance: &FontInstance,
+        key: &GlyphKey,
+    ) -> Option<GlyphDimensions> {
+        let glyph = self.load_glyph(font_instance, key)?;
+        Some(glyph.dimensions)
     }
     pub fn rasterize_glyph(
         &mut self,
         font_instance: &FontInstance,
         key: &GlyphKey,
     ) -> GlyphRasterResult {
-        let dimensions = self
-            .get_glyph_dimensions(font_instance, key)
+        let glyph = self
+            .load_glyph(font_instance, key)
             .ok_or(GlyphRasterError::LoadFailed)?;
-        let font = self
-            .font_cache
-            .get(&font_instance.font_key)
-            .ok_or(GlyphRasterError::LoadFailed)?;
+        let dimensions = glyph.dimensions;
 
         // Handle zero-sized glyphs (e.g. space chars)
         if dimensions.width == 0 || dimensions.height == 0 {
             return Err(GlyphRasterError::LoadFailed);
         }
-
-        // let data: &[u8] = font.data.as_ref().as_ref();
-        // let font_ref = skrifa::FontRef::from_index(data, font.index).ok().unwrap();
-
-        // let hinting_instance = self
-        //     .hinting_instance_cache
-        //     .entry(font_instance.instance_key)
-        //     .or_insert_with(|| {
-        //         let outline_glyphs = font_ref.outline_glyphs();
-        //         let size = skrifa::instance::Size::new(font_instance.size.to_f32_px());
-        //         let location_ref = LocationRef::default();
-        //         let options = HintingOptions::default();
-        //         HintingInstance::new(&outline_glyphs, size, location_ref, options).unwrap()
-        //     });
-        // let draw_settings = DrawSettings::hinted(hinting_instance, false);
 
         let width = dimensions.width as u16;
         let height = dimensions.height as u16;
@@ -319,31 +362,18 @@ impl FontContext {
         };
         let mut render_context = RenderContext::new_with(width, height, render_settings);
         let mut resources = Resources::new();
-        let color = peniko::Color::from_rgba8(
-            font_instance.color.r,
-            font_instance.color.g,
-            font_instance.color.b,
-            font_instance.color.a,
-        );
-        render_context.set_paint(PaintType::Solid(color));
 
-        let font_size = font_instance.size.to_f32_px();
-        let (x_scale, y_scale) = font_instance
-            .transform
-            .compute_scale()
-            .unwrap_or((1.0, 1.0));
-        let scale = ((x_scale + y_scale) / 2.0) as f32;
-        let font_size = font_size * scale;
+        // Render white coverage; the actual text color is applied by
+        // WebRender's shaders when compositing the glyph from the atlas.
+        render_context.set_paint(PaintType::Solid(peniko::Color::WHITE));
 
-        render_context
-            .glyph_run(&mut resources, &font)
-            .font_size(font_size)
-            .hint(true)
-            .fill_glyphs(std::iter::once(vello_cpu::Glyph {
-                x: -dimensions.left as f32,
-                y: dimensions.top as f32,
-                id: key.index(),
-            }));
+        // Position the path so that its bounding box lands exactly on the
+        // pixmap: translate by (-left, top), i.e. by (-min_x, -min_y).
+        render_context.set_transform(Affine::translate((
+            -dimensions.left as f64,
+            dimensions.top as f64,
+        )));
+        render_context.fill_path(&glyph.path);
         render_context.flush();
 
         let mut buffer = vec![0; width as usize * height as usize * 4];
@@ -352,20 +382,12 @@ impl FontContext {
             &mut resources,
         );
 
-        // DEBUG: Write out PNG file of glyphs to $CWD/glyphs/glyph_id.png
-        //
-        // let mut pixmap = Pixmap::new(width, height);
-        // render_context.render_to_pixmap(&mut pixmap);
-        // let buffer = pixmap.data_as_u8_slice().to_vec();
-        // let png = pixmap.into_png().unwrap();
-        // std::fs::write(format!("./glyphs/{}.png", key.index()), png).unwrap();
-
         Ok(RasterizedGlyph {
             top: dimensions.top as f32,
             left: dimensions.left as f32,
             width: width as i32,
             height: height as i32,
-            scale: 1.0 / scale,
+            scale: 1.0 / glyph.scale,
             format: GlyphFormat::Alpha,
             bytes: buffer,
             is_packed_glyph: false,
