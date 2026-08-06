@@ -57,6 +57,10 @@ fn process_imports(
             }
         } else if line.starts_with("#version ") || line.starts_with("#extension ") {
             // ignore
+        } else if line.trim_ascii_start().find('#').is_some() {
+            let processed = line.replace("__VERSION__", "__SWGL_GLSL_VERSION__");
+            output.push_str(&processed);
+            output.push('\n');
         } else {
             output.push_str(line);
             output.push('\n');
