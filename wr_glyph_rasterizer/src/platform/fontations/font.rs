@@ -6,21 +6,25 @@ use api::{
 use memmap2::Mmap;
 use skrifa::bitmap::{BitmapData, BitmapFormat, BitmapStrikes, Origin};
 use skrifa::charmap::Charmap;
+use skrifa::instance::Location;
 use skrifa::metrics::GlyphMetrics;
-use skrifa::outline::{DrawSettings, Engine, HintingInstance, HintingOptions, OutlinePen, SmoothMode, Target};
+use skrifa::outline::{
+    DrawSettings, Engine, HintingInstance, HintingOptions, OutlineGlyphCollection, OutlinePen,
+    SmoothMode, Target,
+};
 use skrifa::prelude::{LocationRef, Size};
 use skrifa::raw::{FileRef, TableProvider as _};
 use skrifa::{GlyphId, MetadataProvider as _, Tag};
 use vello_cpu::kurbo::{expand_path, Affine, BezPath, Diagonal2, Join, Shape as _};
-use vello_cpu::peniko::{self, Blob};
+use vello_cpu::peniko;
 use vello_cpu::{PaintType, PixmapMut, RenderContext, RenderSettings, Resources};
+use yoke::{Yoke, Yokeable};
 
 use crate::{
     FastHashMap, FontInstance, GlyphFormat, GlyphKey, GlyphRasterError, GlyphRasterResult,
     RasterizedGlyph,
 };
 
-type PenikoFont = vello_cpu::peniko::FontData;
 
 /// Resolve the hinting settings for a font instance, following the same
 /// rules as the FreeType backend: platform options select the hinting
@@ -124,16 +128,83 @@ impl OutlinePen for OutlinePath {
     }
 }
 
-// struct CachedFont {
-//     pub data: Arc<dyn AsRef<[u8]> + Send + Sync>,
-//     pub index: u32,
-//     pub settings: FontRenderSettings,
-// }
+/// Parsed views over a font's data, constructed once when the font is
+/// registered and reused for every glyph. All of these are zerocopy views
+/// borrowing from the font bytes owned by the enclosing [`CachedFont`].
+struct ParsedFont<'a> {
+    font_ref: skrifa::FontRef<'a>,
+    outlines: OutlineGlyphCollection<'a>,
+    charmap: Charmap<'a>,
+    strikes: BitmapStrikes<'a>,
+    units_per_em: f32,
+}
 
-// #[derive(Default)]
-// struct FontRenderSettings {
-//     pub font_size: f32,
-// }
+impl<'a> ParsedFont<'a> {
+    fn new(data: &'a [u8], index: u32) -> Option<ParsedFont<'a>> {
+        let font_ref = skrifa::FontRef::from_index(data, index).ok()?;
+        let outlines = font_ref.outline_glyphs();
+        let charmap = font_ref.charmap();
+        let strikes = BitmapStrikes::new(&font_ref);
+        let units_per_em = font_ref.head().ok()?.units_per_em() as f32;
+        Some(ParsedFont {
+            font_ref,
+            outlines,
+            charmap,
+            strikes,
+            units_per_em,
+        })
+    }
+}
+
+// SAFETY: ParsedFont's fields are all zerocopy views over `&'a [u8]` and are
+// covariant in 'a; the transmutes only change the lifetime parameter.
+unsafe impl<'a> Yokeable<'a> for ParsedFont<'static> {
+    type Output = ParsedFont<'a>;
+
+    #[inline]
+    fn transform(&'a self) -> &'a ParsedFont<'a> {
+        unsafe { std::mem::transmute(self) }
+    }
+
+    #[inline]
+    fn transform_owned(self) -> ParsedFont<'a> {
+        unsafe { std::mem::transmute(self) }
+    }
+
+    #[inline]
+    unsafe fn make(from: ParsedFont<'a>) -> Self {
+        std::mem::transmute(from)
+    }
+
+    #[inline]
+    fn transform_mut<F>(&'a mut self, f: F)
+    where
+        F: 'static + for<'b> FnOnce(&'b mut Self::Output),
+    {
+        unsafe { f(std::mem::transmute::<&mut Self, &mut Self::Output>(self)) }
+    }
+}
+
+/// A registered font: the (possibly memory-mapped) font bytes together with
+/// the parsed skrifa views into them.
+struct CachedFont {
+    parsed: Yoke<ParsedFont<'static>, Arc<dyn AsRef<[u8]> + Send + Sync>>,
+}
+
+impl CachedFont {
+    fn new(data: Arc<dyn AsRef<[u8]> + Send + Sync>, index: u32) -> Option<CachedFont> {
+        let parsed = Yoke::try_attach_to_cart(data, |data| {
+            ParsedFont::new(data.as_ref(), index).ok_or(())
+        })
+        .ok()?;
+        Some(CachedFont { parsed })
+    }
+
+    #[inline]
+    fn parsed(&self) -> &ParsedFont<'_> {
+        self.parsed.get()
+    }
+}
 
 struct SimpleFontHandle {
     pub path: PathBuf,
@@ -206,8 +277,9 @@ trait RasterContext {
 }
 
 pub struct FontContext {
-    font_cache: FastHashMap<FontKey, PenikoFont>,
+    font_cache: FastHashMap<FontKey, CachedFont>,
     hinting_instance_cache: FastHashMap<(FontInstanceKey, u32, u32), Option<HintingInstance>>,
+    location_cache: FastHashMap<FontInstanceKey, Location>,
     // Scratch state reused between glyphs to avoid per-glyph allocations.
     render_context: RenderContext,
     resources: Resources,
@@ -254,6 +326,7 @@ impl FontContext {
         FontContext {
             font_cache: Default::default(),
             hinting_instance_cache: Default::default(),
+            location_cache: Default::default(),
             render_context: RenderContext::new_with(0, 0, render_settings),
             resources: Resources::new(),
             scratch_path: BezPath::new(),
@@ -286,22 +359,19 @@ impl FontContext {
     pub fn delete_font_instance(&mut self, instance: &FontInstance) {
         self.hinting_instance_cache
             .retain(|(key, ..), _| *key != instance.base.instance_key);
+        self.location_cache.remove(&instance.base.instance_key);
     }
 
     pub fn add_raw_font(&mut self, font_key: &FontKey, bytes: Arc<Vec<u8>>, index: u32) {
-        let font = PenikoFont {
-            data: Blob::new(bytes),
-            index: index,
-        };
-        self.font_cache.insert(*font_key, font);
+        if let Some(font) = CachedFont::new(bytes, index) {
+            self.font_cache.insert(*font_key, font);
+        }
     }
     pub fn add_native_font(&mut self, font_key: &FontKey, native_font_handle: NativeFontHandle) {
         let handle = SimpleFontHandle::from(native_font_handle);
-        let font = PenikoFont {
-            data: Blob::new(Arc::new(handle.data)),
-            index: handle.index,
-        };
-        self.font_cache.insert(*font_key, font);
+        if let Some(font) = CachedFont::new(Arc::new(handle.data), handle.index) {
+            self.font_cache.insert(*font_key, font);
+        }
     }
     pub fn delete_font(&mut self, font_key: &FontKey) {
         self.font_cache.remove(font_key);
@@ -309,14 +379,30 @@ impl FontContext {
 
     // Methods
     pub fn get_glyph_index(&mut self, font_key: FontKey, ch: char) -> Option<u32> {
-        let font = self.font_cache.get(&font_key)?;
-        let data: &[u8] = font.data.as_ref().as_ref();
-        let font_ref = skrifa::FontRef::from_index(data, font.index).ok()?;
-
-        let char_map = Charmap::new(&font_ref);
-        let glyph_id = char_map.map(ch)?;
-
+        let parsed = self.font_cache.get(&font_key)?.parsed();
+        let glyph_id = parsed.charmap.map(ch)?;
         Some(glyph_id.to_u32())
+    }
+
+    /// Resolve (and cache) the variation location for a font instance.
+    /// Variations are fixed per instance key, so the location only needs to
+    /// be computed once.
+    fn instance_location<'a>(
+        location_cache: &'a mut FastHashMap<FontInstanceKey, Location>,
+        parsed: &ParsedFont,
+        font_instance: &FontInstance,
+    ) -> &'a Location {
+        location_cache
+            .entry(font_instance.base.instance_key)
+            .or_insert_with(|| {
+                parsed.font_ref.axes().location(
+                    font_instance
+                        .base
+                        .variations
+                        .iter()
+                        .map(|v| (Tag::from_be_bytes(v.tag.to_be_bytes()), v.value)),
+                )
+            })
     }
 
     /// Load the outline for a glyph, hinted if possible, with the subpixel
@@ -327,18 +413,10 @@ impl FontContext {
         font_instance: &FontInstance,
         key: &GlyphKey,
     ) -> Option<LoadedGlyph> {
-        let font = self.font_cache.get(&font_instance.font_key)?;
-        let data: &[u8] = font.data.as_ref().as_ref();
-        let font_ref = skrifa::FontRef::from_index(data, font.index).ok()?;
-
-        let location = font_ref.axes().location(
-            font_instance
-                .base
-                .variations
-                .iter()
-                .map(|v| (Tag::from_be_bytes(v.tag.to_be_bytes()), v.value)),
-        );
-        let location_ref = LocationRef::from(&location);
+        let parsed = self.font_cache.get(&font_instance.font_key)?.parsed();
+        let location =
+            Self::instance_location(&mut self.location_cache, parsed, font_instance);
+        let location_ref = LocationRef::from(location);
 
         let req_size = font_instance.size.to_f64_px();
         let (x_scale, y_scale) = font_instance
@@ -382,13 +460,13 @@ impl FontContext {
         ]);
         let identity_shape = affine == Affine::IDENTITY;
 
-        let glyph_metrics = GlyphMetrics::new(&font_ref, Size::new(font_size), location_ref);
+        let glyph_metrics =
+            GlyphMetrics::new(&parsed.font_ref, Size::new(font_size), location_ref);
         let mut advance = glyph_metrics.advance_width(GlyphId::new(key.index()))?;
         // The advance is a horizontal vector; transform it like the outline.
         advance *= (shape.scale_x as f64 * aspect) as f32;
 
-        let outlines = font_ref.outline_glyphs();
-        let glyph_outline = outlines.get(GlyphId::new(key.index()))?;
+        let glyph_outline = parsed.outlines.get(GlyphId::new(key.index()))?;
 
         // Hinting instances are cached per (instance, size, options), since
         // the effective size depends on the transform scale and the options
@@ -402,8 +480,13 @@ impl FontContext {
                     options_tag,
                 ))
                 .or_insert_with(|| {
-                    HintingInstance::new(&outlines, Size::new(font_size), location_ref, options)
-                        .ok()
+                    HintingInstance::new(
+                        &parsed.outlines,
+                        Size::new(font_size),
+                        location_ref,
+                        options,
+                    )
+                    .ok()
                 })
                 .as_ref(),
             None => None,
@@ -480,13 +563,13 @@ impl FontContext {
     /// provides one and the instance permits its use. Mirrors the FreeType
     /// backend: monochrome (EBDT) strikes require the EMBEDDED_BITMAPS
     /// flag, while color strikes are always used.
-    fn load_bitmap(&self, font_instance: &FontInstance, key: &GlyphKey) -> Option<LoadedBitmap> {
-        let font = self.font_cache.get(&font_instance.font_key)?;
-        let data: &[u8] = font.data.as_ref().as_ref();
-        let font_ref = skrifa::FontRef::from_index(data, font.index).ok()?;
-
-        let strikes = BitmapStrikes::new(&font_ref);
-        match strikes.format()? {
+    fn load_bitmap(
+        &mut self,
+        font_instance: &FontInstance,
+        key: &GlyphKey,
+    ) -> Option<LoadedBitmap> {
+        let parsed = self.font_cache.get(&font_instance.font_key)?.parsed();
+        match parsed.strikes.format()? {
             BitmapFormat::Sbix | BitmapFormat::Cbdt => {}
             BitmapFormat::Ebdt => {
                 if !font_instance.flags.contains(FontInstanceFlags::EMBEDDED_BITMAPS) {
@@ -501,7 +584,9 @@ impl FontContext {
             .compute_scale()
             .unwrap_or((1.0, 1.0));
         let glyph_id = GlyphId::new(key.index());
-        let bitmap = strikes.glyph_for_size(Size::new((req_size * y_scale) as f32), glyph_id)?;
+        let bitmap = parsed
+            .strikes
+            .glyph_for_size(Size::new((req_size * y_scale) as f32), glyph_id)?;
 
         let width = bitmap.width as i32;
         let height = bitmap.height as i32;
@@ -511,8 +596,7 @@ impl FontContext {
 
         let ppem = bitmap.ppem_y;
         let scale = req_size as f32 / ppem;
-        let upem = font_ref.head().ok()?.units_per_em() as f32;
-        let units_to_px = ppem / upem;
+        let units_to_px = ppem / parsed.units_per_em;
 
         let left = (bitmap.bearing_x * units_to_px + bitmap.inner_bearing_x).round() as i32;
         let top = match bitmap.placement_origin {
@@ -525,17 +609,12 @@ impl FontContext {
         let advance = match bitmap.advance {
             Some(advance) => advance * scale,
             None => {
-                let location = font_ref.axes().location(
-                    font_instance
-                        .base
-                        .variations
-                        .iter()
-                        .map(|v| (Tag::from_be_bytes(v.tag.to_be_bytes()), v.value)),
-                );
+                let location =
+                    Self::instance_location(&mut self.location_cache, parsed, font_instance);
                 GlyphMetrics::new(
-                    &font_ref,
+                    &parsed.font_ref,
                     Size::new((req_size * y_scale) as f32),
-                    LocationRef::from(&location),
+                    LocationRef::from(location),
                 )
                 .advance_width(glyph_id)
                 .unwrap_or(0.0)

@@ -3961,6 +3961,7 @@ dependencies = [
  "webrender_api",
  "winit",
  "wr_malloc_size_of",
+ "yoke",
 ]
 
 [[package]]
