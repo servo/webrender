@@ -6,7 +6,7 @@ use api::{
 use memmap2::Mmap;
 use skrifa::charmap::Charmap;
 use skrifa::metrics::GlyphMetrics;
-use skrifa::outline::{DrawSettings, HintingInstance, HintingOptions, OutlinePen};
+use skrifa::outline::{DrawSettings, Engine, HintingInstance, HintingOptions, OutlinePen, SmoothMode, Target};
 use skrifa::prelude::{LocationRef, Size};
 use skrifa::raw::{FileRef};
 use skrifa::{GlyphId, MetadataProvider as _, Tag};
@@ -20,6 +20,68 @@ use crate::{
 };
 
 type PenikoFont = vello_cpu::peniko::FontData;
+
+/// Resolve the hinting settings for a font instance, following the same
+/// rules as the FreeType backend: platform options select the hinting
+/// target, FORCE_AUTOHINT/NO_AUTOHINT select the engine, and hinting is
+/// disabled entirely under non-axis-aligned transforms or synthetic
+/// italics. Returns `None` when hinting is disabled, otherwise the
+/// options along with a small tag for use in the hinting-instance cache
+/// key.
+fn hinting_options(font: &FontInstance) -> Option<(HintingOptions, u32)> {
+    // Disable hinting if there is a non-axis-aligned transform.
+    if font.synthetic_italics.is_enabled() ||
+        ((font.transform.scale_x != 0.0 || font.transform.scale_y != 0.0) &&
+         (font.transform.skew_x != 0.0 || font.transform.skew_y != 0.0))
+    {
+        return None;
+    }
+
+    // Hinting platform options only exist on FreeType platforms; elsewhere
+    // use the standard smooth target.
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
+    let target = {
+        use api::FontHinting;
+        let hinting = font.platform_options.unwrap_or_default().hinting;
+        match (hinting, font.render_mode) {
+            (FontHinting::None, _) => return None,
+            (FontHinting::Mono, _) => Target::Mono,
+            (FontHinting::Light, _) => Target::from(SmoothMode::Light),
+            (FontHinting::LCD, FontRenderMode::Subpixel) => {
+                if font.flags.contains(FontInstanceFlags::LCD_VERTICAL) {
+                    Target::from(SmoothMode::VerticalLcd)
+                } else {
+                    Target::from(SmoothMode::Lcd)
+                }
+            }
+            _ => Target::from(SmoothMode::Normal),
+        }
+    };
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "windows"))]
+    let target = Target::from(SmoothMode::Normal);
+    let engine = if font.flags.contains(FontInstanceFlags::FORCE_AUTOHINT) {
+        Engine::Auto(None)
+    } else if font.flags.contains(FontInstanceFlags::NO_AUTOHINT) {
+        Engine::Interpreter
+    } else {
+        Engine::AutoFallback
+    };
+
+    let target_tag = match target {
+        Target::Mono => 0,
+        Target::Smooth { mode: SmoothMode::Normal, .. } => 1,
+        Target::Smooth { mode: SmoothMode::Light, .. } => 2,
+        Target::Smooth { mode: SmoothMode::Lcd, .. } => 3,
+        Target::Smooth { mode: SmoothMode::VerticalLcd, .. } => 4,
+    };
+    let engine_tag = match engine {
+        Engine::Interpreter => 0,
+        Engine::Auto(_) => 1,
+        Engine::AutoFallback => 2,
+    };
+
+    Some((HintingOptions { engine, target }, target_tag | (engine_tag << 3)))
+}
 
 #[derive(Clone, Default)]
 pub(crate) struct OutlinePath {
@@ -144,7 +206,7 @@ trait RasterContext {
 
 pub struct FontContext {
     font_cache: FastHashMap<FontKey, PenikoFont>,
-    hinting_instance_cache: FastHashMap<(FontInstanceKey, u32), Option<HintingInstance>>,
+    hinting_instance_cache: FastHashMap<(FontInstanceKey, u32, u32), Option<HintingInstance>>,
     // Scratch state reused between glyphs to avoid per-glyph allocations.
     render_context: RenderContext,
     resources: Resources,
@@ -205,7 +267,7 @@ impl FontContext {
     }
     pub fn delete_font_instance(&mut self, instance: &FontInstance) {
         self.hinting_instance_cache
-            .retain(|(key, _), _| *key != instance.base.instance_key);
+            .retain(|(key, ..), _| *key != instance.base.instance_key);
     }
 
     pub fn add_raw_font(&mut self, font_key: &FontKey, bytes: Arc<Vec<u8>>, index: u32) {
@@ -310,20 +372,24 @@ impl FontContext {
         let outlines = font_ref.outline_glyphs();
         let glyph_outline = outlines.get(GlyphId::new(key.index()))?;
 
-        // Hinting instances are cached per (instance, size), since the
-        // effective size depends on the transform scale.
-        let hinting_instance = self
-            .hinting_instance_cache
-            .entry((font_instance.base.instance_key, font_size.to_bits()))
-            .or_insert_with(|| {
-                HintingInstance::new(
-                    &outlines,
-                    Size::new(font_size),
-                    location_ref,
-                    HintingOptions::default(),
-                )
-                .ok()
-            });
+        // Hinting instances are cached per (instance, size, options), since
+        // the effective size depends on the transform scale and the options
+        // on the render mode.
+        let hinting_instance = match hinting_options(font_instance) {
+            Some((options, options_tag)) => self
+                .hinting_instance_cache
+                .entry((
+                    font_instance.base.instance_key,
+                    font_size.to_bits(),
+                    options_tag,
+                ))
+                .or_insert_with(|| {
+                    HintingInstance::new(&outlines, Size::new(font_size), location_ref, options)
+                        .ok()
+                })
+                .as_ref(),
+            None => None,
+        };
 
         let draw_settings = match hinting_instance {
             Some(hinting_instance) => DrawSettings::hinted(hinting_instance, false),
