@@ -2413,7 +2413,7 @@ impl QuadTileClassifier {
             .min(MAX_TILES_PER_QUAD_X as f32)
             .max(1.0)
             .ceil() as usize;
-        let y_tiles = (rect.width() / MIN_QUAD_SPLIT_SIZE)
+        let y_tiles = (rect.height() / MIN_QUAD_SPLIT_SIZE)
             .min(MAX_TILES_PER_QUAD_Y as f32)
             .max(1.0)
             .ceil() as usize;

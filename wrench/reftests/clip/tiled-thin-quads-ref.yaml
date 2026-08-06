@@ -1,0 +1,33 @@
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 640, 80]
+      color: white
+    -
+      type: clip
+      id: 2
+      clip-rect: [20, 20, 600, 40]
+      complex:
+        - rect: [20, 20, 600, 40]
+          radius: [20, 20]
+          "clip-mode": clip
+    - type: clip-chain
+      id: 12
+      clips: [2]
+    -
+      type: clip
+      id: 3
+      clip-rect: [20, 20, 600, 40]
+      complex:
+        - rect: [20, 20, 600, 40]
+          radius: [14, 14]
+          "clip-mode": clip
+    - type: clip-chain
+      id: 13
+      clips: [3]
+      parent: 12
+    - type: rect
+      bounds: [20, 20, 600, 40]
+      color: [0, 0, 128, 1]
+      clip-chain: 13
