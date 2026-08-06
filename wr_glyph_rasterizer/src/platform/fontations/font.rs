@@ -484,8 +484,12 @@ impl FontContext {
             return Err(GlyphRasterError::LoadFailed);
         }
 
-        let width = dimensions.width as u16;
-        let height = dimensions.height as u16;
+        // When the glyph will be sampled with scaling (local raster space),
+        // surround it with a transparent 1px border to avoid bleeding
+        // neighbouring atlas texels.
+        let padding = if font_instance.use_texture_padding() { 1 } else { 0 };
+        let width = dimensions.width as u16 + 2 * padding;
+        let height = dimensions.height as u16 + 2 * padding;
 
         let render_context = &mut self.render_context;
         render_context.reset_and_resize(width, height);
@@ -495,10 +499,11 @@ impl FontContext {
         render_context.set_paint(PaintType::Solid(peniko::Color::WHITE));
 
         // Position the path so that its bounding box lands exactly on the
-        // pixmap: translate by (-left, top), i.e. by (-min_x, -min_y).
+        // pixmap: translate by (-left, top), i.e. by (-min_x, -min_y),
+        // plus the padding border.
         render_context.set_transform(Affine::translate((
-            -dimensions.left as f64,
-            dimensions.top as f64,
+            (padding as i32 - dimensions.left) as f64,
+            (padding as i32 + dimensions.top) as f64,
         )));
         render_context.fill_path(&glyph.path);
         render_context.flush();
@@ -512,8 +517,8 @@ impl FontContext {
         self.scratch_path = glyph.path;
 
         Ok(RasterizedGlyph {
-            top: dimensions.top as f32,
-            left: dimensions.left as f32,
+            top: (dimensions.top + padding as i32) as f32,
+            left: (dimensions.left - padding as i32) as f32,
             width: width as i32,
             height: height as i32,
             // The transform (including scale) is fully baked into the
