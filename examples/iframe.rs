@@ -56,6 +56,7 @@ impl Example for App {
         let mut txn = Transaction::new();
         txn.set_display_list(
             Epoch(0),
+            api.get_namespace_id(),
             sub_builder.end(),
         );
         api.send_transaction(document_id, txn);

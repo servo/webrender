@@ -478,6 +478,20 @@ impl Wrench {
         )
     }
 
+    #[cfg(all(unix, not(target_os = "android")))]
+    pub fn font_key_from_name(&mut self, font_name: &str) -> FontKey {
+        let property = system_fonts::FontPropertyBuilder::new()
+            .family(font_name)
+            .build();
+        let (font, index) = system_fonts::get(&property).unwrap();
+        self.font_key_from_bytes(font, index as u32)
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn font_key_from_name(&mut self, _font_name: &str) -> FontKey {
+        unimplemented!()
+    }
+
     #[cfg(target_os = "windows")]
     pub fn font_key_from_properties(
         &mut self,
@@ -540,20 +554,6 @@ impl Wrench {
         unimplemented!()
     }
 
-    #[cfg(all(unix, not(target_os = "android")))]
-    pub fn font_key_from_name(&mut self, font_name: &str) -> FontKey {
-        let property = system_fonts::FontPropertyBuilder::new()
-            .family(font_name)
-            .build();
-        let (font, index) = system_fonts::get(&property).unwrap();
-        self.font_key_from_bytes(font, index as u32)
-    }
-
-    #[cfg(target_os = "android")]
-    pub fn font_key_from_name(&mut self, _font_name: &str) -> FontKey {
-        unimplemented!()
-    }
-
     pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>, index: u32) -> FontKey {
         let key = self.api.generate_font_key();
         let mut txn = Transaction::new();
@@ -613,6 +613,7 @@ impl Wrench {
 
             txn.set_display_list(
                 Epoch(*frame_number),
+                self.api.get_namespace_id(),
                 (display_list.pipeline, display_list.payload),
             );
 
