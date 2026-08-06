@@ -457,8 +457,8 @@ mod tests {
     use super::*;
     use api::{PipelineId, PropertyBinding, ReferenceFrameKind, StickyOffsetBounds, TransformStyle};
     use api::units::{
-        DevicePixelScale, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D,
-        WorldPoint, WorldRect, WorldSize,
+        DevicePixelScale, DeviceSize, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform,
+        LayoutVector2D,
     };
     use crate::scene::SceneProperties;
     use crate::spatial_node::StickyFrameInfo;
@@ -522,7 +522,7 @@ mod tests {
         let surface = SurfaceInfo::new(
             raster_node,
             raster_node,
-            WorldRect::from_origin_and_size(WorldPoint::zero(), WorldSize::new(1000.0, 1000.0)),
+            DeviceRect::from_origin_and_size(DevicePoint::zero(), DeviceSize::new(1000.0, 1000.0)),
             st,
             DevicePixelScale::new(1.0),
             (1.0, 1.0),
@@ -662,7 +662,7 @@ mod tests {
         let surface = SurfaceInfo::new(
             root,
             root,
-            WorldRect::from_origin_and_size(WorldPoint::zero(), WorldSize::new(1000.0, 1000.0)),
+            DeviceRect::from_origin_and_size(DevicePoint::zero(), DeviceSize::new(1000.0, 1000.0)),
             &st,
             DevicePixelScale::new(1.0),
             (1.0, 1.0),
@@ -715,7 +715,7 @@ mod tests {
         let surface = SurfaceInfo::new(
             root,
             root,
-            WorldRect::from_origin_and_size(WorldPoint::zero(), WorldSize::new(1000.0, 1000.0)),
+            DeviceRect::from_origin_and_size(DevicePoint::zero(), DeviceSize::new(1000.0, 1000.0)),
             &st,
             DevicePixelScale::new(1.0),
             (1.0, 1.0),

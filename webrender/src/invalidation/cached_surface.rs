@@ -318,10 +318,7 @@ impl CachedSurface {
 // Immutable context passed to picture cache tiles during update_dirty_and_valid_rects
 pub struct TileUpdateDirtyContext<'a> {
     /// Maps from picture cache coords -> world space coords.
-    pub pic_to_world_mapper: SpaceMapper<PicturePixel, WorldPixel>,
-
-    /// Global scale factor from world -> device pixels.
-    pub global_device_pixel_scale: DevicePixelScale,
+    pub pic_to_device_mapper: SpaceMapper<PicturePixel, DevicePixel>,
 
     /// Information about opacity bindings from the picture cache.
     pub opacity_bindings: &'a FastHashMap<PropertyBindingId, OpacityBindingInfo>,

@@ -209,7 +209,7 @@ impl SurfaceInfo {
     pub fn new(
         surface_spatial_node_index: SpatialNodeIndex,
         raster_spatial_node_index: SpatialNodeIndex,
-        world_rect: WorldRect,
+        global_culling_rect: DeviceRect,
         spatial_tree: &SpatialTree,
         device_pixel_scale: DevicePixelScale,
         world_scale_factors: (f32, f32),
@@ -217,15 +217,15 @@ impl SurfaceInfo {
         allow_snapping: bool,
         force_scissor_rect: bool,
     ) -> Self {
-        let map_surface_to_world = SpaceMapper::new_with_target(
+        let map_surface_to_root = SpaceMapper::new_with_target(
             spatial_tree.root_reference_frame_index(),
             surface_spatial_node_index,
-            world_rect,
+            global_culling_rect,
             spatial_tree,
         );
 
-        let pic_bounds = map_surface_to_world
-            .unmap(&map_surface_to_world.bounds)
+        let pic_bounds = map_surface_to_root
+            .unmap(&map_surface_to_root.bounds)
             .unwrap_or_else(PictureRect::max_rect);
 
         let map_local_to_picture = SpaceMapper::new(
@@ -250,9 +250,9 @@ impl SurfaceInfo {
             local_scale,
             allow_snapping,
             force_scissor_rect,
-            // TODO: At the moment all culling is done in world space but
+            // TODO: At the moment all culling is done in the root device space but
             // but the plan is to move it to raster space.
-            culling_rect: world_rect.cast_unit(),
+            culling_rect: global_culling_rect.cast_unit(),
         }
     }
 
