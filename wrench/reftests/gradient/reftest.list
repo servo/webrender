@@ -41,10 +41,10 @@ scale(*) == norm-linear-1.yaml norm-linear-1-ref.yaml
 scale(*) == norm-linear-2.yaml norm-linear-2-ref.yaml
 scale(*) == norm-linear-3.yaml norm-linear-3-ref.yaml
 scale(*) == norm-linear-4.yaml norm-linear-4-ref.yaml
-== norm-linear-degenerate.yaml norm-radial-degenerate-ref.yaml
+scale(*) == norm-linear-degenerate.yaml norm-radial-degenerate-ref.yaml
 
 scale(*) == norm-radial-1.yaml norm-radial-1-ref.yaml
-== norm-radial-2.yaml norm-radial-2-ref.yaml
+scale(*) == norm-radial-2.yaml norm-radial-2-ref.yaml
 scale(*) == norm-radial-3.yaml norm-radial-3-ref.yaml
 scale(*) == norm-radial-degenerate.yaml norm-radial-degenerate-ref.yaml
 

@@ -1747,7 +1747,8 @@ static bool commitLinearGradientFromStops(sampler2D sampler, int offsetsAddress,
 template <bool CLAMP, typename V>
 static ALWAYS_INLINE V fastSqrt(V v) {
   if (CLAMP) {
-    // Clamp to avoid zero or negative.
+    // Clamp to avoid zero or negative: the reciprocal square root of zero is
+    // infinity, and the multiply below would then produce a NaN.
     v = max(v, V(1.0e-12f));
   }
 #if USE_SSE2 || USE_NEON
@@ -1928,7 +1929,7 @@ static bool commitRadialGradientFromStops(sampler2D sampler, int offsetsAddress,
     // getting its sqrt as an offset into the color ramp. At this point we just
     // need to round to an integer and pack down to pixel format.
     for (auto* end = buf + inside; buf < end; buf += 4) {
-      Float offsetG = fastSqrt<false>(dotPos);
+      Float offsetG = fastSqrt<true>(dotPos);
       if (DITHER) {
         auto color = combine(
             CONVERT(round_pixel(colorF + deltaColorF * offsetG.x, 1), U16),
@@ -1963,7 +1964,7 @@ static bool commitRadialGradientFromStops(sampler2D sampler, int offsetsAddress,
       assert(remainder < 4);
       // The logic here is similar to the full chunks loop above, but we do a
       // partial write instead of a pushing a full chunk.
-      Float offsetG = fastSqrt<false>(dotPos);
+      Float offsetG = fastSqrt<true>(dotPos);
       if (DITHER) {
         auto color = combine(
             CONVERT(round_pixel(colorF + deltaColorF * offsetG.x, 1), U16),
