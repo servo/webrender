@@ -591,6 +591,13 @@ static PREFER_INLINE WideRGBA8 blend_pixels(uint32_t* buf, PackedRGBA8 pdst,
     WideRGBA32F srcA = alphas(srcF);
     WideRGBA32F dstF = CONVERT(dst, WideRGBA32F);
     WideRGBA32F dstA = alphas(dstF);
+    // The color components are not guaranteed to be within the alpha (dithered
+    // gradients and some SVG filter primitives break that invariant) while the
+    // blend equation is only defined for un-premultiplied colors in [0, 1]. A
+    // source color above the alpha would make the denominator below negative,
+    // producing black instead of white.
+    srcF = min(srcF, srcA);
+    dstF = min(dstF, dstA);
     return pack_pixels_RGBA8(
         srcA * set_alphas(
                    min(dstA, dstF * srcA * recip_or(srcA - srcF, 255.0f)),

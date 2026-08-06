@@ -212,6 +212,12 @@ vec4 pattern_fragment(vec4 base_color) {
         cs.rgb /= cs.a;
     }
 
+    // The source and backdrop are not guaranteed to hold rgb <= a, so
+    // un-premultiplying can push components above 1.0, which the blend
+    // functions below are not defined for.
+    cb.rgb = clamp(cb.rgb, 0.0, 1.0);
+    cs.rgb = clamp(cs.rgb, 0.0, 1.0);
+
     // Return yellow if none of the branches match (shouldn't happen).
     vec4 result = vec4(1.0, 1.0, 0.0, 1.0);
 

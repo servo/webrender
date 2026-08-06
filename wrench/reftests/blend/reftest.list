@@ -21,6 +21,8 @@ scale(*) == large.yaml large-ref.yaml
 scale(*) fuzzy(1,2502) == transparent-composite-1.yaml transparent-composite-1-ref.yaml
 scale(*) fuzzy(1,2502) == transparent-composite-2.yaml transparent-composite-2-ref.yaml
 
+fuzzy(2,10000) == color-dodge-unpremultiplied-overflow.yaml color-dodge-unpremultiplied-overflow-ref.yaml
+
 scale(*) fuzzy(2,420) == multi-mix-blend-mode.yaml multi-mix-blend-mode-ref.yaml
 scale(*) == mix-blend-invalid-backdrop.yaml mix-blend-invalid-backdrop-ref.yaml
 platform(linux) == mix-blend-complex-transform.yaml mix-blend-complex-transform.png
