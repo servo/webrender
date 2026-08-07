@@ -92,7 +92,6 @@ pub struct ImageData {
     pub color: ColorF,
     pub image_rendering: ImageRendering,
     pub alpha_type: AlphaType,
-    pub sub_rect: Option<DeviceIntRect>,
 }
 
 impl From<Image> for ImageData {
@@ -104,7 +103,6 @@ impl From<Image> for ImageData {
             tile_spacing: image.tile_spacing.into(),
             image_rendering: image.image_rendering,
             alpha_type: image.alpha_type,
-            sub_rect: image.sub_rect,
         }
     }
 }
@@ -202,43 +200,6 @@ pub fn prepare_image_quads(
                 }
             }
 
-            // Restrict sampling to the requested sub-rect of the image, so that
-            // filtering at the edges of a sprite-sheet cell cannot pull in the
-            // neighbouring cells.
-            //
-            // `add_sub_rect` narrows the one rect the shader uses for both the
-            // uv mapping and the sample bounds, so the pattern has to be
-            // situated on the sub-rect's destination rather than on the whole
-            // image, or the sub-rect would be stretched over the primitive.
-            // Coverage is unaffected: the sub-rect is rounded out by the
-            // caller, so its destination contains the visible area and the
-            // clip below still bounds the quad. This is the same trick that
-            // `prepare_repeatable_quad` uses to bake a stretch size into the
-            // local rect.
-            let mut local_rect = prim_rect;
-            let mut stretch_size = stretch_size;
-            if let Some(sub_rect) = image_data.sub_rect {
-                src_task_id = frame_state.rg_builder.add_sub_rect(src_task_id, &sub_rect);
-
-                // Where the whole image lands, which is what the sub-rect is
-                // relative to.
-                let image_dest = LayoutRect::from_origin_and_size(prim_rect.min, stretch_size);
-                let sx = image_dest.width() / size.width as f32;
-                let sy = image_dest.height() / size.height as f32;
-
-                local_rect = LayoutRect {
-                    min: point2(
-                        image_dest.min.x + sub_rect.min.x as f32 * sx,
-                        image_dest.min.y + sub_rect.min.y as f32 * sy,
-                    ),
-                    max: point2(
-                        image_dest.min.x + sub_rect.max.x as f32 * sx,
-                        image_dest.min.y + sub_rect.max.y as f32 * sy,
-                    ),
-                };
-                stretch_size = local_rect.size();
-            }
-
             let image_pattern = ImagePattern {
                 src_task_id,
                 src_is_opaque,
@@ -250,8 +211,8 @@ pub fn prepare_image_quads(
             quad::prepare_repeatable_quad(
                 &image_pattern,
                 &QuadDescriptor {
-                    pattern_rect: local_rect,
-                    bounds: tight_clip_rect.intersection_unchecked(&local_rect),
+                    pattern_rect: prim_rect,
+                    bounds: tight_clip_rect.intersection_unchecked(&prim_rect),
                     aligned_aa_edges: common_data.aligned_aa_edges,
                     transformed_aa_edges: common_data.transformed_aa_edges,
                 },
@@ -642,9 +603,9 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<Image>(), 56, "Image size changed");
-    assert_eq!(mem::size_of::<ImageTemplate>(), 72, "ImageTemplate size changed");
-    assert_eq!(mem::size_of::<ImageKey>(), 60, "ImageKey size changed");
+    assert_eq!(mem::size_of::<Image>(), 36, "Image size changed");
+    assert_eq!(mem::size_of::<ImageTemplate>(), 52, "ImageTemplate size changed");
+    assert_eq!(mem::size_of::<ImageKey>(), 40, "ImageKey size changed");
     assert_eq!(mem::size_of::<YuvImage>(), 32, "YuvImage size changed");
     assert_eq!(mem::size_of::<YuvImageTemplate>(), 72, "YuvImageTemplate size changed");
     assert_eq!(mem::size_of::<YuvImageKey>(), 36, "YuvImageKey size changed");

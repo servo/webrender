@@ -173,7 +173,6 @@ impl<'a> RawtestHarness<'a> {
             AlphaType::PremultipliedAlpha,
             img,
             ColorF::WHITE,
-            None,
         );
 
         let mut epoch = Epoch(0);
@@ -202,7 +201,6 @@ impl<'a> RawtestHarness<'a> {
             AlphaType::PremultipliedAlpha,
             img,
             ColorF::WHITE,
-            None,
         );
 
         self.submit_dl(&mut epoch, builder, txn);
@@ -229,7 +227,6 @@ impl<'a> RawtestHarness<'a> {
             AlphaType::PremultipliedAlpha,
             img,
             ColorF::WHITE,
-            None,
         );
 
         self.submit_dl(&mut epoch, builder, txn);
@@ -790,7 +787,6 @@ impl<'a> RawtestHarness<'a> {
             AlphaType::PremultipliedAlpha,
             blob_img.as_image(),
             ColorF::WHITE,
-            None,
         );
 
         let mut epoch = Epoch(0);
@@ -814,7 +810,6 @@ impl<'a> RawtestHarness<'a> {
             AlphaType::PremultipliedAlpha,
             blob_img.as_image(),
             ColorF::WHITE,
-            None,
         );
 
         let mut txn = Transaction::new();
@@ -901,7 +896,6 @@ impl<'a> RawtestHarness<'a> {
                 AlphaType::PremultipliedAlpha,
                 blob_img.as_image(),
                 ColorF::WHITE,
-                None,
             );
             builder.push_image(
                 &info2,
@@ -910,7 +904,6 @@ impl<'a> RawtestHarness<'a> {
                 AlphaType::PremultipliedAlpha,
                 blob_img2.as_image(),
                 ColorF::WHITE,
-                None,
             );
         };
 
@@ -1004,7 +997,6 @@ impl<'a> RawtestHarness<'a> {
             AlphaType::PremultipliedAlpha,
             blob_img.as_image(),
             ColorF::WHITE,
-            None,
         );
 
         let mut epoch = Epoch(0);
@@ -1033,7 +1025,6 @@ impl<'a> RawtestHarness<'a> {
             AlphaType::PremultipliedAlpha,
             blob_img.as_image(),
             ColorF::WHITE,
-            None,
         );
 
         self.submit_dl(&mut epoch, builder, txn);
@@ -1060,7 +1051,6 @@ impl<'a> RawtestHarness<'a> {
             AlphaType::PremultipliedAlpha,
             blob_img.as_image(),
             ColorF::WHITE,
-            None,
         );
 
         self.submit_dl(&mut epoch, builder, txn);
@@ -1259,7 +1249,6 @@ impl<'a> RawtestHarness<'a> {
             AlphaType::PremultipliedAlpha,
             image,
             ColorF::WHITE,
-            None,
         );
 
         let mut txn = Transaction::new();

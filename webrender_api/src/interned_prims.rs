@@ -22,7 +22,7 @@ use crate::key_types::{
     NormalBorderAu, PointKey, PrimKeyCommonData, RadialGradientParams, SizeKey, StretchSizeKey,
     VectorKey,
 };
-use crate::units::{DeviceIntRect, LayoutSideOffsetsAu, TileOffset};
+use crate::units::{LayoutSideOffsetsAu, TileOffset};
 use app_units::Au;
 use malloc_size_of::MallocSizeOf;
 
@@ -71,9 +71,6 @@ pub struct Image {
     pub color: ColorU,
     pub image_rendering: ImageRendering,
     pub alpha_type: AlphaType,
-    /// Source sampling restriction, in image pixels. See
-    /// `ImageDisplayItem::sub_rect`.
-    pub sub_rect: Option<DeviceIntRect>,
 }
 
 #[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash, Serialize, Deserialize)]

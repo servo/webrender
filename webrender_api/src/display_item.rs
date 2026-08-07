@@ -1938,11 +1938,6 @@ pub struct ImageDisplayItem {
     pub alpha_type: AlphaType,
     /// A hack used by gecko to color a simple bitmap font used for tofu glyphs
     pub color: ColorF,
-    /// Restricts sampling to this sub-rect of the image, in image pixels, so
-    /// that filtering cannot pull in texels outside it. `bounds` maps to this
-    /// sub-rect rather than to the whole image. Used for CSS sprite sheets,
-    /// where the neighbouring cells must not bleed into the visible one.
-    pub sub_rect: Option<DeviceIntRect>,
 }
 
 /// This describes a background-image and its tiling. It repeats in a grid to fill

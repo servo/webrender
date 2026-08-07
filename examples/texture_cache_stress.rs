@@ -151,7 +151,6 @@ impl Example for App {
                 AlphaType::PremultipliedAlpha,
                 *key,
                 ColorF::WHITE,
-                None,
             );
         }
 
@@ -168,7 +167,6 @@ impl Example for App {
                 AlphaType::PremultipliedAlpha,
                 image_key,
                 ColorF::WHITE,
-                None,
             );
         }
 
@@ -185,7 +183,6 @@ impl Example for App {
             AlphaType::PremultipliedAlpha,
             swap_key,
             ColorF::WHITE,
-            None,
         );
         self.swap_index = 1 - self.swap_index;
 

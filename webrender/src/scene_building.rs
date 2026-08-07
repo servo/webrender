@@ -1359,7 +1359,6 @@ impl<'a> SceneBuilder<'a> {
                     info.image_rendering,
                     info.alpha_type,
                     info.color,
-                    info.sub_rect,
                 );
             }
             DisplayItem::RepeatingImage(ref info) => {
@@ -1389,7 +1388,6 @@ impl<'a> SceneBuilder<'a> {
                     info.image_rendering,
                     info.alpha_type,
                     info.color,
-                    None,
                 );
             }
             DisplayItem::YuvImage(ref info) => {
@@ -3196,7 +3194,6 @@ impl<'a> SceneBuilder<'a> {
         image_rendering: ImageRendering,
         alpha_type: AlphaType,
         color: ColorF,
-        sub_rect: Option<DeviceIntRect>,
     ) {
         let mut prim_rect = info.rect;
         // Resolve per-axis: axes that fill the prim use the unsnapped
@@ -3224,7 +3221,6 @@ impl<'a> SceneBuilder<'a> {
                 color: color.into(),
                 image_rendering,
                 alpha_type,
-                sub_rect,
             },
         );
     }
