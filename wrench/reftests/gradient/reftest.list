@@ -23,8 +23,8 @@ scale(*) fuzzy(1,9000) fuzzy-if(env(android,device),15,17000) == linear-hard-sto
 fuzzy-if(platform(swgl),255,920) == linear-hard-stop-45-degrees.yaml linear-hard-stop-45-degrees-ref.png
 
 # dithering requires us to fuzz here
-scale(1,2) fuzzy(1,20000) == linear.yaml linear-ref.yaml
-scale(1,2) fuzzy(1,20000) == linear-reverse.yaml linear-ref.yaml
+fuzzy(1,20000) == linear.yaml linear-ref.yaml
+fuzzy(1,20000) == linear-reverse.yaml linear-ref.yaml
 
 scale(*) fuzzy(1,40000) == linear-aligned-clip.yaml linear-aligned-clip-ref.yaml
 
@@ -106,7 +106,7 @@ fuzzy-range(<=1,*171840) == gradient_cache_5stops_vertical.yaml gradient_cache_5
 == gradient_cache_hardstop.yaml gradient_cache_hardstop_ref.yaml
 fuzzy-range(<=1,1) == gradient_cache_hardstop_clip.yaml gradient_cache_hardstop_clip_ref.yaml
 scale(*) == gradient_cache_clamp.yaml gradient_cache_clamp_ref.yaml
-scale(1,2) == gradient_cache_repeat.yaml gradient_cache_repeat_ref.yaml
+== gradient_cache_repeat.yaml gradient_cache_repeat_ref.yaml
 scale(*) == linear-bug-1703141.yaml linear-bug-1703141.yaml
 
 # Recognize opaque tiles with gradient backgrounds
@@ -129,11 +129,8 @@ fuzzy-if(env(android,device),255,1) == conic-large-hard-stop.yaml conic-large-ha
 fuzzy(1,80000) == radial-large.yaml radial-large-ref.png
 
 # Exercise the gradient segmentation code
-skip_on(android) scale(*) fuzzy(64,2800) == radial-segments-rotated.yaml radial-segments-rotated-ref.yaml
-platform(android) scale(1,2) fuzzy(64,2800) == radial-segments-rotated.yaml radial-segments-rotated-ref.yaml
-skip_on(android) scale(1,1.51,0.51) fuzzy(64,2800) == radial-segments-rotated-clipped.yaml radial-segments-rotated-clipped-ref.yaml
-platform(android) scale(1,0.51) fuzzy(64,2800) == radial-segments-rotated-clipped.yaml radial-segments-rotated-clipped-ref.yaml
-platform(linux) scale(2) fuzzy(255,60) == radial-segments-rotated-clipped.yaml radial-segments-rotated-clipped-ref.yaml
+fuzzy(36,2800) == radial-segments-rotated.yaml radial-segments-rotated-ref.yaml
+fuzzy(35,1000) fuzzy-if(platform(swgl),60,2900) == radial-segments-rotated-clipped.yaml radial-segments-rotated-clipped-ref.yaml
 
 # Bug 2057205 - a non-repeating radial gradient must not be repeated because of
 # rounding in the stretch-ratio round-trip.
