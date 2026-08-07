@@ -21,8 +21,6 @@ PER_INSTANCE in int aGpuDataAddress;
 PER_INSTANCE in vec4 aClipParams1;
 PER_INSTANCE in vec4 aClipParams2;
 
-#endif
-
 struct BorderInstanceGpuData {
     vec4 rect;
     vec4 color0;
@@ -49,3 +47,5 @@ BorderInstanceGpuData fetch_gpu_data(int index) {
 
     return data;
 }
+
+#endif
