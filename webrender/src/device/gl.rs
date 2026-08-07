@@ -616,6 +616,17 @@ pub struct VAO {
     instance_stride: usize,
     instance_divisor: u32,
     owns_vertices_and_indices: bool,
+    owns_instances: bool,
+}
+
+impl VAO {
+    pub fn instance_stride(&self) -> usize {
+        self.instance_stride
+    }
+
+    pub fn instance_vbo_id(&self) -> VBOId {
+        self.instance_vbo_id
+    }
 }
 
 impl Drop for VAO {
@@ -1026,6 +1037,9 @@ pub struct Capabilities {
     /// requires GL_EXT_read_format_bgra). If false, callers must read RGBA
     /// instead and swap the red and blue channels themselves.
     pub supports_bgra_read: bool,
+    /// Whether glDrawElementsInstancedBaseInstance and friends are supported,
+    /// via ARB_base_instance (or GL 4.2) on desktop or EXT_base_instance on GLES.
+    pub supports_base_instance: bool,
     /// The name of the renderer, as reported by GL
     pub renderer_name: String,
 }
@@ -1932,6 +1946,13 @@ impl Device {
         // an attached buffer has been orphaned.
         let requires_vao_rebind_after_orphaning = is_adreno_3xx;
 
+        let supports_base_instance = !is_software_webrender && match gl.get_type() {
+            gl::GlType::Gl => {
+                gl_version >= [4, 2] || supports_extension(&extensions, "GL_ARB_base_instance")
+            }
+            gl::GlType::Gles => supports_extension(&extensions, "GL_EXT_base_instance"),
+        };
+
         Device {
             gl,
             base_gl: None,
@@ -1970,6 +1991,7 @@ impl Device {
                 supports_image_external_essl3,
                 requires_vao_rebind_after_orphaning,
                 supports_bgra_read,
+                supports_base_instance,
                 renderer_name,
             },
 
@@ -3388,6 +3410,7 @@ impl Device {
         instance_divisor: u32,
         ibo_id: IBOId,
         owns_vertices_and_indices: bool,
+        owns_instances: bool,
     ) -> VAO {
         let instance_stride = descriptor.instance_stride() as usize;
         let vao_id = self.gl.gen_vertex_arrays(1)[0];
@@ -3405,6 +3428,7 @@ impl Device {
             instance_stride,
             instance_divisor,
             owns_vertices_and_indices,
+            owns_instances,
         }
     }
 
@@ -3414,9 +3438,16 @@ impl Device {
         let buffer_ids = self.gl.gen_buffers(3);
         let ibo_id = IBOId(buffer_ids[0]);
         let main_vbo_id = VBOId(buffer_ids[1]);
-        let intance_vbo_id = VBOId(buffer_ids[2]);
+        let instance_vbo_id = VBOId(buffer_ids[2]);
 
-        self.create_vao_with_vbos(descriptor, main_vbo_id, intance_vbo_id, instance_divisor, ibo_id, true)
+        self.create_vao_with_vbos(
+            descriptor,
+            main_vbo_id,
+            instance_vbo_id,
+            instance_divisor,ibo_id,
+            /* owns_vertices_and_indices */ true,
+            /* owns_instances */ true
+        )
     }
 
     pub fn delete_vao(&mut self, mut vao: VAO) {
@@ -3428,7 +3459,9 @@ impl Device {
             self.gl.delete_buffers(&[vao.main_vbo_id.0]);
         }
 
-        self.gl.delete_buffers(&[vao.instance_vbo_id.0])
+        if vao.owns_instances {
+            self.gl.delete_buffers(&[vao.instance_vbo_id.0]);
+        }
     }
 
     fn update_vbo_data<V>(
@@ -3451,15 +3484,34 @@ impl Device {
         debug_assert!(self.inside_frame);
 
         let buffer_ids = self.gl.gen_buffers(1);
-        let intance_vbo_id = VBOId(buffer_ids[0]);
+        let instance_vbo_id = VBOId(buffer_ids[0]);
 
         self.create_vao_with_vbos(
             descriptor,
             base_vao.main_vbo_id,
-            intance_vbo_id,
+            instance_vbo_id,
             base_vao.instance_divisor,
             base_vao.ibo_id,
-            false,
+            /* owns_vertices_and_indices */ false,
+            /* owns_instances */ true,
+        )
+    }
+
+    pub fn create_vao_with_shared_instances(
+        &mut self,
+        descriptor: &VertexDescriptor,
+        base_vao: &VAO,
+    ) -> VAO {
+        debug_assert!(self.inside_frame);
+
+        self.create_vao_with_vbos(
+            descriptor,
+            base_vao.main_vbo_id,
+            base_vao.instance_vbo_id,
+            base_vao.instance_divisor,
+            base_vao.ibo_id,
+            /* owns_vertices_and_indices */ false,
+            /* owns_instances */ false,
         )
     }
 
@@ -3542,6 +3594,42 @@ impl Device {
             indices,
             usage_hint.to_gl(),
         );
+    }
+
+    /// (Re)allocates the storage of a VBO to `size` bytes, leaving the contents uninitialized.
+    pub fn reallocate_vbo(&mut self, vbo: VBOId, size: usize) {
+        debug_assert!(self.inside_frame);
+
+        vbo.bind(self.gl());
+        self.gl.buffer_data_untyped(
+            gl::ARRAY_BUFFER,
+            size as _,
+            ptr::null(),
+            VertexUsageHint::Stream.to_gl(),
+        );
+    }
+
+    /// Writes `data` into a VBO at the given byte offset using an unsynchronized mapping, i.e.
+    /// without waiting for in-flight draws to complete. The caller must guarantee the written range
+    /// does not overlap data still being read by those draws.
+    pub fn update_vbo_data_unsynchronized<V>(&mut self, vbo: VBOId, data: &[V], offset: usize) {
+        debug_assert!(self.inside_frame);
+
+        let size = data.len() * mem::size_of::<V>();
+        vbo.bind(self.gl());
+        let ptr = self.gl.map_buffer_range(
+            gl::ARRAY_BUFFER,
+            offset as _,
+            size as _,
+            gl::MAP_WRITE_BIT | gl::MAP_UNSYNCHRONIZED_BIT,
+        );
+        assert!(!ptr.is_null());
+
+        unsafe {
+            ptr::copy_nonoverlapping(data.as_ptr(), ptr as *mut V, data.len());
+        }
+
+        self.gl.unmap_buffer(gl::ARRAY_BUFFER);
     }
 
     pub fn draw_triangles_u16(&mut self, first_vertex: i32, index_count: i32) {
@@ -3652,6 +3740,36 @@ impl Device {
             gl::UNSIGNED_SHORT,
             0,
             instance_count,
+        );
+    }
+
+    pub fn draw_indexed_triangles_instanced_base_instance_u16(
+        &mut self,
+        index_count: i32,
+        instance_count: i32,
+        base_instance: u32,
+    ) {
+        debug_assert!(self.inside_frame);
+        #[cfg(debug_assertions)]
+        debug_assert!(self.shader_is_ready);
+
+        let _guard = if self.annotate_draw_call_crashes {
+            Some(CrashAnnotatorGuard::new(
+                &self.crash_annotator,
+                CrashAnnotation::DrawShader,
+                &self.bound_program_name,
+            ))
+        } else {
+            None
+        };
+
+        self.gl.draw_elements_instanced_base_instance(
+            gl::TRIANGLES,
+            index_count,
+            gl::UNSIGNED_SHORT,
+            0,
+            instance_count,
+            base_instance,
         );
     }
 

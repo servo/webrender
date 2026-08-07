@@ -292,6 +292,7 @@ impl Wrench {
             // SWGL doesn't support the GL_ALWAYS depth comparison function used by
             // `clear_caches_with_quads`, but scissored clears work well.
             clear_caches_with_quads: !window.is_software(),
+            enable_shared_instance_buffer: !cfg!(target_os = "windows"),
             compositor_config,
             enable_debugger: true,
             ..Default::default()

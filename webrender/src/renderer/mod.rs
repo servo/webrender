@@ -837,6 +837,9 @@ pub struct Renderer {
 
     max_primitive_instance_count: usize,
     enable_instancing: bool,
+    /// If true, stream instance data into large buffers shared by multiple
+    /// draws, rather than allocating a new instance buffer for each draw.
+    use_shared_instance_buffer: bool,
 
     /// Count consecutive oom frames to detectif we are stuck unable to render
     /// in a loop.
@@ -2122,26 +2125,49 @@ impl Renderer {
 
         let chunk_size = if self.debug_flags.contains(DebugFlags::DISABLE_BATCHING) {
             1
+        } else if self.use_shared_instance_buffer {
+            // Ensure each chunk will fit within the fixed size instance buffer.
+            vertex::SHARED_INSTANCE_BUFFER_SIZE / vao.instance_stride()
         } else if vertex_array_kind == VertexArrayKind::Primitive {
             self.max_primitive_instance_count
         } else {
             data.len()
         };
 
-        for chunk in data.chunks(chunk_size) {
-            if self.enable_instancing {
-                self.device
-                    .update_vao_instances(vao, chunk, ONE_TIME_USAGE_HINT, None);
-                self.device
-                    .draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
-            } else {
-                self.device
-                    .update_vao_instances(vao, chunk, ONE_TIME_USAGE_HINT, NonZeroUsize::new(4));
-                self.device
-                    .draw_indexed_triangles(6 * chunk.len() as i32);
+        if self.use_shared_instance_buffer {
+            let instance_stride = vao.instance_stride();
+            for chunk in data.chunks(chunk_size) {
+                let offset = self
+                    .vaos
+                    .shared_instance_buffer
+                    .as_mut()
+                    .expect("shared instance buffer mode enabled but no shared buffer")
+                    .push_instances(&mut self.device, chunk);
+                let base_instance = (offset / instance_stride) as u32;
+                self.device.draw_indexed_triangles_instanced_base_instance_u16(
+                    6,
+                    chunk.len() as i32,
+                    base_instance,
+                );
+                self.profile.inc(profiler::DRAW_CALLS);
+                stats.total_draw_calls += 1;
             }
-            self.profile.inc(profiler::DRAW_CALLS);
-            stats.total_draw_calls += 1;
+        } else {
+            for chunk in data.chunks(chunk_size) {
+                if self.enable_instancing {
+                    self.device
+                        .update_vao_instances(vao, chunk, ONE_TIME_USAGE_HINT, None);
+                    self.device
+                        .draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
+                } else {
+                    self.device
+                        .update_vao_instances(vao, chunk, ONE_TIME_USAGE_HINT, NonZeroUsize::new(4));
+                    self.device
+                        .draw_indexed_triangles(6 * chunk.len() as i32);
+                }
+                self.profile.inc(profiler::DRAW_CALLS);
+                stats.total_draw_calls += 1;
+            }
         }
 
         self.profile.add(profiler::VERTICES, 6 * data.len());

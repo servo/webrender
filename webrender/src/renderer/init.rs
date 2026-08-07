@@ -212,6 +212,9 @@ pub struct WebRenderOptions {
     /// If false, we'll duplicate the instance attributes per vertex and issue
     /// regular indexed draws instead.
     pub enable_instancing: bool,
+    /// If true, stream instance data into large buffers shared by multiple
+    /// draws, rather than allocating a new instance buffer for each draw.
+    pub enable_shared_instance_buffer: bool,
     /// If true, we'll reject contexts backed by a software rasterizer, except
     /// Software WebRender.
     pub reject_software_rasterizer: bool,
@@ -296,6 +299,7 @@ impl Default for WebRenderOptions {
             // Disabling instancing means more vertex data to upload and potentially
             // process by the vertex shaders.
             enable_instancing: true,
+            enable_shared_instance_buffer: false,
             reject_software_rasterizer: false,
             low_quality_pinch_zoom: false,
             max_shared_surface_size: 2048,
@@ -513,9 +517,17 @@ pub fn create_webrender_instance(
 
     let max_primitive_instance_count =
         WebRenderOptions::MAX_INSTANCE_BUFFER_SIZE / mem::size_of::<PrimitiveInstanceData>();
+
+    // The shared instance buffer requires base_instance support to ensure
+    // instance data can be read from the correct offset within the buffer.
+    let use_shared_instance_buffer = options.enable_shared_instance_buffer
+        && options.enable_instancing
+        && device.get_capabilities().supports_base_instance;
+
     let vaos = vertex::RendererVAOs::new(
         &mut device,
         if options.enable_instancing { None } else { NonZeroUsize::new(max_primitive_instance_count) },
+        use_shared_instance_buffer,
     );
 
     let texture_upload_pbo_pool = UploadPBOPool::new(&mut device, options.upload_pbo_default_size);
@@ -817,6 +829,7 @@ pub fn create_webrender_instance(
         buffer_damage_tracker: BufferDamageTracker::default(),
         max_primitive_instance_count,
         enable_instancing: options.enable_instancing,
+        use_shared_instance_buffer,
         consecutive_oom_frames: 0,
         target_frame_publish_id: None,
         pending_result_msg: None,

@@ -11,13 +11,15 @@ use std::{marker::PhantomData, mem, num::NonZeroUsize, ops};
 use api::units::*;
 use crate::{
     device::{
-        Device, Texture, TextureFilter, TextureUploader, UploadPBOPool, VertexUsageHint, VAO,
+        Device, Texture, TextureFilter, TextureUploader, UploadPBOPool, VBOId, VertexDescriptor,
+        VertexUsageHint, VAO,
     },
     frame_builder::Frame,
     gpu_types::{PrimitiveHeaderI, PrimitiveHeaderF},
     internal_types::Swizzle,
     render_task::RenderTaskData,
     transform::TransformData,
+    util::round_up_to_multiple,
 };
 
 use crate::internal_types::FrameVec;
@@ -355,6 +357,56 @@ impl VertexDataTextures {
     }
 }
 
+/// The size of the shared instance buffer. Callers must chunk their draws so
+/// that no single upload exceeds this.
+pub(crate) const SHARED_INSTANCE_BUFFER_SIZE: usize = 1024 * 1024;
+
+/// An instance data VBO shared between all VAOs. Rather than reallocating a
+/// per-VAO instance buffer on every draw, each draw uploads its instance data
+/// to the next free offset within this buffer via an unsynchronized mapping and
+/// draws from that offset. The buffer is reallocated and used count reset to
+/// zero whenever a draw would not fit.
+///
+/// Note the underlying VBO is owned by one of the VAOs, so this struct does not
+/// manage its lifetime: it only tracks the current offset.
+pub struct SharedInstanceBuffer {
+    vbo: VBOId,
+    /// Number of bytes currently used.
+    used: usize,
+}
+
+impl SharedInstanceBuffer {
+    fn new(device: &mut Device, vbo: VBOId) -> Self {
+        device.reallocate_vbo(vbo, SHARED_INSTANCE_BUFFER_SIZE);
+        SharedInstanceBuffer { vbo, used: 0 }
+    }
+
+    /// Uploads a chunk of instance data to the shared buffer and returns the
+    /// byte offset at which it was written. The offset will be aligned to the
+    /// instance stride. The caller must ensure the data fits within
+    /// `SHARED_INSTANCE_BUFFER_SIZE`.
+    pub fn push_instances<V>(&mut self, device: &mut Device, instances: &[V]) -> usize {
+        let stride = mem::size_of::<V>();
+        let needed = instances.len() * stride;
+        assert!(needed <= SHARED_INSTANCE_BUFFER_SIZE);
+
+        // The buffer may previously have been used for a different VAO with a
+        // different stride, so we must round up the current used offset to the
+        // next multiple of the stride to ensure our data is correctly aligned.
+        let mut offset = round_up_to_multiple(self.used, NonZeroUsize::new(stride).unwrap());
+
+        if offset + needed > SHARED_INSTANCE_BUFFER_SIZE {
+            device.reallocate_vbo(self.vbo, SHARED_INSTANCE_BUFFER_SIZE);
+            offset = 0;
+        }
+
+        device.update_vbo_data_unsynchronized(self.vbo, instances, offset);
+        self.used = offset + needed;
+
+        offset
+    }
+}
+
 pub struct RendererVAOs {
     prim_vao: VAO,
     blur_vao: VAO,
@@ -366,10 +418,15 @@ pub struct RendererVAOs {
     clear_vao: VAO,
     copy_vao: VAO,
     mask_vao: VAO,
+    pub shared_instance_buffer: Option<SharedInstanceBuffer>,
 }
 
 impl RendererVAOs {
-    pub fn new(device: &mut Device, indexed_quads: Option<NonZeroUsize>) -> Self {
+    pub fn new(
+        device: &mut Device,
+        indexed_quads: Option<NonZeroUsize>,
+        use_shared_instance_buffer: bool,
+    ) -> Self {
         const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 1, 3];
         const QUAD_VERTICES: [[u8; 2]; 4] = [[0, 0], [0xFF, 0], [0, 0xFF], [0xFF, 0xFF]];
 
@@ -395,17 +452,32 @@ impl RendererVAOs {
             }
         }
 
+        // The prim VAO always owns the index buffer and "main" VBO, which are
+        // then shared with all other VAOs. In shared instance buffer mode the
+        // prim VAO additionally owns the instance VBO which is shared,
+        // otherwise all VAOs get their own instance VBO.
+        let shared_instance_buffer = use_shared_instance_buffer.then(
+            || SharedInstanceBuffer::new(device, prim_vao.instance_vbo_id()));
+        let make_vao = |device: &mut Device, desc: &VertexDescriptor| {
+            if use_shared_instance_buffer {
+                device.create_vao_with_shared_instances(desc, &prim_vao)
+            } else {
+                device.create_vao_with_new_instances(desc, &prim_vao)
+            }
+        };
+
         RendererVAOs {
-            blur_vao: device.create_vao_with_new_instances(&desc::BLUR, &prim_vao),
-            border_vao: device.create_vao_with_new_instances(&desc::BORDER, &prim_vao),
-            scale_vao: device.create_vao_with_new_instances(&desc::SCALE, &prim_vao),
-            line_vao: device.create_vao_with_new_instances(&desc::LINE, &prim_vao),
-            svg_filter_node_vao: device.create_vao_with_new_instances(&desc::SVG_FILTER_NODE, &prim_vao),
-            composite_vao: device.create_vao_with_new_instances(&desc::COMPOSITE, &prim_vao),
-            clear_vao: device.create_vao_with_new_instances(&desc::CLEAR, &prim_vao),
-            copy_vao: device.create_vao_with_new_instances(&desc::COPY, &prim_vao),
-            mask_vao: device.create_vao_with_new_instances(&desc::MASK, &prim_vao),
+            blur_vao: make_vao(device, &desc::BLUR),
+            border_vao: make_vao(device, &desc::BORDER),
+            scale_vao: make_vao(device, &desc::SCALE),
+            line_vao: make_vao(device, &desc::LINE),
+            svg_filter_node_vao: make_vao(device, &desc::SVG_FILTER_NODE),
+            composite_vao: make_vao(device, &desc::COMPOSITE),
+            clear_vao: make_vao(device, &desc::CLEAR),
+            copy_vao: make_vao(device, &desc::COPY),
+            mask_vao: make_vao(device, &desc::MASK),
             prim_vao,
+            shared_instance_buffer,
         }
     }
 
