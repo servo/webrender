@@ -80,11 +80,10 @@ impl TileNode {
     /// Draw debug information about this tile node
     pub fn draw_debug_rects(
         &self,
-        pic_to_world_mapper: &SpaceMapper<PicturePixel, WorldPixel>,
+        pic_to_root_mapper: &SpaceMapper<PicturePixel, DevicePixel>,
         is_opaque: bool,
         local_valid_rect: PictureRect,
         scratch: &mut PrimitiveScratchBuffer,
-        global_device_pixel_scale: DevicePixelScale,
     ) {
         match self.kind {
             TileNodeKind::Leaf { dirty_tracker, .. } => {
@@ -97,10 +96,9 @@ impl TileNode {
                 };
 
                 if let Some(local_rect) = local_valid_rect.intersection(&self.rect) {
-                    let world_rect = pic_to_world_mapper
+                    let device_rect = pic_to_root_mapper
                         .map(&local_rect)
                         .unwrap();
-                    let device_rect = world_rect * global_device_pixel_scale;
 
                     let outer_color = color.scale_alpha(0.3);
                     let inner_color = outer_color.scale_alpha(0.5);
@@ -115,11 +113,10 @@ impl TileNode {
             TileNodeKind::Node { ref children, .. } => {
                 for child in children.iter() {
                     child.draw_debug_rects(
-                        pic_to_world_mapper,
+                        pic_to_root_mapper,
                         is_opaque,
                         local_valid_rect,
                         scratch,
-                        global_device_pixel_scale,
                     );
                 }
             }

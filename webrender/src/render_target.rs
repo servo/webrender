@@ -46,7 +46,6 @@ pub enum RenderTargetKind {
 }
 
 pub struct RenderTargetContext<'a, 'rc> {
-    pub global_device_pixel_scale: DevicePixelScale,
     pub prim_store: &'a PrimitiveStore,
     pub resource_cache: &'rc mut ResourceCache,
     pub use_dual_source_blending: bool,
@@ -55,7 +54,7 @@ pub struct RenderTargetContext<'a, 'rc> {
     pub spatial_tree: &'a SpatialTree,
     pub data_stores: &'a DataStores,
     pub scratch: &'a PrimitiveScratchBuffer,
-    pub screen_world_rect: WorldRect,
+    pub screen_device_rect: DeviceRect,
     pub tile_caches: &'a FastHashMap<SliceId, Box<TileCacheInstance>>,
     pub root_spatial_node_index: SpatialNodeIndex,
     pub frame_memory: &'a mut FrameMemory,

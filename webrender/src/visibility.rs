@@ -60,8 +60,7 @@ use crate::util::MaxRect;
 
 pub struct FrameVisibilityContext<'a> {
     pub spatial_tree: &'a SpatialTree,
-    pub global_screen_world_rect: WorldRect,
-    pub global_device_pixel_scale: DevicePixelScale,
+    pub global_screen_device_rect: DeviceRect,
     pub debug_flags: DebugFlags,
     pub scene_properties: &'a SceneProperties,
     pub config: FrameBuilderConfig,
@@ -249,7 +248,7 @@ impl PrimitiveDrawHeader {
 pub fn update_prim_visibility(
     pic_index: PictureIndex,
     parent_surface_index: Option<SurfaceIndex>,
-    world_culling_rect: &WorldRect,
+    root_culling_rect: &DeviceRect,
     store: &PrimitiveStore,
     is_root_tile_cache: bool,
     frame_context: &FrameVisibilityContext,
@@ -426,7 +425,7 @@ pub fn update_prim_visibility(
                 update_prim_visibility(
                     pic_index,
                     Some(surface_index),
-                    world_culling_rect,
+                    root_culling_rect,
                     store,
                     false,
                     frame_context,
