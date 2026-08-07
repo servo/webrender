@@ -1327,8 +1327,7 @@ checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 [[package]]
 name = "gl_generator"
 version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a95dfc23a2b4a9a2f5ab41d194f8bfda3cabec42af4e39f08c339eb2a0c124d"
+source = "git+https://github.com/jamienicol/gl-rs?rev=71c792dbfe0ec5caeb242fc90937e19098386342#71c792dbfe0ec5caeb242fc90937e19098386342"
 dependencies = [
  "khronos_api",
  "log",
@@ -1338,8 +1337,7 @@ dependencies = [
 [[package]]
 name = "gleam"
 version = "0.15.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8647cc2e2ffde598ce5ca2809452e722dd8dc127885ab8aba2fa8b469cd3ed94"
+source = "git+https://github.com/jamienicol/gleam?rev=68ca4e5cc31135b843af07ff213a94b9ddce64cf#68ca4e5cc31135b843af07ff213a94b9ddce64cf"
 dependencies = [
  "gl_generator",
 ]
@@ -2012,8 +2010,7 @@ dependencies = [
 [[package]]
 name = "khronos_api"
 version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
+source = "git+https://github.com/jamienicol/gl-rs?rev=71c792dbfe0ec5caeb242fc90937e19098386342#71c792dbfe0ec5caeb242fc90937e19098386342"
 
 [[package]]
 name = "lalrpop"

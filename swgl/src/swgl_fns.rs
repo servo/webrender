@@ -2343,6 +2343,41 @@ impl Gl for Context {
     fn end_tiling_qcom(&self, preserve_mask: GLbitfield) {
         unimplemented!("Not supported by SWGL");
     }
+
+    fn draw_arrays_instanced_base_instance(
+        &self,
+        mode: GLenum,
+        first: GLint,
+        count: GLsizei,
+        instance_count: GLsizei,
+        base_instance: GLuint
+    ) {
+        unimplemented!("Not supported by SWGL");
+    }
+
+    fn draw_elements_instanced_base_instance(
+        &self,
+        mode: GLenum,
+        count: GLsizei,
+        element_type: GLenum,
+        indices_offset: GLuint,
+        instance_count: GLsizei,
+        base_instance: GLuint
+    ) {
+        unimplemented!("Not supported by SWGL");
+    }
+
+    fn draw_elements_instanced_base_vertex_base_instance(
+        &self, mode: GLenum,
+        count: GLsizei,
+        element_type: GLenum,
+        indices_offset: GLuint,
+        instance_count: GLsizei,
+        base_vertex: GLint,
+        base_instance: GLuint
+    ) {
+        unimplemented!("Not supported by SWGL");
+    }
 }
 
 /// A resource that is intended for sharing between threads.

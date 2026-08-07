@@ -28,4 +28,8 @@ opt-level = 2
 
 [patch.crates-io]
 firefox-on-glean = { path = "fog" }
+# gleam 0.15.1 + https://github.com/servo/gleam/pull/235
+gleam = { git = "https://github.com/jamienicol/gleam", rev = "68ca4e5cc31135b843af07ff213a94b9ddce64cf" }
+# gl_generator 0.14.0 + https://github.com/rust-windowing/gl-rs/pull/566
+gl_generator = { git = "https://github.com/jamienicol/gl-rs", rev = "71c792dbfe0ec5caeb242fc90937e19098386342" }
 wr_malloc_size_of = { path = "wr_malloc_size_of" }
