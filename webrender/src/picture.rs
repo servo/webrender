@@ -735,10 +735,10 @@ impl PictureInstance {
         let surface = &frame_state.surfaces[surface_index.0];
         let surface_spatial_node_index = surface.surface_spatial_node_index;
 
-        let map_pic_to_device = SpaceMapper::new_with_target(
+        let map_pic_to_world = SpaceMapper::new_with_target(
             frame_context.root_spatial_node_index,
             surface_spatial_node_index,
-            frame_context.global_screen_device_rect,
+            frame_context.global_screen_world_rect,
             frame_context.spatial_tree,
         );
 
@@ -753,8 +753,8 @@ impl PictureInstance {
         // TODO: When moving VisRect to raster space, compute the picture
         // bounds by projecting the parent surface's culling rect into the
         // current surface's raster space.
-        let pic_bounds = map_pic_to_device
-            .unmap(&map_pic_to_device.bounds)
+        let pic_bounds = map_pic_to_world
+            .unmap(&map_pic_to_world.bounds)
             .unwrap_or_else(PictureRect::max_rect);
 
         let map_local_to_pic = SpaceMapper::new(
@@ -768,7 +768,7 @@ impl PictureInstance {
                     surface_index,
                     slice_id,
                     surface_spatial_node_index,
-                    &map_pic_to_device,
+                    &map_pic_to_world,
                     frame_context,
                     frame_state,
                     tile_caches,
@@ -1320,7 +1320,7 @@ impl PictureInstance {
                 let surface = SurfaceInfo::new(
                     surface_spatial_node_index,
                     raster_spatial_node_index,
-                    frame_context.global_screen_device_rect,
+                    frame_context.global_screen_world_rect,
                     &frame_context.spatial_tree,
                     device_pixel_scale,
                     world_scale_factors,
@@ -1457,11 +1457,13 @@ impl PictureInstance {
         fn draw_debug_border(
             local_rect: &PictureRect,
             thickness: i32,
-            pic_to_root_mapper: &SpaceMapper<PicturePixel, DevicePixel>,
+            pic_to_world_mapper: &SpaceMapper<PicturePixel, WorldPixel>,
+            global_device_pixel_scale: DevicePixelScale,
             color: ColorF,
             scratch: &mut PrimitiveScratchBuffer,
         ) {
-            if let Some(device_rect) = pic_to_root_mapper.map(&local_rect) {
+            if let Some(world_rect) = pic_to_world_mapper.map(&local_rect) {
+                let device_rect = world_rect * global_device_pixel_scale;
                 scratch.push_debug_rect(
                     device_rect,
                     thickness,
@@ -1483,10 +1485,10 @@ impl PictureInstance {
             .surfaces[surface_index.0]
             .surface_spatial_node_index;
 
-        let map_pic_to_root = SpaceMapper::new_with_target(
+        let map_pic_to_world = SpaceMapper::new_with_target(
             frame_context.root_spatial_node_index,
             surface_spatial_node_index,
-            frame_context.global_screen_device_rect,
+            frame_context.global_screen_world_rect,
             frame_context.spatial_tree,
         );
 
@@ -1515,7 +1517,8 @@ impl PictureInstance {
                             draw_debug_border(
                                 &rect,
                                 1,
-                                &map_pic_to_root,
+                                &map_pic_to_world,
+                                frame_context.global_device_pixel_scale,
                                 ColorF::new(0.0, 1.0, 0.0, 0.2),
                                 scratch,
                             );
@@ -1535,7 +1538,8 @@ impl PictureInstance {
             draw_debug_border(
                 &pic_rect,
                 3,
-                &map_pic_to_root,
+                &map_pic_to_world,
+                frame_context.global_device_pixel_scale,
                 layer_color,
                 scratch,
             );
@@ -1552,22 +1556,25 @@ impl PictureInstance {
                             continue;
                         }
                         tile.cached_surface.root.draw_debug_rects(
-                            &map_pic_to_root,
+                            &map_pic_to_world,
                             tile.is_opaque,
                             tile.cached_surface.current_descriptor.local_valid_rect,
                             scratch,
+                            frame_context.global_device_pixel_scale,
                         );
 
                         let label_offset = DeviceVector2D::new(
                             20.0 + sub_slice_index as f32 * 20.0,
                             30.0 + sub_slice_index as f32 * 20.0,
                         );
+                        let tile_device_rect = tile.world_tile_rect
+                            * frame_context.global_device_pixel_scale;
 
-                        if tile.device_tile_rect.height() >= label_offset.y {
+                        if tile_device_rect.height() >= label_offset.y {
                             let surface = tile.surface.as_ref().expect("no tile surface set!");
 
                             scratch.push_debug_string(
-                                tile.device_tile_rect.min + label_offset,
+                                tile_device_rect.min + label_offset,
                                 debug_colors::RED,
                                 format!("{:?}: s={} is_opaque={} surface={} sub={}",
                                         tile.id,
@@ -1616,7 +1623,7 @@ fn prepare_tiled_picture_surface(
     surface_index: SurfaceIndex,
     slice_id: SliceId,
     surface_spatial_node_index: SpatialNodeIndex,
-    map_pic_to_device: &SpaceMapper<PicturePixel, DevicePixel>,
+    map_pic_to_world: &SpaceMapper<PicturePixel, WorldPixel>,
     frame_context: &FrameBuildingContext,
     frame_state: &mut FrameBuildingState,
     tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
@@ -1632,7 +1639,7 @@ fn prepare_tiled_picture_surface(
 
     // Get the overall world space rect of the picture cache. Used to clip
     // the tile rects below for occlusion testing to the relevant area.
-    let device_clip_rect = map_pic_to_device
+    let world_clip_rect = map_pic_to_world
         .map(&tile_cache.local_clip_rect)
         .expect("bug: unable to map clip rect")
         .round();
@@ -1668,14 +1675,14 @@ fn prepare_tiled_picture_surface(
 
             if tile.is_visible {
                 // Get the world space rect that this tile will actually occupy on screen
-                let device_draw_rect = device_clip_rect.intersection(&tile.device_valid_rect);
+                let world_draw_rect = world_clip_rect.intersection(&tile.world_valid_rect);
 
                 // If that draw rect is occluded by some set of tiles in front of it,
                 // then mark it as not visible and skip drawing. When it's not occluded
                 // it will fail this test, and get rasterized by the render task setup
                 // code below.
-                match device_draw_rect {
-                    Some(device_draw_rect) => {
+                match world_draw_rect {
+                    Some(world_draw_rect) => {
                         let check_occluded_tiles = match frame_state.composite_state.compositor_kind {
                             CompositorKind::Layer { .. } => true,
                             CompositorKind::Native { .. } | CompositorKind::Draw { .. } => {
@@ -1684,7 +1691,7 @@ fn prepare_tiled_picture_surface(
                             }
                         };
                         if check_occluded_tiles &&
-                           frame_state.composite_state.occluders.is_tile_occluded(tile.z_id, device_draw_rect) {
+                           frame_state.composite_state.occluders.is_tile_occluded(tile.z_id, world_draw_rect) {
                             // If this tile has an allocated native surface, free it, since it's completely
                             // occluded. We will need to re-allocate this surface if it becomes visible,
                             // but that's likely to be rare (e.g. when there is no content display list
@@ -1793,13 +1800,11 @@ fn prepare_tiled_picture_surface(
 
             surface_local_dirty_rect = surface_local_dirty_rect.union(&tile.cached_surface.local_dirty_rect);
 
-            // Update the device dirty rect
-            let device_dirty_rect = map_pic_to_device
-                .map(&tile.cached_surface.local_dirty_rect)
-                .expect("bug");
+            // Update the world/device dirty rect
+            let world_dirty_rect = map_pic_to_world.map(&tile.cached_surface.local_dirty_rect).expect("bug");
 
-            let device_rect = tile.device_tile_rect.round();
-            tile.device_dirty_rect = device_dirty_rect
+            let device_rect = (tile.world_tile_rect * frame_context.global_device_pixel_scale).round();
+            tile.device_dirty_rect = (world_dirty_rect * frame_context.global_device_pixel_scale)
                 .round_out()
                 .intersection(&device_rect)
                 .unwrap_or_else(DeviceRect::zero);
@@ -2174,21 +2179,19 @@ fn prepare_tiled_picture_surface(
 
                 // Calculate the device_rect for the backdrop, which is just the backdrop_rect
                 // converted into world space and scaled to device pixels.
-                let backdrop_device_rect = map_pic_to_device
-                    .map(&backdrop_rect)
-                    .expect("bug: unable to map backdrop rect")
-                    .round();
+                let world_backdrop_rect = map_pic_to_world.map(&backdrop_rect).expect("bug: unable to map backdrop rect");
+                let device_rect = (world_backdrop_rect * frame_context.global_device_pixel_scale).round();
 
                 // If we already have a backdrop surface, update the device rect. Otherwise, create
                 // a backdrop surface.
                 if let Some(backdrop_surface) = &mut tile_cache.backdrop_surface {
-                    backdrop_surface.device_rect = backdrop_device_rect;
+                    backdrop_surface.device_rect = device_rect;
                 } else {
                     // Create native compositor surface with color for the backdrop and store the id.
                     tile_cache.backdrop_surface = Some(BackdropSurface {
                         id: frame_state.resource_cache.create_compositor_backdrop_surface(color),
                         color,
-                        device_rect: backdrop_device_rect,
+                        device_rect,
                     });
                 }
             }

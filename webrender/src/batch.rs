@@ -1102,11 +1102,12 @@ impl BatchBuilder {
                             let pic_bounding_rect = if run_scratch.used_font.flags.contains(FontInstanceFlags::TRANSFORM_GLYPHS) {
                                 let mut device_bounding_rect = DeviceRect::default();
 
-                                // TODO: this code assumes that there is no raster to device scale.
                                 let glyph_transform = ctx.spatial_tree.get_relative_transform(
                                     prim_spatial_node_index,
                                     root_spatial_node_index,
-                                ).into_transform().with_destination::<DevicePixel>();
+                                ).into_transform()
+                                    .with_destination::<WorldPixel>()
+                                    .then(&euclid::Transform3D::from_scale(ctx.global_device_pixel_scale));
 
                                 let glyph_translation = DeviceVector2D::new(glyph_transform.m41, glyph_transform.m42);
 
@@ -1154,7 +1155,7 @@ impl BatchBuilder {
                             } else {
                                 let mut local_bounding_rect = LayoutRect::default();
 
-                                let glyph_raster_scale = run_scratch.raster_scale;
+                                let glyph_raster_scale = run_scratch.raster_scale * ctx.global_device_pixel_scale.get();
 
                                 for glyph in glyphs {
                                     let glyph_offset = prim_data.glyphs[glyph.index_in_text_run as usize].point + prim_header.pattern_rect.min.to_vector();
