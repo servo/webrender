@@ -1,0 +1,44 @@
+# A scale transform - uniform or not - must apply to embedded-bitmap glyphs.
+# The platform backends force an identity glyph shape for bitmap fonts, so a
+# scale survives rasterization only as the scalar `RasterizedGlyph::scale`, which
+# cannot express one; on the device glyph path that painted the glyph at its
+# untransformed size (bug 2061411, and clipped as well when scaling down -
+# bug 2062234). The reference renders the same content in local raster space,
+# where the shader applies the full transform to the glyph image.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 800, 600]
+      transform: scale(3)
+      transform-origin: [0, 0]
+      raster-space: screen
+      items:
+        - text: "000"
+          origin: 20 40
+          size: 20
+          font: "Proggy.ttf"
+          embedded-bitmaps: true
+
+    - type: stacking-context
+      bounds: [0, 0, 800, 600]
+      transform: scale(1, 3)
+      transform-origin: [0, 0]
+      raster-space: screen
+      items:
+        - text: "000"
+          origin: 20 90
+          size: 20
+          font: "Proggy.ttf"
+          embedded-bitmaps: true
+
+    - type: stacking-context
+      bounds: [0, 0, 800, 600]
+      transform: scale(3, 1)
+      transform-origin: [0, 0]
+      raster-space: screen
+      items:
+        - text: "000"
+          origin: 20 330
+          size: 20
+          font: "Proggy.ttf"
+          embedded-bitmaps: true
