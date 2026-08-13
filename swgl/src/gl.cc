@@ -2544,13 +2544,6 @@ static void request_clear(Texture& t, T value, const IntRect& scissor) {
   }
 }
 
-template <typename T>
-static inline void request_clear(Texture& t, T value) {
-  // If scissoring is enabled, use the scissor rect. Otherwise, just scissor to
-  // the entire texture bounds.
-  request_clear(t, value, ctx->scissortest ? ctx->scissor : t.offset_bounds());
-}
-
 extern "C" {
 
 void InitDefaultFramebuffer(int x, int y, int width, int height, int stride,
