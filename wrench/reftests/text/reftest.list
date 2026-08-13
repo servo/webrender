@@ -49,6 +49,9 @@ fuzzy(1,381) platform(linux) == subpixel-translate.yaml subpixel-translate-ref.y
 != shadow-rotate.yaml blank.yaml
 platform(linux) == embedded-bitmaps.yaml embedded-bitmaps.png
 fuzzy(1,20) platform(linux) == bitmap-glyph-transform.yaml bitmap-glyph-transform-ref.yaml
+# bug 2061411 / 2062234: a scale transform, uniform or not, must reach an
+# embedded-bitmap glyph. FreeType-only (the bitmap strike selection), so linux.
+scale(*) fuzzy(1,20) platform(linux) == 2061411-bitmap-scale.yaml 2061411-bitmap-scale-ref.yaml
 fuzzy(1,21) platform(linux) == clipped-transform.yaml clipped-transform.png
 platform(mac) fuzzy(195,30) == color-bitmap-shadow.yaml color-bitmap-shadow-ref.yaml
 platform(linux) == writing-modes.yaml writing-modes-ref.yaml
