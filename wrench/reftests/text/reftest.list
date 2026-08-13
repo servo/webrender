@@ -49,6 +49,9 @@ scale(*) fuzzy(1,381) platform(linux) == subpixel-translate.yaml subpixel-transl
 scale(*) != shadow-rotate.yaml blank.yaml
 platform(linux) == embedded-bitmaps.yaml embedded-bitmaps.png
 scale(*) fuzzy(1,20) platform(linux) == bitmap-glyph-transform.yaml bitmap-glyph-transform-ref.yaml
+# bug 2061411 / 2062234: a scale transform, uniform or not, must reach an
+# embedded-bitmap glyph. FreeType-only (the bitmap strike selection), so linux.
+scale(*) fuzzy(1,20) platform(linux) == 2061411-bitmap-scale.yaml 2061411-bitmap-scale-ref.yaml
 fuzzy(1,21) platform(linux) == clipped-transform.yaml clipped-transform.png
 platform(mac) fuzzy(195,30) == color-bitmap-shadow.yaml color-bitmap-shadow-ref.yaml
 scale(*) platform(linux) == writing-modes.yaml writing-modes-ref.yaml
@@ -90,7 +93,12 @@ scale(*) fuzzy-if(env(android,device),47,6865) fuzzy-if(not(env(android,device))
 # places a bearing-0 glyph on the device grid with no sub-pixel positioning; an
 # exact fractional left edge on an ancestor clip-chain node shaves its leftmost
 # column. FreeType-only (the bitmap strike selection), so restrict to linux.
-scale(*) platform(linux) == 2056856-bitmap-clip.yaml 2056856-bitmap-clip-ref.yaml
+# Only meaningful at scale 1.0: wrench emulates a device pixel scale by pushing a
+# root reference frame with a scale transform, and a bitmap font under any scale
+# transform now rasterizes in local space (bug 2061411), so at other scales the
+# glyphs are no longer device-grid-placed and this asserts nothing. Gecko's real
+# device pixel scale is not a transform, so the device path still applies there.
+scale(1.0) platform(linux) == 2056856-bitmap-clip.yaml 2056856-bitmap-clip-ref.yaml
 
 # bug 2056856: a glyph from an embedded bitmap strike ignores the sub-pixel offset
 # its key asks for, so its pen must round to nearest rather than floor with the

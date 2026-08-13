@@ -1,0 +1,40 @@
+# Reference for 2061411-bitmap-scale.yaml: local raster space rasterizes the
+# bitmap glyphs with an identity shape and lets the shader apply the scale to the
+# glyph image, which is the correct result the screen path must now match.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 800, 600]
+      transform: scale(3)
+      transform-origin: [0, 0]
+      raster-space: local(1.0)
+      items:
+        - text: "000"
+          origin: 20 40
+          size: 20
+          font: "Proggy.ttf"
+          embedded-bitmaps: true
+
+    - type: stacking-context
+      bounds: [0, 0, 800, 600]
+      transform: scale(1, 3)
+      transform-origin: [0, 0]
+      raster-space: local(1.0)
+      items:
+        - text: "000"
+          origin: 20 90
+          size: 20
+          font: "Proggy.ttf"
+          embedded-bitmaps: true
+
+    - type: stacking-context
+      bounds: [0, 0, 800, 600]
+      transform: scale(3, 1)
+      transform-origin: [0, 0]
+      raster-space: local(1.0)
+      items:
+        - text: "000"
+          origin: 20 330
+          size: 20
+          font: "Proggy.ttf"
+          embedded-bitmaps: true

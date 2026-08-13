@@ -292,21 +292,28 @@ impl TextRunTemplate {
         // raster, instead of displacing every glyph and shaving a slice off it
         // (bug 2060342).
         // Color bitmap glyphs (Apple Color Emoji and any CBDT/sbix font with
-        // embedded bitmap strikes) can't have a rotation or skew baked into their
-        // rasterization: the platform backends force an identity glyph shape for
-        // bitmap fonts and only fold the uniform scale into the point size. On the
-        // screen-space TRANSFORM_GLYPHS path that leaves a rotated/skewed emoji
-        // drawn axis-aligned while still positioned at its transformed pen, so it
-        // looks unrotated and displaced (bug 2055177). `has_bitmap_strikes` is
-        // computed by the caller from the real font face (the EMBEDDED_BITMAPS
-        // instance flag alone is unreliable: on unix it only reflects a fontconfig
-        // preference and is set even for ordinary outline fonts) and is only true
-        // for a genuine bitmap font under a non-axis-aligned transform. Route those
-        // through the local-raster fallback so the shader applies the full transform
-        // to the emoji image, the same way vector glyphs and the manual
-        // filter/isolated-surface workaround do. A pure axis-aligned
-        // scale+translation is fine on the device path (the uniform scale already
-        // folds into the font size), so those are left untouched.
+        // embedded bitmap strikes) can't have any part of the transform baked into
+        // their rasterization: the platform backends force an identity glyph shape
+        // for bitmap fonts, so a rotation or skew is dropped outright and the scale
+        // survives only as the scalar `RasterizedGlyph::scale`, which the device
+        // path multiplies into the atlas footprint. That scalar cannot express a
+        // transform scale at all, so on the device path a scaled emoji is painted
+        // at its untransformed size (too small when scaling up, too big and clipped
+        // when scaling down - bugs 2061411, 2062234), and a rotated one is drawn
+        // axis-aligned at its transformed pen (bug 2055177). Before bug 2044211 the
+        // GPU routed these by glyph format - `GlyphFormat::Bitmap`/`ColorBitmap`
+        // have no `Transformed` variant, so bitmap glyphs never reached the
+        // transform shader and always had the transform applied in local space.
+        // `has_bitmap_strikes` restores that: the caller computes it from the real
+        // font face (the EMBEDDED_BITMAPS instance flag alone is unreliable - on
+        // unix it only reflects a fontconfig preference and is set even for
+        // ordinary outline fonts) and it is true only for a genuine bitmap font
+        // under a transform that isn't a pure translation. Route those through the
+        // local-raster fallback so the shader applies the full transform to the
+        // emoji image, the same way vector glyphs and the manual
+        // filter/isolated-surface workaround do. A pure translation is fine on the
+        // device path, where the scalar scale already lands the glyph at the right
+        // size, so that - the common case - is left untouched.
         let (use_subpixel_aa, transform_glyphs, texture_padding, oversized) = if raster_space != RasterSpace::Screen ||
             !transform.is_2d_on_z_plane() || !transform.has_2d_inverse() ||
             has_bitmap_strikes
@@ -449,12 +456,13 @@ impl TextRunTemplate {
             spatial_tree,
         );
 
-        // Only bitmap fonts drawn under a non-axis-aligned transform need the
-        // local-raster fallback (bug 2055177). Gate on the cheap transform and
-        // instance-flag checks first so that axis-aligned text - the common case -
-        // does no extra work, and only then consult the cached per-font
-        // bitmap-strike info (a lock-free lookup populated when the font was added).
-        let has_bitmap_strikes = !transform.is_2d_scale_translation()
+        // Bitmap fonts need the local-raster fallback under any transform that
+        // isn't a pure translation - a scale as much as a rotation or skew
+        // (bugs 2055177, 2061411). Gate on the cheap transform and instance-flag
+        // checks first so that untransformed text - the common case - does no
+        // extra work, and only then consult the cached per-font bitmap-strike
+        // info (a lock-free lookup populated when the font was added).
+        let has_bitmap_strikes = !transform.is_simple_2d_translation()
             && self.font.flags.contains(FontInstanceFlags::EMBEDDED_BITMAPS)
             && resource_cache.font_has_bitmap_strikes(self.font.font_key);
 
