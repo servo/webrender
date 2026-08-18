@@ -2532,6 +2532,7 @@ impl<'a> SceneBuilder<'a> {
             stacking_context.composite_ops.filters,
             stacking_context.composite_ops.filter_datas,
             false,
+            stacking_context.spatial_node_index,
         );
 
         // Same for mix-blend-mode, except we can skip if this primitive is the first in the parent
@@ -3333,6 +3334,10 @@ impl<'a> SceneBuilder<'a> {
             filters,
             filter_datas,
             true,
+            // The filter subregions are authored in the filtered element's
+            // space; the backdrop graph is composited in backdrop-root space,
+            // so record the element node to resolve that offset at frame time.
+            spatial_node_index,
         );
 
         // If all the filters were no-ops (e.g. opacity(0)) then we don't get a picture here
@@ -3429,6 +3434,7 @@ impl<'a> SceneBuilder<'a> {
         mut filter_ops: Vec<Filter>,
         filter_datas: Vec<FilterData>,
         is_backdrop_filter: bool,
+        source_spatial_node_index: SpatialNodeIndex,
     ) -> PictureChainBuilder {
         // For each filter, create a new image with that composite mode.
         let mut current_filter_data_index = 0;
@@ -3905,6 +3911,7 @@ impl<'a> SceneBuilder<'a> {
 
             let composite_mode = PictureCompositeMode::SVGFEGraph(
                 filters,
+                source_spatial_node_index,
             );
 
             source = source.add_picture(

@@ -1923,7 +1923,7 @@ impl DisplayListBuilder {
         flags: di::StackingContextFlags,
         snapshot: Option<di::SnapshotInfo>
     ) {
-        self.push_filters_normalized(filters, filter_datas, spatial_id);
+        self.push_filters(filters, filter_datas, spatial_id);
 
         let item = di::DisplayItem::PushStackingContext(di::PushStackingContextDisplayItem {
             spatial_id,
@@ -1995,12 +1995,13 @@ impl DisplayListBuilder {
         filters: &[di::FilterOp],
         filter_datas: &[di::FilterData],
     ) {
-        // Unlike a regular filter, a backdrop filter's picture is anchored to
-        // the backdrop root (resolved from SpatialNodeIndex::UNKNOWN), not to
-        // `common.spatial_id`, so the backdrop root does not re-apply this
-        // node's external scroll offset at frame time. The SVGFE subregion must
-        // therefore stay un-normalized; only the item geometry below is.
-        self.push_filters(filters, filter_datas);
+        // The subregions are normalized against `common.spatial_id`, the same
+        // node as the item geometry below. A backdrop filter's picture composites
+        // in backdrop-root space instead, but that is a difference of *spatial
+        // node*, which frame building maps through the spatial tree
+        // (`SurfaceInfo::svgfe_source_map`) - not a reason to author subregion
+        // and geometry in different coordinate spaces (bug 1975275).
+        self.push_filters(filters, filter_datas, common.spatial_id);
 
         let (common, _offset) = self.normalize_common(common);
         let item = di::DisplayItem::BackdropFilter(di::BackdropFilterDisplayItem {
@@ -2009,38 +2010,38 @@ impl DisplayListBuilder {
         self.push_item(&item);
     }
 
-    /// As `push_filters`, but first normalizes SVGFE filter-graph subregions
-    /// (the only absolutely-positioned filter geometry) by the accumulated
-    /// external scroll offset for `spatial_id`, matching the normalization
-    /// applied to the primitives the filter graph operates on.
-    fn push_filters_normalized(
+    /// Write the filter ops and filter data consumed by the stacking context or
+    /// backdrop filter pushed immediately after this.
+    ///
+    /// SVGFE filter-graph subregions are the only absolutely-positioned filter
+    /// geometry, so they are normalized by the accumulated external scroll offset
+    /// for `spatial_id`, exactly like the primitives the graph operates on. This
+    /// is the only way to push filters, so the normalization cannot be bypassed:
+    /// authoring a subregion in a different space from the geometry it applies to
+    /// was bug 1975275.
+    fn push_filters(
         &mut self,
         filters: &[di::FilterOp],
         filter_datas: &[di::FilterData],
         spatial_id: di::SpatialId,
     ) {
         let offset = self.accumulated_scroll_offset(spatial_id);
-        if offset.is_zero() {
-            self.push_filters(filters, filter_datas);
-            return;
-        }
-
-        let mut filters = filters.to_vec();
-        let grid = self.au_grid;
-        let off_grid = &mut self.off_grid_coords;
-        for filter in &mut filters {
-            if let Some(node) = filter.svgfe_node_mut() {
-                node.subregion = grid.rect(node.subregion, offset, off_grid);
+        let normalized = if offset.is_zero() {
+            // Common case: nothing to shift, so don't clone the filter list.
+            None
+        } else {
+            let grid = self.au_grid;
+            let off_grid = &mut self.off_grid_coords;
+            let mut filters = filters.to_vec();
+            for filter in &mut filters {
+                if let Some(node) = filter.svgfe_node_mut() {
+                    node.subregion = grid.rect(node.subregion, offset, off_grid);
+                }
             }
-        }
-        self.push_filters(&filters, filter_datas);
-    }
+            Some(filters)
+        };
+        let filters = normalized.as_deref().unwrap_or(filters);
 
-    pub fn push_filters(
-        &mut self,
-        filters: &[di::FilterOp],
-        filter_datas: &[di::FilterData],
-    ) {
         if !filters.is_empty() {
             self.push_item(&di::DisplayItem::SetFilterOps);
             self.push_iter(filters);
