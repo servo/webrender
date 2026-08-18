@@ -1170,7 +1170,7 @@ impl PictureInstance {
                                 parent_surface.surface_spatial_node_index,
                             );
 
-                        // The contents of this surface are coplanar, so a perspective
+                        // A perspective surface's contents are coplanar, so a
                         // transform whose only perspective terms are m34/m44 still maps
                         // them with a constant w, and exact scale factors exist. Only a
                         // true keystone (m14/m24 non-zero) has no single reasonable
@@ -1185,9 +1185,18 @@ impl PictureInstance {
                         // at the perspective origin makes the exact scale marginally less
                         // than one for content that is essentially flat, which would
                         // resample it for no reason.
-                        let scale_factors = local_to_surface
-                            .coplanar_scale_factors()
-                            .map_or((1.0, 1.0), |(x, y)| (x.max(1.0), y.max(1.0)));
+                        //
+                        // Both of those only apply to a perspective mapping, and
+                        // `coplanar_scale_factors` also succeeds without one. A surface
+                        // minified by a plain 2d transform must still rasterize small,
+                        // so it keeps its exact, unclamped scale factors.
+                        let scale_factors = if local_to_surface.is_perspective() {
+                            local_to_surface
+                                .coplanar_scale_factors()
+                                .map_or((1.0, 1.0), |(x, y)| (x.max(1.0), y.max(1.0)))
+                        } else {
+                            local_to_surface.scale_factors()
+                        };
 
                         let scale_factors = (
                             scale_factors.0 * parent_surface.world_scale_factors.0,
