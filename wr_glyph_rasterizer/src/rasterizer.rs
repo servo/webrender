@@ -380,8 +380,9 @@ impl FontTransform {
             // The X axis has been swapped with the Y axis
             SubpixelDirection::Vertical
         } else {
-            // Mixed transforms get no subpixel positioning
-            SubpixelDirection::None
+            // Both axes are projected onto each other (rotation / skew), so no
+            // single axis can carry the sub-pixel offset.
+            SubpixelDirection::Mixed
         }
     }
 }
@@ -1032,6 +1033,11 @@ pub enum SubpixelDirection {
     None = 0,
     Horizontal,
     Vertical,
+    /// A rotated or skewed transform, where neither axis alone can carry the
+    /// sub-pixel offset. Both axes get quarter-pixel positioning, so the run
+    /// snaps to a quarter-pixel grid rather than popping a whole device pixel at
+    /// a time (bug 2063377). Costs 16 raster variants per glyph.
+    Mixed,
 }
 
 impl SubpixelDirection {
@@ -1046,7 +1052,7 @@ impl SubpixelDirection {
 
     pub fn swap_xy(self) -> Self {
         match self {
-            SubpixelDirection::None => self,
+            SubpixelDirection::None | SubpixelDirection::Mixed => self,
             SubpixelDirection::Horizontal => SubpixelDirection::Vertical,
             SubpixelDirection::Vertical => SubpixelDirection::Horizontal,
         }
@@ -1129,6 +1135,7 @@ impl GlyphKey {
             SubpixelDirection::None => (0.0, 0.0),
             SubpixelDirection::Horizontal => (point.x, 0.0),
             SubpixelDirection::Vertical => (0.0, point.y),
+            SubpixelDirection::Mixed => (point.x, point.y),
         };
         let sox = SubpixelOffset::quantize(dx);
         let soy = SubpixelOffset::quantize(dy);
@@ -1721,7 +1728,8 @@ pub type GlyphRasterResult = Result<RasterizedGlyph, GlyphRasterError>;
 pub struct GpuGlyphCacheKey(pub u32);
 
 fn pack_glyph_variants_horizontal(variants: &[RasterizedGlyph]) -> RasterizedGlyph {
-    // Pack 4 glyph variants horizontally into a single texture.
+    // Pack the glyph variants horizontally into a single texture (4 for a single
+    // sub-pixel axis, 16 for a mixed transform's 4x4 grid).
     // Normalize both left and top offsets via padding so all variants can use the same base offsets.
 
     let min_left = variants.iter().map(|v| v.left.floor()).fold(f32::INFINITY, f32::min);
@@ -1737,7 +1745,7 @@ fn pack_glyph_variants_horizontal(variants: &[RasterizedGlyph]) -> RasterizedGly
         .map(|v| v.height + (max_top - v.top.floor()) as i32)
         .max().unwrap();
 
-    let packed_width = slot_width * 4;
+    let packed_width = slot_width * variants.len() as i32;
     let bpp = 4;
 
     let mut packed_bytes = vec![0u8; (packed_width * slot_height * bpp) as usize];
@@ -1803,17 +1811,24 @@ fn process_glyph(
             SubpixelOffset::ThreeQuarters,
         ];
 
-        let mut variants = Vec::with_capacity(4);
-        for offset in &offsets {
-            let variant_key = GlyphKey::new(
-                key.index(),
-                match subpx_dir {
-                    SubpixelDirection::Horizontal => DevicePoint::new(offset.to_f32(), 0.0),
-                    SubpixelDirection::Vertical => DevicePoint::new(0.0, offset.to_f32()),
-                    SubpixelDirection::None => DevicePoint::zero(),
-                },
-                subpx_dir,
-            );
+        // A mixed transform varies on both axes, so it needs the full 4x4 grid
+        // of offsets. The shader indexes it as `offset_y * 4 + offset_x`.
+        let points: Vec<DevicePoint> = match subpx_dir {
+            SubpixelDirection::Horizontal =>
+                offsets.iter().map(|o| DevicePoint::new(o.to_f32(), 0.0)).collect(),
+            SubpixelDirection::Vertical =>
+                offsets.iter().map(|o| DevicePoint::new(0.0, o.to_f32())).collect(),
+            SubpixelDirection::Mixed => offsets.iter()
+                .flat_map(|oy| offsets.iter().map(move |ox| {
+                    DevicePoint::new(ox.to_f32(), oy.to_f32())
+                }))
+                .collect(),
+            SubpixelDirection::None => vec![DevicePoint::zero()],
+        };
+
+        let mut variants = Vec::with_capacity(points.len());
+        for point in points {
+            let variant_key = GlyphKey::new(key.index(), point, subpx_dir);
 
             match context.rasterize_glyph(&font, &variant_key) {
                 Ok(glyph) => variants.push(glyph),

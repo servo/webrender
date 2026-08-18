@@ -503,10 +503,15 @@ impl TextRunTemplate {
         let local_raster = raster_space != RasterSpace::Screen
             || used_font.flags.contains(FontInstanceFlags::TEXTURE_PADDING);
 
+        // Only the local-raster branch below snaps on the CPU; device mode hands
+        // the exact pen to the shader, which applies the matching bias itself.
+        // `Mixed` never reaches local-raster mode (that path rasterizes with an
+        // identity `FontTransform`, so its subpx dir is always `Horizontal`).
         let snap_bias = match subpx_dir {
             SubpixelDirection::None => DeviceVector2D::new(0.5, 0.5),
             SubpixelDirection::Horizontal => DeviceVector2D::new(0.125, 0.5),
             SubpixelDirection::Vertical => DeviceVector2D::new(0.5, 0.125),
+            SubpixelDirection::Mixed => DeviceVector2D::new(0.125, 0.125),
         };
 
         // World-space run anchor (device mode only).

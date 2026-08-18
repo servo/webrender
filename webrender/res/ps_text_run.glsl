@@ -100,10 +100,20 @@ void main() {
     // of the packed texture based on subpixel offset. This must happen before
     // geometry calculations since the glyph rect size depends on the UV rect.
     if (is_packed_glyph != 0) {
-        int variant_index = (subpx_dir == SUBPX_DIR_HORIZONTAL) ? subpx_offset_x : subpx_offset_y;
-        float quarter_width = (res.uv_rect.z - res.uv_rect.x) * 0.25;
-        res.uv_rect.x = res.uv_rect.x + float(variant_index) * quarter_width;
-        res.uv_rect.z = res.uv_rect.x + quarter_width;
+        // A mixed transform packs the full 4x4 offset grid, indexed row-major by
+        // (offset_y, offset_x); a single-axis run packs 4 variants.
+        int variant_index;
+        int slot_count;
+        if (subpx_dir == SUBPX_DIR_MIXED) {
+            variant_index = subpx_offset_y * 4 + subpx_offset_x;
+            slot_count = 16;
+        } else {
+            variant_index = (subpx_dir == SUBPX_DIR_HORIZONTAL) ? subpx_offset_x : subpx_offset_y;
+            slot_count = 4;
+        }
+        float slot_width = (res.uv_rect.z - res.uv_rect.x) / float(slot_count);
+        res.uv_rect.x = res.uv_rect.x + float(variant_index) * slot_width;
+        res.uv_rect.z = res.uv_rect.x + slot_width;
     }
 
     // Snap the glyph pen to the device grid. In device mode `glyph.offset` is
@@ -112,6 +122,9 @@ void main() {
     // would have computed. A strike glyph rounds to nearest; everything else
     // keeps the sub-pixel axis's floor bias, which pairs with the quarter-pixel
     // offset baked into the rasterized variant.
+    // A rotated / skewed run (SUBPX_DIR_MIXED) carries a quarter-pixel offset on
+    // both axes, so it snaps to a quarter-pixel grid instead of rounding each
+    // glyph to a whole device pixel (bug 2063377).
     vec2 snap_bias;
     if (is_bitmap_strike != 0) {
         snap_bias = vec2(0.5);
@@ -119,6 +132,8 @@ void main() {
         snap_bias = vec2(0.125, 0.5);
     } else if (subpx_dir == SUBPX_DIR_VERTICAL) {
         snap_bias = vec2(0.5, 0.125);
+    } else if (subpx_dir == SUBPX_DIR_MIXED) {
+        snap_bias = vec2(0.125);
     } else {
         snap_bias = vec2(0.5);
     }

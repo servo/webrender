@@ -1,0 +1,27 @@
+--- # Bug 2063377: a rotated or skewed run must keep sub-pixel glyph positioning.
+    #
+    # The glyph's pen sits at the transform origin, so its device position is
+    # exactly the matrix translation: 60.0 here, and 60.25 in the notref. Both
+    # land on integer pen 60, so whole-pixel rounding renders the two
+    # bit-identically; quarter-pixel positioning selects a different sub-pixel
+    # variant for 0.25 and the two must differ.
+    #
+    # One glyph only, and at the transform origin, on purpose. Any further glyph
+    # has its own pen fraction that this test does not control, and a fraction
+    # that straddles the round-to-nearest boundary would make the images differ
+    # even without sub-pixel positioning - passing for the wrong reason.
+    #
+    # The 2x2 part is a 20 degree rotation, which is what selects
+    # SubpixelDirection::Mixed: skew_y is far from zero (so not Horizontal) and
+    # scale_x is far from zero (so not Vertical), and well above the threshold
+    # below which the transform is treated as axis-aligned.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 200, 200]
+      transform: [0.9396926, 0.3420202, 0, 0, -0.3420202, 0.9396926, 0, 0, 0, 0, 1, 0, 60, 60, 0, 1]
+      items:
+      - text: "W"
+        origin: 0 0
+        size: 40
+        font: "FreeSans.ttf"

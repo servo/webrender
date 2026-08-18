@@ -41,8 +41,9 @@ platform(linux) options(disable-subpixel) == border-radius.yaml border-radius-al
 platform(linux) == border-radius.yaml border-radius-subpx.png
 scale(*) options(disable-aa) == transparent-no-aa.yaml transparent-no-aa-ref.yaml
 scale(*) != diacritics.yaml diacritics-ref.yaml
-fuzzy(1,42) platform(linux) options(disable-subpixel) == alpha-transform.yaml alpha-transform.png
-fuzzy(1,39) platform(linux) == subpixel-rotate.yaml subpixel-rotate.png
+fuzzy(1,48) platform(linux) options(disable-subpixel) == alpha-transform.yaml alpha-transform.png
+fuzzy(1,40) platform(linux) == subpixel-rotate.yaml subpixel-rotate.png
+platform(linux) != rotated-subpixel-position.yaml rotated-subpixel-position-notref.yaml
 fuzzy(1,72) platform(linux) == subpixel-scale.yaml subpixel-scale.png
 fuzzy(1,26) platform(linux) == subpixel-skew.yaml subpixel-skew.png
 scale(*) fuzzy(1,381) platform(linux) == subpixel-translate.yaml subpixel-translate-ref.yaml
@@ -52,7 +53,7 @@ scale(*) fuzzy(1,20) platform(linux) == bitmap-glyph-transform.yaml bitmap-glyph
 # bug 2061411 / 2062234: a scale transform, uniform or not, must reach an
 # embedded-bitmap glyph. FreeType-only (the bitmap strike selection), so linux.
 scale(*) fuzzy(1,20) platform(linux) == 2061411-bitmap-scale.yaml 2061411-bitmap-scale-ref.yaml
-fuzzy(1,21) platform(linux) == clipped-transform.yaml clipped-transform.png
+fuzzy(1,22) platform(linux) == clipped-transform.yaml clipped-transform.png
 platform(mac) fuzzy(195,30) == color-bitmap-shadow.yaml color-bitmap-shadow-ref.yaml
 scale(*) platform(linux) == writing-modes.yaml writing-modes-ref.yaml
 fuzzy(1,5) platform(linux) == blurred-shadow-local-clip-rect.yaml blurred-shadow-local-clip-rect-ref.png

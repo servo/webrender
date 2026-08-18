@@ -438,7 +438,8 @@ impl PrimitiveInstance {
                         SnapRounding::RoundOutNonSubpx { subpx_horizontal: true },
                     SubpixelDirection::Vertical =>
                         SnapRounding::RoundOutNonSubpx { subpx_horizontal: false },
-                    SubpixelDirection::None => SnapRounding::RoundOut,
+                    SubpixelDirection::None |
+                    SubpixelDirection::Mixed => SnapRounding::RoundOut,
                 })
             } else {
                 ClipSnap::Exact

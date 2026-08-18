@@ -1,0 +1,13 @@
+--- # Not-reference for rotated-subpixel-position.yaml: identical except the
+    # glyph's device pen is shifted a quarter of a pixel in x (60.0 -> 60.25).
+    # See that file for why the two must render differently.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 200, 200]
+      transform: [0.9396926, 0.3420202, 0, 0, -0.3420202, 0.9396926, 0, 0, 0, 0, 1, 0, 60.25, 60, 0, 1]
+      items:
+      - text: "W"
+        origin: 0 0
+        size: 40
+        font: "FreeSans.ttf"
