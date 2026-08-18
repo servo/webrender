@@ -27,7 +27,25 @@ float compute_superellipse_half_corner(float shape) {
     float n = exp2(shape);
     float convex_half_corner = pow(0.5, 1.0 / n);
 
+    // Ensure the curve tends towards 0.75 (which will produce axis-aligned
+    // normals in compute_superellipse_normals()) when shape goes to 1 (round).
+    // This makes the curve continuous from subellipses (shape < 1) to
+    // superellipses (shape > 1).
+    // The original half corner (above) goes to 0.5^0.5 = sqrt(2) / 2 ~= 0.707,
+    // so the delta is about 6% at maximum.
+    const float delta = 0.04289321881345243; // = 0.75 - pow(0.5, 0.5)
+    float falloff = shape * shape; // quadratic falloff
+    convex_half_corner += delta * falloff;
+
     return convex_half_corner;
+}
+
+// Super cheap approximation of the function above: the delta with quadratic
+// falloff actually makes it almost locally linear for shape values between
+// zero and one.
+float compute_superellipse_half_corner_approx(float shape) {
+    shape = min(1.0, abs(shape));
+    return 0.25 * shape + 0.5;
 }
 
 #if 0
@@ -118,8 +136,15 @@ float compute_superellipse_half_corner(float shape) {
 // dy/dx = -b / a * qx * (1 - x0 / a * qx)^((1-n) / n) # Careful, exponent flipped
 //
 vec4 compute_superellipse_normals(vec2 radii, float shape) {
-    float n = exp2(abs(shape));
-    float q = pow(0.05, n - 1.0);
+    shape = min(1.0, abs(shape));
+
+    float n = exp2(shape);
+
+    // The damping factor makes q go to zero when shape approches one,
+    // ensuring continuity with higher-order superellipses (for shapes
+    // of 1 and above, the normals should always be axis-aligned)
+    float damping_factor = (1.0 - shape * shape);
+    float q = pow(0.05 * damping_factor, n - 1.0);
 
     // x: dy/dx at (0.05 * radii.x, radii.y)
     // y: dx/dy at (radii.x, 0.05 * radii.y)
@@ -137,8 +162,7 @@ vec4 compute_superellipse_normals(vec2 radii, float shape) {
 //
 // Returns start and end normals in (x, y) and (z, w) respectively
 vec4 compute_superellipse_normals(vec2 radii, float shape) {
-
-    float convex_half_corner = compute_superellipse_half_corner(shape);
+    float convex_half_corner = compute_superellipse_half_corner_approx(shape);
     vec2 tangent = vec2(0.5 - 2.0 * convex_half_corner, 2.0 * convex_half_corner - 1.5);
 
     // Avoid dividing by zero
