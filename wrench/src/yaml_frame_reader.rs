@@ -1060,7 +1060,7 @@ impl YamlFrameReader {
             .as_rect()
             .expect("gradient must have bounds");
 
-        let gradient = item.as_gradient(dl);
+        let (gradient, stops) = item.as_gradient(dl);
         let tile_size = item["tile-size"].as_size().unwrap_or_else(|| bounds.size());
         let tile_spacing = item["tile-spacing"].as_size().unwrap_or_else(LayoutSize::zero);
 
@@ -1069,7 +1069,8 @@ impl YamlFrameReader {
             bounds,
             gradient,
             tile_size,
-            tile_spacing
+            tile_spacing,
+            &stops,
         );
     }
 
@@ -1087,7 +1088,7 @@ impl YamlFrameReader {
         let bounds = item[bounds_key]
             .as_rect()
             .expect("radial gradient must have bounds");
-        let gradient = item.as_radial_gradient(dl);
+        let (gradient, stops) = item.as_radial_gradient(dl);
         let tile_size = item["tile-size"].as_size().unwrap_or_else(|| bounds.size());
         let tile_spacing = item["tile-spacing"].as_size().unwrap_or_else(LayoutSize::zero);
 
@@ -1097,6 +1098,7 @@ impl YamlFrameReader {
             gradient,
             tile_size,
             tile_spacing,
+            &stops,
         );
     }
 
@@ -1114,7 +1116,7 @@ impl YamlFrameReader {
         let bounds = item[bounds_key]
             .as_rect()
             .expect("conic gradient must have bounds");
-        let gradient = item.as_conic_gradient(dl);
+        let (gradient, stops) = item.as_conic_gradient(dl);
         let tile_size = item["tile-size"].as_size().unwrap_or_else(|| bounds.size());
         let tile_spacing = item["tile-spacing"].as_size().unwrap_or_else(LayoutSize::zero);
 
@@ -1124,6 +1126,7 @@ impl YamlFrameReader {
             gradient,
             tile_size,
             tile_spacing,
+            &stops,
         );
     }
 
@@ -1134,6 +1137,9 @@ impl YamlFrameReader {
         item: &Yaml,
         info: &mut CommonItemProperties,
     ) {
+        // Set by a nine-patch gradient source; the stops travel with the
+        // gradient to `push_border` rather than being recorded separately.
+        let mut gradient_stops = Vec::new();
         let bounds_key = if item["type"].is_badvalue() {
             "border"
         } else {
@@ -1252,15 +1258,18 @@ impl YamlFrameReader {
                             NinePatchBorderSource::Image(image_key, ImageRendering::Auto)
                         }
                         "gradient" => {
-                            let gradient = item.as_gradient(dl);
+                            let (gradient, stops) = item.as_gradient(dl);
+                            gradient_stops = stops;
                             NinePatchBorderSource::Gradient(gradient)
                         }
                         "radial-gradient" => {
-                            let gradient = item.as_radial_gradient(dl);
+                            let (gradient, stops) = item.as_radial_gradient(dl);
+                            gradient_stops = stops;
                             NinePatchBorderSource::RadialGradient(gradient)
                         }
                         "conic-gradient" => {
-                            let gradient = item.as_conic_gradient(dl);
+                            let (gradient, stops) = item.as_conic_gradient(dl);
+                            gradient_stops = stops;
                             NinePatchBorderSource::ConicGradient(gradient)
                         }
                         _ => unreachable!("Unexpected border type"),
@@ -1286,7 +1295,7 @@ impl YamlFrameReader {
             None
         };
         if let Some(details) = border_details {
-            dl.push_border(info, bounds, widths, details);
+            dl.push_border(info, bounds, widths, details, &gradient_stops);
         }
     }
 

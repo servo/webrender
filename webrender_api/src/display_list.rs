@@ -1515,49 +1515,52 @@ impl DisplayListBuilder {
         self.glyph_scratch = scratch;
     }
 
-    /// NOTE: gradients must be pushed in the order they're created
-    /// because create_gradient stores the stops in anticipation.
+    /// Normalize `stops` and describe the gradient they make.
+    ///
+    /// Returns the normalized stops alongside the gradient, for the matching
+    /// `push_*` to take: the stops describe the gradient, so they travel with
+    /// it rather than being left in the builder. Nothing is recorded here.
+    ///
+    /// This used to push the stops into the item stream itself, which is why
+    /// gradients had to be pushed in the order they were created - and, since a
+    /// `SetGradientStops` overwrites the last one, really had to be created and
+    /// pushed strictly one at a time. Handing them back removes that hazard.
     pub fn create_gradient(
         &mut self,
         start_point: LayoutPoint,
         end_point: LayoutPoint,
         stops: Vec<di::GradientStop>,
         extend_mode: di::ExtendMode,
-    ) -> di::Gradient {
+    ) -> (di::Gradient, Vec<di::GradientStop>) {
         let mut builder = GradientBuilder::with_stops(stops);
         let gradient = builder.gradient(start_point, end_point, extend_mode);
-        self.push_stops(builder.stops());
-        gradient
+        (gradient, builder.into_stops())
     }
 
-    /// NOTE: gradients must be pushed in the order they're created
-    /// because create_gradient stores the stops in anticipation.
+    /// See [`create_gradient`](#method.create_gradient).
     pub fn create_radial_gradient(
         &mut self,
         center: LayoutPoint,
         radius: LayoutSize,
         stops: Vec<di::GradientStop>,
         extend_mode: di::ExtendMode,
-    ) -> di::RadialGradient {
+    ) -> (di::RadialGradient, Vec<di::GradientStop>) {
         let mut builder = GradientBuilder::with_stops(stops);
         let gradient = builder.radial_gradient(center, radius, extend_mode);
-        self.push_stops(builder.stops());
-        gradient
+        (gradient, builder.into_stops())
     }
 
-    /// NOTE: gradients must be pushed in the order they're created
-    /// because create_gradient stores the stops in anticipation.
+    /// See [`create_gradient`](#method.create_gradient).
     pub fn create_conic_gradient(
         &mut self,
         center: LayoutPoint,
         angle: f32,
         stops: Vec<di::GradientStop>,
         extend_mode: di::ExtendMode,
-    ) -> di::ConicGradient {
+    ) -> (di::ConicGradient, Vec<di::GradientStop>) {
         let mut builder = GradientBuilder::with_stops(stops);
         let gradient = builder.conic_gradient(center, angle, extend_mode);
-        self.push_stops(builder.stops());
-        gradient
+        (gradient, builder.into_stops())
     }
 
     pub fn push_border(
@@ -1566,8 +1569,12 @@ impl DisplayListBuilder {
         bounds: LayoutRect,
         widths: LayoutSideOffsets,
         details: di::BorderDetails,
+        // Stops for a `NinePatchBorderSource` gradient; empty otherwise.
+        gradient_stops: &[di::GradientStop],
     ) {
         let (common, offset) = self.normalize_common(common);
+        self.push_stops(gradient_stops);
+
         let item = di::DisplayItem::Border(di::BorderDisplayItem {
             common,
             bounds: self.shift_rect(bounds, offset),
@@ -1773,8 +1780,10 @@ impl DisplayListBuilder {
         gradient: di::Gradient,
         tile_size: LayoutSize,
         tile_spacing: LayoutSize,
+        stops: &[di::GradientStop],
     ) {
         let (common, offset) = self.normalize_common(common);
+        self.push_stops(stops);
         let item = di::DisplayItem::Gradient(di::GradientDisplayItem {
             common,
             bounds: self.shift_rect(bounds, offset),
@@ -1796,8 +1805,10 @@ impl DisplayListBuilder {
         gradient: di::RadialGradient,
         tile_size: LayoutSize,
         tile_spacing: LayoutSize,
+        stops: &[di::GradientStop],
     ) {
         let (common, offset) = self.normalize_common(common);
+        self.push_stops(stops);
         let item = di::DisplayItem::RadialGradient(di::RadialGradientDisplayItem {
             common,
             bounds: self.shift_rect(bounds, offset),
@@ -1819,8 +1830,10 @@ impl DisplayListBuilder {
         gradient: di::ConicGradient,
         tile_size: LayoutSize,
         tile_spacing: LayoutSize,
+        stops: &[di::GradientStop],
     ) {
         let (common, offset) = self.normalize_common(common);
+        self.push_stops(stops);
         let item = di::DisplayItem::ConicGradient(di::ConicGradientDisplayItem {
             common,
             bounds: self.shift_rect(bounds, offset),
