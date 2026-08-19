@@ -430,7 +430,10 @@ pub struct SceneBuilder<'a> {
     /// Stack of spatial node indices forming containing block for 3d contexts
     containing_block_stack: Vec<SpatialNodeIndex>,
 
-    /// Stack of requested raster spaces for stacking contexts
+    /// Raster space in effect, one entry per open stacking context. The
+    /// values arrive already resolved on the item (see
+    /// `StackingContext::raster_space`); this only remembers the innermost one
+    /// for `add_text`.
     raster_space_stack: Vec<RasterSpace>,
 
     /// Maintains state for any currently active shadows
@@ -2019,6 +2022,9 @@ impl<'a> SceneBuilder<'a> {
     }
 
     /// Push a new stacking context. Returns context that must be passed to pop_stacking_context().
+    ///
+    /// `raster_space` arrives already resolved against the enclosing stacking
+    /// contexts; see `StackingContext::raster_space`.
     fn push_stacking_context(
         &mut self,
         mut composite_ops: CompositeOps,
@@ -2026,7 +2032,7 @@ impl<'a> SceneBuilder<'a> {
         prim_flags: PrimitiveFlags,
         spatial_node_index: SpatialNodeIndex,
         clip_chain_id: Option<api::ClipChainId>,
-        requested_raster_space: RasterSpace,
+        raster_space: RasterSpace,
         flags: StackingContextFlags,
     ) -> StackingContextInfo {
         tracy_rs::profile_scope!("push_stacking_context");
@@ -2055,7 +2061,7 @@ impl<'a> SceneBuilder<'a> {
                 prim_flags,
                 spatial_node_index,
                 clip_chain_id,
-                requested_raster_space,
+                raster_space,
                 flags,
             );
             info.pop_stacking_context = true;
@@ -2077,17 +2083,7 @@ impl<'a> SceneBuilder<'a> {
             composite_ops.snapshot.is_some(),
         );
 
-        let new_space = match (self.raster_space_stack.last(), requested_raster_space) {
-            // If no parent space, just use the requested space
-            (None, _) => requested_raster_space,
-            // If screen, use the parent
-            (Some(parent_space), RasterSpace::Screen) => *parent_space,
-            // If currently screen, select the requested
-            (Some(RasterSpace::Screen), space) => space,
-            // If both local, take the maximum scale
-            (Some(RasterSpace::Local(parent_scale)), RasterSpace::Local(scale)) => RasterSpace::Local(parent_scale.max(scale)),
-        };
-        self.raster_space_stack.push(new_space);
+        self.raster_space_stack.push(raster_space);
 
         // Get the transform-style of the parent stacking context,
         // which determines if we *might* need to draw this on
@@ -2292,7 +2288,7 @@ impl<'a> SceneBuilder<'a> {
                 transform_style,
                 context_3d,
                 flags,
-                raster_space: new_space,
+                raster_space,
             });
         }
 

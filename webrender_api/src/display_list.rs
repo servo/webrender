@@ -891,6 +891,7 @@ pub struct SaveState {
     next_clip_chain_id: u64,
     shadow_capture_len: usize,
     pending_shadows_len: usize,
+    raster_space_stack_len: usize,
 }
 
 /// DisplayListSection determines the target buffer for the display items.
@@ -1060,6 +1061,10 @@ pub struct DisplayListBuilder {
     /// Held as typed descriptors (not captured markers) and consumed by
     /// `pop_all_shadows`, which desugars them into blur stacking contexts.
     pending_shadows: Vec<PendingShadow>,
+    /// Raster space in effect, one entry per open stacking context plus a
+    /// `Screen` base. Resolving here rather than in the scene builder means one
+    /// stack instead of two that have to agree.
+    raster_space_stack: Vec<di::RasterSpace>,
 }
 
 /// A shadow declared by `push_shadow`, awaiting desugaring at `pop_all_shadows`.
@@ -1106,6 +1111,7 @@ impl DisplayListBuilder {
             glyph_scratch: Vec::new(),
             shadow_capture: Vec::new(),
             pending_shadows: Vec::new(),
+            raster_space_stack: vec![di::RasterSpace::Screen],
         }
     }
 
@@ -1123,6 +1129,9 @@ impl DisplayListBuilder {
         self.off_grid_coords = 0;
         self.shadow_capture.clear();
         self.pending_shadows.clear();
+
+        self.raster_space_stack.clear();
+        self.raster_space_stack.push(di::RasterSpace::Screen);
     }
 
     /// Saves the current display list state, so it may be `restore()`'d.
@@ -1142,6 +1151,7 @@ impl DisplayListBuilder {
             next_clip_chain_id: self.next_clip_chain_id,
             shadow_capture_len: self.shadow_capture.len(),
             pending_shadows_len: self.pending_shadows.len(),
+            raster_space_stack_len: self.raster_space_stack.len(),
         });
     }
 
@@ -1161,6 +1171,9 @@ impl DisplayListBuilder {
         // already handled).
         self.shadow_capture.truncate(state.shadow_capture_len);
         self.pending_shadows.truncate(state.pending_shadows_len);
+
+        // Stacking contexts opened since the save go away with their items.
+        self.raster_space_stack.truncate(state.raster_space_stack_len);
 
         // Drop offsets recorded for spatial nodes defined after the save point;
         // those ids will be reused, so the single-entry cache could be stale.
@@ -1938,6 +1951,21 @@ impl DisplayListBuilder {
     ) {
         self.push_filters(filters, filter_datas, spatial_id);
 
+        // Resolve this context's raster space against its parent: a `Screen`
+        // request inherits the parent, a `Local` request overrides a `Screen`
+        // parent, and nested locals take the coarser of the two scales. The
+        // resolved value is what goes in the item, so the scene builder does not
+        // repeat the walk - see `StackingContext::raster_space`.
+        let resolved_raster_space = match (self.raster_space_stack.last(), raster_space) {
+            (None, _) => raster_space,
+            (Some(parent), di::RasterSpace::Screen) => *parent,
+            (Some(di::RasterSpace::Screen), space) => space,
+            (Some(di::RasterSpace::Local(parent_scale)), di::RasterSpace::Local(scale)) => {
+                di::RasterSpace::Local(parent_scale.max(scale))
+            }
+        };
+        self.raster_space_stack.push(resolved_raster_space);
+
         let item = di::DisplayItem::PushStackingContext(di::PushStackingContextDisplayItem {
             spatial_id,
             snapshot,
@@ -1946,7 +1974,7 @@ impl DisplayListBuilder {
                 transform_style,
                 mix_blend_mode,
                 clip_chain_id,
-                raster_space,
+                raster_space: resolved_raster_space,
                 flags,
             },
         });
@@ -1991,6 +2019,7 @@ impl DisplayListBuilder {
     }
 
     pub fn pop_stacking_context(&mut self) {
+        self.raster_space_stack.pop().expect("popped more stacking contexts than were pushed");
         self.push_item(&di::DisplayItem::PopStackingContext);
     }
 
