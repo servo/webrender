@@ -1563,7 +1563,6 @@ impl<'a> SceneBuilder<'a> {
                         tile_size,
                         info.tile_spacing,
                         None,
-                        EdgeMask::all(),
                     ) {
                         self.add_primitive(
                             spatial_node_index,
@@ -2898,7 +2897,6 @@ impl<'a> SceneBuilder<'a> {
                             LayoutSize::new(border.height as f32, border.width as f32),
                             LayoutSize::zero(),
                             Some(Box::new(nine_patch)),
-                            EdgeMask::all(),
                         ) {
                             Some(prim) => prim,
                             None => return,
@@ -2977,7 +2975,6 @@ impl<'a> SceneBuilder<'a> {
         stretch_size: LayoutSize,
         mut tile_spacing: LayoutSize,
         nine_patch: Option<Box<NinePatchDescriptor>>,
-        edge_aa_mask: EdgeMask,
     ) -> Option<LinearGradient> {
         let mut prim_rect = info.rect;
         simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
@@ -3024,7 +3021,6 @@ impl<'a> SceneBuilder<'a> {
             stops,
             reverse_stops,
             nine_patch,
-            edge_aa_mask,
         })
     }
 
