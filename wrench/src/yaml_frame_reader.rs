@@ -18,7 +18,7 @@ use webrender::api::*;
 use webrender::render_api::*;
 use webrender::api::units::*;
 use webrender::api::FillRule;
-use crate::wrench::{FontDescriptor, Wrench, WrenchThing, DisplayList};
+use crate::wrench::{FontDescriptor, FontInstanceDescriptor, Wrench, WrenchThing, DisplayList};
 use crate::yaml_helper::{StringEnum, YamlHelper, make_perspective};
 use yaml_rust::{Yaml, YamlLoader};
 use crate::PLATFORM_DEFAULT_FACE_NAME;
@@ -342,8 +342,6 @@ pub struct YamlFrameReader {
 
     image_map: HashMap<(PathBuf, Option<i64>), (ImageKey, LayoutSize)>,
 
-    fonts: HashMap<FontDescriptor, FontKey>,
-    font_instances: HashMap<(FontKey, FontSize, FontInstanceFlags, SyntheticItalics), FontInstanceKey>,
     font_render_mode: Option<FontRenderMode>,
     snapshots: HashMap<String, Snapshot>,
     allow_mipmaps: bool,
@@ -388,8 +386,6 @@ impl YamlFrameReader {
             display_lists: Vec::new(),
             scroll_offsets: HashMap::new(),
             transform_properties: Vec::new(),
-            fonts: HashMap::new(),
-            font_instances: HashMap::new(),
             font_render_mode: None,
             snapshots: HashMap::new(),
             allow_mipmaps: false,
@@ -410,18 +406,10 @@ impl YamlFrameReader {
         }
     }
 
-    pub fn deinit(mut self, wrench: &mut Wrench) {
-        let mut txn = Transaction::new();
-
-        for (_, font_instance) in self.font_instances.drain() {
-            txn.delete_font_instance(font_instance);
-        }
-
-        for (_, font) in self.fonts.drain() {
-            txn.delete_font(font);
-        }
-
-        wrench.api.send_transaction(wrench.document_id, txn);
+    // Fonts are not torn down here: they live on `Wrench` so that an identical
+    // font keeps its instance key across yaml files, which is what lets content
+    // interning dedup a run that two files share.
+    pub fn deinit(self, _wrench: &mut Wrench) {
     }
 
     fn top_space(&self) -> SpatialId {
@@ -490,22 +478,26 @@ impl YamlFrameReader {
         if let Some(pipelines) = yaml["pipelines"].as_vec() {
             for pipeline in pipelines {
                 let pipeline_id = pipeline["id"].as_pipeline_id().unwrap();
-                let mut builder = DisplayListBuilder::new(pipeline_id);
+                let mut builder = wrench.take_dl_builder(pipeline_id);
                 self.build_pipeline(wrench, &mut builder, pipeline_id, false, pipeline);
+                wrench.put_dl_builder(pipeline_id, builder);
             }
         }
 
-        let mut builder = DisplayListBuilder::new(wrench.root_pipeline_id);
+        let root_pipeline_id = wrench.root_pipeline_id;
+        let mut builder = wrench.take_dl_builder(root_pipeline_id);
 
         if let Some(frames) = yaml["frames"].as_vec() {
             for frame in frames {
-                self.build_pipeline(wrench, &mut builder, wrench.root_pipeline_id, true, frame);
+                self.build_pipeline(wrench, &mut builder, root_pipeline_id, true, frame);
             }
         } else {
             let root_stacking_context = &yaml["root"];
             assert_ne!(*root_stacking_context, Yaml::BadValue);
-            self.build_pipeline(wrench, &mut builder, wrench.root_pipeline_id, true, root_stacking_context);
+            self.build_pipeline(wrench, &mut builder, root_pipeline_id, true, root_stacking_context);
         }
+
+        wrench.put_dl_builder(root_pipeline_id, builder);
 
         // If replaying the same frame during interactive use, the frame gets rebuilt,
         // but the external image handler has already been consumed by the renderer.
@@ -855,28 +847,26 @@ impl YamlFrameReader {
 
     fn get_or_create_font(&mut self, desc: FontDescriptor, wrench: &mut Wrench) -> FontKey {
         let list_resources = self.list_resources;
-        *self.fonts
-            .entry(desc.clone())
-            .or_insert_with(|| match desc {
-                FontDescriptor::Path {
-                    ref path,
-                    font_index,
-                } => {
-                    if list_resources { println!("{}", path.to_string_lossy()); }
-                    let mut file = File::open(path).expect("Couldn't open font file");
-                    let mut bytes = vec![];
-                    file.read_to_end(&mut bytes)
-                        .expect("failed to read font file");
-                    wrench.font_key_from_bytes(bytes, font_index)
-                }
-                FontDescriptor::Family { ref name } => wrench.font_key_from_name(name),
-                FontDescriptor::Properties {
-                    ref family,
-                    weight,
-                    style,
-                    stretch,
-                } => wrench.font_key_from_properties(family, weight, style, stretch),
-            })
+        wrench.get_or_create_font(desc, |wrench, desc| match *desc {
+            FontDescriptor::Path {
+                ref path,
+                font_index,
+            } => {
+                if list_resources { println!("{}", path.to_string_lossy()); }
+                let mut file = File::open(path).expect("Couldn't open font file");
+                let mut bytes = vec![];
+                file.read_to_end(&mut bytes)
+                    .expect("failed to read font file");
+                wrench.font_key_from_bytes(bytes, font_index)
+            }
+            FontDescriptor::Family { ref name } => wrench.font_key_from_name(name),
+            FontDescriptor::Properties {
+                ref family,
+                weight,
+                style,
+                stretch,
+            } => wrench.font_key_from_properties(family, weight, style, stretch),
+        })
     }
 
     pub fn allow_mipmaps(&mut self, allow_mipmaps: bool) {
@@ -899,19 +889,13 @@ impl YamlFrameReader {
         synthetic_italics: SyntheticItalics,
         wrench: &mut Wrench,
     ) -> FontInstanceKey {
-        let font_render_mode = self.font_render_mode;
-
-        *self.font_instances
-            .entry((font_key, size.into(), flags, synthetic_italics))
-            .or_insert_with(|| {
-                wrench.add_font_instance(
-                    font_key,
-                    size,
-                    flags,
-                    font_render_mode,
-                    synthetic_italics,
-                )
-            })
+        wrench.get_or_create_font_instance(FontInstanceDescriptor {
+            font_key,
+            size: size.into(),
+            flags,
+            render_mode: self.font_render_mode,
+            synthetic_italics,
+        })
     }
 
     fn as_image_mask(&mut self, item: &Yaml, wrench: &mut Wrench) -> Option<ImageMask> {
