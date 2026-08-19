@@ -37,7 +37,7 @@
 
 use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayList, BuiltDisplayListIter, PrimitiveFlags, SnapshotInfo};
 use api::{ClipId, ColorF, CommonItemProperties, ComplexClipRegion, ComponentTransferFuncType, RasterSpace};
-use api::{DebugFlags, DisplayItem, DisplayItemRef, ExtendMode, ExternalScrollId, FilterData};
+use api::{DebugFlags, DisplayItem, DisplayItemRef, ExternalScrollId, FilterData};
 use api::{FilterOp, FontInstanceKey, FontSize, GlyphInstance, GlyphOptions, GlyphShadowMode, GradientStop};
 use api::{IdNamespace, IframeDisplayItem, ImageKey, ImageRendering, ItemRange, ColorDepth, QualitySettings};
 use api::{LineOrientation, LineStyle, NinePatchBorderSource, PipelineId, MixBlendMode, StackingContextFlags};
@@ -49,7 +49,10 @@ use api::{FilterOpGraphPictureBufferId, SVGFE_GRAPH_MAX};
 use api::channel::{unbounded_channel, Receiver, Sender};
 use api::units::*;
 use crate::image_tiling::simplify_repeated_primitive;
-use api::prim_geometry::{process_repeat_size, compute_stretch_ratio};
+use api::prim_geometry::{
+    conic_gradient_prim, linear_gradient_prim, process_repeat_size,
+    radial_gradient_prim,
+};
 use crate::box_shadow::BLUR_SAMPLE_SCALE;
 use crate::clip::{ClipIntern, ClipItemKey, ClipItemKeyKind, ClipStore};
 use crate::clip::{ClipInternData, ClipNodeId, ClipLeafId};
@@ -75,8 +78,7 @@ use crate::prim_store::rectangle::RectanglePrim;
 use crate::prim_store::backdrop::{BackdropCapture, BackdropRender};
 use crate::prim_store::borders::ImageBorder;
 use crate::prim_store::gradient::{
-    GradientStopKey, LinearGradient, RadialGradient, RadialGradientParams, ConicGradient,
-    ConicGradientParams, optimize_radial_gradient, apply_gradient_local_clip,
+    GradientStopKey, optimize_radial_gradient, apply_gradient_local_clip,
     optimize_linear_gradient,
 };
 use crate::prim_store::image::{Image, StretchSizeKey, YuvImage};
@@ -1554,8 +1556,8 @@ impl<'a> SceneBuilder<'a> {
                 );
 
                 if !tile_size.ceil().is_empty() {
-                    if let Some(prim_key_kind) = self.create_linear_gradient_prim(
-                        &layout,
+                    if let Some(prim_key_kind) = linear_gradient_prim(
+                        layout.rect,
                         start,
                         end,
                         stops,
@@ -1627,7 +1629,7 @@ impl<'a> SceneBuilder<'a> {
                 layout.aligned_aa_edges &= aa_mask;
                 layout.transformed_aa_edges &= aa_mask;
 
-                // TODO: create_radial_gradient_prim already calls
+                // TODO: radial_gradient_prim already calls
                 // this, but it leaves the info variable that is
                 // passed to add_primitive unmodified
                 // which can cause issues.
@@ -1635,8 +1637,8 @@ impl<'a> SceneBuilder<'a> {
 
                 if !tile_size.ceil().is_empty() {
                     layout.rect = prim_rect;
-                    let prim_key_kind = self.create_radial_gradient_prim(
-                        &layout,
+                    let prim_key_kind = radial_gradient_prim(
+                        layout.rect,
                         center,
                         info.gradient.start_offset * info.gradient.radius.width,
                         info.gradient.end_offset * info.gradient.radius.width,
@@ -1683,13 +1685,13 @@ impl<'a> SceneBuilder<'a> {
                 let center = info.gradient.center + offset;
 
                 if !tile_size.ceil().is_empty() {
-                    let prim_key_kind = self.create_conic_gradient_prim(
-                        &layout,
+                    let prim_key_kind = conic_gradient_prim(
+                        layout.rect,
                         center,
                         info.gradient.angle,
                         info.gradient.start_offset,
                         info.gradient.end_offset,
-                        item.gradient_stops(),
+                        read_gradient_stops(item.gradient_stops()),
                         info.gradient.extend_mode,
                         tile_size,
                         info.tile_spacing,
@@ -2888,8 +2890,8 @@ impl<'a> SceneBuilder<'a> {
                         );
                     }
                     NinePatchBorderSource::Gradient(gradient) => {
-                        let prim = match self.create_linear_gradient_prim(
-                            &info,
+                        let prim = match linear_gradient_prim(
+                            info.rect,
                             gradient.start_point,
                             gradient.end_point,
                             read_gradient_stops(gradient_stops),
@@ -2910,8 +2912,8 @@ impl<'a> SceneBuilder<'a> {
                         );
                     }
                     NinePatchBorderSource::RadialGradient(gradient) => {
-                        let prim = self.create_radial_gradient_prim(
-                            &info,
+                        let prim = radial_gradient_prim(
+                            info.rect,
                             gradient.center,
                             gradient.start_offset * gradient.radius.width,
                             gradient.end_offset * gradient.radius.width,
@@ -2931,13 +2933,13 @@ impl<'a> SceneBuilder<'a> {
                         );
                     }
                     NinePatchBorderSource::ConicGradient(gradient) => {
-                        let prim = self.create_conic_gradient_prim(
-                            &info,
+                        let prim = conic_gradient_prim(
+                            info.rect,
                             gradient.center,
                             gradient.angle,
                             gradient.start_offset,
                             gradient.end_offset,
-                            gradient_stops,
+                            read_gradient_stops(gradient_stops),
                             gradient.extend_mode,
                             LayoutSize::new(border.height as f32, border.width as f32),
                             LayoutSize::zero(),
@@ -2962,136 +2964,6 @@ impl<'a> SceneBuilder<'a> {
                     clip_node_id,
                 );
             }
-        }
-    }
-
-    pub fn create_linear_gradient_prim(
-        &self,
-        info: &LayoutPrimitiveInfo,
-        start_point: LayoutPoint,
-        end_point: LayoutPoint,
-        stops: Vec<GradientStopKey>,
-        extend_mode: ExtendMode,
-        stretch_size: LayoutSize,
-        mut tile_spacing: LayoutSize,
-        nine_patch: Option<Box<NinePatchDescriptor>>,
-    ) -> Option<LinearGradient> {
-        let mut prim_rect = info.rect;
-        simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
-
-        let mut is_entirely_transparent = true;
-        for stop in &stops {
-            if stop.color.a > 0 {
-                is_entirely_transparent = false;
-            }
-        }
-
-        // If all the stops have no alpha, then this
-        // gradient can't contribute to the scene.
-        if is_entirely_transparent {
-            return None;
-        }
-
-        // Try to ensure that if the gradient is specified in reverse, then so long as the stops
-        // are also supplied in reverse that the rendered result will be equivalent. To do this,
-        // a reference orientation for the gradient line must be chosen, somewhat arbitrarily, so
-        // just designate the reference orientation as start < end. Aligned gradient rendering
-        // manages to produce the same result regardless of orientation, so don't worry about
-        // reversing in that case.
-        let reverse_stops = start_point.x > end_point.x ||
-            (start_point.x == end_point.x && start_point.y > end_point.y);
-
-        // To get reftests exactly matching with reverse start/end
-        // points, it's necessary to reverse the gradient
-        // line in some cases.
-        let (sp, ep) = if reverse_stops {
-            (end_point, start_point)
-        } else {
-            (start_point, end_point)
-        };
-
-        let stretch_ratio = compute_stretch_ratio(stretch_size, info.rect.size());
-
-        Some(LinearGradient {
-            extend_mode,
-            start_point: sp.into(),
-            end_point: ep.into(),
-            stretch_ratio: stretch_ratio.into(),
-            tile_spacing: tile_spacing.into(),
-            stops,
-            reverse_stops,
-            nine_patch,
-        })
-    }
-
-    pub fn create_radial_gradient_prim(
-        &mut self,
-        info: &LayoutPrimitiveInfo,
-        center: LayoutPoint,
-        start_radius: f32,
-        end_radius: f32,
-        ratio_xy: f32,
-        stops: Vec<GradientStopKey>,
-        extend_mode: ExtendMode,
-        stretch_size: LayoutSize,
-        mut tile_spacing: LayoutSize,
-        nine_patch: Option<Box<NinePatchDescriptor>>,
-    ) -> RadialGradient {
-        let mut prim_rect = info.rect;
-        simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
-
-        let params = RadialGradientParams {
-            start_radius,
-            end_radius,
-            ratio_xy,
-        };
-
-        let stretch_ratio = compute_stretch_ratio(stretch_size, info.rect.size());
-
-        RadialGradient {
-            extend_mode,
-            center: center.into(),
-            params,
-            stretch_ratio: stretch_ratio.into(),
-            tile_spacing: tile_spacing.into(),
-            nine_patch,
-            stops,
-        }
-    }
-
-    pub fn create_conic_gradient_prim(
-        &mut self,
-        info: &LayoutPrimitiveInfo,
-        center: LayoutPoint,
-        angle: f32,
-        start_offset: f32,
-        end_offset: f32,
-        stops: ItemRange<GradientStop>,
-        extend_mode: ExtendMode,
-        stretch_size: LayoutSize,
-        mut tile_spacing: LayoutSize,
-        nine_patch: Option<Box<NinePatchDescriptor>>,
-    ) -> ConicGradient {
-        let mut prim_rect = info.rect;
-        simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
-
-        let stops = stops.iter().map(|stop| {
-            GradientStopKey {
-                offset: stop.offset,
-                color: stop.color.into(),
-            }
-        }).collect();
-
-        let stretch_ratio = compute_stretch_ratio(stretch_size, info.rect.size());
-
-        ConicGradient {
-            extend_mode,
-            center: center.into(),
-            params: ConicGradientParams { angle, start_offset, end_offset },
-            stretch_ratio: stretch_ratio.into(),
-            tile_spacing: tile_spacing.into(),
-            nine_patch,
-            stops,
         }
     }
 
