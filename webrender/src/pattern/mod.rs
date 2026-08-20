@@ -31,33 +31,32 @@ pub enum PatternKind {
 
     Mask = 3,
     BoxShadow = 4,
-    BoxShadowSuperellipse = 5,
     // Variants of ColorOrTexture that use a non-default sampler type
     // (samplerExternalOES / __samplerExternal2DY2YEXT / sampler2DRect). The
     // quad shader is compiled in matching per-kind variants; see
     // ps_quad_textured.glsl.
-    TextureExternal = 6,
-    TextureExternalBT709 = 7,
-    TextureRect = 8,
+    TextureExternal = 5,
+    TextureExternalBT709 = 6,
+    TextureRect = 7,
     // Samples up to three planes (sColor0/1/2) and converts from YUV to RGB.
     // Like ColorOrTexture, the YUV pattern comes in sampler-type-specific
     // variants so that the planes are sampled with the matching sColor
     // declaration; see ps_quad_yuv.glsl. `Yuv` is the default (TEXTURE_2D).
-    Yuv = 9,
-    YuvTextureExternal = 10,
-    YuvTextureExternalBT709 = 11,
-    YuvTextureRect = 12,
+    Yuv = 8,
+    YuvTextureExternal = 9,
+    YuvTextureExternalBT709 = 10,
+    YuvTextureRect = 11,
     // Samples a captured backdrop texture using a (bilerp) 4-corner uv quad.
-    Backdrop = 13,
+    Backdrop = 12,
     // Applies a filter to a sampled source texture; see ps_quad_blend.glsl.
-    Blend = 14,
+    Blend = 13,
     // Composites a picture over its backdrop with a software mix-blend-mode;
     // samples two textures (backdrop + source). See ps_quad_mix_blend.glsl.
-    MixBlend = 15,
+    MixBlend = 14,
     // When adding patterns, don't forget to update the NUM_PATTERNS constant.
 }
 
-pub const NUM_PATTERNS: u32 = 16;
+pub const NUM_PATTERNS: u32 = 15;
 
 impl PatternKind {
     pub fn from_u32(val: u32) -> Self {

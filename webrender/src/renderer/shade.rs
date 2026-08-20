@@ -67,7 +67,6 @@ pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 4] = [
 const DITHERING_FEATURE: &str = "DITHERING";
 const DUAL_SOURCE_FEATURE: &str = "DUAL_SOURCE_BLENDING";
 const FAST_PATH_FEATURE: &str = "FAST_PATH";
-const SUPERELLIPSE_FEATURE: &str = "SUPERELLIPSE";
 
 pub(crate) enum ShaderKind {
     Primitive,
@@ -440,7 +439,6 @@ pub struct Shaders {
     ps_quad_repeat: ShaderHandle,
     ps_quad_gradient: ShaderHandle,
     ps_quad_box_shadow: ShaderHandle,
-    ps_quad_box_shadow_superellipse: ShaderHandle,
     // ps_quad_yuv, like ps_quad_textured, comes in sampler-type-specific
     // variants so the YUV planes are sampled with the matching sColor
     // declaration. The variant is selected via PatternKind.
@@ -453,7 +451,6 @@ pub struct Shaders {
     ps_quad_mix_blend: ShaderHandle,
     ps_mask: ShaderHandle,
     ps_mask_fast: ShaderHandle,
-    ps_mask_superellipse: ShaderHandle,
     ps_clear: ShaderHandle,
     ps_copy: ShaderHandle,
 
@@ -516,13 +513,6 @@ impl Shaders {
             ShaderKind::Cache(VertexArrayKind::Mask),
             "ps_quad_mask",
             &[FAST_PATH_FEATURE],
-            &shader_list,
-        )?;
-
-        let ps_mask_superellipse = loader.create_shader(
-            ShaderKind::Cache(VertexArrayKind::Mask),
-            "ps_quad_mask",
-            &[SUPERELLIPSE_FEATURE],
             &shader_list,
         )?;
 
@@ -651,13 +641,6 @@ impl Shaders {
             ShaderKind::Primitive,
             "ps_quad_box_shadow",
             &[],
-            &shader_list,
-        )?;
-
-        let ps_quad_box_shadow_superellipse = loader.create_shader(
-            ShaderKind::Primitive,
-            "ps_quad_box_shadow",
-            &[SUPERELLIPSE_FEATURE],
             &shader_list,
         )?;
 
@@ -796,7 +779,6 @@ impl Shaders {
             ps_quad_repeat,
             ps_quad_gradient,
             ps_quad_box_shadow,
-            ps_quad_box_shadow_superellipse,
             ps_quad_yuv,
             ps_quad_yuv_external,
             ps_quad_yuv_external_bt709,
@@ -806,7 +788,6 @@ impl Shaders {
             ps_quad_mix_blend,
             ps_mask,
             ps_mask_fast,
-            ps_mask_superellipse,
             ps_split_composite,
             ps_clear,
             ps_copy,
@@ -878,7 +859,6 @@ impl Shaders {
             PatternKind::Gradient => self.ps_quad_gradient,
             PatternKind::Repeat => self.ps_quad_repeat,
             PatternKind::BoxShadow => self.ps_quad_box_shadow,
-            PatternKind::BoxShadowSuperellipse => self.ps_quad_box_shadow_superellipse,
             PatternKind::Yuv => self.ps_quad_yuv,
             PatternKind::YuvTextureExternal => self.ps_quad_yuv_external
                 .expect("bug: ps_quad_yuv TEXTURE_EXTERNAL variant not loaded"),
@@ -935,9 +915,6 @@ impl Shaders {
             BatchKind::Quad(PatternKind::BoxShadow) => {
                 self.ps_quad_box_shadow
             }
-            BatchKind::Quad(PatternKind::BoxShadowSuperellipse) => {
-                self.ps_quad_box_shadow_superellipse
-            }
             BatchKind::Quad(PatternKind::Yuv) => {
                 self.ps_quad_yuv
             }
@@ -988,7 +965,6 @@ impl Shaders {
     }
     pub fn ps_mask(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_mask) }
     pub fn ps_mask_fast(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_mask_fast) }
-    pub fn ps_mask_superellipse(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_mask_superellipse) }
     pub fn ps_clear(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_clear) }
     pub fn ps_copy(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_copy) }
 

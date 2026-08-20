@@ -51,9 +51,7 @@ flat varying highp vec4 vElemCenter_Radius_TR;
 flat varying highp vec4 vElemCenter_Radius_BR;
 flat varying highp vec4 vElemCenter_Radius_BL;
 
-#ifdef WR_FEATURE_SUPERELLIPSE
 flat varying highp vec4 vElemShape;
-#endif
 
 #ifdef WR_VERTEX_SHADER
 
@@ -64,9 +62,7 @@ void pattern_vertex(PrimitiveInfo info) {
     vec4 data3 = fetch_from_gpu_buffer_1f(info.pattern_input.x + 3);
     vec4 data4 = fetch_from_gpu_buffer_1f(info.pattern_input.x + 4);
     vec4 data5 = fetch_from_gpu_buffer_1f(info.pattern_input.x + 5);
-#ifdef WR_FEATURE_SUPERELLIPSE
     vec4 data6 = fetch_from_gpu_buffer_1f(info.pattern_input.x + 6);
-#endif
 
     vec2 alloc_size     = data0.xy;
     vec2 dest_rect_size = data0.zw;
@@ -90,7 +86,7 @@ void pattern_vertex(PrimitiveInfo info) {
     // allocation is rounded up from content_device_size, so this edge always lies
     // inside the entry; using it keeps the mapping stable to sub-texel precision as
     // the blur animates (bug 2002194).
-    vec2 content_device_size = data5.xy;
+    vec2 content_device_size = data6.xy;
     vec2 texture_size = vec2(TEX_SIZE(sColor0));
     vec2 uv_p0 = info.segment.uv_rect.p0;
     vec2 uv_p1 = uv_p0 + content_device_size;
@@ -116,9 +112,7 @@ void pattern_vertex(PrimitiveInfo info) {
     vElemCenter_Radius_BR = vec4(elem_p1 - r_br, r_br);
     vElemCenter_Radius_BL = vec4(elem_p0.x + r_bl.x, elem_p1.y - r_bl.y, r_bl);
 
-#ifdef WR_FEATURE_SUPERELLIPSE
-    vElemShape = data6;
-#endif
+    vElemShape = data5;
 }
 
 #endif
@@ -178,11 +172,10 @@ vec4 pattern_fragment(vec4 base_color) {
     // Reconstruct the element rect bounds from the TL and BR corner data.
     vec4 elem_bounds = vec4(c_tl - r_tl, c_br + r_br);
 
-    float elem_dist;
-#ifdef WR_FEATURE_SUPERELLIPSE
     vec4 elem_shape = vElemShape;
+
+    float elem_dist;
     if (elem_shape == vec4(1.0)) {
-#endif
         elem_dist = distance_to_rounded_rect(
             local_pos,
             elem_plane_tl, vec4(c_tl, inverse_radii_squared(r_tl)),
@@ -191,7 +184,6 @@ vec4 pattern_fragment(vec4 base_color) {
             elem_plane_bl, vec4(c_bl, inverse_radii_squared(r_bl)),
             elem_bounds
         );
-#ifdef WR_FEATURE_SUPERELLIPSE
     } else {
         elem_dist = distance_to_shaped_rect(
             local_pos,
@@ -204,7 +196,6 @@ vec4 pattern_fragment(vec4 base_color) {
             vec4(0.0)
         );
     }
-#endif
 
     // Outset (inset=0): dist < 0 = inside element → should be clipped out → use -elem_dist.
     // Inset (inset=1): dist < 0 = inside element → should be kept → use elem_dist.

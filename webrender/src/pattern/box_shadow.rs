@@ -43,10 +43,7 @@ impl PatternBuilder for BoxShadowPatternData {
         _ctx: &PatternBuilderContext,
         state: &mut PatternBuilderState,
     ) -> Pattern {
-        let superellipse = !self.element_radius.shapes_all_round();
-
-        let block_count = if superellipse { 7 } else { 6 };
-        let mut writer = state.frame_gpu_data.f32.write_blocks(block_count);
+        let mut writer = state.frame_gpu_data.f32.write_blocks(7);
         writer.push_one([
             self.shadow_rect_alloc_size.width,
             self.shadow_rect_alloc_size.height,
@@ -78,23 +75,21 @@ impl PatternBuilder for BoxShadowPatternData {
             self.element_radius.bottom_left.height,
         ]);
         writer.push_one([
+            self.element_radius.shape_top_left,
+            self.element_radius.shape_top_right,
+            self.element_radius.shape_bottom_right,
+            self.element_radius.shape_bottom_left,
+        ]);
+        writer.push_one([
             self.content_device_size.width,
             self.content_device_size.height,
             0.0,
             0.0,
         ]);
-        if superellipse {
-            writer.push_one([
-                self.element_radius.shape_top_left,
-                self.element_radius.shape_top_right,
-                self.element_radius.shape_bottom_right,
-                self.element_radius.shape_bottom_left,
-            ]);
-        }
         let addr = writer.finish();
 
         Pattern {
-            kind: if superellipse { PatternKind::BoxShadowSuperellipse } else { PatternKind::BoxShadow },
+            kind: PatternKind::BoxShadow,
             shader_input: PatternShaderInput(addr.as_int(), 0),
             texture_input: PatternTextureInput::new(self.render_task),
             base_color: self.color,
