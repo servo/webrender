@@ -67,6 +67,7 @@ pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 4] = [
 const DITHERING_FEATURE: &str = "DITHERING";
 const DUAL_SOURCE_FEATURE: &str = "DUAL_SOURCE_BLENDING";
 const FAST_PATH_FEATURE: &str = "FAST_PATH";
+const SUPERELLIPSE_FEATURE: &str = "SUPERELLIPSE";
 
 pub(crate) enum ShaderKind {
     Primitive,
@@ -451,6 +452,7 @@ pub struct Shaders {
     ps_quad_mix_blend: ShaderHandle,
     ps_mask: ShaderHandle,
     ps_mask_fast: ShaderHandle,
+    ps_mask_superellipse: ShaderHandle,
     ps_clear: ShaderHandle,
     ps_copy: ShaderHandle,
 
@@ -513,6 +515,13 @@ impl Shaders {
             ShaderKind::Cache(VertexArrayKind::Mask),
             "ps_quad_mask",
             &[FAST_PATH_FEATURE],
+            &shader_list,
+        )?;
+
+        let ps_mask_superellipse = loader.create_shader(
+            ShaderKind::Cache(VertexArrayKind::Mask),
+            "ps_quad_mask",
+            &[SUPERELLIPSE_FEATURE],
             &shader_list,
         )?;
 
@@ -788,6 +797,7 @@ impl Shaders {
             ps_quad_mix_blend,
             ps_mask,
             ps_mask_fast,
+            ps_mask_superellipse,
             ps_split_composite,
             ps_clear,
             ps_copy,
@@ -965,6 +975,7 @@ impl Shaders {
     }
     pub fn ps_mask(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_mask) }
     pub fn ps_mask_fast(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_mask_fast) }
+    pub fn ps_mask_superellipse(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_mask_superellipse) }
     pub fn ps_clear(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_clear) }
     pub fn ps_copy(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.ps_copy) }
 
