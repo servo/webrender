@@ -253,6 +253,7 @@ impl BatchKind {
             BatchKind::Quad(PatternKind::Gradient) => GPU_TAG_GRADIENT,
             BatchKind::Quad(PatternKind::Repeat) => GPU_TAG_REPEAT,
             BatchKind::Quad(PatternKind::BoxShadow) => GPU_TAG_PRIMITIVE,
+            BatchKind::Quad(PatternKind::BoxShadowSuperellipse) => GPU_TAG_PRIMITIVE,
             BatchKind::Quad(PatternKind::Yuv) => GPU_TAG_BRUSH_YUV_IMAGE,
             BatchKind::Quad(PatternKind::YuvTextureExternal) => GPU_TAG_BRUSH_YUV_IMAGE,
             BatchKind::Quad(PatternKind::YuvTextureExternalBT709) => GPU_TAG_BRUSH_YUV_IMAGE,
