@@ -2452,6 +2452,50 @@ impl Renderer {
                 self.device.disable_scissor();
             }
 
+            if !masks.mask_instances_superellipse.is_empty() {
+                self.shaders.borrow_mut().ps_mask_superellipse().bind(
+                    &mut self.device,
+                    projection,
+                    None,
+                    &mut self.renderer_errors,
+                    &mut self.profile,
+                    &mut self.command_log,
+                );
+
+                self.draw_instanced_batch(
+                    &masks.mask_instances_superellipse,
+                    VertexArrayKind::Mask,
+                    &BatchTextures::empty(),
+                    stats,
+                );
+            }
+
+            if !masks.mask_instances_superellipse_with_scissor.is_empty() {
+                self.shaders.borrow_mut().ps_mask_superellipse().bind(
+                    &mut self.device,
+                    projection,
+                    None,
+                    &mut self.renderer_errors,
+                    &mut self.profile,
+                    &mut self.command_log,
+                );
+
+                self.device.enable_scissor();
+
+                for (scissor_rect, instances) in &masks.mask_instances_superellipse_with_scissor {
+                    self.device.set_scissor_rect(draw_target.to_framebuffer_rect(*scissor_rect));
+
+                    self.draw_instanced_batch(
+                        instances,
+                        VertexArrayKind::Mask,
+                        &BatchTextures::empty(),
+                        stats,
+                    );
+                }
+
+                self.device.disable_scissor();
+            }
+
             if !masks.image_mask_instances.is_empty() {
                 self.shaders.borrow_mut().ps_quad_textured().bind(
                     &mut self.device,

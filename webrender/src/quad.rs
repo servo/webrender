@@ -1809,7 +1809,7 @@ pub fn write_rounded_rect_clip_blocks(
     radius: &BorderRadius,
     inset: LayoutSideOffsets,
     mode: ClipMode,
-) -> (GpuBufferAddress, bool) {
+) -> (GpuBufferAddress, bool, bool) {
     let radius = clamped_radius(radius, clip_rect.size());
 
     if radius.can_use_fast_path_in(&clip_rect) {
@@ -1823,9 +1823,11 @@ pub fn write_rounded_rect_clip_blocks(
         ]);
         writer.push_one([mode as i32 as f32, 0.0, 0.0, 0.0]);
 
-        (writer.finish(), true)
+        (writer.finish(), true, false)
     } else {
-        let mut writer = gpu_buffer.write_blocks(6);
+        let superellipse = !radius.shapes_all_round();
+        let block_count = if superellipse { 6 } else { 4 };
+        let mut writer = gpu_buffer.write_blocks(block_count);
         writer.push_one(clip_rect);
         writer.push_one([
             radius.top_left.width,
@@ -1840,15 +1842,17 @@ pub fn write_rounded_rect_clip_blocks(
             radius.bottom_right.height,
         ]);
         writer.push_one([mode as i32 as f32, 0.0, 0.0, 0.0]);
-        writer.push_one([
-            radius.shape_top_left,
-            radius.shape_top_right,
-            radius.shape_bottom_right,
-            radius.shape_bottom_left,
-        ]);
-        writer.push_one(inset);
+        if superellipse {
+            writer.push_one([
+                radius.shape_top_left,
+                radius.shape_top_right,
+                radius.shape_bottom_right,
+                radius.shape_bottom_left,
+            ]);
+            writer.push_one(inset);
+        }
 
-        (writer.finish(), false)
+        (writer.finish(), false, superellipse)
     }
 }
 
@@ -1867,7 +1871,7 @@ pub fn prepare_clip_task(
     rg_builder: &mut RenderTaskGraphBuilder,
     sub_tasks: &mut SubTaskRange,
 ) {
-    let (clip_address, fast_path) = match clip_item.kind {
+    let (clip_address, fast_path, superellipse) = match clip_item.kind {
         ClipItemKind::RoundedRectangle { radius, inset, mode } => {
             write_rounded_rect_clip_blocks(
                 gpu_buffer,
@@ -1884,7 +1888,7 @@ pub fn prepare_clip_task(
             writer.push_one([mode as i32 as f32, 0.0, 0.0, 0.0]);
             let clip_address = writer.finish();
 
-            (clip_address, true)
+            (clip_address, true, false)
         }
         ClipItemKind::Image { .. } => {
             let transform_id = transforms.gpu.get_id_with_post_scale(
@@ -2035,6 +2039,7 @@ pub fn prepare_clip_task(
             clip_space,
             needs_scissor_rect,
             rounded_rect_fast_path: fast_path,
+            rounded_rect_superellipse: superellipse,
         }),
     );
 }

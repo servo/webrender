@@ -443,7 +443,7 @@ impl RenderTarget {
 
                 let device_rect = DeviceRect::from_size(target_rect.size().to_f32());
 
-                let (clip_address, fast_path) = quad::write_rounded_rect_clip_blocks(
+                let (clip_address, fast_path, superellipse) = quad::write_rounded_rect_clip_blocks(
                     &mut gpu_buffer_builder.f32,
                     region_task.clip_rect,
                     &region_task.radius,
@@ -497,6 +497,8 @@ impl RenderTarget {
 
                         if fast_path {
                             self.clip_masks.mask_instances_fast.push(instance);
+                        } else if superellipse {
+                            self.clip_masks.mask_instances_superellipse.push(instance);
                         } else {
                             self.clip_masks.mask_instances_slow.push(instance);
                         }
@@ -927,6 +929,11 @@ fn add_rect_clip_task_to_batch(
                             .entry(*target_rect)
                             .or_insert_with(|| memory.new_vec())
                             .push(instance);
+                } else if task.rounded_rect_superellipse {
+                    results.mask_instances_superellipse_with_scissor
+                            .entry(*target_rect)
+                            .or_insert_with(|| memory.new_vec())
+                            .push(instance);
                 } else {
                     results.mask_instances_slow_with_scissor
                             .entry(*target_rect)
@@ -936,6 +943,8 @@ fn add_rect_clip_task_to_batch(
             } else {
                 if task.rounded_rect_fast_path {
                     results.mask_instances_fast.push(instance);
+                } else if task.rounded_rect_superellipse {
+                    results.mask_instances_superellipse.push(instance);
                 } else {
                     results.mask_instances_slow.push(instance);
                 }
