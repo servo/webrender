@@ -168,7 +168,7 @@ pub fn get_shader_features(flags: ShaderFeatureFlags) -> ShaderFeatures {
 
     shaders.insert("ps_quad_repeat", vec![base_prim_features.finish()]);
 
-    shaders.insert("ps_quad_box_shadow", vec![base_prim_features.finish()]);
+    shaders.insert("ps_quad_box_shadow", vec![base_prim_features.finish(), "SUPERELLIPSE".to_string()]);
 
     // Like ps_quad_textured, ps_quad_yuv needs per-texture-kind variants so that
     // the YUV planes are sampled with the correct sampler type.

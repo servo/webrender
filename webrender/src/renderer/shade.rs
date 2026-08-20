@@ -440,6 +440,7 @@ pub struct Shaders {
     ps_quad_repeat: ShaderHandle,
     ps_quad_gradient: ShaderHandle,
     ps_quad_box_shadow: ShaderHandle,
+    ps_quad_box_shadow_superellipse: ShaderHandle,
     // ps_quad_yuv, like ps_quad_textured, comes in sampler-type-specific
     // variants so the YUV planes are sampled with the matching sColor
     // declaration. The variant is selected via PatternKind.
@@ -653,6 +654,13 @@ impl Shaders {
             &shader_list,
         )?;
 
+        let ps_quad_box_shadow_superellipse = loader.create_shader(
+            ShaderKind::Primitive,
+            "ps_quad_box_shadow",
+            &[SUPERELLIPSE_FEATURE],
+            &shader_list,
+        )?;
+
         let ps_quad_yuv = loader.create_shader(
             ShaderKind::Primitive,
             "ps_quad_yuv",
@@ -788,6 +796,7 @@ impl Shaders {
             ps_quad_repeat,
             ps_quad_gradient,
             ps_quad_box_shadow,
+            ps_quad_box_shadow_superellipse,
             ps_quad_yuv,
             ps_quad_yuv_external,
             ps_quad_yuv_external_bt709,
@@ -869,6 +878,7 @@ impl Shaders {
             PatternKind::Gradient => self.ps_quad_gradient,
             PatternKind::Repeat => self.ps_quad_repeat,
             PatternKind::BoxShadow => self.ps_quad_box_shadow,
+            PatternKind::BoxShadowSuperellipse => self.ps_quad_box_shadow_superellipse,
             PatternKind::Yuv => self.ps_quad_yuv,
             PatternKind::YuvTextureExternal => self.ps_quad_yuv_external
                 .expect("bug: ps_quad_yuv TEXTURE_EXTERNAL variant not loaded"),
@@ -924,6 +934,9 @@ impl Shaders {
             }
             BatchKind::Quad(PatternKind::BoxShadow) => {
                 self.ps_quad_box_shadow
+            }
+            BatchKind::Quad(PatternKind::BoxShadowSuperellipse) => {
+                self.ps_quad_box_shadow_superellipse
             }
             BatchKind::Quad(PatternKind::Yuv) => {
                 self.ps_quad_yuv
