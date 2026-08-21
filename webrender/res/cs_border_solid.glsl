@@ -8,6 +8,10 @@
 #define MIX_AA 1
 #define MIX_NO_AA 2
 
+// Address of border data in the GPU Buffer.
+// Packed in to a vector to work around bug 1630356.
+flat varying highp ivec2 vGpuDataAddress;
+
 // For edges, the colors are the same. For corners, these
 // are the colors of each edge making up the corner.
 flat varying mediump vec4 vColor0;
@@ -29,6 +33,7 @@ flat varying highp vec4 vClipCenter_Sign;
 // An outer and inner elliptical radii for border
 // corner clipping.
 flat varying highp vec4 vClipRadii;
+flat varying highp vec4 vClipOffsets;
 
 // Position, scale, and radii of horizontally and vertically adjacent corner clips.
 flat varying highp vec4 vHorizontalClipCenter_Sign;
@@ -68,6 +73,7 @@ vec2 get_outer_corner_scale(int segment) {
 
 void main(void) {
     BorderInstanceGpuData data = fetch_gpu_data(aGpuDataAddress);
+    vGpuDataAddress.x = aGpuDataAddress;
 
     int segment = aFlags & 0xff;
     bool do_aa = ((aFlags >> 24) & 0xf0) != 0;
@@ -96,9 +102,19 @@ void main(void) {
 
     vColor0 = data.color0;
     vColor1 = data.color1;
-    vClipCenter_Sign = vec4(outer + clip_sign * data.radii, clip_sign);
+    vClipCenter_Sign = vec4(outer + clip_sign * (data.radii + data.shape_offset), clip_sign);
     vClipRadii = vec4(data.radii, max(data.radii - data.widths, 0.0));
+    vClipOffsets = vec4(0.0);
     vColorLine = vec4(outer, data.widths.y * -clip_sign.y, data.widths.x * clip_sign.x);
+
+    if (data.shape != 1.0)
+    {
+        vec2 reference_radii = (data.radii == vec2(0.0)) ? vec2(0.0) : data.radii + data.inset;
+        vec4 contour1 = compute_contoured_superellipse(reference_radii, data.shape, data.inset);
+        vec4 contour2 = compute_contoured_superellipse(reference_radii, data.shape, data.inset + data.widths);
+        vClipOffsets = vec4(contour1.xy, contour2.xy);
+        vClipRadii = vec4(contour1.zw, contour2.zw);
+    }
 
     vec2 horizontal_clip_sign = vec2(-clip_sign.x, clip_sign.y);
     vHorizontalClipCenter_Sign = vec4(aClipParams1.xy +
@@ -118,6 +134,8 @@ void main(void) {
 
 #ifdef WR_FRAGMENT_SHADER
 void main(void) {
+    BorderInstanceGpuData data = fetch_gpu_data(vGpuDataAddress.x);
+
     float aa_range = compute_aa_range(vPos);
     bool do_aa = vMixColors.x != MIX_NO_AA;
 
@@ -137,8 +155,22 @@ void main(void) {
 
     float d = -1.0;
     if (in_clip_region) {
-        float d_radii_a = distance_to_ellipse(clip_relative_pos, vClipRadii.xy);
-        float d_radii_b = distance_to_ellipse(clip_relative_pos, vClipRadii.zw);
+        float d_radii_a;
+        float d_radii_b;
+
+        if (data.shape == 1.0) {
+            d_radii_a = distance_to_ellipse(clip_relative_pos, vClipRadii.xy);
+            d_radii_b = distance_to_ellipse(clip_relative_pos, vClipRadii.zw);
+        } else {
+            clip_relative_pos = abs(clip_relative_pos) - data.shape_offset;
+            d_radii_a = distance_to_superellipse(clip_relative_pos - vClipOffsets.xy, vClipRadii.xy, data.shape);
+            d_radii_b = distance_to_superellipse(clip_relative_pos - vClipOffsets.zw, vClipRadii.zw, data.shape);
+
+            // exclude the straight border part from the subtracted region
+            vec2 included_region = data.radii - data.widths - clip_relative_pos;
+            d_radii_b = max(d_radii_b, -min(included_region.x, included_region.y));
+        }
+
         d = max(d_radii_a, -d_radii_b);
     }
 
