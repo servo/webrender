@@ -33,7 +33,9 @@ flat varying highp vec4 vClipCenter_Sign;
 // An outer and inner elliptical radii for border
 // corner clipping.
 flat varying highp vec4 vClipRadii;
+#ifdef WR_FEATURE_SUPERELLIPSE
 flat varying highp vec4 vClipOffsets;
+#endif
 
 // Position, scale, and radii of horizontally and vertically adjacent corner clips.
 flat varying highp vec4 vHorizontalClipCenter_Sign;
@@ -76,7 +78,7 @@ void main(void) {
     vGpuDataAddress.x = aGpuDataAddress;
 
     int segment = aFlags & 0xff;
-    bool do_aa = ((aFlags >> 24) & 0xf0) != 0;
+    bool do_aa = ((aFlags >> 28) & 0x1) != 0;
 
     vec2 outer_scale = get_outer_corner_scale(segment);
     vec2 size = data.rect.zw - data.rect.xy;
@@ -102,11 +104,18 @@ void main(void) {
 
     vColor0 = data.color0;
     vColor1 = data.color1;
+#ifdef WR_FEATURE_SUPERELLIPSE
     vClipCenter_Sign = vec4(outer + clip_sign * (data.radii + data.shape_offset), clip_sign);
+#else
+    vClipCenter_Sign = vec4(outer + clip_sign * data.radii, clip_sign);
+#endif
     vClipRadii = vec4(data.radii, max(data.radii - data.widths, 0.0));
+#ifdef WR_FEATURE_SUPERELLIPSE
     vClipOffsets = vec4(0.0);
+#endif
     vColorLine = vec4(outer, data.widths.y * -clip_sign.y, data.widths.x * clip_sign.x);
 
+#ifdef WR_FEATURE_SUPERELLIPSE
     if (data.shape != 1.0)
     {
         vec2 reference_radii = (data.radii == vec2(0.0)) ? vec2(0.0) : data.radii + data.inset;
@@ -115,6 +124,7 @@ void main(void) {
         vClipOffsets = vec4(contour1.xy, contour2.xy);
         vClipRadii = vec4(contour1.zw, contour2.zw);
     }
+#endif
 
     vec2 horizontal_clip_sign = vec2(-clip_sign.x, clip_sign.y);
     vHorizontalClipCenter_Sign = vec4(aClipParams1.xy +
@@ -158,9 +168,12 @@ void main(void) {
         float d_radii_a;
         float d_radii_b;
 
+#ifdef WR_FEATURE_SUPERELLIPSE
         if (data.shape == 1.0) {
+#endif
             d_radii_a = distance_to_ellipse(clip_relative_pos, vClipRadii.xy);
             d_radii_b = distance_to_ellipse(clip_relative_pos, vClipRadii.zw);
+#ifdef WR_FEATURE_SUPERELLIPSE
         } else {
             clip_relative_pos = abs(clip_relative_pos) - data.shape_offset;
             d_radii_a = distance_to_superellipse(clip_relative_pos - vClipOffsets.xy, vClipRadii.xy, data.shape);
@@ -170,6 +183,7 @@ void main(void) {
             vec2 included_region = data.radii - data.widths - clip_relative_pos;
             d_radii_b = max(d_radii_b, -min(included_region.x, included_region.y));
         }
+#endif
 
         d = max(d_radii_a, -d_radii_b);
     }

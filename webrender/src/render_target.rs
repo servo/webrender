@@ -35,6 +35,7 @@ use crate::spatial_tree::SpatialNodeIndex;
 
 const STYLE_SOLID: i32 = ((BorderStyle::Solid as i32) << 8) | ((BorderStyle::Solid as i32) << 16);
 const STYLE_MASK: i32 = 0x00FF_FF00;
+const SUPERELLIPSE_MASK: i32 = 1 << 29;
 
 /// A tag used to identify the output format of a `RenderTarget`.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -165,6 +166,8 @@ pub struct RenderTarget {
 
     pub border_segments_complex: FrameVec<BorderInstance>,
     pub border_segments_solid: FrameVec<BorderInstance>,
+    pub border_segments_complex_superellipse: FrameVec<BorderInstance>,
+    pub border_segments_solid_superellipse: FrameVec<BorderInstance>,
     pub line_decorations: FrameVec<LineDecorationJob>,
 
     // Clearing render targets has a fair amount of special cases.
@@ -225,6 +228,8 @@ impl RenderTarget {
             clip_masks: ClipMaskInstanceList::new(memory),
             border_segments_complex: memory.new_vec(),
             border_segments_solid: memory.new_vec(),
+            border_segments_complex_superellipse: memory.new_vec(),
+            border_segments_solid_superellipse: memory.new_vec(),
             clears: memory.new_vec(),
             line_decorations: memory.new_vec(),
         }
@@ -549,10 +554,19 @@ impl RenderTarget {
                     // TODO(gw): It may be better to store the task origin in
                     //           the render task data instead of per instance.
                     instance.task_origin = task_origin;
+                    let superellipse = (instance.flags & SUPERELLIPSE_MASK) != 0;
                     if instance.flags & STYLE_MASK == STYLE_SOLID {
-                        self.border_segments_solid.push(instance);
+                        if superellipse {
+                            self.border_segments_solid_superellipse.push(instance);
+                        } else {
+                            self.border_segments_solid.push(instance);
+                        }
                     } else {
-                        self.border_segments_complex.push(instance);
+                        if superellipse {
+                            self.border_segments_complex_superellipse.push(instance);
+                        } else {
+                            self.border_segments_complex.push(instance);
+                        }
                     }
                 }
             }

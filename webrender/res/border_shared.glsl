@@ -29,23 +29,31 @@ struct BorderInstanceGpuData {
     vec4 color1;
     vec2 widths;
     vec2 radii;
+#ifdef WR_FEATURE_SUPERELLIPSE
     float shape;
     vec2 shape_offset;
     vec2 inset;
+#endif
 };
 
 BorderInstanceGpuData fetch_gpu_data(int index) {
     BorderInstanceGpuData data;
 
+#ifdef WR_FEATURE_SUPERELLIPSE
     vec4 texels[6] = fetch_from_gpu_buffer_6f(index);
+#else
+    vec4 texels[4] = fetch_from_gpu_buffer_4f(index);
+#endif
     data.rect = texels[0];
     data.color0 = texels[1];
     data.color1 = texels[2];
     data.widths = texels[3].xy;
     data.radii = texels[3].zw;
+#ifdef WR_FEATURE_SUPERELLIPSE
     data.shape = texels[4].x;
     data.shape_offset = texels[4].yz;
     data.inset = texels[5].xy;
+#endif
 
     return data;
 }

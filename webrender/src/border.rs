@@ -857,10 +857,13 @@ fn add_segment(
     v_adjacent_corner_radius: DeviceSize,
     gpu_buffer_builder: &mut GpuBufferBuilderF,
 ) {
+    let superellipse = shape != 1.0;
+
     let base_flags = (segment as i32) |
                      ((style0 as i32) << 8) |
                      ((style1 as i32) << 16) |
-                     ((do_aa as i32) << 28);
+                     ((do_aa as i32) << 28) |
+                     ((superellipse as i32) << 29);
 
     let instance_gpu_data = BorderInstanceGpuData {
         local_rect: task_rect,
@@ -877,7 +880,7 @@ fn add_segment(
         task_origin: DevicePoint::zero(),
         flags: base_flags,
         clip_params: [0.0; 8],
-        gpu_data_address: instance_gpu_data.write(gpu_buffer_builder)
+        gpu_data_address: instance_gpu_data.write(superellipse, gpu_buffer_builder)
     };
 
     match segment {

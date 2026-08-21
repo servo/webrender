@@ -3396,7 +3396,9 @@ impl Renderer {
 
         // Draw any borders for this target.
         if !target.border_segments_solid.is_empty() ||
-           !target.border_segments_complex.is_empty()
+           !target.border_segments_complex.is_empty() ||
+           !target.border_segments_solid_superellipse.is_empty() ||
+           !target.border_segments_complex_superellipse.is_empty()
         {
             let _timer = self.gpu_profiler.start_timer(GPU_TAG_CACHE_BORDER);
 
@@ -3433,6 +3435,42 @@ impl Renderer {
 
                 self.draw_instanced_batch(
                     &target.border_segments_complex,
+                    VertexArrayKind::Border,
+                    &BatchTextures::empty(),
+                    stats,
+                );
+            }
+
+            if !target.border_segments_solid_superellipse.is_empty() {
+                self.shaders.borrow_mut().cs_border_solid_superellipse().bind(
+                    &mut self.device,
+                    &projection,
+                    None,
+                    &mut self.renderer_errors,
+                    &mut self.profile,
+                    &mut self.command_log,
+                );
+
+                self.draw_instanced_batch(
+                    &target.border_segments_solid_superellipse,
+                    VertexArrayKind::Border,
+                    &BatchTextures::empty(),
+                    stats,
+                );
+            }
+
+            if !target.border_segments_complex_superellipse.is_empty() {
+                self.shaders.borrow_mut().cs_border_segment_superellipse().bind(
+                    &mut self.device,
+                    &projection,
+                    None,
+                    &mut self.renderer_errors,
+                    &mut self.profile,
+                    &mut self.command_log,
+                );
+
+                self.draw_instanced_batch(
+                    &target.border_segments_complex_superellipse,
                     VertexArrayKind::Border,
                     &BatchTextures::empty(),
                     stats,

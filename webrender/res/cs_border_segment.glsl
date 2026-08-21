@@ -32,7 +32,9 @@ flat varying highp vec4 vClipCenter_Sign;
 // An outer and inner elliptical radii for border
 // corner clipping.
 flat varying highp vec4 vClipRadii;
+#ifdef WR_FEATURE_SUPERELLIPSE
 flat varying highp vec4 vClipOffsets;
+#endif
 
 // Reference point for determine edge clip lines.
 flat varying highp vec4 vEdgeReference;
@@ -194,14 +196,21 @@ void main(void) {
     vec4[2] color1 = get_colors_for_side(data.color1, style1);
     vColor10 = color1[0];
     vColor11 = color1[1];
+#ifdef WR_FEATURE_SUPERELLIPSE
     vClipCenter_Sign = vec4(outer + clip_sign * (data.radii + data.shape_offset), clip_sign);
+#else
+    vClipCenter_Sign = vec4(outer + clip_sign * data.radii, clip_sign);
+#endif
     vClipRadii = vec4(data.radii, max(data.radii - data.widths, 0.0));
+#ifdef WR_FEATURE_SUPERELLIPSE
     vClipOffsets = vec4(0.0);
+#endif
     vColorLine = vec4(outer, data.widths.y * -clip_sign.y, data.widths.x * clip_sign.x);
     vEdgeReference = vec4(edge_reference, edge_reference + data.widths);
     vClipParams1 = aClipParams1;
     vClipParams2 = aClipParams2;
 
+#ifdef WR_FEATURE_SUPERELLIPSE
     if (data.shape != 1.0)
     {
         vec2 reference_radii = (data.radii == vec2(0.0)) ? vec2(0.0) : data.radii + data.inset;
@@ -210,6 +219,7 @@ void main(void) {
         vClipOffsets = vec4(contour1.xy, contour2.xy);
         vClipRadii = vec4(contour1.zw, contour2.zw);
     }
+#endif
 
     // For the case of dot and dash clips, optimize the number of pixels that
     // are hit to just include the dot itself.
@@ -260,7 +270,9 @@ vec4 evaluate_color_for_style_in_corner(
             // third of the rounded edge.
             float d_radii_a;
             float d_radii_b;
+#ifdef WR_FEATURE_SUPERELLIPSE
             if (data.shape == 1.0) {
+#endif
                 d_radii_a = distance_to_ellipse(
                     clip_relative_pos,
                     clip_radii.xy - vPartialWidths.xy
@@ -269,6 +281,7 @@ vec4 evaluate_color_for_style_in_corner(
                     clip_relative_pos,
                     clip_radii.xy - 2.0 * vPartialWidths.xy
                 );
+#ifdef WR_FEATURE_SUPERELLIPSE
             } else {
                 d_radii_a = distance_to_superellipse(
                     clip_relative_pos - mix(vClipOffsets.xy, vClipOffsets.zw, 1.0 / 3.0),
@@ -288,6 +301,7 @@ vec4 evaluate_color_for_style_in_corner(
                 vec2 included_region_b = data.radii - 2.0 * vPartialWidths.xy - clip_relative_pos;
                 d_radii_b = max(d_radii_b, -min(included_region_b.x, included_region_b.y));
             }
+#endif
 
             float d = min(-d_radii_a, d_radii_b);
 
@@ -297,11 +311,14 @@ vec4 evaluate_color_for_style_in_corner(
         case BORDER_STYLE_GROOVE:
         case BORDER_STYLE_RIDGE: {
             float d;
+#ifdef WR_FEATURE_SUPERELLIPSE
             if (data.shape == 1.0) {
+#endif
                 d = distance_to_ellipse(
                     clip_relative_pos,
                     clip_radii.xy - vPartialWidths.zw
                 );
+#ifdef WR_FEATURE_SUPERELLIPSE
             } else {
                 d = distance_to_superellipse(
                     clip_relative_pos - mix(vClipOffsets.xy, vClipOffsets.zw, 0.5),
@@ -313,6 +330,7 @@ vec4 evaluate_color_for_style_in_corner(
                 vec2 included_region = data.radii - vPartialWidths.zw - clip_relative_pos;
                 d = max(d, -min(included_region.x, included_region.y));
             }
+#endif
             float alpha = distance_aa(aa_range, d);
             float swizzled_factor;
             switch (segment) {
@@ -437,9 +455,12 @@ void main(void) {
         float d_radii_a;
         float d_radii_b;
 
+#ifdef WR_FEATURE_SUPERELLIPSE
         if (data.shape == 1.0) {
+#endif
             d_radii_a = distance_to_ellipse(clip_relative_pos, vClipRadii.xy);
             d_radii_b = distance_to_ellipse(clip_relative_pos, vClipRadii.zw);
+#ifdef WR_FEATURE_SUPERELLIPSE
         } else {
             clip_relative_pos = abs(clip_relative_pos) - data.shape_offset;
             d_radii_a = distance_to_superellipse(clip_relative_pos - vClipOffsets.xy, vClipRadii.xy, data.shape);
@@ -449,6 +470,7 @@ void main(void) {
             vec2 included_region = data.radii - data.widths - clip_relative_pos;
             d_radii_b = max(d_radii_b, -min(included_region.x, included_region.y));
         }
+#endif
 
         float d_radii = max(d_radii_a, -d_radii_b);
         d = max(d, d_radii);

@@ -71,11 +71,16 @@ pub fn get_shader_features(flags: ShaderFeatureFlags) -> ShaderFeatures {
 
     for name in &[
         "cs_line_decoration",
-        "cs_border_segment",
-        "cs_border_solid",
         "cs_svg_filter_node",
     ] {
         shaders.insert(name, vec![String::new()]);
+    }
+
+    for name in &[
+        "cs_border_segment",
+        "cs_border_solid",
+    ] {
+        shaders.insert(name, vec![String::new(), "SUPERELLIPSE".to_string()]);
     }
 
     let mut base_prim_features = FeatureList::new();

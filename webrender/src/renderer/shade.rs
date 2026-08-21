@@ -415,6 +415,8 @@ pub struct Shaders {
     cs_blur_rgba8: ShaderHandle,
     cs_border_segment: ShaderHandle,
     cs_border_solid: ShaderHandle,
+    cs_border_segment_superellipse: ShaderHandle,
+    cs_border_solid_superellipse: ShaderHandle,
     cs_scale: Vec<Option<ShaderHandle>>,
     cs_line_decoration: ShaderHandle,
     cs_svg_filter_node: ShaderHandle,
@@ -776,6 +778,20 @@ impl Shaders {
             &shader_list,
         )?;
 
+        let cs_border_segment_superellipse = loader.create_shader(
+            ShaderKind::Cache(VertexArrayKind::Border),
+            "cs_border_segment",
+             &[SUPERELLIPSE_FEATURE],
+            &shader_list,
+        )?;
+
+        let cs_border_solid_superellipse = loader.create_shader(
+            ShaderKind::Cache(VertexArrayKind::Border),
+            "cs_border_solid",
+            &[SUPERELLIPSE_FEATURE],
+            &shader_list,
+        )?;
+
         let composite = CompositorShaders::new(device, gl_type, &mut loader)?;
 
         Ok(Shaders {
@@ -783,8 +799,10 @@ impl Shaders {
 
             cs_blur_rgba8,
             cs_border_segment,
-            cs_line_decoration,
             cs_border_solid,
+            cs_border_segment_superellipse,
+            cs_border_solid_superellipse,
+            cs_line_decoration,
             cs_scale,
             cs_svg_filter_node,
             ps_text_run,
@@ -981,6 +999,8 @@ impl Shaders {
     pub fn cs_blur_rgba8(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_blur_rgba8) }
     pub fn cs_border_segment(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_border_segment) }
     pub fn cs_border_solid(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_border_solid) }
+    pub fn cs_border_segment_superellipse(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_border_segment_superellipse) }
+    pub fn cs_border_solid_superellipse(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_border_solid_superellipse) }
     pub fn cs_line_decoration(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_line_decoration) }
     pub fn cs_svg_filter_node(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_svg_filter_node) }
     pub fn ps_quad_textured(&mut self) -> &mut LazilyCompiledShader {
