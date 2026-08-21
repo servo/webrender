@@ -23,7 +23,7 @@ use crate::render_target::RenderTargetKind;
 use crate::render_task_graph::RenderTaskId;
 use crate::render_task::RenderTask;
 use crate::resource_cache::ImageRequest;
-use crate::visibility::compute_conservative_visible_rect;
+use crate::visibility::compute_surface_visible_rect;
 use crate::{image_tiling, quad};
 
 // Key that identifies a unique (partial) image that is being
@@ -235,22 +235,18 @@ pub fn prepare_image_quads(
             // with the terminology we use during culling since it's not really the same
             // thing.
             let active_rect = image_properties.visible_rect;
-            let visible_rect = compute_conservative_visible_rect(
-                &scratch.frame.draw(draw_index).clip_chain,
-                frame_state.current_dirty_region().combined,
-                frame_state.current_dirty_region().visibility_spatial_node,
+            let visible_rect = compute_surface_visible_rect(
+                &frame_state.surfaces[pic_context.surface_index.0],
+                clip_chain,
                 quad_transform.prim_spatial_node_index(),
+                &tight_clip_rect,
                 frame_context.spatial_tree,
             );
 
             let effective_stretch_size = image_data.stretch_size.resolve(prim_rect);
             let stride = effective_stretch_size + image_data.tile_spacing;
 
-            let repetitions = image_tiling::repetitions(
-                prim_rect,
-                &visible_rect.intersection_unchecked(&tight_clip_rect),
-                stride,
-            );
+            let repetitions = image_tiling::repetitions(prim_rect, &visible_rect, stride);
 
             let base_edge_flags = edge_flags_for_tile_spacing(&image_data.tile_spacing);
 

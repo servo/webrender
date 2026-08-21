@@ -1,0 +1,30 @@
+# A repeating tiled image inside a horizontally blurred surface, redrawn from a
+# picture cache dirty rect that starts at the x=1024 tile boundary.
+#
+# This test checks that the tiled image decomposition code accounts for the
+# extra area required by the blur and not just the dirty region.
+---
+frames:
+  - items:
+      - type: stacking-context
+        bounds: [0, 0, 1920, 1080]
+        filters: blur(20, 0)
+        items:
+          - image: solid-color(0, 255, 0, 255, 64, 64)
+            bounds: 640 300 768 192
+            stretch-size: 64 64
+            tile-size: 64
+  # The added rect only overlaps the tiles right of x=1024, so those are the
+  # only tiles invalidated and the dirty region starts at that tile boundary.
+  - items:
+      - type: stacking-context
+        bounds: [0, 0, 1920, 1080]
+        filters: blur(20, 0)
+        items:
+          - image: solid-color(0, 255, 0, 255, 64, 64)
+            bounds: 640 300 768 192
+            stretch-size: 64 64
+            tile-size: 64
+      - type: rect
+        bounds: [1500, 100, 100, 100]
+        color: red

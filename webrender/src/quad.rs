@@ -29,7 +29,7 @@ use crate::space::SpaceMapper;
 use crate::spatial_tree::{CoordinateSpaceMapping, SpatialNodeIndex, SpatialTree};
 use crate::transform::GpuTransformId;
 use crate::util::{extract_inner_rect_k, MaxRect, ScaleOffset};
-use crate::visibility::{compute_conservative_visible_rect, PrimitiveDrawIndex};
+use crate::visibility::{compute_surface_visible_rect, PrimitiveDrawIndex};
 
 /// This type reflects the unfortunate situation with quad coordinates where we
 /// sometimes use layout and sometimes device coordinates.
@@ -452,13 +452,13 @@ pub fn prepare_repeatable_quad(
 
     // Repeat by duplicating the primitive.
 
-    let visible_rect = compute_conservative_visible_rect(
+    let visible_rect = compute_surface_visible_rect(
+        &frame_state.surfaces[pic_context.surface_index.0],
         clip_chain,
-        frame_state.current_dirty_region().combined,
-        frame_state.current_dirty_region().visibility_spatial_node,
         transform.prim_spatial_node_index(),
+        &desc.bounds,
         frame_context.spatial_tree,
-    ).intersection_unchecked(&desc.bounds);
+    );
 
     let stride = stretch_size + tile_spacing;
     let repetitions = crate::image_tiling::repetitions(&desc.pattern_rect, &visible_rect, stride);

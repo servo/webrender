@@ -586,49 +586,35 @@ pub fn update_prim_visibility(
     }
 }
 
-pub fn compute_conservative_visible_rect(
+/// The part of a primitive's local rect that the surface it is drawn into needs.
+///
+/// This is the rect to enumerate repetitions or image tiles against. For a
+/// primitive drawn straight onto a picture cache slice the surface's clipping
+/// rect is the dirty region, so only the repetitions that will be rasterized
+/// are emitted. For a surface that samples outside of its own footprint (a
+/// blur) it is the inflated region that surface needs, so the repetitions
+/// feeding the blur's margin are kept even though they fall outside the dirty
+/// region (bug 2064321).
+///
+/// `bounds` is the primitive's own extent: the result never exceeds it, and it
+/// is the fallback if the primitive's transform cannot be inverted.
+pub fn compute_surface_visible_rect(
+    surface: &SurfaceInfo,
     clip_chain: &ClipChainInstance,
-    culling_rect: VisRect,
-    visibility_node_index: SpatialNodeIndex,
     prim_spatial_node_index: SpatialNodeIndex,
+    bounds: &LayoutRect,
     spatial_tree: &SpatialTree,
 ) -> LayoutRect {
-    // Mapping from picture space -> world space
-    let map_pic_to_vis: SpaceMapper<PicturePixel, VisPixel> = SpaceMapper::new_with_target(
-        visibility_node_index,
-        clip_chain.pic_spatial_node_index,
-        culling_rect,
-        spatial_tree,
-    );
-
-    // Mapping from local space -> picture space
-    let map_local_to_pic: SpaceMapper<LayoutPixel, PicturePixel> = SpaceMapper::new_with_target(
-        clip_chain.pic_spatial_node_index,
+    let map_prim_to_surface: SpaceMapper<LayoutPixel, PicturePixel> = SpaceMapper::new_with_target(
+        surface.surface_spatial_node_index,
         prim_spatial_node_index,
         PictureRect::max_rect(),
         spatial_tree,
     );
 
-    // Unmap the world culling rect from world -> picture space. If this mapping fails due
-    // to matrix weirdness, best we can do is use the clip chain's local clip rect.
-    let pic_culling_rect = match map_pic_to_vis.unmap(&culling_rect) {
-        Some(rect) => rect,
-        None => return clip_chain.local_clip_rect,
-    };
-
-    // Intersect the unmapped world culling rect with the primitive's clip chain rect that
-    // is in picture space (the clip-chain already takes into account the bounds of the
-    // primitive local_rect and local_clip_rect). If there is no intersection here, the
-    // primitive is not visible at all.
-    let pic_culling_rect = match pic_culling_rect.intersection(&clip_chain.pic_coverage_rect) {
-        Some(rect) => rect,
-        None => return LayoutRect::zero(),
-    };
-
-    // Unmap the picture culling rect from picture -> local space. If this mapping fails due
-    // to matrix weirdness, best we can do is use the clip chain's local clip rect.
-    match map_local_to_pic.unmap(&pic_culling_rect) {
-        Some(rect) => rect,
-        None => clip_chain.local_clip_rect,
-    }
+    surface.clipping_rect
+        .intersection(&clip_chain.pic_coverage_rect)
+        .and_then(|rect| map_prim_to_surface.unmap(&rect))
+        .unwrap_or(*bounds)
+        .intersection_unchecked(bounds)
 }

@@ -1,0 +1,40 @@
+# A repeating gradient inside a horizontally blurred surface, redrawn from a
+# picture cache dirty rect that starts at the x=1024 tile boundary.
+#
+# The blur reads 3 * 20 = 60px to the left of what it writes, so the surface
+# needs the repetitions between x=964 and x=1024 even though they are outside
+# the dirty region. Enumerating repetitions against the dirty region instead
+# drops them and the blur ramps down from x=1024 (bug 2064321).
+#
+# The gradient is 800x200 with a 50px repetition, which is 16 repetitions: at
+# 17 or more the pattern would be repeated by the shader instead of by
+# duplicating the primitive, and the duplication path is what is under test.
+---
+frames:
+  - items:
+      - type: stacking-context
+        bounds: [0, 0, 1920, 1080]
+        filters: blur(20, 0)
+        items:
+          - type: gradient
+            bounds: 624 300 800 200
+            tile-size: 50 200
+            start: 0 0
+            end: 50 0
+            stops: [0.0, green, 1.0, blue]
+  # The added rect only overlaps the tiles right of x=1024, so those are the
+  # only tiles invalidated and the dirty region starts at that tile boundary.
+  - items:
+      - type: stacking-context
+        bounds: [0, 0, 1920, 1080]
+        filters: blur(20, 0)
+        items:
+          - type: gradient
+            bounds: 624 300 800 200
+            tile-size: 50 200
+            start: 0 0
+            end: 50 0
+            stops: [0.0, green, 1.0, blue]
+      - type: rect
+        bounds: [1500, 100, 100, 100]
+        color: red

@@ -1,0 +1,29 @@
+# Reference for dirty-rect-blur-repeat-gradient.yaml: the same content, drawn
+# from a dirty region that covers the whole scene.
+#
+# The harness renders the reference into the same wrench instance as the test,
+# right after it, so the reference must not be a scene the test already left in
+# the picture cache: an unchanged display list invalidates nothing and would
+# just re-composite the test's tiles. The first frame below is a full-window
+# rect that invalidates every tile, so the second frame is drawn from a dirty
+# region that spans the whole blurred surface.
+---
+frames:
+  - items:
+      - type: rect
+        bounds: [0, 0, 1920, 1080]
+        color: blue
+  - items:
+      - type: stacking-context
+        bounds: [0, 0, 1920, 1080]
+        filters: blur(20, 0)
+        items:
+          - type: gradient
+            bounds: 624 300 800 200
+            tile-size: 50 200
+            start: 0 0
+            end: 50 0
+            stops: [0.0, green, 1.0, blue]
+      - type: rect
+        bounds: [1500, 100, 100, 100]
+        color: red

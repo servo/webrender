@@ -6,3 +6,8 @@ fuzzy(1,2000) ** simple-gradient.yaml
 platform(linux) == tile-cache-raster-root.yaml tile-cache-raster-root.png
 scale(*) == complex-shared-clip-root.yaml complex-shared-clip-root-ref.yaml
 scale(*) == tile-cache-fractional-offset.yaml tile-cache-fractional-offset-ref.yaml
+# Surfaces that sample outside their own footprint (a blur) must be fed the
+# repetitions and image tiles just outside the picture cache dirty rect.
+== dirty-rect-blur-repeat-gradient.yaml dirty-rect-blur-repeat-gradient-ref.yaml
+== dirty-rect-blur-repeat-tiled-image.yaml dirty-rect-blur-repeat-tiled-image-ref.yaml
+== dirty-rect-blur-tiled-image.yaml dirty-rect-blur-tiled-image-ref.yaml
