@@ -1226,9 +1226,11 @@ impl BatchBuilder {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipMaskInstanceList {
     pub mask_instances_fast: FrameVec<MaskInstance>,
+    pub mask_instances_superellipse: FrameVec<MaskInstance>,
     pub mask_instances_slow: FrameVec<MaskInstance>,
 
     pub mask_instances_fast_with_scissor: FastHashMap<DeviceIntRect, FrameVec<MaskInstance>>,
+    pub mask_instances_superellipse_with_scissor: FastHashMap<DeviceIntRect, FrameVec<MaskInstance>>,
     pub mask_instances_slow_with_scissor: FastHashMap<DeviceIntRect, FrameVec<MaskInstance>>,
 
     pub image_mask_instances: FastHashMap<TextureSource, FrameVec<PrimitiveInstanceData>>,
@@ -1239,8 +1241,10 @@ impl ClipMaskInstanceList {
     pub fn new(memory: &FrameMemory) -> Self {
         ClipMaskInstanceList {
             mask_instances_fast: memory.new_vec(),
+            mask_instances_superellipse: memory.new_vec(),
             mask_instances_slow: memory.new_vec(),
             mask_instances_fast_with_scissor: FastHashMap::default(),
+            mask_instances_superellipse_with_scissor: FastHashMap::default(),
             mask_instances_slow_with_scissor: FastHashMap::default(),
             image_mask_instances: FastHashMap::default(),
             image_mask_instances_with_scissor: FastHashMap::default(),
@@ -1252,16 +1256,20 @@ impl ClipMaskInstanceList {
         // a new member is added.
         let ClipMaskInstanceList {
             mask_instances_fast,
+            mask_instances_superellipse,
             mask_instances_slow,
             mask_instances_fast_with_scissor,
+            mask_instances_superellipse_with_scissor,
             mask_instances_slow_with_scissor,
             image_mask_instances,
             image_mask_instances_with_scissor,
         } = self;
 
         mask_instances_fast.is_empty()
+            && mask_instances_superellipse.is_empty()
             && mask_instances_slow.is_empty()
             && mask_instances_fast_with_scissor.is_empty()
+            && mask_instances_superellipse_with_scissor.is_empty()
             && mask_instances_slow_with_scissor.is_empty()
             && image_mask_instances.is_empty()
             && image_mask_instances_with_scissor.is_empty()
