@@ -2264,17 +2264,13 @@ impl DisplayListBuilder {
         // minimum to specify a polygon. BuiltDisplayListIter.next ensures that points
         // are cleared between processing other display items, so we'll correctly get
         // zero points when no SetPoints item has been pushed.
+        //
+        // The points are relative to the mask rect's origin, not in the spatial
+        // node's space (see `polygon_contains_point`), so they carry no external
+        // scroll offset and must not be normalized - the rect above already was.
         if points.len() >= 3 {
             self.push_item(&di::DisplayItem::SetPoints);
-            if !offset.is_zero() {
-                let grid = self.au_grid;
-                let off_grid = &mut self.off_grid_coords;
-                let shifted: Vec<LayoutPoint> =
-                    points.iter().map(|p| grid.point(*p, offset, off_grid)).collect();
-                self.push_iter(&shifted);
-            } else {
-                self.push_iter(points);
-            }
+            self.push_iter(points);
         }
         self.push_item(&item);
         id
