@@ -5,14 +5,16 @@
 # bitmap bearingX=0 (ink flush against the pen) and, being a bitmap, no sub-pixel
 # positioning: it is placed on the device pixel grid. At a fractional device x the
 # glyph floors onto the grid while an *ancestor* clip (here a clip-chain node,
-# mirroring an overflow:hidden container) kept EXACT on the sub-pixel axis before
-# this fix (bug 2050692) sits at the fractional edge just to the right - shaving
-# the leftmost ink column. Rounding a text run's *ancestor* clips OUT on both axes
-# (the fix) puts that edge on the same grid line as the glyph, so nothing is
-# shaved. The clip must be a clip-chain node, not the text item's own clip-rect:
-# a run's own leaf clip stays exact on the sub-pixel axis (bug 2050692), only its
-# ancestor clips round out (bug 2056856). The reference moves the clip's left edge
-# a couple of px left, where it never shaves; a correct build renders them alike.
+# mirroring an overflow:hidden container) sits at the fractional edge just to the
+# right - shaving the leftmost ink column. This originally needed the run's
+# ancestor clips rounded OUT to the grid; bug 2065629 removed that round-out
+# (rounding a container clip outward spills a whole device row/column of scrolled
+# content over the container's painted border) and the case stays fixed anyway: a
+# strike's pen rounds to nearest and an exact clip rasterizes at the pixel centre,
+# so glyph and clip land on the same grid. The clip must be a clip-chain node, not
+# the text item's own clip-rect - Gecko's text leaf clip is the item bounds
+# inflated by 1px, so a leaf never crops a run. The reference moves the clip's
+# left edge a couple of px left, where it never shaves.
 
 root:
   items:

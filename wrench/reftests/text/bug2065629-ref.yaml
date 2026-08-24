@@ -1,0 +1,25 @@
+# Reference for bug 2065629: the same scene with the container clip on the pixel
+# boundary at 31.0, so device row 30 is outside it under any rounding policy and
+# the red "border" row survives intact. The test (clip at 30.7) must render
+# identically - it only differs if the text run's clip is rounded outward.
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 200, 120]
+      color: white
+    - type: rect
+      bounds: [0, 20, 120, 11]
+      color: red
+    - type: clip
+      id: 2
+      bounds: [0, 31.0, 120, 60]
+    - type: clip-chain
+      id: 3
+      clips: [2]
+    - bounds: [0, 0, 120, 120]
+      glyphs: [55]
+      offsets: [10, 60]
+      size: 40
+      color: [0, 0, 0, 1]
+      font: "Ahem.ttf"
+      clip-chain: 3

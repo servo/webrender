@@ -1,0 +1,36 @@
+# bug 2065629: a device-space text run's clips must NOT be rounded out to the
+# device grid. An overflow clip sits flush with the inner edge of its
+# container's painted border box, so rounding it outward spills a whole device
+# row of scrolled content over that border.
+#
+# The red strip is the "border": rows 20..30 inclusive. The clip-chain node
+# (mirroring an overflow:hidden container) starts at 30.7, just past the centre
+# of row 30, so row 30 lies outside it and must stay red. The Ahem block spans
+# device rows 28..67, i.e. it is scrolled well past the clip - exactly the case
+# where an outward-rounded clip (-> 30.0) admits row 30 and paints it black.
+#
+# It must be an ancestor clip, not the text item's own clip-rect: Gecko's text
+# leaf clip is the item bounds inflated by 1px (TextDrawTarget::Reinitialize),
+# so a leaf clip never crops a run. Compared against the same scene with the
+# clip on the pixel boundary at 31.0, which excludes row 30 under any policy.
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 200, 120]
+      color: white
+    - type: rect
+      bounds: [0, 20, 120, 11]
+      color: red
+    - type: clip
+      id: 2
+      bounds: [0, 30.7, 120, 60]
+    - type: clip-chain
+      id: 3
+      clips: [2]
+    - bounds: [0, 0, 120, 120]
+      glyphs: [55]
+      offsets: [10, 60]
+      size: 40
+      color: [0, 0, 0, 1]
+      font: "Ahem.ttf"
+      clip-chain: 3

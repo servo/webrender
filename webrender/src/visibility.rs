@@ -359,12 +359,12 @@ pub fn update_prim_visibility(
         for prim_instance_index in cluster.prim_range() {
             // A prim's snap policy is folded into its clip leaf: device-space
             // prims (text) carry the `INVALID` sentinel and snap nothing - their
-            // rect and clips stay at exact sub-pixel positions so a fractional
-            // clip edge is an AA boundary through the glyphs (bug 2050692).
-            // Everyone else snaps their rect and own clips to the device grid.
-            // How the rect itself is rounded (nearest / round-out for unsnapped
-            // text / thickness-preserving for decoration lines) is decided by
-            // `PrimitiveInstance::snap_rounding`.
+            // rect and clips stay at exact sub-pixel positions so the clip keeps
+            // matching the glyphs (bug 2050692). Everyone else snaps their rect
+            // and own clips to the device grid. How the rect itself is rounded
+            // (nearest / round-out for unsnapped text / thickness-preserving for
+            // decoration lines) is decided by
+            // `PrimitiveInstance::snap_policy`.
             let prim_instance = &frame_state.prim_instances[prim_instance_index];
             let leaf_id = prim_instance.clip_leaf_id;
             let snaps = frame_state.clip_tree.get_leaf(leaf_id).prim_clip_root
@@ -383,8 +383,7 @@ pub fn update_prim_visibility(
             // Picture / tile-cache leaves carry `max_rect` (snapping it would
             // overflow the snap transform); pass those through. Otherwise the
             // leaf clip rounds per the prim's clip policy: nearest for snapping
-            // prims (crisp fill/border edges), exact for surfaces, and round-out
-            // on the non-sub-pixel axis for text runs (bug 2055145).
+            // prims (crisp fill/border edges), exact for device-space prims.
             let leaf = frame_state.clip_tree.get_leaf_mut(leaf_id);
             let unsnapped = leaf.unsnapped_local_clip_rect;
             leaf.snapped_local_clip_rect = if unsnapped == LayoutRect::max_rect() {
@@ -393,7 +392,6 @@ pub fn update_prim_visibility(
                 match policy.clip {
                     ClipSnap::Nearest => snapper.snap_rect(&unsnapped),
                     ClipSnap::Exact => unsnapped,
-                    ClipSnap::Text(rounding) => snapper.snap_rect_rounded(&unsnapped, rounding),
                 }
             };
 

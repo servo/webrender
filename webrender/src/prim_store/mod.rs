@@ -13,7 +13,7 @@ use crate::renderer::GpuBufferHandle;
 use crate::segment::EdgeMask;
 use crate::debug_item::{DebugItem, DebugMessage};
 use crate::debug_colors;
-use glyph_rasterizer::{GlyphKey, SubpixelDirection};
+use glyph_rasterizer::GlyphKey;
 use crate::gpu_types::QuadSegment;
 use crate::intern;
 use crate::picture::{PictureInstance, PictureScratch};
@@ -372,28 +372,23 @@ pub struct PrimitiveInstance {
 }
 
 /// How a primitive's clips round to the device pixel grid. Distinct from how
-/// the prim's own rect rounds (see `SnapPolicy::rect`): a text run rounds its
-/// rect out on both axes but its clips out only on the non-sub-pixel axis, and
-/// a surface rounds its rect out but leaves its clips exact.
+/// the prim's own rect rounds (see `SnapPolicy::rect`): a device-space prim
+/// rounds its rect out but leaves its clips exact.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ClipSnap {
     /// Snap every clip edge to the nearest device pixel. Used by prims that
     /// snap their whole geometry to the grid (`snaps`).
     Nearest,
-    /// Leave clip edges exact. Used by device-space surfaces, whose clips must
-    /// stay at the sub-pixel position matching their contents (bug 2050692).
+    /// Leave clip edges exact. Used by device-space prims (text runs and
+    /// surfaces), whose clips must stay at the sub-pixel position matching their
+    /// contents (bug 2050692).
     Exact,
-    /// Device-space text run: round out on the non-sub-pixel axis, keep the
-    /// sub-pixel axis exact (bug 2055145 / bug 2050692). `RoundOut` when the run
-    /// has no sub-pixel positioning.
-    Text(SnapRounding),
 }
 
 /// The device-grid snapping policy for one primitive: how its own bounding rect
 /// rounds, and how its clips round. These are separate axes - e.g. a line
-/// decoration is `{ rect: Line, clip: Nearest }`, a text run is
-/// `{ rect: RoundOut, clip: Text(..) }`, a surface is `{ rect: RoundOut, clip:
-/// Exact }`.
+/// decoration is `{ rect: Line, clip: Nearest }`, while a text run or a surface
+/// is `{ rect: RoundOut, clip: Exact }`.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct SnapPolicy {
     pub rect: SnapRounding,
@@ -423,28 +418,13 @@ impl PrimitiveInstance {
     /// double with scale (bug 1783779); everything else snaps to the nearest
     /// pixel.
     ///
-    /// The two rounding axes differ for device-space prims: a text run rounds
-    /// its clip *out* on the non-sub-pixel axis so a grid-snapped glyph row is
-    /// never shaved by a fractional clip edge (bug 2055145), while keeping the
-    /// sub-pixel axis exact so the clip keeps matching the glyph's exact
-    /// sub-pixel position (bug 2050692); a surface leaves its clips exact. Both
-    /// keep a `RoundOut` bounding rect. The sub-pixel axis comes from the run's
-    /// own font, so clip code stays agnostic to `subpx_dir`.
+    /// The two rounding axes differ for a device-space prim: its bounding rect
+    /// rounds out (a conservative, grid-aligned footprint for surface / cluster
+    /// allocation) while its clips stay exact, at the sub-pixel position
+    /// matching its contents (bug 2050692).
     pub fn snap_policy(&self, snaps: bool, data_stores: &DataStores) -> SnapPolicy {
         if !snaps {
-            let clip = if let PrimitiveKind::TextRun { data_handle, .. } = self.kind {
-                ClipSnap::Text(match data_stores.text_run[data_handle].font.get_subpx_dir() {
-                    SubpixelDirection::Horizontal =>
-                        SnapRounding::RoundOutNonSubpx { subpx_horizontal: true },
-                    SubpixelDirection::Vertical =>
-                        SnapRounding::RoundOutNonSubpx { subpx_horizontal: false },
-                    SubpixelDirection::None |
-                    SubpixelDirection::Mixed => SnapRounding::RoundOut,
-                })
-            } else {
-                ClipSnap::Exact
-            };
-            return SnapPolicy { rect: SnapRounding::RoundOut, clip };
+            return SnapPolicy { rect: SnapRounding::RoundOut, clip: ClipSnap::Exact };
         }
         let rect = match self.kind {
             PrimitiveKind::LineDecoration { data_handle, .. } => SnapRounding::Line {

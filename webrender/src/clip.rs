@@ -108,7 +108,7 @@ use crate::render_task::RenderTask;
 use crate::render_task_graph::RenderTaskGraphBuilder;
 use crate::resource_cache::{ImageRequest, ResourceCache};
 use crate::scene_builder_thread::Interners;
-use crate::space::{SnapRounding, SpaceMapper, SpaceSnapper};
+use crate::space::{SpaceMapper, SpaceSnapper};
 use crate::util::{extract_inner_rect_safe, project_rect, MatrixHelpers, MaxRect, ScaleOffset};
 use euclid::approxeq::ApproxEq;
 use std::{iter, ops, u32, mem};
@@ -154,7 +154,6 @@ impl ClipTreeNode {
         &self,
         snapper: &mut SpaceSnapper,
         spatial_tree: &SpatialTree,
-        rounding: SnapRounding,
     ) -> LayoutRect {
         debug_assert!(self.spatial_node_index != SpatialNodeIndex::INVALID);
         snapper.set_target_spatial_node(self.spatial_node_index, spatial_tree);
@@ -164,9 +163,9 @@ impl ClipTreeNode {
             // recover it (e.g. the box-shadow element), snap that, then inset
             // by the outset. See `snap_outset`.
             let anchor = self.unsnapped_clip_rect.inflate(outset, outset);
-            snapper.snap_rect_rounded(&anchor, rounding).inflate(-outset, -outset)
+            snapper.snap_rect(&anchor).inflate(-outset, -outset)
         } else {
-            snapper.snap_rect_rounded(&self.unsnapped_clip_rect, rounding)
+            snapper.snap_rect(&self.unsnapped_clip_rect)
         }
     }
 }
@@ -1540,14 +1539,13 @@ impl ClipStore {
         let clip_leaf = clip_tree.get_leaf(clip_leaf_id);
 
         // How each clip in the chain rounds to the device grid is the prim's
-        // clip policy (`ClipSnap`), resolved by the caller from the prim kind and
-        // its clip-leaf sentinel. A snapping prim snaps every clip to nearest so
-        // a fractional clip edge (an animated clip-path, a rounded overflow clip,
-        // etc.) lands on the same grid as the prim's own snapped geometry; a
-        // surface leaves its clips exact so they stay at the sub-pixel position
-        // matching its contents (bug 2050692); a text run rounds out on the
-        // non-sub-pixel axis (bug 2055145). The leaf clip rect was pre-snapped
-        // accordingly by the visibility pass.
+        // clip policy (`ClipSnap`), resolved by the caller from its clip-leaf
+        // sentinel. A snapping prim snaps every clip to nearest so a fractional
+        // clip edge (an animated clip-path, a rounded overflow clip, etc.) lands
+        // on the same grid as the prim's own snapped geometry; a device-space
+        // prim (text run or surface) leaves its clips exact so they stay at the
+        // sub-pixel position matching its contents (bug 2050692). The leaf clip
+        // rect was pre-snapped accordingly by the visibility pass.
         let mut local_clip_rect = clip_leaf.snapped_local_clip_rect;
         let mut current = clip_leaf.node_id;
 
@@ -1555,25 +1553,14 @@ impl ClipStore {
             let node = clip_tree.get_node(current);
 
             let clip_rect = match clip_snap {
-                ClipSnap::Nearest =>
-                    node.snapped_clip_rect(snapper, spatial_tree, SnapRounding::Nearest),
-                // An *ancestor* clip of a device-space text run (an overflow
-                // clip, table-cell edge, scroll frame, etc.) rounds out on BOTH
-                // axes. The glyph is snapped to the device grid on its
-                // non-sub-pixel axis always, and on its sub-pixel axis when it
-                // has no sub-pixel positioning (a bitmap strike, e.g. MS UI
-                // Gothic), so an exact fractional container edge would shave a
-                // whole glyph column/row whose ink lies just beyond it. Rounding
-                // out keeps the snapped glyph while never moving an edge inward,
-                // so it can't shave the first or last glyph
-                // (bug 2050692 / bug 2055145 / bug 2056856). The run's OWN leaf
-                // clip is instead kept exact on the sub-pixel axis (see
-                // `snap_policy` / the visibility pass): rounding it out would
-                // over-reveal a sub-pixel column of an adjacent run at an inline
-                // boundary, and the leaf never causes the container-shave.
-                ClipSnap::Text(_) =>
-                    node.snapped_clip_rect(snapper, spatial_tree, SnapRounding::RoundOut),
-                // Surface / other device-space prim: leave the clip exact.
+                ClipSnap::Nearest => node.snapped_clip_rect(snapper, spatial_tree),
+                // Device-space prim: leave the clip exact. A text run's clips
+                // must NOT be rounded out to the grid - an overflow clip sits
+                // flush with its container's painted border box, and rounding it
+                // outward spills a whole device row/column of scrolled content
+                // over that border (bug 2065629). Left exact, the clip
+                // rasterizes at the pixel centre, which is the same grid the
+                // container's own snapped geometry landed on.
                 ClipSnap::Exact => node.unsnapped_clip_rect,
             };
 
