@@ -1,0 +1,26 @@
+# Reference for slice-scroll-root-snap.yaml: the same border at the same absolute
+# position (root 30.5), but reached through a slice whose own offset is already on
+# the device grid, so nothing is quantized a second time.
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 400, 300]
+      color: white
+    - type: reference-frame
+      bounds: [0, 0, 400, 300]
+      transform: translate(0, 0)
+      is-2d: true
+      should-snap: false
+      items:
+        - type: scroll-frame
+          bounds: [0, 0, 300, 260]
+          content-size: [300, 600]
+          items:
+            - type: border
+              bounds: [30.5, 30, 100, 100]
+              width: 1
+              border-type: normal
+              style: solid
+              radius: 10
+              color: black

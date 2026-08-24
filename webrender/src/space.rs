@@ -233,8 +233,12 @@ pub struct SpaceSnapper {
     enabled: bool,
     /// Node content is snapped against (the root, or the surface's raster node).
     snap_node_index: SpatialNodeIndex,
-    /// Inverse of the snap node's `content_transform`, computed once.
+    /// Inverse of the snap node's `content_transform`, scaled into device space,
+    /// computed once.
     raster_content_inverse: ScaleOffset,
+    /// The device scale folded into `raster_content_inverse`; applied separately
+    /// on the cross-coordinate-system path.
+    snap_scale: f32,
     /// Coordinate system of the snap node. A target in the same coordinate
     /// system snaps with a cheap scale + offset; a target in a different one is
     /// only snappable when the reference frame between them is grid-preserving.
@@ -251,9 +255,18 @@ impl SpaceSnapper {
     /// Create a snapper that snaps into `surface`'s raster space (the space the
     /// surface's content is rasterized in).
     ///
-    /// A surface whose raster node is in the root coordinate system snaps its
-    /// content against the root, and when it also snaps (`allow_snapping ==
-    /// true`) it establishes a root-snapping raster root.
+    /// A snapping surface snaps against its own raster node, which is the root
+    /// for every surface except a picture cache slice. Everything that actually
+    /// rasterizes - quad coverage rounding, glyph pen snapping, render task rects,
+    /// tile placement - already works in that space, so snapping there is what
+    /// keeps a prim's rect on the grid it is drawn on. Snapping against the root
+    /// instead leaves a slice whose node sits at a fractional device offset
+    /// snapped on a grid half a pixel from the one it rasterizes on, cropping
+    /// cached border corners and shifting glyphs relative to their clips (bug
+    /// 2062742).
+    ///
+    /// A surface whose raster node is in the root coordinate system but which
+    /// does not itself snap keeps snapping against the root, as before.
     ///
     /// A genuine non-snapping raster root (`allow_snapping == false`:
     /// preserve-3d / perspective, raster node not in the root coordinate system)
@@ -268,12 +281,26 @@ impl SpaceSnapper {
         let raster_node = spatial_tree.get_spatial_node(raster_spatial_node_index);
         let raster_in_root = raster_node.coordinate_system_id == CoordinateSystemId::root();
 
-        let (enabled, snap_node_index) = if raster_in_root {
-            (true, spatial_tree.root_reference_frame_index())
+        // `content_transform` is relative to the coordinate system root and
+        // carries no device scale, so snapping against the raster node needs the
+        // surface's own scale applied on top of it to land on device pixels. The
+        // root carries no scale of its own, so that path stays at 1.0.
+        let (enabled, snap_node_index, snap_scale) = if raster_in_root && !surface.allow_snapping {
+            (true, spatial_tree.root_reference_frame_index(), 1.0)
         } else if surface.allow_snapping {
-            (true, raster_spatial_node_index)
+            // A snapping surface's raster node is expected to always be in the root
+            // coordinate system: `assign_surface` only clears `allow_snapping` for a
+            // non-snapping raster root, and a tile cache's own node cannot leave the
+            // root system (`find_scroll_root` resets across any reference frame that
+            // is not a 2d scale/translation). This is the path that newly applies
+            // `device_pixel_scale`, so verify rather than assume.
+            debug_assert!(
+                raster_in_root,
+                "snapping surface with a raster node outside the root coordinate system",
+            );
+            (true, raster_spatial_node_index, surface.device_pixel_scale.0)
         } else {
-            (false, raster_spatial_node_index)
+            (false, raster_spatial_node_index, 1.0)
         };
 
         let snap_node = spatial_tree.get_spatial_node(snap_node_index);
@@ -281,7 +308,8 @@ impl SpaceSnapper {
         SpaceSnapper {
             enabled,
             snap_node_index,
-            raster_content_inverse: snap_node.content_transform.inverse(),
+            raster_content_inverse: snap_node.content_transform.inverse().then_scale(snap_scale),
+            snap_scale,
             raster_coord_system_id: snap_node.coordinate_system_id,
             current_target_spatial_node_index: SpatialNodeIndex::INVALID,
             snapping_transform: None,
@@ -333,7 +361,10 @@ impl SpaceSnapper {
                 .get_relative_transform(target_node_index, self.snap_node_index)
                 .into_transform();
             fwd.as_grid_aligned_rotation()
-                .map(|(scale_offset, swap_xy)| SnapTransform { scale_offset, swap_xy })
+                .map(|(scale_offset, swap_xy)| SnapTransform {
+                    scale_offset: scale_offset.then_scale(self.snap_scale),
+                    swap_xy,
+                })
         };
     }
 
@@ -499,14 +530,21 @@ mod tests {
         assert!(LayoutTransform::rotation(1.0, 0.0, 0.0, deg(30.0)).as_grid_aligned_rotation().is_none());
     }
 
-    // Bug 2004666: a snapping surface (e.g. a sticky / scrolled tile cache) whose
-    // raster node is in the root coordinate system but offset from root by a
-    // fractional, un-snapped amount must snap its content against the root, not
-    // against its own node — snapping against its own node is a no-op and leaves
-    // content a sub-pixel off the device grid (the cause of the sticky-content
-    // jitter). A `should_snap:false` 2d-scale-translation reference frame at a
-    // fractional offset reproduces that fractional cs-origin.
-    fn assert_snaps_against_root(st: &SpatialTree, raster_node: SpatialNodeIndex) {
+    // Bug 2004666: content rasterized into a snapping surface (e.g. a sticky /
+    // scrolled tile cache) whose raster node is in the root coordinate system but
+    // is offset from root by a fractional, un-snapped amount must land on whole
+    // device pixels once composited, or glyphs and line decorations jitter
+    // sub-pixel while scrolling. A `should_snap:false` 2d-scale-translation
+    // reference frame at a fractional offset reproduces that fractional cs-origin.
+    //
+    // This originally asserted the *mechanism* - that such a surface snaps against
+    // the root rather than against its own node. That is no longer the mechanism
+    // that achieves it: a slice composites its tiles at a *rounded* device offset
+    // (`get_relative_scale_offset`), so snapping in the slice's own space is what
+    // puts content on whole device pixels, while snapping against the root leaves
+    // the fraction inside the content for the coverage rounding to quantize away
+    // (bug 2062742). Assert the outcome both mechanisms were reaching for.
+    fn assert_content_lands_on_device_pixels(st: &SpatialTree, raster_node: SpatialNodeIndex) {
         // Precondition: the raster node is in the root coordinate system but
         // offset from root by a fractional amount.
         let node = st.get_spatial_node(raster_node);
@@ -534,20 +572,28 @@ mod tests {
         let mut snapper = SpaceSnapper::new(&surface, st);
         snapper.set_target_spatial_node(raster_node, st);
 
-        // Snapping against root maps the rect to a fractional device rect (offset
-        // 0.4), snaps it to the integer grid, and maps it back offset by -0.4.
-        // Snapping against the surface's own node would be a no-op (rect stays at
-        // its integer local origin), which is the bug.
         let rect = LayoutRect::from_origin_and_size(
             LayoutPoint::new(20.0, 40.0),
             LayoutSize::new(60.0, 20.0),
         );
         let snapped = snapper.snap_rect(&rect);
 
+        // Where the content actually lands: the cache composites its tiles at this
+        // offset, which `get_relative_scale_offset` rounds to a whole device pixel.
+        let composite = crate::picture::get_relative_scale_offset(
+            raster_node,
+            st.root_reference_frame_index(),
+            st,
+        );
+        let device_x = snapped.min.x * composite.scale.x + composite.offset.x;
+        let device_y = snapped.min.y * composite.scale.y + composite.offset.y;
+
         assert!(
-            (snapped.min.x - 19.6).abs() < 0.01 && (snapped.min.y - 39.6).abs() < 0.01,
-            "expected content snapped against root (min ~= 19.6,39.6), got {:?}",
+            (device_x - device_x.round()).abs() < 0.01
+                && (device_y - device_y.round()).abs() < 0.01,
+            "expected snapped content to composite on whole device pixels, got              ({device_x}, {device_y}) from snapped local {:?} at composite offset {:?}",
             snapped.min,
+            composite.offset,
         );
     }
 
@@ -575,7 +621,7 @@ mod tests {
     }
 
     #[test]
-    fn test_root_cs_surface_snaps_against_root() {
+    fn test_root_cs_surface_content_lands_on_device_pixels() {
         let mut cst = SceneSpatialTree::new();
         let root = cst.root_reference_frame_index();
         let frac = add_fractional_ref_frame(&mut cst, root);
@@ -584,14 +630,14 @@ mod tests {
         st.apply_updates(cst.end_frame_and_get_pending_updates());
         st.update_tree(&SceneProperties::new());
 
-        assert_snaps_against_root(&st, frac);
+        assert_content_lands_on_device_pixels(&st, frac);
     }
 
     #[test]
-    fn test_sticky_cache_snaps_against_root() {
-        // The same fractional cs-origin reached through a sticky frame (which
-        // gets its own tile cache): content in the sticky cache must still snap
-        // against root, not the sticky node.
+    fn test_sticky_cache_content_lands_on_device_pixels() {
+        // The same fractional cs-origin reached through a sticky frame (which gets
+        // its own tile cache): content in the sticky cache must land on whole
+        // device pixels too - this is the configuration that jittered.
         let mut cst = SceneSpatialTree::new();
         let root = cst.root_reference_frame_index();
         let frac = add_fractional_ref_frame(&mut cst, root);
@@ -613,7 +659,7 @@ mod tests {
         st.apply_updates(cst.end_frame_and_get_pending_updates());
         st.update_tree(&SceneProperties::new());
 
-        assert_snaps_against_root(&st, sticky);
+        assert_content_lands_on_device_pixels(&st, sticky);
     }
 
     #[test]

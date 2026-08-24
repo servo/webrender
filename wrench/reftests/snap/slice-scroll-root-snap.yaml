@@ -1,0 +1,47 @@
+# Bug 2062742: content in a picture cache slice whose raster space is offset from
+# the root by a fraction of a device pixel must be rasterized on the slice's own
+# grid - the grid its tiles actually composite on.
+#
+# A slice composites its tiles 1:1 at a *rounded* device offset
+# (`CompositeState::get_device_rect`), so raster pixel N lands on a whole device
+# pixel. When the frame-time snap pass (`SpaceSnapper`) snapped against the root
+# instead, the slice's fractional offset ended up inside the content: the border
+# authored at 30 below sat at 30.5 in the slice's space. `create_quad_primitive`
+# then rounds the coverage rect of non-anti-aliased edges and quantizes that half
+# pixel away again - but the pattern rect is deliberately left exact, so the
+# displaced coverage crops the border's cached corner texture by up to half a pixel
+# on one side and repeats clamped texels on the other. The corners come out clipped
+# and uneven rather than merely shifted.
+#
+# The fractional slice offset needs a reference frame that is `is-2d` (so
+# `find_scroll_root` keeps looking for a scroll root below it, giving the scroll
+# frame its own slice) and `should-snap: false` (so its fractional offset survives
+# to frame time). In Firefox that is the reference frame Gecko emits for a
+# stacking context with a non-zero origin.
+#
+# The reference builds the same scene with the half pixel moved out of the slice
+# offset and into the prim rect, so the border is at the same absolute position
+# (root 30.5) reached through a slice that is already on the device grid.
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 400, 300]
+      color: white
+    - type: reference-frame
+      bounds: [0, 0, 400, 300]
+      transform: translate(0.5, 0)
+      is-2d: true
+      should-snap: false
+      items:
+        - type: scroll-frame
+          bounds: [0, 0, 300, 260]
+          content-size: [300, 600]
+          items:
+            - type: border
+              bounds: [30, 30, 100, 100]
+              width: 1
+              border-type: normal
+              style: solid
+              radius: 10
+              color: black

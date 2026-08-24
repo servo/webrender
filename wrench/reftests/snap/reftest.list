@@ -14,6 +14,11 @@ scale(*) == refframe-origin-quantize.yaml refframe-origin-quantize-ref.yaml
 
 scale(*) == refframe-text-snap.yaml refframe-text-snap-ref.yaml
 
+# Written for a specific scale: it asserts the behaviour of a slice sitting half a
+# device pixel off the root, which the emulated device pixel scale would turn into
+# some other fraction (and at small scales the two arms round to different pixels).
+scale(1.0) == slice-scroll-root-snap.yaml slice-scroll-root-snap-ref.yaml
+
 # The next three tests assert thicknesses expressed in device pixels (a
 # sub-device-pixel edge snapped up to one whole device pixel), while their
 # references can only express them in layout units, which the emulated device
