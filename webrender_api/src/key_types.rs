@@ -25,6 +25,14 @@ use std::hash::{Hash, Hasher};
 #[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash, Deserialize, MallocSizeOf, Serialize, PeekPoke)]
 pub struct EdgeMask(u8);
 
+// `empty()` rather than `all()`, so a mask nobody set cannot silently
+// anti-alias an interior edge.
+impl Default for EdgeMask {
+    fn default() -> Self {
+        EdgeMask::empty()
+    }
+}
+
 bitflags! {
     impl EdgeMask: u8 {
         ///

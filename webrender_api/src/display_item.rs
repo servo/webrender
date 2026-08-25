@@ -11,6 +11,7 @@ use crate::{APZScrollGeneration, HasScrollLinkedEffect, PipelineId, PropertyBind
 use crate::serde::{Serialize, Deserialize};
 use crate::color::ColorF;
 use crate::image::{ColorDepth, ImageKey};
+use crate::key_types::EdgeMask;
 use crate::units::*;
 use std::hash::{Hash, Hasher};
 
@@ -322,6 +323,12 @@ pub struct RectangleDisplayItem {
     pub common: CommonItemProperties,
     pub bounds: LayoutRect,
     pub color: PropertyBinding<ColorF>,
+    /// Which edges get anti-aliased under a transform. A rect is the one item
+    /// that says, because the display list builder splits one primitive into
+    /// abutting rects (the solid margins around a clamped radial gradient) and
+    /// the interior edges must not be anti-aliased or they seam. There is no
+    /// aligned equivalent: that mask is `EdgeMask::empty()` for every primitive.
+    pub transformed_aa_edges: EdgeMask,
 }
 
 /// A minimal hit-testable item for the parent browser's convenience, and is

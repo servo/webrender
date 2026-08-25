@@ -23,6 +23,7 @@ use crate::gradient_builder::GradientBuilder;
 use crate::color::ColorF;
 use crate::font::{FontInstanceKey, GlyphInstance, GlyphOptions};
 use crate::image::{ColorDepth, ImageKey};
+use crate::key_types::EdgeMask;
 use crate::prim_geometry::{
     apply_gradient_local_clip, optimize_linear_gradient, process_repeat_size,
 };
@@ -1353,6 +1354,7 @@ impl DisplayListBuilder {
             common,
             color: PropertyBinding::Value(color),
             bounds: self.shift_rect(bounds, offset),
+            transformed_aa_edges: EdgeMask::all(),
         });
         self.push_item(&item);
     }
@@ -1368,6 +1370,7 @@ impl DisplayListBuilder {
             common,
             color,
             bounds: self.shift_rect(bounds, offset),
+            transformed_aa_edges: EdgeMask::all(),
         });
         self.push_item(&item);
     }
@@ -2697,6 +2700,7 @@ impl DisplayListBuilder {
                 common: shift(info.common),
                 bounds: info.bounds.translate(offset),
                 color: PropertyBinding::Value(color),
+                transformed_aa_edges: info.transformed_aa_edges,
             }),
             Text(info) => Text(di::TextDisplayItem {
                 common: shift(info.common),

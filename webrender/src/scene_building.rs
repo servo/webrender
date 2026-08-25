@@ -1449,10 +1449,12 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::Rectangle(ref info) => {
                 tracy_rs::profile_scope!("rect");
 
-                let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (mut layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
+
+                layout.transformed_aa_edges &= info.transformed_aa_edges;
 
                 self.add_primitive(
                     spatial_node_index,
