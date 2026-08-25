@@ -78,7 +78,7 @@ use crate::prim_store::rectangle::RectanglePrim;
 use crate::prim_store::backdrop::{BackdropCapture, BackdropRender};
 use crate::prim_store::borders::ImageBorder;
 use crate::prim_store::gradient::{
-    GradientStopKey, optimize_radial_gradient, apply_gradient_local_clip,
+    GradientStopKey, optimize_radial_gradient,
 };
 use crate::prim_store::image::{Image, StretchSizeKey, YuvImage};
 use crate::prim_store::line_dec::LineDecoration;
@@ -1635,50 +1635,30 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::ConicGradient(ref info) => {
                 tracy_rs::profile_scope!("conic");
 
-                if !info.gradient.is_valid() {
-                    return;
-                }
-
-                let (mut layout, unsnapped_rect, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
 
-                let tile_size = process_repeat_size(
-                    &layout.rect,
-                    &unsnapped_rect,
+                let prim_key_kind = conic_gradient_prim(
+                    layout.rect,
+                    info.gradient.center,
+                    info.gradient.angle,
+                    info.gradient.start_offset,
+                    info.gradient.end_offset,
+                    read_gradient_stops(item.gradient_stops()),
+                    info.gradient.extend_mode,
                     info.tile_size,
+                    info.tile_spacing,
+                    None,
                 );
 
-                let offset = apply_gradient_local_clip(
-                    &mut layout.rect,
-                    &tile_size,
-                    &info.tile_spacing,
-                    &layout.clip_rect,
+                self.add_primitive(
+                    spatial_node_index,
+                    clip_node_id,
+                    &layout,
+                    prim_key_kind,
                 );
-                let center = info.gradient.center + offset;
-
-                if !tile_size.ceil().is_empty() {
-                    let prim_key_kind = conic_gradient_prim(
-                        layout.rect,
-                        center,
-                        info.gradient.angle,
-                        info.gradient.start_offset,
-                        info.gradient.end_offset,
-                        read_gradient_stops(item.gradient_stops()),
-                        info.gradient.extend_mode,
-                        tile_size,
-                        info.tile_spacing,
-                        None,
-                    );
-
-                    self.add_primitive(
-                        spatial_node_index,
-                        clip_node_id,
-                        &layout,
-                        prim_key_kind,
-                    );
-                }
             }
             DisplayItem::BoxShadow(ref info) => {
                 tracy_rs::profile_scope!("box_shadow");

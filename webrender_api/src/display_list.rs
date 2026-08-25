@@ -23,7 +23,9 @@ use crate::gradient_builder::GradientBuilder;
 use crate::color::ColorF;
 use crate::font::{FontInstanceKey, GlyphInstance, GlyphOptions};
 use crate::image::{ColorDepth, ImageKey};
-use crate::prim_geometry::{optimize_linear_gradient, process_repeat_size};
+use crate::prim_geometry::{
+    apply_gradient_local_clip, optimize_linear_gradient, process_repeat_size,
+};
 use crate::units::*;
 
 
@@ -1937,12 +1939,31 @@ impl DisplayListBuilder {
         tile_spacing: LayoutSize,
         stops: &[di::GradientStop],
     ) {
+        if !gradient.is_valid() {
+            return;
+        }
+
         let (common, offset) = self.normalize_common(common);
+        let mut bounds = self.shift_rect(bounds, offset);
+
+        let tile_size = process_repeat_size(&bounds, &bounds, tile_size);
+
+        let clip_offset =
+            apply_gradient_local_clip(&mut bounds, &tile_size, &tile_spacing, &common.clip_rect);
+
+        // A tile that rounds up to nothing covers no pixel.
+        if tile_size.ceil().is_empty() {
+            return;
+        }
+
         self.push_stops(stops);
         let item = di::DisplayItem::ConicGradient(di::ConicGradientDisplayItem {
             common,
-            bounds: self.shift_rect(bounds, offset),
-            gradient,
+            bounds,
+            gradient: di::ConicGradient {
+                center: gradient.center + clip_offset,
+                ..gradient
+            },
             tile_size,
             tile_spacing,
         });

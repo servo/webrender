@@ -34,16 +34,6 @@ fn stops_and_min_alpha(stop_keys: &[GradientStopKey]) -> (Vec<GradientStop>, f32
     (stops, min_alpha)
 }
 
-// If the gradient is not tiled we know that any content outside of the clip will not
-// be shown. Applying the clip early reduces how much of the gradient we
-// render and cache. We do this optimization separately on each axis.
-// Returns the offset between the new and old primitive rect origin, to apply to the
-// gradient parameters that are relative to the primitive origin.
-// `apply_gradient_local_clip` now lives in `webrender_api::prim_geometry` so
-// content-process interning can share it. Re-exported here to keep existing
-// references working.
-pub use api::prim_geometry::apply_gradient_local_clip;
-
 #[test]
 #[cfg(target_pointer_width = "64")]
 fn test_struct_sizes() {

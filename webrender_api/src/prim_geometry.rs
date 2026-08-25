@@ -103,6 +103,11 @@ pub fn compute_stretch_ratio(stretch_size: LayoutSize, prim_size: LayoutSize) ->
 /// Clip a (possibly tiled) gradient primitive to its local clip rect, returning
 /// the offset that must be applied to the gradient's start/center so the
 /// gradient stays aligned after the prim rect is shrunk.
+///
+/// If the gradient is not tiled then any content outside the clip cannot be
+/// shown, so applying the clip here reduces how much of the gradient gets
+/// rendered and cached. Done separately on each axis, since an axis can be
+/// tiled while the other is not.
 pub fn apply_gradient_local_clip(
     prim_rect: &mut LayoutRect,
     stretch_size: &LayoutSize,
