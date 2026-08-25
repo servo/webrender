@@ -1,0 +1,25 @@
+---
+# A hairline border whose corner radius is a fractional number of device
+# pixels. The corner is cached at whole-pixel size and stretched onto its
+# box, so without snapping the radius the arc is resampled and loses
+# contrast against the crisp straight sides (bug 2062877). Snapped, it
+# matches the reference drawn at a whole-pixel radius exactly.
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 400, 300]
+      color: [0, 0, 0, 1.0]
+    - type: border
+      bounds: [20, 20, 240, 45]
+      width: 1
+      border-type: normal
+      style: solid
+      radius: 22.5
+      color: white
+    - type: border
+      bounds: [20, 120, 240, 60]
+      width: 1
+      border-type: normal
+      style: solid
+      radius: 20.5
+      color: white

@@ -98,6 +98,37 @@ impl NormalBorderData {
         widths.top = snap_width(widths.top, device_scale_y);
         widths.bottom = snap_width(widths.bottom, device_scale_y);
 
+        // A corner's cached texture is rasterized at the whole-pixel size of its
+        // corner box and then stretched onto that box, so a box with a fractional
+        // device size is resampled on composite: the arc loses contrast against
+        // the grid-snapped straight edges, which reads as the curve being thinner
+        // than the sides (bug 2062877). The box is `max(radius, width)`, so
+        // snapping a radius that exceeds its border width to a whole device pixel
+        // makes that composite exact. Radii below the width don't drive the box
+        // size, so they are left alone.
+        //
+        // Rounds down rather than to the nearest pixel. Growing a radius can push
+        // the pair that shares an edge past the length of that edge, which makes
+        // the two corner segments overlap and double-blend a translucent border;
+        // and since the two axes are constrained by different edges, guarding them
+        // separately can round one axis up and the other down, turning a circular
+        // corner into an elliptical one.
+        let snap_radius = |r: f32, w: f32, s: f32| {
+            if r > w && s > 0.0 { (r * s).floor().max(w * s) / s } else { r }
+        };
+        let mut border = self.border;
+        {
+            let r = &mut border.radius;
+            r.top_left.width = snap_radius(r.top_left.width, widths.left, device_scale_x);
+            r.top_left.height = snap_radius(r.top_left.height, widths.top, device_scale_y);
+            r.top_right.width = snap_radius(r.top_right.width, widths.right, device_scale_x);
+            r.top_right.height = snap_radius(r.top_right.height, widths.top, device_scale_y);
+            r.bottom_left.width = snap_radius(r.bottom_left.width, widths.left, device_scale_x);
+            r.bottom_left.height = snap_radius(r.bottom_left.height, widths.bottom, device_scale_y);
+            r.bottom_right.width = snap_radius(r.bottom_right.width, widths.right, device_scale_x);
+            r.bottom_right.height = snap_radius(r.bottom_right.height, widths.bottom, device_scale_y);
+        }
+
         let scale_width = clamp_to_scale_factor(scale.0, false);
         let scale_height = clamp_to_scale_factor(scale.1, false);
         // Pick the maximum dimension as scale
@@ -111,7 +142,7 @@ impl NormalBorderData {
         let mut segments: SmallVec<[NormalBorderSegment; 8]> = SmallVec::new();
         crate::border::create_border_segments(
             desc.pattern_rect,
-            &self.border,
+            &border,
             &widths,
             &mut |segment| segments.push(segment.clone()),
         );
@@ -183,7 +214,7 @@ impl NormalBorderData {
                             build_border_instances(
                                 &segment.cache_key,
                                 cache_size,
-                                &self.border,
+                                &border,
                                 scale,
                                 gpu_buffer_builder,
                             )

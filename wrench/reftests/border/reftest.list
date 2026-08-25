@@ -44,3 +44,4 @@ platform(linux,mac) == border-shape-2.yaml border-shape-2.png
 platform(linux,mac) == border-shape-3.yaml border-shape-3.png
 platform(linux,mac) == border-shape-4.yaml border-shape-4.png
 platform(linux,mac) == border-shape-inset.yaml border-shape-inset.png
+== border-corner-fractional-radius.yaml border-corner-fractional-radius-ref.yaml
