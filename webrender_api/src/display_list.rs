@@ -23,6 +23,7 @@ use crate::gradient_builder::GradientBuilder;
 use crate::color::ColorF;
 use crate::font::{FontInstanceKey, GlyphInstance, GlyphOptions};
 use crate::image::{ColorDepth, ImageKey};
+use crate::prim_geometry::{optimize_linear_gradient, process_repeat_size};
 use crate::units::*;
 
 
@@ -1854,12 +1855,44 @@ impl DisplayListBuilder {
         tile_spacing: LayoutSize,
         stops: &[di::GradientStop],
     ) {
+        if !gradient.is_valid() {
+            return;
+        }
+
         let (common, offset) = self.normalize_common(common);
+        let mut bounds = self.shift_rect(bounds, offset);
+
+        let mut tile_size = process_repeat_size(&bounds, &bounds, tile_size);
+
+        let mut start = gradient.start_point;
+        let mut end = gradient.end_point;
+        // The simplification and clip pass. The fast-path two-stop segment
+        // decomposition is not done here: it happens at prepare time, so
+        // segments tile against the snapped prim rect (see
+        // `decompose_axis_aligned_gradient`).
+        optimize_linear_gradient(
+            &mut bounds,
+            &mut tile_size,
+            tile_spacing,
+            &common.clip_rect,
+            &mut start,
+            &mut end,
+        );
+
+        // A tile that rounds up to nothing covers no pixel.
+        if tile_size.ceil().is_empty() {
+            return;
+        }
+
         self.push_stops(stops);
         let item = di::DisplayItem::Gradient(di::GradientDisplayItem {
             common,
-            bounds: self.shift_rect(bounds, offset),
-            gradient,
+            bounds,
+            gradient: di::Gradient {
+                start_point: start,
+                end_point: end,
+                ..gradient
+            },
             tile_size,
             tile_spacing,
         });

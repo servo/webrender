@@ -79,7 +79,6 @@ use crate::prim_store::backdrop::{BackdropCapture, BackdropRender};
 use crate::prim_store::borders::ImageBorder;
 use crate::prim_store::gradient::{
     GradientStopKey, optimize_radial_gradient, apply_gradient_local_clip,
-    optimize_linear_gradient,
 };
 use crate::prim_store::image::{Image, StretchSizeKey, YuvImage};
 use crate::prim_store::line_dec::LineDecoration;
@@ -1527,55 +1526,27 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::Gradient(ref info) => {
                 tracy_rs::profile_scope!("gradient");
 
-                if !info.gradient.is_valid() {
-                    return;
-                }
-
-                let (mut layout, unsnapped_rect, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
 
-                let mut tile_size = process_repeat_size(
-                    &layout.rect,
-                    &unsnapped_rect,
+                if let Some(prim_key_kind) = linear_gradient_prim(
+                    layout.rect,
+                    info.gradient.start_point,
+                    info.gradient.end_point,
+                    read_gradient_stops(item.gradient_stops()),
+                    info.gradient.extend_mode,
                     info.tile_size,
-                );
-
-                let stops = read_gradient_stops(item.gradient_stops());
-                let mut start = info.gradient.start_point;
-                let mut end = info.gradient.end_point;
-                // Run the simplification + clip pass; the fast-path two-stop
-                // segment decomposition that used to run here now happens at
-                // prepare time so segments tile against the snapped prim_rect
-                // (see `decompose_axis_aligned_gradient`).
-                optimize_linear_gradient(
-                    &mut layout.rect,
-                    &mut tile_size,
                     info.tile_spacing,
-                    &layout.clip_rect,
-                    &mut start,
-                    &mut end,
-                );
-
-                if !tile_size.ceil().is_empty() {
-                    if let Some(prim_key_kind) = linear_gradient_prim(
-                        layout.rect,
-                        start,
-                        end,
-                        stops,
-                        info.gradient.extend_mode,
-                        tile_size,
-                        info.tile_spacing,
-                        None,
-                    ) {
-                        self.add_primitive(
-                            spatial_node_index,
-                            clip_node_id,
-                            &layout,
-                            prim_key_kind,
-                        );
-                    }
+                    None,
+                ) {
+                    self.add_primitive(
+                        spatial_node_index,
+                        clip_node_id,
+                        &layout,
+                        prim_key_kind,
+                    );
                 }
             }
             DisplayItem::RadialGradient(ref info) => {

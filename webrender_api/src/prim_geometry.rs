@@ -145,6 +145,16 @@ pub fn apply_gradient_local_clip(
     offset
 }
 
+/// Perform a few optimizations to the gradient that are relevant to scene building.
+///
+/// Mutates `prim_rect`, `tile_size`, `start`, `end` to bake in the simplifications
+/// (repeated-tile collapse, equivalent-to-stretching on either axis, clip-induced
+/// offsets). Decomposition into per-segment quads is no longer done here -- the
+/// caller emits a single `LinearGradient` prim and prepare-time runs
+/// `decompose_axis_aligned_gradient` against the snapped prim_rect when the
+/// gradient is eligible. Doing the decomposition at frame-build keeps adjacent
+/// segments phase-aligned with the snapped outer prim, even when the frame-time
+/// snap pass nudges the outer rect.
 pub fn optimize_linear_gradient(
     prim_rect: &mut LayoutRect,
     tile_size: &mut LayoutSize,
