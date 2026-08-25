@@ -637,14 +637,27 @@ pub enum BoxShadowClipMode {
     Inset = 1,
 }
 
+/// The blur shader samples `BLUR_SAMPLE_SCALE * blur_radius` surrounding texels.
+pub const BLUR_SAMPLE_SCALE: f32 = 3.0;
+
+/// Maximum blur radius for box-shadows (different than blur filters).
+/// Taken from nsCSSRendering.cpp in Gecko.
+pub const MAX_BLUR_RADIUS: f32 = 300.;
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
 pub struct BoxShadowDisplayItem {
     pub common: CommonItemProperties,
-    pub box_bounds: LayoutRect,
+    /// The shadow's local rect: the blur-inflated outer rect for `Outset`, the
+    /// element rect for `Inset`. `prepare_box_shadow` recovers the element rect
+    /// from this and the clip mode.
+    pub bounds: LayoutRect,
     pub offset: LayoutVector2D,
     pub color: ColorF,
+    /// Already clamped to `MAX_BLUR_RADIUS`.
     pub blur_radius: f32,
-    pub spread_radius: f32,
+    /// The authored spread radius, signed by the clip mode: inset shadows get
+    /// smaller as it increases, so this is `-spread_radius` for `Inset`.
+    pub spread_amount: f32,
     pub border_radius: BorderRadius,
     pub shadow_radius: BorderRadius,
     pub clip_mode: BoxShadowClipMode,

@@ -104,12 +104,7 @@ impl From<BoxShadowKey> for BoxShadowTemplate {
     }
 }
 
-// The blur shader samples BLUR_SAMPLE_SCALE * blur_radius surrounding texels.
-pub const BLUR_SAMPLE_SCALE: f32 = 3.0;
-
-// Maximum blur radius for box-shadows (different than blur filters).
-// Taken from nsCSSRendering.cpp in Gecko.
-pub const MAX_BLUR_RADIUS: f32 = 300.;
+pub use api::BLUR_SAMPLE_SCALE;
 
 // A cache key that uniquely identifies a minimally sized
 // and blurred box-shadow rect that can be stored in the
@@ -145,92 +140,29 @@ impl<'a> SceneBuilder<'a> {
         prim_info: &LayoutPrimitiveInfo,
         box_offset: &LayoutVector2D,
         color: ColorF,
-        mut blur_radius: f32,
-        spread_radius: f32,
+        blur_radius: f32,
+        spread_amount: f32,
         border_radius: BorderRadius,
         shadow_radius: BorderRadius,
         clip_mode: BoxShadowClipMode,
     ) {
-        if color.a == 0.0 {
-            return;
-        }
-
-        // Inset shadows get smaller as spread radius increases.
-        let spread_amount = match clip_mode {
-            BoxShadowClipMode::Outset => spread_radius,
-            BoxShadowClipMode::Inset => -spread_radius,
-        };
-
-        // Ensure the blur radius is somewhat sensible.
-        blur_radius = f32::min(blur_radius, MAX_BLUR_RADIUS);
-
-        // Apply parameters that affect where the shadow rect
-        // exists in the local space of the primitive.
-        let shadow_rect = prim_info
-            .rect
-            .translate(*box_offset)
-            .inflate(spread_amount, spread_amount);
-
-        // Box-shadows with a valid blur radius use the quad primitive path;
-        // element clipping is handled analytically in the shader. Zero-blur
+        // Element clipping is handled analytically in the shader. Zero-blur
         // box-shadows are desugared into a rectangle plus shaping clips in the
         // DisplayListBuilder and never reach here.
-        let blur_offset = (BLUR_SAMPLE_SCALE * blur_radius).ceil();
-
-        // Get the local rect of where the shadow will be drawn,
-        // expanded to include room for the blurred region.
-        let dest_rect = shadow_rect.inflate(blur_offset, blur_offset);
-
-        match clip_mode {
-            BoxShadowClipMode::Outset => {
-                // Certain spread-radii make the shadow invalid.
-                if shadow_rect.is_empty() {
-                    return;
-                }
-
-                // Element clip is handled analytically in the shader.
-                self.add_primitive(
-                    spatial_node_index,
-                    clip_node_id,
-                    &LayoutPrimitiveInfo::with_clip_rect(dest_rect, prim_info.clip_rect),
-                    BoxShadow {
-                        color: color.into(),
-                        blur_radius: Au::from_f32_px(blur_radius),
-                        clip_mode,
-                        shadow_radius: shadow_radius.into(),
-                        element_radius: border_radius.into(),
-                        box_offset: (*box_offset).into(),
-                        spread_amount: Au::from_f32_px(spread_amount),
-                    },
-                );
-            }
-            BoxShadowClipMode::Inset => {
-                // If the inner shadow rect contains the prim
-                // rect, no pixels will be shadowed.
-                if border_radius.is_zero() && shadow_rect
-                    .inflate(-blur_radius, -blur_radius)
-                    .contains_box(&prim_info.rect)
-                {
-                    return;
-                }
-
-                // Element clip is handled analytically in the shader.
-                self.add_primitive(
-                    spatial_node_index,
-                    clip_node_id,
-                    &prim_info.clone(),
-                    BoxShadow {
-                        color: color.into(),
-                        blur_radius: Au::from_f32_px(blur_radius),
-                        clip_mode,
-                        shadow_radius: shadow_radius.into(),
-                        element_radius: border_radius.into(),
-                        box_offset: (*box_offset).into(),
-                        spread_amount: Au::from_f32_px(spread_amount),
-                    },
-                );
-            }
-        }
+        self.add_primitive(
+            spatial_node_index,
+            clip_node_id,
+            prim_info,
+            BoxShadow {
+                color: color.into(),
+                blur_radius: Au::from_f32_px(blur_radius),
+                clip_mode,
+                shadow_radius: shadow_radius.into(),
+                element_radius: border_radius.into(),
+                box_offset: (*box_offset).into(),
+                spread_amount: Au::from_f32_px(spread_amount),
+            },
+        );
     }
 }
 
@@ -262,7 +194,7 @@ pub fn prepare_box_shadow(
     //
     // The element rect's relation to the per-instance
     // `unsnapped_pattern_rect` differs by clip_mode (set up in
-    // `box_shadow::add_box_shadow`):
+    // `DisplayListBuilder::push_box_shadow`):
     //   - Outset: prim rect = element.translate.inflate(spread)
     //                                  .inflate(blur_offset);
     //             recover element by reversing the construction.

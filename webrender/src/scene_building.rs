@@ -1714,7 +1714,7 @@ impl<'a> SceneBuilder<'a> {
 
                 let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
-                    info.box_bounds,
+                    info.bounds,
                 );
 
                 self.add_box_shadow(
@@ -1724,7 +1724,7 @@ impl<'a> SceneBuilder<'a> {
                     &info.offset,
                     info.color,
                     info.blur_radius,
-                    info.spread_radius,
+                    info.spread_amount,
                     info.border_radius,
                     info.shadow_radius,
                     info.clip_mode,
