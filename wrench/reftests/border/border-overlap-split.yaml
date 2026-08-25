@@ -1,0 +1,24 @@
+# A rounded fill drawn the way the non-native theme draws scrollbar thumbs: a
+# border whose top/bottom widths are 0.6 of the height, so they overlap and the
+# whole shape is four corner segments clipped to their own quadrant, meeting at
+# the rect's vertical midpoint. The height is odd, so that midpoint is a half
+# pixel, and the bound reference-frame transform puts the shape at a sub-pixel
+# offset that WebRender snaps back out.
+#
+# The two neighbouring clips must describe that midpoint identically: they are
+# non-antialiased on the shared edge, so a one-ULP disagreement rounds them apart
+# and drops a whole device pixel row out of the shape (bug 2059620).
+---
+root:
+  items:
+    - type: reference-frame
+      bounds: [0, 0, 200, 520]
+      transform: translate(0, 0.2)
+      items:
+        - type: border
+          bounds: [10, 25, 8, 457]
+          width: [274.2, 4.8, 274.2, 4.8]
+          border-type: normal
+          style: solid
+          radius: 3
+          color: blue

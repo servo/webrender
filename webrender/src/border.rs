@@ -562,6 +562,26 @@ pub fn create_border_segments(
         widths.left - overlap.width / 2.0,
     );
 
+    // Where the corner segments' clips meet in the middle when the widths
+    // overlap. `min + non_overlapping.top` and `max - non_overlapping.bottom`
+    // are the same number mathematically (the two non-overlapping widths sum to
+    // the rect size) but not in f32, and a one-ULP disagreement is enough for
+    // the two adjoining segments to round their shared, non-antialiased device
+    // edge in opposite directions, leaving a 1px hole (bug 2059620). Evaluate
+    // each split once so both sides see identical bits.
+    let split_x = rect.min.x + non_overlapping_widths.left;
+    let split_y = rect.min.y + non_overlapping_widths.top;
+    let (clip_split_x_from_min, clip_split_x_from_max) = if overlap.width > 0.0 {
+        (split_x, split_x)
+    } else {
+        (split_x, rect.max.x - non_overlapping_widths.right)
+    };
+    let (clip_split_y_from_min, clip_split_y_from_max) = if overlap.height > 0.0 {
+        (split_y, split_y)
+    } else {
+        (split_y, rect.max.y - non_overlapping_widths.bottom)
+    };
+
     let inset_tl = LayoutSize::new(border.inset.left, border.inset.top);
     let inset_tr = LayoutSize::new(border.inset.right, border.inset.top);
     let inset_br = LayoutSize::new(border.inset.right, border.inset.bottom);
@@ -729,8 +749,8 @@ pub fn create_border_segments(
         LayoutRect::from_floats(
             rect.min.x,
             rect.min.y,
-            rect.max.x - non_overlapping_widths.right,
-            rect.max.y - non_overlapping_widths.bottom
+            clip_split_x_from_max,
+            clip_split_y_from_max,
         ),
         border.left,
         border.top,
@@ -756,10 +776,10 @@ pub fn create_border_segments(
             rect.min.y + local_size_tr.height,
         ),
         LayoutRect::from_floats(
-            rect.min.x + non_overlapping_widths.left,
+            clip_split_x_from_min,
             rect.min.y,
             rect.max.x,
-            rect.max.y - non_overlapping_widths.bottom,
+            clip_split_y_from_max,
         ),
         border.top,
         border.right,
@@ -785,8 +805,8 @@ pub fn create_border_segments(
             rect.min.y + rect.height(),
         ),
         LayoutRect::from_floats(
-            rect.min.x + non_overlapping_widths.left,
-            rect.min.y + non_overlapping_widths.top,
+            clip_split_x_from_min,
+            clip_split_y_from_min,
             rect.max.x,
             rect.max.y,
         ),
@@ -815,8 +835,8 @@ pub fn create_border_segments(
         ),
         LayoutRect::from_floats(
             rect.min.x,
-            rect.min.y + non_overlapping_widths.top,
-            rect.max.x - non_overlapping_widths.right,
+            clip_split_y_from_min,
+            clip_split_x_from_max,
             rect.max.y,
         ),
         border.bottom,

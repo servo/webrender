@@ -44,3 +44,7 @@ platform(linux,mac) == border-shape-2.yaml border-shape-2.png
 platform(linux,mac) == border-shape-3.yaml border-shape-3.png
 platform(linux,mac) == border-shape-4.yaml border-shape-4.png
 platform(linux,mac) == border-shape-inset.yaml border-shape-inset.png
+
+# The interior split of an over-thick border must land at the same device pixel
+# for both neighbouring segments (bug 2059620).
+fuzzy(1,40) == border-overlap-split.yaml border-overlap-split.png
