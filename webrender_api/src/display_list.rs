@@ -1581,16 +1581,22 @@ impl DisplayListBuilder {
         common: &di::CommonItemProperties,
         bounds: LayoutRect,
         widths: LayoutSideOffsets,
-        details: di::BorderDetails,
+        mut details: di::BorderDetails,
         // Stops for a `NinePatchBorderSource` gradient; empty otherwise.
         gradient_stops: &[di::GradientStop],
     ) {
         let (common, offset) = self.normalize_common(common);
         self.push_stops(gradient_stops);
+        let bounds = self.shift_rect(bounds, offset);
+
+        // Shrink radii that would make adjacent corners overlap.
+        if let di::BorderDetails::Normal(ref mut border) = details {
+            crate::key_types::ensure_no_corner_overlap(&mut border.radius, bounds.size());
+        }
 
         let item = di::DisplayItem::Border(di::BorderDisplayItem {
             common,
-            bounds: self.shift_rect(bounds, offset),
+            bounds,
             details,
             widths,
         });

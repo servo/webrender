@@ -81,15 +81,12 @@ impl<'a> SceneBuilder<'a> {
         spatial_node_index: SpatialNodeIndex,
         clip_node_id: ClipNodeId,
     ) {
-        let mut border = *border;
-        ensure_no_corner_overlap(&mut border.radius, info.rect.size());
-
         self.add_primitive(
             spatial_node_index,
             clip_node_id,
             info,
             NormalBorderPrim {
-                border: border.into(),
+                border: (*border).into(),
                 widths: widths.to_au(),
             },
         );
