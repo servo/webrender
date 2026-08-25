@@ -369,7 +369,7 @@ fn prepare_prim_for_render(
             prepare_box_shadow(
                 &prim_data.kind,
                 &prim_data.common,
-                &prim_instance.unsnapped_pattern_rect,
+                &prim_data.common.prim_rect,
                 &prim_info.clip_chain,
                 &mut quad_transform,
                 frame_context,
@@ -471,7 +471,7 @@ fn prepare_prim_for_render(
             // positions in the template are stored relative to it. Use the
             // unsnapped rect so the anchor matches what the shader receives in
             // `PrimitiveHeader.local_rect`.
-            let pattern_rect = prim_instance.unsnapped_pattern_rect;
+            let pattern_rect = prim_data.common.prim_rect;
 
             let surface = &frame_state.surfaces[pic_context.surface_index.0];
 

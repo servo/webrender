@@ -102,6 +102,6 @@ impl From<RectangleKey> for RectangleTemplate {
 fn test_struct_sizes() {
     use std::mem;
     assert_eq!(mem::size_of::<RectanglePrim>(), 16, "RectanglePrim size changed");
-    assert_eq!(mem::size_of::<RectangleTemplate>(), 32, "RectangleTemplate size changed");
-    assert_eq!(mem::size_of::<RectangleKey>(), 20, "RectangleKey size changed");
+    assert_eq!(mem::size_of::<RectangleTemplate>(), 48, "RectangleTemplate size changed");
+    assert_eq!(mem::size_of::<RectangleKey>(), 36, "RectangleKey size changed");
 }

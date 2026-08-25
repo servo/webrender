@@ -19,7 +19,7 @@ use crate::intern;
 use crate::picture::{PictureInstance, PictureScratch};
 use crate::render_task_graph::RenderTaskId;
 use crate::resource_cache::ImageProperties;
-use std::{hash, u32, usize};
+use std::{u32, usize};
 use crate::util::Recycler;
 use crate::internal_types::{FastHashSet, LayoutPrimitiveInfo};
 use crate::visibility::{PrimitiveDrawHeader, PrimitiveDrawIndex};
@@ -105,90 +105,13 @@ impl PictureIndex {
     pub const INVALID: PictureIndex = PictureIndex(!0);
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Copy, Debug, Clone, MallocSizeOf, PartialEq)]
-pub struct RectKey {
-    pub x0: f32,
-    pub y0: f32,
-    pub x1: f32,
-    pub y1: f32,
-}
-
-impl RectKey {
-    pub fn intersects(&self, other: &Self) -> bool {
-        self.x0 < other.x1
-            && other.x0 < self.x1
-            && self.y0 < other.y1
-            && other.y0 < self.y1
-    }
-}
-
-impl Eq for RectKey {}
-
-impl hash::Hash for RectKey {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.x0.to_bits().hash(state);
-        self.y0.to_bits().hash(state);
-        self.x1.to_bits().hash(state);
-        self.y1.to_bits().hash(state);
-    }
-}
-
-impl From<RectKey> for LayoutRect {
-    fn from(key: RectKey) -> LayoutRect {
-        LayoutRect {
-            min: LayoutPoint::new(key.x0, key.y0),
-            max: LayoutPoint::new(key.x1, key.y1),
-        }
-    }
-}
-
-impl From<RectKey> for WorldRect {
-    fn from(key: RectKey) -> WorldRect {
-        WorldRect {
-            min: WorldPoint::new(key.x0, key.y0),
-            max: WorldPoint::new(key.x1, key.y1),
-        }
-    }
-}
-
-impl From<LayoutRect> for RectKey {
-    fn from(rect: LayoutRect) -> RectKey {
-        RectKey {
-            x0: rect.min.x,
-            y0: rect.min.y,
-            x1: rect.max.x,
-            y1: rect.max.y,
-        }
-    }
-}
-
-impl From<PictureRect> for RectKey {
-    fn from(rect: PictureRect) -> RectKey {
-        RectKey {
-            x0: rect.min.x,
-            y0: rect.min.y,
-            x1: rect.max.x,
-            y1: rect.max.y,
-        }
-    }
-}
-
-impl From<WorldRect> for RectKey {
-    fn from(rect: WorldRect) -> RectKey {
-        RectKey {
-            x0: rect.min.x,
-            y0: rect.min.y,
-            x1: rect.max.x,
-            y1: rect.max.y,
-        }
-    }
-}
-
 // `PolygonKey` now lives in `webrender_api` so builder-side interning keys can
 // reference it. Re-exported here to keep existing references working.
 pub use api::key_types::PolygonKey;
+
+// `RectKey` now lives in `webrender_api` so builder-side interning keys can
+// reference it. Re-exported here to keep existing references working.
+pub use api::key_types::RectKey;
 
 // `SideOffsetsKey`, `SizeKey`, `PointKey` and `VectorKey` now live in
 // `webrender_api` so builder-side interning keys can reference them. Re-exported
@@ -205,6 +128,7 @@ impl From<&LayoutPrimitiveInfo> for PrimKeyCommonData {
             flags: info.flags,
             aligned_aa_edges: info.aligned_aa_edges,
             transformed_aa_edges: info.transformed_aa_edges,
+            prim_rect: info.rect.into(),
         }
     }
 }
@@ -222,6 +146,9 @@ pub struct PrimTemplateCommonData {
     pub flags: PrimitiveFlags,
     pub aligned_aa_edges: EdgeMask,
     pub transformed_aa_edges: EdgeMask,
+    /// Local-space rect of the primitive, as authored by the display list (not
+    /// snapped to the device pixel grid). See `PrimKeyCommonData::prim_rect`.
+    pub prim_rect: LayoutRect,
 }
 
 impl PrimTemplateCommonData {
@@ -230,6 +157,7 @@ impl PrimTemplateCommonData {
             flags: common.flags,
             aligned_aa_edges: common.aligned_aa_edges,
             transformed_aa_edges: common.transformed_aa_edges,
+            prim_rect: common.prim_rect.into(),
         }
     }
 }
@@ -361,14 +289,6 @@ pub struct PrimitiveInstance {
 
     /// All information and state related to clip(s) for this primitive
     pub clip_leaf_id: ClipLeafId,
-
-    /// Local-space rect of the primitive (origin + size), as authored by the
-    /// display list (not snapped to the device pixel grid). Carries both the
-    /// position and the per-instance size; the latter used to live on
-    /// `PrimTemplateCommonData.prim_size` but is per-instance now so that the
-    /// intern key can deduplicate across differently-sized instances of the
-    /// same prim shape.
-    pub unsnapped_pattern_rect: LayoutRect,
 }
 
 /// How a primitive's clips round to the device pixel grid. Distinct from how
@@ -399,12 +319,10 @@ impl PrimitiveInstance {
     pub fn new(
         kind: PrimitiveKind,
         clip_leaf_id: ClipLeafId,
-        unsnapped_pattern_rect: LayoutRect,
     ) -> Self {
         PrimitiveInstance {
             kind,
             clip_leaf_id,
-            unsnapped_pattern_rect,
         }
     }
 
@@ -936,6 +854,7 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<PrimitiveInstance>(), 48, "PrimitiveInstance size changed");
+    assert_eq!(mem::size_of::<PrimitiveInstance>(), 32, "PrimitiveInstance size changed");
     assert_eq!(mem::size_of::<PrimitiveKind>(), 24, "PrimitiveKind size changed");
 }
+

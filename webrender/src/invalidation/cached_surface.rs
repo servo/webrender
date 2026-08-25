@@ -360,11 +360,14 @@ pub struct PrimitiveDependencyInfo {
     /// Color binding this primitive depends on.
     pub color_binding: Option<ColorBinding>,
     /// Intern uid for this primitive instance. Stable across frames and across
-    /// content-side scroll events: scene building normalises each primitive's
-    /// prim_rect by the accumulated external_scroll_offset before interning,
-    /// so the key (and therefore this uid) does not change when the scroll
-    /// position changes. If external_scroll_offset is ever removed, this
-    /// stability guarantee would need to be preserved by another mechanism.
+    /// content-side scroll events: the primitive's key includes its local
+    /// prim_rect, and the display-list builder subtracts the accumulated
+    /// external scroll offset from every coordinate in whole app units before
+    /// the item is recorded, so the rect - and therefore this uid - does not
+    /// change when the scroll position does. That normalisation must stay exact:
+    /// unlike the raster-space corners below, which are quantized to a quarter
+    /// device pixel, a uid compare is bit-exact, so sub-pixel drift in the
+    /// round-trip would invalidate tiles on every scroll offset.
     pub prim_uid: ItemUid,
     /// Scratch range for the primitive's rect corners in raster space (unquantized).
     /// Quantized into per-tile vert_data inside add_prim_dependency.
