@@ -3989,13 +3989,12 @@ fn filter_datas_for_compositing(
 }
 
 /// Image-specific stretch-size discriminator. Decided per-axis: if the
-/// gecko-specified `repeat_size` matches the unsnapped prim rect on
-/// that axis (within an FP-noise epsilon), the axis is flagged
-/// `fills_*` and the effective extent is resolved against the snapped
-/// prim rect at frame-build. Otherwise the explicit per-axis value is
-/// stored verbatim. Per-axis (rather than all-or-nothing) preserves the
-/// old `process_repeat_size` behaviour where a width-matching tile with
-/// a non-matching height still picks up the snapped prim width.
+/// gecko-specified `repeat_size` matches the prim rect on that axis (within an
+/// FP-noise epsilon), the axis is flagged `fills_*` and the effective extent is
+/// resolved against the snapped prim rect at frame-build. Otherwise the explicit
+/// per-axis value is stored verbatim. Per-axis rather than all-or-nothing, which
+/// matches `resolve_tile_size`: there too a width-matching tile with a
+/// non-matching height picks up the prim width on the axis that matches.
 fn process_image_stretch_size(
     unsnapped_rect: &LayoutRect,
     repeat_size: LayoutSize,

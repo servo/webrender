@@ -40,30 +40,28 @@ pub fn simplify_repeated_primitive(
     }
 }
 
-/// Snap a repeated primitive's tile size to the snapped prim-rect extent when
-/// it (fuzzily) matches the unsnapped extent, so the tile lands on the snapped
-/// pixel grid.
-pub fn process_repeat_size(
-    snapped_rect: &LayoutRect,
-    unsnapped_rect: &LayoutRect,
-    repeat_size: LayoutSize,
-) -> LayoutSize {
-    // FIXME(aosmond): The tile size is calculated based on several parameters
-    // during display list building. It may produce a slightly different result
-    // than the bounds due to floating point error accumulation, even though in
-    // theory they should be the same. We do a fuzzy check here to paper over
-    // that. It may make more sense to push the original parameters into scene
-    // building and let it do a saner calculation with more information (e.g.
-    // the snapped values).
+/// Make a tile that was meant to fill `prim_rect` on an axis fill it exactly.
+///
+/// Per-axis: a `repeat_size` extent within an epsilon of the prim rect's is
+/// replaced by the prim rect's, and anything further away is kept verbatim. A
+/// tile a hair short of the primitive would otherwise repeat, leaving a sliver
+/// of a second tile at the far edge.
+///
+/// FIXME(aosmond): The tile size is calculated from several parameters during
+/// display list building, and can come out slightly different from the bounds
+/// through accumulated floating point error even where the two are the same in
+/// theory. The fuzzy check papers over that; computing it exactly in the first
+/// place would be better than correcting it here.
+pub fn resolve_tile_size(prim_rect: &LayoutRect, repeat_size: LayoutSize) -> LayoutSize {
     const EPSILON: f32 = 0.001;
     LayoutSize::new(
-        if repeat_size.width.approx_eq_eps(&unsnapped_rect.width(), &EPSILON) {
-            snapped_rect.width()
+        if repeat_size.width.approx_eq_eps(&prim_rect.width(), &EPSILON) {
+            prim_rect.width()
         } else {
             repeat_size.width
         },
-        if repeat_size.height.approx_eq_eps(&unsnapped_rect.height(), &EPSILON) {
-            snapped_rect.height()
+        if repeat_size.height.approx_eq_eps(&prim_rect.height(), &EPSILON) {
+            prim_rect.height()
         } else {
             repeat_size.height
         },

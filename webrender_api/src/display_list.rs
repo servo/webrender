@@ -27,7 +27,7 @@ use crate::key_types::EdgeMask;
 use crate::key_types::GradientStopKey;
 use crate::prim_geometry::{
     apply_gradient_local_clip, optimize_linear_gradient, optimize_radial_gradient,
-    process_repeat_size, simplify_repeated_primitive,
+    resolve_tile_size, simplify_repeated_primitive,
 };
 use crate::units::*;
 
@@ -1869,7 +1869,7 @@ impl DisplayListBuilder {
         let (common, offset) = self.normalize_common(common);
         let mut bounds = self.shift_rect(bounds, offset);
 
-        let mut tile_size = process_repeat_size(&bounds, &bounds, tile_size);
+        let mut tile_size = resolve_tile_size(&bounds, tile_size);
 
         let mut start = gradient.start_point;
         let mut end = gradient.end_point;
@@ -1926,7 +1926,7 @@ impl DisplayListBuilder {
         let (common, offset) = self.normalize_common(common);
         let mut prim_rect = self.shift_rect(bounds, offset);
 
-        let mut tile_size = process_repeat_size(&prim_rect, &prim_rect, tile_size);
+        let mut tile_size = resolve_tile_size(&prim_rect, tile_size);
 
         let stop_keys: Vec<GradientStopKey> = stops
             .iter()
@@ -2007,7 +2007,7 @@ impl DisplayListBuilder {
         let (common, offset) = self.normalize_common(common);
         let mut bounds = self.shift_rect(bounds, offset);
 
-        let tile_size = process_repeat_size(&bounds, &bounds, tile_size);
+        let tile_size = resolve_tile_size(&bounds, tile_size);
 
         let clip_offset =
             apply_gradient_local_clip(&mut bounds, &tile_size, &tile_spacing, &common.clip_rect);
