@@ -988,7 +988,20 @@ impl AuGrid {
         }
     }
 
+    /// Shift one coordinate by a whole number of app units. An axis with no
+    /// offset is returned untouched: the round trip rounds a coordinate that is
+    /// not a whole app unit onto the grid, so running an unshifted axis through
+    /// it would make the stored value depend on whether the *other* axis was
+    /// scrolled. That difference is far below the quantized raster corners the
+    /// tile cache compares, but interning keys compare bit-exactly, so it would
+    /// invalidate every tile on every scroll offset (bug 2059620). A coordinate
+    /// that is off-grid on an axis that *is* shifted is still rounded, and
+    /// `off_grid_coords` counts it; embedders that intern the rect must keep
+    /// that counter at zero.
     fn add(&self, v: f32, off_au: i32, off_grid: &mut u32) -> f32 {
+        if off_au == 0 {
+            return v;
+        }
         self.from_au(self.to_au(v, off_grid) + off_au as f64)
     }
 

@@ -40,3 +40,8 @@
 # tile must still invalidate so the text returns to the device path (bug
 # 2056306).
 != anim_text_b.yaml anim_text_c.yaml
+
+# Same, but with a coordinate off the app-unit grid the display list declares, on
+# the axis the scroll offset does *not* move. Normalization must leave that axis
+# alone rather than rounding it onto the grid (bug 2059620).
+== offgrid_repaint_1.yaml offgrid_repaint_2.yaml

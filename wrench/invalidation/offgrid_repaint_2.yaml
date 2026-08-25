@@ -1,0 +1,30 @@
+# Frame 2 of the off-grid repaint pair; see offgrid_repaint_1.yaml.
+
+root:
+  items:
+    - type: scroll-frame
+      id: 2
+      bounds: [0, 0, 200, 200]
+      content-size: [200, 400]
+      external-scroll-offset: [0, 60]
+      scroll-offset: [0, 0]
+      clip-to-frame: true
+      items:
+        - type: clip
+          id: 3
+          bounds: [0, -60, 200, 400]
+        - type: rect
+          bounds: [0, -60, 200, 400]
+          color: white
+          clip-chain: [2, 3]
+        - type: rect
+          bounds: [10.3456789, 40, 50, 40]
+          color: green
+          clip-chain: [2, 3]
+        - type: text
+          origin: [10, 120]
+          text: "Scrolled text"
+          font: "../reftests/text/FreeSans.ttf"
+          size: 20
+          color: [0, 0, 0, 1]
+          clip-chain: [2, 3]
