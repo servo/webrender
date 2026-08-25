@@ -1288,7 +1288,7 @@ impl<'a> SceneBuilder<'a> {
         &mut self,
         common: &CommonItemProperties,
         bounds: Option<LayoutRect>,
-    ) -> (LayoutPrimitiveInfo, LayoutRect, SpatialNodeIndex, ClipNodeId) {
+    ) -> (LayoutPrimitiveInfo, SpatialNodeIndex, ClipNodeId) {
         let spatial_node_index = self.get_space(common.spatial_id);
 
         // If no bounds rect is given, default to clip rect. The external
@@ -1298,8 +1298,6 @@ impl<'a> SceneBuilder<'a> {
         // `SpaceSnapper`).
         let clip_rect = common.clip_rect;
         let prim_rect = bounds.unwrap_or(clip_rect);
-        let unsnapped_rect = prim_rect;
-
 
         let clip_node_id = self.get_clip_node(
             common.clip_chain_id,
@@ -1317,14 +1315,14 @@ impl<'a> SceneBuilder<'a> {
             transformed_aa_edges: EdgeMask::all(),
         };
 
-        (layout, unsnapped_rect, spatial_node_index, clip_node_id)
+        (layout, spatial_node_index, clip_node_id)
     }
 
     fn process_common_properties_with_bounds(
         &mut self,
         common: &CommonItemProperties,
         bounds: LayoutRect,
-    ) -> (LayoutPrimitiveInfo, LayoutRect, SpatialNodeIndex, ClipNodeId) {
+    ) -> (LayoutPrimitiveInfo, SpatialNodeIndex, ClipNodeId) {
         self.process_common_properties(
             common,
             Some(bounds),
@@ -1347,7 +1345,7 @@ impl<'a> SceneBuilder<'a> {
                     return;
                 }
 
-                let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
@@ -1371,13 +1369,13 @@ impl<'a> SceneBuilder<'a> {
                     return;
                 }
 
-                let (layout, unsnapped_rect, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
 
                 let stretch_size = process_image_stretch_size(
-                    &unsnapped_rect,
+                    &layout.rect,
                     info.stretch_size,
                 );
 
@@ -1400,7 +1398,7 @@ impl<'a> SceneBuilder<'a> {
                     return;
                 }
 
-                let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
@@ -1429,7 +1427,7 @@ impl<'a> SceneBuilder<'a> {
                 // are subtle interactions between the primitive origin and the glyph offset
                 // which appear to be significant (presumably due to some sort of accumulated
                 // error throughout the layers). We should fix this at some point.
-                let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
@@ -1448,7 +1446,7 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::Rectangle(ref info) => {
                 tracy_rs::profile_scope!("rect");
 
-                let (mut layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (mut layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
@@ -1509,7 +1507,7 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::Line(ref info) => {
                 tracy_rs::profile_scope!("line");
 
-                let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.area,
                 );
@@ -1527,7 +1525,7 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::Gradient(ref info) => {
                 tracy_rs::profile_scope!("gradient");
 
-                let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
@@ -1553,7 +1551,7 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::RadialGradient(ref info) => {
                 tracy_rs::profile_scope!("radial");
 
-                let (mut layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (mut layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
@@ -1583,7 +1581,7 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::ConicGradient(ref info) => {
                 tracy_rs::profile_scope!("conic");
 
-                let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
@@ -1611,7 +1609,7 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::BoxShadow(ref info) => {
                 tracy_rs::profile_scope!("box_shadow");
 
-                let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
@@ -1640,7 +1638,7 @@ impl<'a> SceneBuilder<'a> {
                     }
                 }
 
-                let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
@@ -1708,7 +1706,7 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::BackdropFilter(ref info) => {
                 tracy_rs::profile_scope!("backdrop");
 
-                let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties(
+                let (layout, spatial_node_index, clip_node_id) = self.process_common_properties(
                     &info.common,
                     None,
                 );
