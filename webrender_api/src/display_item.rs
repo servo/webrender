@@ -778,6 +778,10 @@ pub struct RadialGradientDisplayItem {
     pub gradient: RadialGradient,
     pub tile_size: LayoutSize,
     pub tile_spacing: LayoutSize,
+    /// Which edges get anti-aliased under a transform. Narrowed by
+    /// `optimize_radial_gradient` where the gradient abuts a solid margin it
+    /// split off; see `RectangleDisplayItem::transformed_aa_edges`.
+    pub transformed_aa_edges: EdgeMask,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]

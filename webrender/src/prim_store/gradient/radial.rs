@@ -155,8 +155,3 @@ impl IsVisible for RadialGradient {
     }
 }
 
-
-// `optimize_radial_gradient` now lives in `webrender_api::prim_geometry` so
-// content-process interning can share it. Re-exported here to keep existing
-// references working.
-pub use api::prim_geometry::optimize_radial_gradient;

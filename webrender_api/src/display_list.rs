@@ -24,8 +24,10 @@ use crate::color::ColorF;
 use crate::font::{FontInstanceKey, GlyphInstance, GlyphOptions};
 use crate::image::{ColorDepth, ImageKey};
 use crate::key_types::EdgeMask;
+use crate::key_types::GradientStopKey;
 use crate::prim_geometry::{
-    apply_gradient_local_clip, optimize_linear_gradient, process_repeat_size,
+    apply_gradient_local_clip, optimize_linear_gradient, optimize_radial_gradient,
+    process_repeat_size, simplify_repeated_primitive,
 };
 use crate::units::*;
 
@@ -1917,14 +1919,70 @@ impl DisplayListBuilder {
         tile_spacing: LayoutSize,
         stops: &[di::GradientStop],
     ) {
+        if !gradient.is_valid() {
+            return;
+        }
+
         let (common, offset) = self.normalize_common(common);
+        let mut prim_rect = self.shift_rect(bounds, offset);
+
+        let mut tile_size = process_repeat_size(&prim_rect, &prim_rect, tile_size);
+
+        let stop_keys: Vec<GradientStopKey> = stops
+            .iter()
+            .map(|stop| GradientStopKey {
+                offset: stop.offset,
+                color: stop.color.into(),
+            })
+            .collect();
+
+        let mut center = gradient.center;
+        let mut tile_spacing = tile_spacing;
+        let mut aa_mask = EdgeMask::all();
+
+        // Shrinks the gradient to the part that is not a constant colour and
+        // emits the margins around it as solid rects.
+        optimize_radial_gradient(
+            &mut prim_rect,
+            &mut tile_size,
+            &mut center,
+            &mut tile_spacing,
+            &mut aa_mask,
+            &common.clip_rect,
+            gradient.radius,
+            gradient.end_offset,
+            gradient.extend_mode,
+            &stop_keys,
+            &mut |solid_rect, color, aa_mask| {
+                // Pushed before the gradient, and unconditionally: a gradient
+                // that optimizes away entirely is all margin.
+                self.push_item(&di::DisplayItem::Rectangle(di::RectangleDisplayItem {
+                    common,
+                    bounds: *solid_rect,
+                    color: PropertyBinding::Value(color.into()),
+                    transformed_aa_edges: aa_mask,
+                }));
+            },
+        );
+
+        // `radial_gradient_prim` runs this too but discards the rect it
+        // produces, so the mutation has to happen out here.
+        simplify_repeated_primitive(&tile_size, &mut tile_spacing, &mut prim_rect);
+
+        // A tile that rounds up to nothing covers no pixel. The margins above
+        // are already out.
+        if tile_size.ceil().is_empty() {
+            return;
+        }
+
         self.push_stops(stops);
         let item = di::DisplayItem::RadialGradient(di::RadialGradientDisplayItem {
             common,
-            bounds: self.shift_rect(bounds, offset),
-            gradient,
+            bounds: prim_rect,
+            gradient: di::RadialGradient { center, ..gradient },
             tile_size,
             tile_spacing,
+            transformed_aa_edges: aa_mask,
         });
 
         self.push_item(&item);

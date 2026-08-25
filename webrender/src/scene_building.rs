@@ -50,8 +50,7 @@ use api::channel::{unbounded_channel, Receiver, Sender};
 use api::units::*;
 use crate::image_tiling::simplify_repeated_primitive;
 use api::prim_geometry::{
-    conic_gradient_prim, linear_gradient_prim, process_repeat_size,
-    radial_gradient_prim,
+    conic_gradient_prim, linear_gradient_prim, radial_gradient_prim,
 };
 use crate::box_shadow::BLUR_SAMPLE_SCALE;
 use crate::clip::{ClipIntern, ClipItemKey, ClipItemKeyKind, ClipStore};
@@ -78,7 +77,7 @@ use crate::prim_store::rectangle::RectanglePrim;
 use crate::prim_store::backdrop::{BackdropCapture, BackdropRender};
 use crate::prim_store::borders::ImageBorder;
 use crate::prim_store::gradient::{
-    GradientStopKey, optimize_radial_gradient,
+    GradientStopKey,
 };
 use crate::prim_store::image::{Image, StretchSizeKey, YuvImage};
 use crate::prim_store::line_dec::LineDecoration;
@@ -1554,85 +1553,32 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::RadialGradient(ref info) => {
                 tracy_rs::profile_scope!("radial");
 
-                if !info.gradient.is_valid() {
-                    return;
-                }
-
-                let (mut layout, unsnapped_rect, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                let (mut layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
                 );
 
-                let mut center = info.gradient.center;
+                layout.transformed_aa_edges &= info.transformed_aa_edges;
 
-                let stops = read_gradient_stops(item.gradient_stops());
-
-                let mut tile_size = process_repeat_size(
-                    &layout.rect,
-                    &unsnapped_rect,
-                    info.tile_size,
-                );
-
-                let mut prim_rect = layout.rect;
-                let mut tile_spacing = info.tile_spacing;
-                let mut aa_mask = EdgeMask::all();
-                optimize_radial_gradient(
-                    &mut prim_rect,
-                    &mut tile_size,
-                    &mut center,
-                    &mut tile_spacing,
-                    &mut aa_mask,
-                    &layout.clip_rect,
-                    info.gradient.radius,
-                    info.gradient.end_offset,
+                let prim_key_kind = radial_gradient_prim(
+                    layout.rect,
+                    info.gradient.center,
+                    info.gradient.start_offset * info.gradient.radius.width,
+                    info.gradient.end_offset * info.gradient.radius.width,
+                    info.gradient.radius.width / info.gradient.radius.height,
+                    read_gradient_stops(item.gradient_stops()),
                     info.gradient.extend_mode,
-                    &stops,
-                    &mut |solid_rect, color, aa_mask| {
-                        self.add_primitive(
-                            spatial_node_index,
-                            clip_node_id,
-                            &LayoutPrimitiveInfo {
-                                rect: *solid_rect,
-                                aligned_aa_edges: layout.aligned_aa_edges & aa_mask,
-                                transformed_aa_edges: layout.transformed_aa_edges & aa_mask,
-                                .. layout
-                            },
-                            RectanglePrim { color: PropertyBinding::Value(color) },
-                        );
-                    }
+                    info.tile_size,
+                    info.tile_spacing,
+                    None,
                 );
 
-                layout.aligned_aa_edges &= aa_mask;
-                layout.transformed_aa_edges &= aa_mask;
-
-                // TODO: radial_gradient_prim already calls
-                // this, but it leaves the info variable that is
-                // passed to add_primitive unmodified
-                // which can cause issues.
-                simplify_repeated_primitive(&tile_size, &mut tile_spacing, &mut prim_rect);
-
-                if !tile_size.ceil().is_empty() {
-                    layout.rect = prim_rect;
-                    let prim_key_kind = radial_gradient_prim(
-                        layout.rect,
-                        center,
-                        info.gradient.start_offset * info.gradient.radius.width,
-                        info.gradient.end_offset * info.gradient.radius.width,
-                        info.gradient.radius.width / info.gradient.radius.height,
-                        stops,
-                        info.gradient.extend_mode,
-                        tile_size,
-                        tile_spacing,
-                        None,
-                    );
-
-                    self.add_primitive(
-                        spatial_node_index,
-                        clip_node_id,
-                        &layout,
-                        prim_key_kind,
-                    );
-                }
+                self.add_primitive(
+                    spatial_node_index,
+                    clip_node_id,
+                    &layout,
+                    prim_key_kind,
+                );
             }
             DisplayItem::ConicGradient(ref info) => {
                 tracy_rs::profile_scope!("conic");
