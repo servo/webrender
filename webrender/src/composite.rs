@@ -22,7 +22,7 @@ use crate::util::{extract_inner_rect_safe, Preallocator, ScaleOffset};
 use crate::tile_cache::PictureCacheDebugInfo;
 use crate::device::Device;
 use crate::space::SpaceMapper;
-use std::{ops, u64, os::raw::c_void, hash};
+use std::{ops, os::raw::c_void, hash};
 use std::num::NonZeroUsize;
 
 /*

@@ -111,7 +111,7 @@ use crate::scene_builder_thread::Interners;
 use crate::space::{SpaceMapper, SpaceSnapper};
 use crate::util::{extract_inner_rect_safe, project_rect, MatrixHelpers, MaxRect, ScaleOffset};
 use euclid::approxeq::ApproxEq;
-use std::{iter, ops, u32, mem};
+use std::{iter, ops, mem};
 use std::hash::{Hash, Hasher};
 
 /// A (non-leaf) node inside a clip-tree

@@ -26,7 +26,6 @@ use topological_sort::TopologicalSort;
 
 use crate::render_target::{RenderTargetList, PictureCacheTarget, RenderTarget};
 use crate::util::{Allocation, VecHelper};
-use std::{usize, f32};
 
 use crate::internal_types::{FrameVec, FrameMemory};
 

@@ -14,7 +14,7 @@ use crate::prim_store::image::ImageCacheKey;
 use crate::prim_store::line_dec::LineDecorationCacheKey;
 use crate::quad::QuadCacheKey;
 use crate::resource_cache::CacheItem;
-use std::{mem, usize, f32, i32};
+use std::mem;
 use crate::surface::SurfaceBuilder;
 use crate::texture_cache::{TextureCache, TextureCacheHandle, Eviction, TargetShader};
 use crate::renderer::GpuBufferBuilderF;

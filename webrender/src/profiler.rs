@@ -31,7 +31,6 @@ use crate::renderer::{FullFrameStats, init::wr_has_been_initialized};
 use api::units::DeviceIntSize;
 use std::collections::vec_deque::VecDeque;
 use std::fmt::{Write, Debug};
-use std::f32;
 use std::ops::Range;
 use std::time::Duration;
 
@@ -1633,7 +1632,7 @@ impl Counter {
             unit: descriptor.unit,
             show_as: descriptor.show_as,
             expected: descriptor.expected.clone(),
-            value: std::f64::NAN,
+            value: f64::NAN,
             num_samples: 0,
             sum: 0.0,
             next_max: 0.0,
@@ -1723,7 +1722,7 @@ impl Counter {
             graph.set(self.value);
         }
 
-        self.value = std::f64::NAN;
+        self.value = f64::NAN;
 
         if update_avg {
             if self.num_samples > 0 {
@@ -1736,7 +1735,7 @@ impl Counter {
             }
             self.sum = 0.0;
             self.num_samples = 0;
-            self.next_max = std::f64::MIN;
+            self.next_max = f64::MIN;
         }
     }
 }

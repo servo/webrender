@@ -4,7 +4,7 @@
 
 use api::{BorderRadius, ClipMode};
 use api::units::*;
-use std::{cmp, usize};
+use std::cmp;
 use crate::util::extract_inner_rect_safe;
 use smallvec::SmallVec;
 

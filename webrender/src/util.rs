@@ -7,7 +7,7 @@ use api::units::*;
 use euclid::{Point2D, Rect, Box2D, Size2D, SideOffsets2D};
 use euclid::{Transform2D, Transform3D, Vector2D};
 use plane_split::{Clipper, Polygon};
-use std::{i32, f32, fmt, ptr};
+use std::{fmt, ptr};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::mem::replace;

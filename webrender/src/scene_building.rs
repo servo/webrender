@@ -92,7 +92,7 @@ use crate::spatial_node::{
 };
 use crate::tile_cache::TileCacheBuilder;
 use euclid::approxeq::ApproxEq;
-use std::{f32, mem, usize};
+use std::mem;
 use std::sync::Arc;
 use crate::util::{VecHelper, MaxRect};
 use crate::filterdata::{SFilterDataComponent, SFilterData, SFilterDataKey};

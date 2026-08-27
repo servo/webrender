@@ -7,8 +7,6 @@
         Efficiently allow writing to buffer (better push interface)
  */
 
-use std::i32;
-
 use crate::gpu_types::UvRectKind;
 use crate::internal_types::{FrameId, FrameMemory, FrameVec, TextureSource, TextureSourceExternal};
 use crate::renderer::MAX_VERTEX_TEXTURE_WIDTH;

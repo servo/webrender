@@ -38,7 +38,7 @@ use malloc_size_of::MallocSizeOf;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::{ops, u64};
+use std::ops;
 use crate::util::VecHelper;
 use crate::profiler::TransactionProfile;
 use peek_poke::PeekPoke;

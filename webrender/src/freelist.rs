@@ -20,7 +20,7 @@
 //! TODO(gw): Add an occupied list head, for fast iteration of the occupied list
 //! to implement retain() style functionality.
 
-use std::{fmt, u32};
+use std::fmt;
 use std::marker::PhantomData;
 
 #[derive(Debug, Copy, Clone, MallocSizeOf, PartialEq)]

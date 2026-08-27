@@ -19,7 +19,7 @@ use crate::intern;
 use crate::picture::{PictureInstance, PictureScratch};
 use crate::render_task_graph::RenderTaskId;
 use crate::resource_cache::ImageProperties;
-use std::{hash, u32, usize};
+use std::hash;
 use crate::util::Recycler;
 use crate::internal_types::{FastHashSet, LayoutPrimitiveInfo};
 use crate::visibility::{PrimitiveDrawHeader, PrimitiveDrawIndex};

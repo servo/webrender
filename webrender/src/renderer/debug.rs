@@ -16,7 +16,6 @@ use crate::device::{DrawTarget, ReadTarget, TextureFlags};
 use crate::device::{TextureFilter, VertexAttribute, VertexAttributeKind, VertexUsageHint};
 use euclid::{rect, Point2D, Rect, Size2D, Transform3D, default};
 use crate::internal_types::{RenderTargetInfo, Swizzle};
-use std::f32;
 
 use super::{PipelineInfo, TextureResolver};
 

@@ -20,7 +20,6 @@ use crate::svg_filter::{FilterGraphNode, FilterGraphOp, FilterGraphPictureRefere
 use rustc_hash::FxHasher;
 use plane_split::BspSplitter;
 use smallvec::SmallVec;
-use std::{usize, i32};
 use std::collections::{HashMap, HashSet};
 use std::f32;
 use std::hash::BuildHasherDefault;

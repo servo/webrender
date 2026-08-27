@@ -72,7 +72,7 @@ use serde::Deserialize;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::{mem, u32};
+use std::mem;
 #[cfg(feature = "capture")]
 use std::path::PathBuf;
 #[cfg(feature = "replay")]

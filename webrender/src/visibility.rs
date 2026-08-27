@@ -31,7 +31,6 @@
 
 use api::DebugFlags;
 use api::units::*;
-use std::usize;
 use crate::clip::ClipStore;
 use crate::composite::CompositeState;
 use crate::profiler::{self, TransactionProfile};

@@ -6,7 +6,6 @@ use crate::api::TileSize;
 use crate::api::units::*;
 use crate::segment::EdgeMask;
 use euclid::{point2, size2};
-use std::i32;
 use std::ops::Range;
 
 /// If repetitions are far enough apart that only one is within

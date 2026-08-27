@@ -51,7 +51,6 @@ use std::os::raw::c_void;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::u32;
 use crate::texture_cache::{TextureCache, TextureCacheHandle, Eviction, TargetShader};
 use crate::picture_textures::PictureTextures;
 use peek_poke::PeekPoke;

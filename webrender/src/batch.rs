@@ -27,7 +27,6 @@ use crate::resource_cache::GlyphFetchResult;
 use crate::space::SpaceMapper;
 use crate::transform::TransformPalette;
 use crate::visibility::{PrimitiveVisibilityFlags, DrawState};
-use std::{f32, i32, usize};
 
 
 // Special sentinel value recognized by the shader. It is considered to be
