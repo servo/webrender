@@ -1,0 +1,13 @@
+# An animated opacity is interpolated unclamped, so the amount can exceed 1.
+# Compositing must clamp it rather than scale the source past the range of the
+# target. The second argument to opacity() is a property binding id, which is
+# what makes the filter animated.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 200, 200]
+      filters: opacity(20.0, 1)
+      items:
+        - type: rect
+          bounds: [10, 10, 100, 100]
+          color: [128, 64, 32, 1.0]

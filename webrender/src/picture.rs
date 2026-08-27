@@ -2742,7 +2742,10 @@ pub fn prepare_picture_primitive(
             }
         }
         PictureCompositeMode::Filter(Filter::Opacity(_, amount)) => {
-            opacity = amount;
+            // Animated opacity is interpolated unclamped, so the resolved
+            // amount can be outside [0, 1]. The composite quad multiplies the
+            // source by it, which would overflow the 8 bit target.
+            opacity = amount.clamp(0.0, 1.0);
         }
         PictureCompositeMode::Filter(ref f) => {
             let extra_gpu_data = pic_scratch

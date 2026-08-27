@@ -18,6 +18,7 @@ scale(*) == invisible.yaml invisible-ref.yaml
 scale(*) fuzzy-if(platform(swgl),1,10000) == opacity.yaml opacity-ref.yaml
 scale(*) fuzzy-range(<=1,*10000) == opacity-combined.yaml opacity-combined-ref.yaml
 scale(*) fuzzy-if(platform(swgl),1,10000) == opacity-overlap.yaml opacity-overlap-ref.yaml
+scale(*) == opacity-out-of-range.yaml opacity-out-of-range-ref.yaml
 scale(*) == filter-brightness.yaml filter-brightness-ref.yaml
 scale(*) == filter-brightness-2.yaml filter-brightness-2-ref.yaml
 scale(*) == filter-brightness-3.yaml filter-brightness-3-ref.yaml

@@ -939,6 +939,18 @@ impl YamlHelper for Yaml {
                     let amount: f32 = args[0].parse().unwrap();
                     Some(FilterOp::Opacity(amount.into(), amount))
                 }
+                // A second argument is a property binding id, which makes the
+                // filter animated rather than static. The bound value is the
+                // amount above; nothing needs to update it for the binding to
+                // count as animating.
+                ("opacity", ref args, _) if args.len() == 2 => {
+                    let amount: f32 = args[0].parse().unwrap();
+                    let id: u64 = args[1].parse().unwrap();
+                    Some(FilterOp::Opacity(
+                        PropertyBinding::Binding(PropertyBindingKey::new(id), amount),
+                        amount,
+                    ))
+                }
                 ("saturate", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Saturate(args[0].parse().unwrap()))
                 }
