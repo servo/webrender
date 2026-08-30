@@ -315,6 +315,7 @@ impl FrameBuilder {
             euclid::Scale::new(1.0),
             (1.0, 1.0),
             (1.0, 1.0),
+            (1.0, 1.0),
             false,
             false,
         ));

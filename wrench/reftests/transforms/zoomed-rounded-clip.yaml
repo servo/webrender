@@ -1,0 +1,31 @@
+# A surface that is scaled relative to the root -- which is what APZ produces when it
+# writes a pinch-zoom scale into a bound spatial node transform -- must propagate that
+# scale to its child surfaces. The child here establishes its own raster root via a 3d
+# transform, which puts it in a new coordinate system, so it takes its rasterization
+# scale from the parent surface's world scale factors. If the parent reports a scale of
+# one the child rasterizes at an eighth of the size it is drawn at, and its rounded-clip
+# corners are stretched and lose their curve (bug 1899692).
+---
+root:
+  items:
+    - type: "stacking-context"
+      transform-origin: 0 0
+      transform: scale(8)
+      items:
+        - type: "stacking-context"
+          filters: [identity]
+          items:
+            - type: "stacking-context"
+              transform-origin: 0 0
+              transform: translate(0, 0, 1)
+              filters: [identity]
+              items:
+                - type: clip
+                  id: 2
+                  complex:
+                    - rect: [0, 0, 40, 30]
+                      radius: 6
+                - type: rect
+                  bounds: [0, 0, 40, 30]
+                  color: [20, 20, 20, 1]
+                  clip-chain: [2]

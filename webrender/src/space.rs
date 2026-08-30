@@ -539,6 +539,7 @@ mod tests {
             DevicePixelScale::new(1.0),
             (1.0, 1.0),
             (1.0, 1.0),
+            (1.0, 1.0),
             true,
             false,
         );
@@ -685,6 +686,7 @@ mod tests {
             DeviceRect::from_origin_and_size(DevicePoint::zero(), DeviceSize::new(1000.0, 1000.0)),
             &st,
             DevicePixelScale::new(1.0),
+            (1.0, 1.0),
             (1.0, 1.0),
             (1.0, 1.0),
             true,

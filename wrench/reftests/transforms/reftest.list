@@ -61,6 +61,7 @@ platform(linux,mac) fuzzy(1,25) == perspective-surface-scale.yaml perspective-su
 # directly-drawn reference land on different sub-pixel phases, so the nearest
 # neighbour sample boundaries differ by a pixel along each swatch edge.
 scale(1.0, 2.0) == perspective-pixelated.yaml perspective-pixelated-ref.yaml
+== zoomed-rounded-clip.yaml zoomed-rounded-clip-ref.yaml
 fuzzy(1,8762) == computed-rotation-yflip.yaml computed-rotation-yflip.png
 fuzzy(5,100) fuzzy-if(platform(win),1,201) == corner-scale.yaml corner-scale-2.yaml
 # Run the scaled version only on linux to avoid complicated fuzzy annotations.

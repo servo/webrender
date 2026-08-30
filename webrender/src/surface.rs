@@ -187,8 +187,18 @@ pub struct SurfaceInfo {
     pub visibility_spatial_node_index: SpatialNodeIndex,
     /// The device pixel ratio specific to this surface.
     pub device_pixel_scale: DevicePixelScale,
-    /// The scale factors of the surface to world transform.
+    /// The scale factors of the surface to world transform. Child surfaces
+    /// multiply their own child-to-parent scale by this to obtain
+    /// child-to-device, so it must describe this surface's space all the way to
+    /// device space.
     pub world_scale_factors: (f32, f32),
+    /// The remaining per-axis scale from the space this surface rasterizes in to
+    /// device space, i.e. `local_scale * blur_scale_factors` is the surface's
+    /// full local-to-device scale. Only blur radius clamping uses it, and it is
+    /// kept separate from `world_scale_factors` because a root-snapping surface
+    /// rasterizes in root space (so this is one) while still needing to report a
+    /// real scale to its children.
+    pub blur_scale_factors: (f32, f32),
     /// Local scale factors surface to raster transform
     pub local_scale: (f32, f32),
     /// If true, we know this surface is completely opaque.
@@ -221,6 +231,7 @@ impl SurfaceInfo {
         spatial_tree: &SpatialTree,
         device_pixel_scale: DevicePixelScale,
         world_scale_factors: (f32, f32),
+        blur_scale_factors: (f32, f32),
         local_scale: (f32, f32),
         allow_snapping: bool,
         force_scissor_rect: bool,
@@ -255,6 +266,7 @@ impl SurfaceInfo {
             visibility_spatial_node_index,
             device_pixel_scale,
             world_scale_factors,
+            blur_scale_factors,
             local_scale,
             allow_snapping,
             force_scissor_rect,
@@ -279,8 +291,8 @@ impl SurfaceInfo {
         let sy_blur_radius = y_blur_radius * self.local_scale.1;
 
         let largest_scaled_blur_radius = f32::max(
-            sx_blur_radius * self.world_scale_factors.0,
-            sy_blur_radius * self.world_scale_factors.1,
+            sx_blur_radius * self.blur_scale_factors.0,
+            sy_blur_radius * self.blur_scale_factors.1,
         );
 
         if largest_scaled_blur_radius > MAX_BLUR_RADIUS {

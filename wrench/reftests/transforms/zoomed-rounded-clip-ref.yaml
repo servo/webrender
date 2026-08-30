@@ -1,0 +1,13 @@
+# The same rounded rect drawn directly at its final size, so it rasterizes at scale.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [0, 0, 320, 240]
+          radius: 48
+    - type: rect
+      bounds: [0, 0, 320, 240]
+      color: [20, 20, 20, 1]
+      clip-chain: [2]
