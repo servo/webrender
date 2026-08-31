@@ -865,7 +865,7 @@ impl BatchBuilder {
             PrimitiveCommand::Instance { draw_index, device_rect, .. } => {
                 (draw_index, device_rect)
             }
-            PrimitiveCommand::Quad { pattern, pattern_input, draw_index: _, device_rect, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_ids, blend_mode } => {
+            PrimitiveCommand::Quad { pattern, pattern_input, device_rect, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_ids, blend_mode } => {
                 let bounding_rect = device_rect;
                 let render_task_address = self.batcher.render_task_address;
 

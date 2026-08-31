@@ -118,7 +118,7 @@ use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureStat
 use plane_split::{Clipper, Polygon};
 use crate::prim_store::{PictureIndex, PrimitiveInstance, PrimitiveKind};
 use crate::prim_store::storage::Index as StorageIndex;
-use crate::visibility::{PrimitiveDrawHeader, PrimitiveDrawIndex};
+use crate::visibility::PrimitiveDrawHeader;
 use crate::prim_store::{PrimitiveScratchBuffer, ClipTaskIndex, ClipMaskKind};
 use crate::prim_store::storage;
 use crate::print_tree::PrintTreePrinter;
@@ -2569,7 +2569,6 @@ pub fn prepare_picture_clips(
 pub fn prepare_picture_primitive(
     pic: &PictureInstance,
     raster_config: &RasterConfig,
-    draw_index: PrimitiveDrawIndex,
     prim_spatial_node_index: SpatialNodeIndex,
     _clip_chain: &ClipChainInstance,
     frame_context: &FrameBuildingContext,
@@ -2814,7 +2813,6 @@ pub fn prepare_picture_primitive(
                     aligned_aa_edges: EdgeMask::empty(),
                     transformed_aa_edges: EdgeMask::all(),
                 },
-                draw_index,
                 &None,
                 &composite_clip_chain,
                 transform,
@@ -2885,7 +2883,6 @@ pub fn prepare_picture_primitive(
             aligned_aa_edges: EdgeMask::empty(),
             transformed_aa_edges: EdgeMask::all(),
         },
-        draw_index,
         &None,
         &composite_clip_chain,
         transform,

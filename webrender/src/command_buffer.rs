@@ -67,8 +67,8 @@ impl Command {
         Command(data)
     }
 
-    fn draw_quad(draw_index: storage::Index<PrimitiveDrawHeader>) -> Self {
-        Command(Command::CMD_DRAW_QUAD | draw_index.0)
+    fn draw_quad() -> Self {
+        Command(Command::CMD_DRAW_QUAD)
     }
 }
 
@@ -139,8 +139,6 @@ pub enum PrimitiveCommand {
         // Source textures sampled by the pattern. Most patterns only use slot 0;
         // multi-plane patterns such as YUV use the additional slots.
         src_color_task_ids: [RenderTaskId; 3],
-        // TODO(gw): Used for bounding rect only, could possibly remove
-        draw_index: storage::Index<PrimitiveDrawHeader>,
         device_rect: DeviceRect,
         gpu_buffer_address: GpuBufferAddress,
         transform_id: GpuTransformId,
@@ -183,7 +181,6 @@ impl PrimitiveCommand {
         pattern: PatternKind,
         pattern_input: PatternShaderInput,
         src_color_task_ids: [RenderTaskId; 3],
-        draw_index: storage::Index<PrimitiveDrawHeader>,
         device_rect: DeviceRect,
         gpu_buffer_address: GpuBufferAddress,
         transform_id: GpuTransformId,
@@ -195,7 +192,6 @@ impl PrimitiveCommand {
             pattern,
             pattern_input,
             src_color_task_ids,
-            draw_index,
             device_rect,
             gpu_buffer_address,
             transform_id,
@@ -342,8 +338,8 @@ impl CommandBuffer {
                 push_rect(&mut self.commands, &device_rect);
                 self.commands.push(Command::data(gpu_buffer_address.as_u32()));
             }
-            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, device_rect, gpu_buffer_address, transform_id, quad_flags, edge_flags, src_color_task_ids, blend_mode } => {
-                self.commands.push(Command::draw_quad(draw_index));
+            PrimitiveCommand::Quad { pattern, pattern_input, device_rect, gpu_buffer_address, transform_id, quad_flags, edge_flags, src_color_task_ids, blend_mode } => {
+                self.commands.push(Command::draw_quad());
                 push_rect(&mut self.commands, &device_rect);
                 self.commands.push(Command::data(pattern as u32));
                 self.commands.push(Command::data(pattern_input.0 as u32));
@@ -405,7 +401,6 @@ impl CommandBuffer {
                     f(&cmd, current_spatial_node_index, &[]);
                 }
                 Command::CMD_DRAW_QUAD => {
-                    let draw_index = storage::Index::from_u32(param);
                     let device_rect = read_rect(&mut cmd_iter);
                     let pattern = PatternKind::from_u32(cmd_iter.next().unwrap().0);
                     let pattern_input = PatternShaderInput(
@@ -432,7 +427,6 @@ impl CommandBuffer {
                         pattern,
                         pattern_input,
                         src_color_task_ids,
-                        draw_index,
                         device_rect,
                         gpu_buffer_address,
                         transform_id,
