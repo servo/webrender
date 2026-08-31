@@ -1,0 +1,27 @@
+# A masked YUV image under a scale and translation is promoted to an underlay.
+# The compositor surface and the cutout in the content tiles are computed from
+# different code paths, so they must agree on the transformed rect.
+# Reference image is public-domain - https://en.wikipedia.org/wiki/File:Barn-yuv.png
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 500, 500]
+      color: white
+    - type: clip
+      id: 3
+      complex:
+        - rect: [150, 150, 199, 199]
+          radius: 32
+    - type: stacking-context
+      bounds: [0, 0, 500, 500]
+      transform: translate(30, 20) scale(1.2)
+      items:
+        - type: yuv-image
+          format: planar
+          src-y: barn-y.png
+          src-u: barn-u.png
+          src-v: barn-v.png
+          bounds: [100, 100, 299, 299]
+          prefer-compositor-surface: true
+          clip-chain: [3]

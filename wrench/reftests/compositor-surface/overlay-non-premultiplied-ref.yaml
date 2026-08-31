@@ -1,0 +1,10 @@
+# Same content as the test, drawn without compositor surfaces.
+---
+root:
+  items:
+    - type: rect
+      bounds: [50, 50, 400, 400]
+      color: green
+    - image: transparent-checkerboard(2,16,16)
+      bounds: [100, 100, 262, 262]
+      alpha-type: alpha

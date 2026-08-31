@@ -1,0 +1,26 @@
+# A backdrop-filter that overlaps an 8 bit underlay cancels the promotion: the
+# image is drawn into the content tiles instead, so that the filter has
+# something to read back.
+# Reference image is public-domain - https://en.wikipedia.org/wiki/File:Barn-yuv.png
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 500, 500]
+      color: white
+    - type: clip
+      id: 3
+      complex:
+        - rect: [150, 150, 199, 199]
+          radius: 32
+    - type: yuv-image
+      format: planar
+      src-y: barn-y.png
+      src-u: barn-u.png
+      src-v: barn-v.png
+      bounds: [100, 100, 299, 299]
+      prefer-compositor-surface: true
+      clip-chain: [3]
+    - type: backdrop-filter
+      bounds: [200, 200, 100, 100]
+      filters: invert(1)

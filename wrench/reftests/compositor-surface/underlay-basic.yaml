@@ -1,0 +1,23 @@
+# An opaque backdrop plus a masked YUV image promotes the image to an
+# underlay: the image is composited below the content tiles, which get an
+# alpha cutout in the shape of the clip.
+# Reference image is public-domain - https://en.wikipedia.org/wiki/File:Barn-yuv.png
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 500, 500]
+      color: white
+    - type: clip
+      id: 3
+      complex:
+        - rect: [150, 150, 199, 199]
+          radius: 32
+    - type: yuv-image
+      format: planar
+      src-y: barn-y.png
+      src-u: barn-u.png
+      src-v: barn-v.png
+      bounds: [100, 100, 299, 299]
+      prefer-compositor-surface: true
+      clip-chain: [3]

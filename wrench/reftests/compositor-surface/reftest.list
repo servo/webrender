@@ -9,3 +9,20 @@ platform(linux) fuzzy(7,86000) == underlay.yaml underlay.png
 scale(*) fuzzy(2,2600) == transparent-opaque-image.yaml transparent-opaque-image-ref.yaml
 platform(linux) == underlay-mask-on-translucent-slice.yaml underlay-mask-on-translucent-slice.png
 fuzzy(2,100) platform(linux) == multiple-underlays-with-mask.yaml multiple-underlays-with-mask.png
+
+# Underlay promotion: a masked YUV image over an opaque backdrop is composited
+# below the content tiles, which get an alpha cutout in the shape of the clip.
+fuzzy(2,100) underlays(1) overlays(0) == underlay-basic.yaml underlay-basic-ref.yaml
+fuzzy(2,100) underlays(1) == underlay-z-order.yaml underlay-z-order-ref.yaml
+fuzzy(2,100) underlays(1) == underlay-transformed.yaml underlay-transformed-ref.yaml
+
+# An underlay is cancelled and drawn as a regular primitive when something that
+# reads back the framebuffer overlaps it.
+fuzzy(2,100) underlays(1) == underlay-mix-blend-cancel.yaml underlay-mix-blend-cancel-ref.yaml
+fuzzy(2,100) underlays(1) == underlay-backdrop-filter-cancel.yaml underlay-backdrop-filter-cancel-ref.yaml
+
+# Cases where promotion is refused and the primitive is drawn normally.
+fuzzy(2,100) underlays(0) == underlay-no-opaque-backdrop.yaml underlay-no-opaque-backdrop-ref.yaml
+fuzzy(2,100) overlays(1) underlays(0) == underlay-intersects-overlay.yaml underlay-intersects-overlay-ref.yaml
+fuzzy(2,100) underlays(1) == underlay-surface-limit.yaml underlay-surface-limit-ref.yaml
+overlays(0) == overlay-non-premultiplied.yaml overlay-non-premultiplied-ref.yaml

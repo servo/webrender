@@ -1,0 +1,36 @@
+# Only one masked underlay is allowed per picture cache slice for 8 bit
+# content. The second masked YUV image falls back to being drawn as a regular
+# primitive.
+# Reference image is public-domain - https://en.wikipedia.org/wiki/File:Barn-yuv.png
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 500, 500]
+      color: white
+    - type: clip
+      id: 3
+      complex:
+        - rect: [50, 50, 150, 150]
+          radius: 32
+    - type: clip
+      id: 4
+      complex:
+        - rect: [280, 280, 150, 150]
+          radius: 32
+    - type: yuv-image
+      format: planar
+      src-y: barn-y.png
+      src-u: barn-u.png
+      src-v: barn-v.png
+      bounds: [50, 50, 150, 150]
+      prefer-compositor-surface: true
+      clip-chain: [3]
+    - type: yuv-image
+      format: planar
+      src-y: barn-y.png
+      src-u: barn-u.png
+      src-v: barn-v.png
+      bounds: [280, 280, 150, 150]
+      prefer-compositor-surface: true
+      clip-chain: [4]

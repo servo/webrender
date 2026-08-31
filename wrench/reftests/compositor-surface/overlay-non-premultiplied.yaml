@@ -1,0 +1,12 @@
+# Native compositors only accept premultiplied alpha, so an image using
+# straight alpha is not promoted and is drawn as a regular primitive.
+---
+root:
+  items:
+    - type: rect
+      bounds: [50, 50, 400, 400]
+      color: green
+    - image: transparent-checkerboard(2,16,16)
+      bounds: [100, 100, 262, 262]
+      alpha-type: alpha
+      prefer-compositor-surface: true

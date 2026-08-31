@@ -1,0 +1,29 @@
+# Content drawn before an underlay is hidden by it, and content drawn after it
+# is composited on top of it: the underlay sits below the content tiles and the
+# tiles only get a cutout where nothing else covers the clip shape.
+# Reference image is public-domain - https://en.wikipedia.org/wiki/File:Barn-yuv.png
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 500, 500]
+      color: white
+    - type: rect
+      bounds: [180, 180, 60, 60]
+      color: red
+    - type: clip
+      id: 3
+      complex:
+        - rect: [150, 150, 199, 199]
+          radius: 32
+    - type: yuv-image
+      format: planar
+      src-y: barn-y.png
+      src-u: barn-u.png
+      src-v: barn-v.png
+      bounds: [100, 100, 299, 299]
+      prefer-compositor-surface: true
+      clip-chain: [3]
+    - type: rect
+      bounds: [260, 260, 60, 60]
+      color: blue
