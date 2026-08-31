@@ -300,6 +300,7 @@ impl CommandBuffer {
         for segment in segments {
             self.commands.push(Command::data(segment.task_id.index));
             self.commands.push(Command::data(segment.task_id.sub_rect_index as u32));
+            push_rect(&mut self.commands, &segment.rect);
         }
     }
 
@@ -363,7 +364,7 @@ impl CommandBuffer {
     pub fn iter_prims<F>(
         &self,
         f: &mut F,
-    ) where F: FnMut(&PrimitiveCommand, SpatialNodeIndex, &[RenderTaskId]) {
+    ) where F: FnMut(&PrimitiveCommand, SpatialNodeIndex, &[QuadSegment]) {
         let mut current_spatial_node_index = SpatialNodeIndex::INVALID;
         let mut cmd_iter = self.commands.iter();
         // TODO(gw): Consider pre-allocating this / Smallvec if it shows up in profiles.
@@ -457,12 +458,13 @@ impl CommandBuffer {
                 Command::CMD_SET_SEGMENTS => {
                     let count = param;
                     for _ in 0 .. count {
-                        segments.push(
-                            RenderTaskId {
+                        segments.push(QuadSegment {
+                            task_id: RenderTaskId {
                                 index: cmd_iter.next().unwrap().0,
                                 sub_rect_index: cmd_iter.next().unwrap().0 as u16,
-                            }
-                        );
+                            },
+                            rect: read_rect(&mut cmd_iter),
+                        });
                     }
                 }
                 _ => {
