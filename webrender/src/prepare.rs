@@ -1210,8 +1210,16 @@ fn prepare_prim_for_render(
             panic!("bug: invalid vis state");
         }
         DrawState::Visible { .. } => {
+            // The kinds that reach here (text runs, backdrop captures) have no
+            // tighter footprint on hand than the primitive's coverage rect.
+            let device_rect = frame_state.surfaces[pic_context.surface_index.0]
+                .map_to_device_rect(
+                    &prim_info.clip_chain.pic_coverage_rect,
+                    frame_context.spatial_tree,
+                );
+
             frame_state.push_prim(
-                &PrimitiveCommand::simple(draw_index),
+                &PrimitiveCommand::simple(draw_index, device_rect),
                 prim_spatial_node_index,
                 targets,
             );

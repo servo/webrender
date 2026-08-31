@@ -2,7 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{MixBlendMode, units::{LayoutPoint, LayoutRect, PictureRect}};
+use api::euclid::{point2, Box2D};
+use api::{MixBlendMode, units::{DeviceRect, LayoutRect, PictureRect}};
 use crate::pattern::{PatternKind, PatternShaderInput};
 use crate::renderer::BlendMode;
 use crate::{spatial_tree::SpatialNodeIndex, render_task_graph::RenderTaskId, surface::SurfaceTileDescriptor, tile_cache::TileKey, renderer::GpuBufferAddress, FastHashMap};
@@ -114,9 +115,11 @@ bitflags! {
 pub enum PrimitiveCommand {
     Simple {
         draw_index: storage::Index<PrimitiveDrawHeader>,
+        device_rect: DeviceRect,
     },
     SplitComposite {
         draw_index: storage::Index<PrimitiveDrawHeader>,
+        device_rect: DeviceRect,
         polygons_address: GpuBufferAddress,
         // Maps the plane's local space to the destination surface's raster space.
         transform_id: GpuTransformId,
@@ -127,6 +130,7 @@ pub enum PrimitiveCommand {
     },
     Instance {
         draw_index: storage::Index<PrimitiveDrawHeader>,
+        device_rect: DeviceRect,
         gpu_buffer_address: GpuBufferAddress,
     },
     Quad {
@@ -137,6 +141,7 @@ pub enum PrimitiveCommand {
         src_color_task_ids: [RenderTaskId; 3],
         // TODO(gw): Used for bounding rect only, could possibly remove
         draw_index: storage::Index<PrimitiveDrawHeader>,
+        device_rect: DeviceRect,
         gpu_buffer_address: GpuBufferAddress,
         transform_id: GpuTransformId,
         quad_flags: QuadFlags,
@@ -148,14 +153,17 @@ pub enum PrimitiveCommand {
 impl PrimitiveCommand {
     pub fn simple(
         draw_index: storage::Index<PrimitiveDrawHeader>,
+        device_rect: DeviceRect,
     ) -> Self {
         PrimitiveCommand::Simple {
             draw_index,
+            device_rect,
         }
     }
 
     pub fn split_composite(
         draw_index: storage::Index<PrimitiveDrawHeader>,
+        device_rect: DeviceRect,
         polygons_address: GpuBufferAddress,
         transform_id: GpuTransformId,
         src_task_id: RenderTaskId,
@@ -163,6 +171,7 @@ impl PrimitiveCommand {
     ) -> Self {
         PrimitiveCommand::SplitComposite {
             draw_index,
+            device_rect,
             polygons_address,
             transform_id,
             src_task_id,
@@ -175,6 +184,7 @@ impl PrimitiveCommand {
         pattern_input: PatternShaderInput,
         src_color_task_ids: [RenderTaskId; 3],
         draw_index: storage::Index<PrimitiveDrawHeader>,
+        device_rect: DeviceRect,
         gpu_buffer_address: GpuBufferAddress,
         transform_id: GpuTransformId,
         quad_flags: QuadFlags,
@@ -186,6 +196,7 @@ impl PrimitiveCommand {
             pattern_input,
             src_color_task_ids,
             draw_index,
+            device_rect,
             gpu_buffer_address,
             transform_id,
             quad_flags,
@@ -196,10 +207,12 @@ impl PrimitiveCommand {
 
     pub fn instance(
         draw_index: storage::Index<PrimitiveDrawHeader>,
+        device_rect: DeviceRect,
         gpu_buffer_address: GpuBufferAddress,
     ) -> Self {
         PrimitiveCommand::Instance {
             draw_index,
+            device_rect,
             gpu_buffer_address,
         }
     }
@@ -234,6 +247,28 @@ fn decode_blend_mode(val: u32) -> BlendMode {
         6 => BlendMode::Exclusion,
         7 => BlendMode::PlusLighter,
         _ => BlendMode::Advanced(unsafe { std::mem::transmute::<u8, MixBlendMode>((val - 8) as u8) }),
+    }
+}
+
+/// Encode a rect as four data words.
+fn push_rect<U>(commands: &mut Vec<Command>, rect: &Box2D<f32, U>) {
+    commands.push(Command::data(rect.min.x.to_bits()));
+    commands.push(Command::data(rect.min.y.to_bits()));
+    commands.push(Command::data(rect.max.x.to_bits()));
+    commands.push(Command::data(rect.max.y.to_bits()));
+}
+
+/// Read back a rect written by `push_rect`.
+fn read_rect<'a, U>(cmd_iter: &mut impl Iterator<Item = &'a Command>) -> Box2D<f32, U> {
+    Box2D {
+        min: point2(
+            f32::from_bits(cmd_iter.next().unwrap().0),
+            f32::from_bits(cmd_iter.next().unwrap().0),
+        ),
+        max: point2(
+            f32::from_bits(cmd_iter.next().unwrap().0),
+            f32::from_bits(cmd_iter.next().unwrap().0),
+        ),
     }
 }
 
@@ -288,26 +323,27 @@ impl CommandBuffer {
         prim_cmd: &PrimitiveCommand,
     ) {
         match *prim_cmd {
-            PrimitiveCommand::Simple { draw_index } => {
+            PrimitiveCommand::Simple { draw_index, device_rect } => {
                 self.commands.push(Command::draw_simple_prim(draw_index));
+                push_rect(&mut self.commands, &device_rect);
             }
-            PrimitiveCommand::SplitComposite { draw_index, polygons_address, transform_id, src_task_id, pattern_rect } => {
+            PrimitiveCommand::SplitComposite { draw_index, device_rect, polygons_address, transform_id, src_task_id, pattern_rect } => {
                 self.commands.push(Command::draw_split_composite(draw_index));
+                push_rect(&mut self.commands, &device_rect);
                 self.commands.push(Command::data(polygons_address.as_u32()));
                 self.commands.push(Command::data(transform_id.0));
                 self.commands.push(Command::data(src_task_id.index));
                 self.commands.push(Command::data(src_task_id.sub_rect_index as u32));
-                self.commands.push(Command::data(pattern_rect.min.x.to_bits()));
-                self.commands.push(Command::data(pattern_rect.min.y.to_bits()));
-                self.commands.push(Command::data(pattern_rect.max.x.to_bits()));
-                self.commands.push(Command::data(pattern_rect.max.y.to_bits()));
+                push_rect(&mut self.commands, &pattern_rect);
             }
-            PrimitiveCommand::Instance { draw_index, gpu_buffer_address } => {
+            PrimitiveCommand::Instance { draw_index, device_rect, gpu_buffer_address } => {
                 self.commands.push(Command::draw_instance(draw_index));
+                push_rect(&mut self.commands, &device_rect);
                 self.commands.push(Command::data(gpu_buffer_address.as_u32()));
             }
-            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, transform_id, quad_flags, edge_flags, src_color_task_ids, blend_mode } => {
+            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, device_rect, gpu_buffer_address, transform_id, quad_flags, edge_flags, src_color_task_ids, blend_mode } => {
                 self.commands.push(Command::draw_quad(draw_index));
+                push_rect(&mut self.commands, &device_rect);
                 self.commands.push(Command::data(pattern as u32));
                 self.commands.push(Command::data(pattern_input.0 as u32));
                 self.commands.push(Command::data(pattern_input.1 as u32));
@@ -340,7 +376,8 @@ impl CommandBuffer {
             match command {
                 Command::CMD_DRAW_SIMPLE_PRIM => {
                     let draw_index = storage::Index::from_u32(param);
-                    let cmd = PrimitiveCommand::simple(draw_index);
+                    let device_rect = read_rect(&mut cmd_iter);
+                    let cmd = PrimitiveCommand::simple(draw_index, device_rect);
                     f(&cmd, current_spatial_node_index, &[]);
                 }
                 Command::CMD_SET_SPATIAL_NODE => {
@@ -348,24 +385,17 @@ impl CommandBuffer {
                 }
                 Command::CMD_DRAW_SPLIT_COMPOSITE => {
                     let draw_index = storage::Index::from_u32(param);
+                    let device_rect = read_rect(&mut cmd_iter);
                     let polygons_address = GpuBufferAddress::from_u32(cmd_iter.next().unwrap().0);
                     let transform_id = GpuTransformId(cmd_iter.next().unwrap().0);
                     let src_task_id = RenderTaskId {
                         index: cmd_iter.next().unwrap().0,
                         sub_rect_index: cmd_iter.next().unwrap().0 as u16,
                     };
-                    let pattern_rect = LayoutRect {
-                        min: LayoutPoint::new(
-                            f32::from_bits(cmd_iter.next().unwrap().0),
-                            f32::from_bits(cmd_iter.next().unwrap().0),
-                        ),
-                        max: LayoutPoint::new(
-                            f32::from_bits(cmd_iter.next().unwrap().0),
-                            f32::from_bits(cmd_iter.next().unwrap().0),
-                        ),
-                    };
+                    let pattern_rect = read_rect(&mut cmd_iter);
                     let cmd = PrimitiveCommand::split_composite(
                         draw_index,
+                        device_rect,
                         polygons_address,
                         transform_id,
                         src_task_id,
@@ -375,6 +405,7 @@ impl CommandBuffer {
                 }
                 Command::CMD_DRAW_QUAD => {
                     let draw_index = storage::Index::from_u32(param);
+                    let device_rect = read_rect(&mut cmd_iter);
                     let pattern = PatternKind::from_u32(cmd_iter.next().unwrap().0);
                     let pattern_input = PatternShaderInput(
                         cmd_iter.next().unwrap().0 as i32,
@@ -401,6 +432,7 @@ impl CommandBuffer {
                         pattern_input,
                         src_color_task_ids,
                         draw_index,
+                        device_rect,
                         gpu_buffer_address,
                         transform_id,
                         quad_flags,
@@ -412,10 +444,12 @@ impl CommandBuffer {
                 }
                 Command::CMD_DRAW_INSTANCE => {
                     let draw_index = storage::Index::from_u32(param);
+                    let device_rect = read_rect(&mut cmd_iter);
                     let data = cmd_iter.next().unwrap();
                     let gpu_buffer_address = GpuBufferAddress::from_u32(data.0);
                     let cmd = PrimitiveCommand::instance(
                         draw_index,
+                        device_rect,
                         gpu_buffer_address,
                     );
                     f(&cmd, current_spatial_node_index, &[]);

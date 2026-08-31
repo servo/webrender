@@ -780,10 +780,10 @@ impl BatchBuilder {
         segments: &[RenderTaskId],
     ) {
         let draw_index = match cmd {
-            PrimitiveCommand::Simple { draw_index } => {
+            PrimitiveCommand::Simple { draw_index, device_rect: _ } => {
                 draw_index
             }
-            PrimitiveCommand::SplitComposite { draw_index, polygons_address, transform_id, src_task_id, pattern_rect } => {
+            PrimitiveCommand::SplitComposite { draw_index, device_rect: _, polygons_address, transform_id, src_task_id, pattern_rect } => {
                 let prim_info = ctx.scratch.frame.draw(*draw_index);
 
                 let (clip_task_address, clip_mask_texture_id) = ctx.get_prim_clip_task_and_texture(
@@ -832,7 +832,7 @@ impl BatchBuilder {
             PrimitiveCommand::Instance { draw_index, .. } => {
                 draw_index
             }
-            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_ids, blend_mode } => {
+            PrimitiveCommand::Quad { pattern, pattern_input, draw_index, device_rect: _, gpu_buffer_address, quad_flags, edge_flags, transform_id, src_color_task_ids, blend_mode } => {
                 let prim_info = ctx.scratch.frame.draw(*draw_index);
                 let bounding_rect = &prim_info.clip_chain.pic_coverage_rect;
                 let render_task_address = self.batcher.render_task_address;
