@@ -122,6 +122,10 @@ enum ExtraCheck {
     DrawCalls(usize),
     AlphaTargets(usize),
     ColorTargets(usize),
+    /// Number of primitives promoted to overlay compositor surfaces.
+    Overlays(usize),
+    /// Number of primitives promoted to underlay compositor surfaces.
+    Underlays(usize),
 }
 
 impl ExtraCheck {
@@ -133,6 +137,10 @@ impl ExtraCheck {
                 x == results.last().unwrap().stats.alpha_target_count,
             ExtraCheck::ColorTargets(x) =>
                 x == results.last().unwrap().stats.color_target_count,
+            ExtraCheck::Overlays(x) =>
+                x == results.last().unwrap().compositor_surface_overlays,
+            ExtraCheck::Underlays(x) =>
+                x == results.last().unwrap().compositor_surface_underlays,
         }
     }
 }
@@ -551,6 +559,14 @@ impl ReftestManifest {
                     function if function.starts_with("color_targets(") => {
                         let (_, args, _) = parse_function(function);
                         extra_checks.push(ExtraCheck::ColorTargets(args[0].parse().unwrap()));
+                    }
+                    function if function.starts_with("overlays(") => {
+                        let (_, args, _) = parse_function(function);
+                        extra_checks.push(ExtraCheck::Overlays(args[0].parse().unwrap()));
+                    }
+                    function if function.starts_with("underlays(") => {
+                        let (_, args, _) = parse_function(function);
+                        extra_checks.push(ExtraCheck::Underlays(args[0].parse().unwrap()));
                     }
                     function if function.starts_with("max_surface_size(") => {
                         let (_, args, _) = parse_function(function);

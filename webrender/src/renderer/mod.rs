@@ -1698,6 +1698,10 @@ impl Renderer {
         self.profile.set(profiler::TEXTURES_DELETED, self.device.textures_deleted);
 
         results.stats.texture_upload_mb = self.profile.get_or(profiler::TEXTURE_UPLOADS_MEM, 0.0);
+        results.compositor_surface_overlays =
+            self.profile.get_or(profiler::COMPOSITOR_SURFACE_OVERLAYS, 0.0) as usize;
+        results.compositor_surface_underlays =
+            self.profile.get_or(profiler::COMPOSITOR_SURFACE_UNDERLAYS, 0.0) as usize;
         self.frame_counter += 1;
         results.stats.resource_upload_time = self.resource_upload_time;
         self.resource_upload_time = 0.0;
@@ -4305,6 +4309,14 @@ pub struct RenderResults {
 
     /// Whether any tile was rasterized (had is_valid = false)
     pub did_rasterize_any_tile: bool,
+
+    /// Number of primitives promoted to overlay compositor surfaces during the
+    /// frame.
+    pub compositor_surface_overlays: usize,
+
+    /// Number of primitives promoted to underlay compositor surfaces during the
+    /// frame. Underlays cancelled later in the frame are still counted here.
+    pub compositor_surface_underlays: usize,
 }
 
 #[cfg(any(feature = "capture", feature = "replay"))]
