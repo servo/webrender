@@ -81,6 +81,9 @@ scale(*) fuzzy(5,4435) == shadow-image.yaml shadow-solid-ref.yaml
 # The next two tests are written for a specific scale.
 scale(1) options(disable-aa) == snap-clip.yaml snap-clip-ref.yaml
 scale(1) options(disable-aa) == bug2065629.yaml bug2065629-ref.yaml
+# The clip edge sits on the .5 tie deliberately: exact and nearest rounding
+# differ only there. See the comment in the test.
+scale(1) options(disable-aa) == bug2067555.yaml bug2067555-ref.yaml
 platform(linux) == perspective-clip.yaml perspective-clip.png
 fuzzy(1,600) platform(linux) == 3d-device-text.yaml 3d-device-text.png
 fuzzy(1,150) options(disable-subpixel) == raster-space-snap.yaml raster-space-snap-ref.yaml

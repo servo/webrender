@@ -1033,7 +1033,12 @@ impl BatchBuilder {
                     // authored rect. Do not fold the prim rect into `bounds` -
                     // that would start clipping glyphs by it.
                     pattern_rect: run_scratch.pattern_rect,
-                    bounds: prim_info.clip_chain.local_clip_rect,
+                    // Quantised to the glyph grid on the snapped axes - see
+                    // `TextRunScratch::snapped_clip_rect`. The shader clamps the
+                    // glyph quad to this, and that clamp is a hard pixel-centre
+                    // test, so it is only lossless when the clip and the glyphs
+                    // share a grid.
+                    bounds: run_scratch.snapped_clip_rect,
                     transform_id,
                     z: z_id,
                     render_task_address: self.batcher.render_task_address,

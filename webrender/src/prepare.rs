@@ -503,6 +503,7 @@ fn prepare_prim_for_render(
 
             let text_run_handle = prim_data.request_resources(
                 pattern_rect,
+                prim_info.clip_chain.local_clip_rect,
                 &transform.to_transform().with_destination::<_>(),
                 surface,
                 prim_spatial_node_index,

@@ -9,7 +9,7 @@ use std::fmt;
 
 use euclid::{Transform3D, Box2D, Point2D, Vector2D};
 
-use api::units::DeviceRect;
+use api::units::{DevicePoint, DeviceRect};
 use crate::spatial_tree::{CoordinateSystemId, SpatialTree, CoordinateSpaceMapping, SpatialNodeIndex, VisibleFace};
 use crate::surface::SurfaceInfo;
 use crate::util::project_rect;
@@ -372,6 +372,42 @@ impl SpaceSnapper {
     /// `snap_rect_rounded(rect, SnapRounding::Nearest)`.
     pub fn snap_rect<F>(&self, rect: &Box2D<f32, F>) -> Box2D<f32, F> where F: fmt::Debug {
         self.snap_rect_rounded(rect, SnapRounding::Nearest)
+    }
+
+    /// Snap only the requested device axes of a rect to the nearest pixel,
+    /// leaving the other axis exact. A text run's glyphs are grid-snapped on one
+    /// axis and sub-pixel positioned on the other, and its clip wants to agree
+    /// with whichever quantisation the glyphs actually got. `snap_x` / `snap_y`
+    /// are DEVICE axes, so `swap_xy` needs no special case.
+    pub fn snap_rect_axes<F>(
+        &self,
+        rect: &Box2D<f32, F>,
+        snap_x: bool,
+        snap_y: bool,
+    ) -> Box2D<f32, F> where F: fmt::Debug {
+        debug_assert!(!self.enabled || self.current_target_spatial_node_index != SpatialNodeIndex::INVALID);
+        if !snap_x && !snap_y {
+            return *rect;
+        }
+        match self.snapping_transform {
+            Some(SnapTransform { ref scale_offset, swap_xy }) => {
+                let r = if swap_xy { swap_box_xy(rect) } else { *rect };
+                let device_rect: DeviceRect = scale_offset.map_rect(&r);
+                let snapped = DeviceRect::new(
+                    DevicePoint::new(
+                        if snap_x { device_rect.min.x.round() } else { device_rect.min.x },
+                        if snap_y { device_rect.min.y.round() } else { device_rect.min.y },
+                    ),
+                    DevicePoint::new(
+                        if snap_x { device_rect.max.x.round() } else { device_rect.max.x },
+                        if snap_y { device_rect.max.y.round() } else { device_rect.max.y },
+                    ),
+                );
+                let unmapped: Box2D<f32, F> = scale_offset.unmap_rect(&snapped);
+                if swap_xy { swap_box_xy(&unmapped) } else { unmapped }
+            }
+            None => *rect,
+        }
     }
 
     /// Snap a rect to the device pixel grid using the current target's snapping

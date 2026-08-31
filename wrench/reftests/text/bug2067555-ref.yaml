@@ -1,0 +1,22 @@
+# Reference for bug 2067555: the same scene with the clip already on the pixel
+# boundary the test's 40.5 must round to. An integral clip edge is unaffected by
+# the per-axis snap, so this reference renders identically under both policies
+# and the comparison measures exactly the rounding under test.
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 200, 120]
+      color: white
+    - type: clip
+      id: 2
+      bounds: [0, 0, 50, 41.0]
+    - type: clip-chain
+      id: 3
+      clips: [2]
+    - bounds: [0, 0, 120, 120]
+      glyphs: [55]
+      offsets: [10, 60]
+      size: 40
+      color: [0, 0, 0, 1]
+      font: "Ahem.ttf"
+      clip-chain: 3

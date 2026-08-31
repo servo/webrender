@@ -1,0 +1,42 @@
+# bug 2067555: a text run's clip must be quantised the way its glyphs are
+# quantised, per axis. The glyph pen is rounded to a whole device pixel on the
+# non-sub-pixel axis, so a clip left exact on that axis disagrees with the grid
+# the glyphs landed on - and the shader's clamp is a hard pixel-centre test, so
+# the disagreement costs a whole device row of ink.
+#
+# Gecko produces exactly this: it sizes a line box from the font's metrics and
+# puts the overflow clip on the content-box edge, so a descender's last row of
+# ink ends flush with the clip, and a box at a fractional device position puts
+# that clip edge mid-row.
+#
+# The Ahem block is solid, so the ink boundary is unambiguous: it covers device
+# rows 17..70. The ancestor clip ends at 40.5 and must round to 41.0, the same
+# grid the glyph pen rounds to, keeping row 40. Left exact at 40.5 the clamp
+# resolves at row 40's centre - exactly 40.5 - and drops the row entirely.
+#
+# The clip edge has to sit on the .5 tie: exact and nearest differ ONLY there,
+# which is why this bug reproduces at one sub-pixel phase in twenty (and why
+# chrome UI, whose boxes land on .0 and .5 at DPR 1, hits it). Do not "tidy" the
+# 40.5 to another value - the test stops discriminating.
+#
+# The clip bounds x to 0..50 so the covered span is exactly x 10..50 and does not
+# depend on the rasterized glyph width, which for Ahem 55 at size 40 is wider
+# than the em box.
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 200, 120]
+      color: white
+    - type: clip
+      id: 2
+      bounds: [0, 0, 50, 40.5]
+    - type: clip-chain
+      id: 3
+      clips: [2]
+    - bounds: [0, 0, 120, 120]
+      glyphs: [55]
+      offsets: [10, 60]
+      size: 40
+      color: [0, 0, 0, 1]
+      font: "Ahem.ttf"
+      clip-chain: 3
