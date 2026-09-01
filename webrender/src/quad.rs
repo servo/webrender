@@ -154,9 +154,15 @@ impl QuadTransformState {
         self.as_scale_offset.as_ref()
     }
 
+    // X and Y scale factors of the local to raster transform, excluding the
+    // target surface's device pixel scale.
+    pub fn raster_scale_factors(&self) -> (f32, f32) {
+        self.map_prim_to_raster.scale_factors()
+    }
+
     // X and Y scale factors of the local to device transform.
     pub fn scale_factors(&self) -> (f32, f32) {
-        let s = self.map_prim_to_raster.scale_factors();
+        let s = self.raster_scale_factors();
 
         (s.0 * self.device_pixel_scale().0, s.1 * self.device_pixel_scale().0)
     }

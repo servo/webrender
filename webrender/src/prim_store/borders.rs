@@ -21,7 +21,6 @@ use crate::prim_store::{
 use crate::resource_cache::ImageRequest;
 use crate::render_task::{RenderTask, RenderTaskKind};
 use crate::render_task_graph::RenderTaskId;
-use crate::spatial_tree::SpatialNodeIndex;
 use crate::util::clamp_to_scale_factor;
 
 // `NormalBorderPrim` now lives in `webrender_api::interned_prims` so content-process
@@ -45,8 +44,6 @@ impl NormalBorderData {
         &self,
         desc: &QuadDescriptor,
         clip_chain: &ClipChainInstance,
-        prim_spatial_node_index: SpatialNodeIndex,
-        device_pixel_scale: DevicePixelScale,
         quad_transform: &mut QuadTransformState,
         frame_context: &FrameBuildingContext,
         pic_context: &PictureContext,
@@ -55,14 +52,12 @@ impl NormalBorderData {
         frame_state: &mut FrameBuildingState,
         scratch: &mut PrimitiveScratchBuffer,
     ) {
-        // TODO(gw): For now, the scale factors to rasterize borders at are
-        //           based on the true world transform of the primitive. When
-        //           raster roots with local scale are supported in future,
-        //           that will need to be accounted for here.
-        let scale = frame_context
-            .spatial_tree
-            .get_world_transform(prim_spatial_node_index)
-            .scale_factors();
+        // The border is rasterized at the scale it is composited at: the
+        // primitive to raster transform of the surface being drawn into, times
+        // that surface's device pixel scale. The two are kept apart because only
+        // the raster part is quantized to a power of two below.
+        let raster_scale = quad_transform.raster_scale_factors();
+        let device_pixel_scale = quad_transform.device_pixel_scale();
 
         // Scale factors are normalized to a power of 2 to reduce the number of
         // resolution changes.
@@ -82,14 +77,13 @@ impl NormalBorderData {
         // (bug 1950029). Rounding the device thickness to the nearest pixel
         // (floored at 1 so a real border can't disappear) makes every side a
         // consistent whole-pixel width. Genuinely sub-CSS-pixel edges are left
-        // untouched. Uses the unclamped world scale factors, since that is the
+        // untouched. Uses the unclamped device scale factors, since that is the
         // transform the edge is actually composited with, not the power-of-2
         // rasterization scale.
         let snap_width = |w: f32, s: f32| {
             if w >= 1.0 && s > 0.0 { (w * s).round().max(1.0) / s } else { w }
         };
-        let device_scale_x = scale.0 * device_pixel_scale.0;
-        let device_scale_y = scale.1 * device_pixel_scale.0;
+        let (device_scale_x, device_scale_y) = quad_transform.scale_factors();
         let mut widths = self.widths;
         widths.left = snap_width(widths.left, device_scale_x);
         widths.right = snap_width(widths.right, device_scale_x);
@@ -127,11 +121,12 @@ impl NormalBorderData {
             r.bottom_right.height = snap_radius(r.bottom_right.height, widths.bottom, device_scale_y);
         }
 
-        let scale_width = clamp_to_scale_factor(scale.0, false);
-        let scale_height = clamp_to_scale_factor(scale.1, false);
+        let scale_width = clamp_to_scale_factor(raster_scale.0, false);
+        let scale_height = clamp_to_scale_factor(raster_scale.1, false);
         // Pick the maximum dimension as scale
-        let world_scale = LayoutToWorldScale::new(scale_width.max(scale_height));
-        let mut scale = world_scale * device_pixel_scale;
+        let mut scale = LayoutToDeviceScale::new(
+            scale_width.max(scale_height) * device_pixel_scale.0,
+        );
 
         // Build the per-frame border segments up front so we can clamp the
         // rasterization scale against the largest segment before requesting

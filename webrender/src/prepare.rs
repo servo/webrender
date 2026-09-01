@@ -531,8 +531,6 @@ fn prepare_prim_for_render(
                     transformed_aa_edges,
                 },
                 &prim_info.clip_chain,
-                prim_spatial_node_index,
-                device_pixel_scale,
                 quad_transform,
                 frame_context,
                 pic_context,
