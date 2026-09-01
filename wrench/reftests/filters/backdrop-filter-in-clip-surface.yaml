@@ -1,0 +1,34 @@
+# The inner stacking context has a surface only because it inherits the outer
+# complex clip. Gecko marks such a stacking context wraps-backdrop-filter, since
+# a transform is not a backdrop root, and we must then resolve the backdrop from
+# the isolated parent surface rather than from that (otherwise empty) clip
+# surface. See bug 2066633.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [0, 0, 200, 200]
+          radius: 20
+    - type: clip-chain
+      id: 3
+      clips: [2]
+    - type: stacking-context
+      filters: [identity]
+      items:
+        - type: rect
+          bounds: [0, 0, 200, 200]
+          color: red
+          clip-chain: 3
+        - type: reference-frame
+          bounds: [0, 0, 200, 200]
+          transform: translate(-10, 0)
+          items:
+            - type: stacking-context
+              clip-chain: 3
+              wraps-backdrop-filter: true
+              items:
+                - type: backdrop-filter
+                  bounds: [40, 40, 100, 60]
+                  filters: invert(1)

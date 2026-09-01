@@ -85,6 +85,7 @@ scale(*) fuzzy(1,150) == backdrop-filter-culled-filter.yaml backdrop-filter-cull
 scale(*) == backdrop-filter-nested.yaml blank.yaml		# just don't crash
 == backdrop-filter-in-blurred-parent.yaml backdrop-filter-in-blurred-parent-ref.yaml
 platform(linux,mac) == backdrop-filter-transformed-filter.yaml backdrop-filter-transformed-filter.png
+== backdrop-filter-in-clip-surface.yaml backdrop-filter-in-clip-surface-ref.yaml
 skip_on(android,device) == filter-mix-blend-scaling.yaml filter-mix-blend-scaling-ref.yaml
 platform(linux) == blend-clipped-raster-root.yaml blend-clipped-raster-root.png
 scale(*) == drop-shadow-inverse-scale.yaml blank.yaml

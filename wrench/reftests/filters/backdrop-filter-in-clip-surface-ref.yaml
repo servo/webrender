@@ -1,0 +1,30 @@
+# Reference for backdrop-filter-in-clip-surface.yaml - invert(1) of the red
+# backdrop is exactly cyan.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [0, 0, 200, 200]
+          radius: 20
+    - type: clip-chain
+      id: 3
+      clips: [2]
+    - type: stacking-context
+      filters: [identity]
+      items:
+        - type: rect
+          bounds: [0, 0, 200, 200]
+          color: red
+          clip-chain: 3
+        - type: reference-frame
+          bounds: [0, 0, 200, 200]
+          transform: translate(-10, 0)
+          items:
+            - type: stacking-context
+              clip-chain: 3
+              items:
+                - type: rect
+                  bounds: [40, 40, 100, 60]
+                  color: cyan
