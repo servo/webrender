@@ -391,8 +391,7 @@ fn prepare_prim_for_render(
 
             let task = prim_data.kind.prepare(
                 prim_info.snapped_pattern_rect.size(),
-                prim_spatial_node_index,
-                frame_context,
+                quad_transform.scale_factors(),
                 frame_state,
             );
 

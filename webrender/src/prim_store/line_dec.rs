@@ -12,7 +12,7 @@ use crate::render_task::{RenderTask, RenderTaskKind};
 use crate::render_task_cache::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent};
 use crate::render_task_graph::RenderTaskId;
 use crate::scene_building::{IsVisible};
-use crate::frame_builder::{FrameBuildingContext, FrameBuildingState};
+use crate::frame_builder::FrameBuildingState;
 use crate::intern;
 use crate::internal_types::LayoutPrimitiveInfo;
 use crate::prim_store::{
@@ -20,7 +20,6 @@ use crate::prim_store::{
     InternablePrimitive, PrimitiveStore,
 };
 use crate::prim_store::PrimitiveKind;
-use crate::spatial_tree::SpatialNodeIndex;
 use crate::util::clamp_to_scale_factor;
 
 /// Maximum resolution in device pixels at which line decorations are rasterized.
@@ -59,11 +58,14 @@ impl LineDecorationData {
     /// current local size, write the GPU block, and (for non-solid styles)
     /// allocate a cached render task. Returns the task id and the per-
     /// instance GPU buffer address consumed by `batch.rs`.
+    ///
+    /// `local_to_device_scale` is the scale from the primitive's local space to
+    /// the device space of the surface it will be drawn into, which is the
+    /// resolution the cached mask needs to be rasterized at.
     pub fn prepare(
         &self,
         prim_size: LayoutSize,
-        prim_spatial_node_index: SpatialNodeIndex,
-        frame_context: &FrameBuildingContext,
+        local_to_device_scale: (f32, f32),
         frame_state: &mut FrameBuildingState,
     ) -> Option<(RenderTaskId, LayoutSize)> {
         let cache_key = get_line_decoration_size(
@@ -86,8 +88,7 @@ impl LineDecorationData {
                 );
                 let task = self.allocate_render_task(
                     cache_key,
-                    prim_spatial_node_index,
-                    frame_context,
+                    local_to_device_scale,
                     frame_state,
                 );
 
@@ -100,17 +101,9 @@ impl LineDecorationData {
     fn allocate_render_task(
         &self,
         cache_key: LineDecorationCacheKey,
-        prim_spatial_node_index: SpatialNodeIndex,
-        frame_context: &FrameBuildingContext,
+        local_to_device_scale: (f32, f32),
         frame_state: &mut FrameBuildingState,
     ) -> RenderTaskId {
-        // TODO(gw): These scale factors don't do a great job if the world transform
-        //           contains perspective
-        let scale = frame_context
-            .spatial_tree
-            .get_world_transform(prim_spatial_node_index)
-            .scale_factors();
-
         // Scale factors are normalized to a power of 2 to reduce the number of
         // resolution changes.
         // For frames with a changing scale transform round scale factors up to
@@ -119,8 +112,8 @@ impl LineDecorationData {
         // power-of-2 boundary ensures we never scale up, only down --- avoiding
         // jaggies. It also ensures we never scale down by more than a factor of
         // 2, avoiding bad downscaling quality.
-        let scale_width = clamp_to_scale_factor(scale.0, false);
-        let scale_height = clamp_to_scale_factor(scale.1, false);
+        let scale_width = clamp_to_scale_factor(local_to_device_scale.0, false);
+        let scale_height = clamp_to_scale_factor(local_to_device_scale.1, false);
         // Pick the maximum dimension as scale
         let scale_factor = LayoutToDeviceScale::new(scale_width.max(scale_height));
 
