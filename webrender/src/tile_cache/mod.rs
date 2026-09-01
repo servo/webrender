@@ -1110,7 +1110,6 @@ impl TileCacheInstance {
                 pic_rect.cast_unit(),
                 &map_local_to_picture,
                 &pic_to_vis_mapper,
-                frame_context.spatial_tree,
                 &mut frame_state.frame_gpu_data.f32,
                 frame_state.resource_cache,
                 &surface.culling_rect,

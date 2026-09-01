@@ -468,7 +468,6 @@ pub fn update_prim_visibility(
                     local_coverage_rect,
                     &map_local_to_picture,
                     &map_surface_to_vis,
-                    &frame_context.spatial_tree,
                     &mut frame_state.frame_gpu_data.f32,
                     frame_state.resource_cache,
                     &surface_culling_rect,

@@ -1164,7 +1164,6 @@ bitflags! {
     impl ClipNodeFlags : u8 {
         const SAME_SPATIAL_NODE = 0x1;
         const SAME_COORD_SYSTEM = 0x2;
-        const USE_FAST_PATH = 0x4;
     }
 }
 
@@ -1309,25 +1308,12 @@ impl ClipNodeInfo {
         gpu_buffer: &mut GpuBufferBuilderF,
         resource_cache: &mut ResourceCache,
         mask_tiles: &mut Vec<VisibleMaskImageTile>,
-        spatial_tree: &SpatialTree,
         rg_builder: &mut RenderTaskGraphBuilder,
         request_resources: bool,
     ) -> Option<ClipNodeInstance> {
         // Calculate some flags that are required for the segment
         // building logic.
-        let mut flags = self.conversion.to_flags();
-
-        // Some clip shaders support a fast path mode for simple clips.
-        // TODO(gw): We could also apply fast path when segments are created, since we only write
-        //           the mask for a single corner at a time then, so can always consider radii uniform.
-        let is_raster_2d =
-            flags.contains(ClipNodeFlags::SAME_COORD_SYSTEM) ||
-            spatial_tree
-                .get_world_viewport_transform(self.spatial_node_index)
-                .is_2d_axis_aligned();
-        if is_raster_2d && node.item.kind.supports_fast_path_rendering(self.clip_rect) {
-            flags |= ClipNodeFlags::USE_FAST_PATH;
-        }
+        let flags = self.conversion.to_flags();
 
         let mut visible_tiles = None;
 
@@ -1653,7 +1639,6 @@ impl ClipStore {
         local_prim_rect: LayoutRect,
         prim_to_pic_mapper: &SpaceMapper<LayoutPixel, PicturePixel>,
         pic_to_vis_mapper: &SpaceMapper<PicturePixel, VisPixel>,
-        spatial_tree: &SpatialTree,
         gpu_buffer: &mut GpuBufferBuilderF,
         resource_cache: &mut ResourceCache,
         culling_rect: &VisRect,
@@ -1723,7 +1708,6 @@ impl ClipStore {
                         gpu_buffer,
                         resource_cache,
                         &mut self.mask_tiles,
-                        spatial_tree,
                         rg_builder,
                         request_resources,
                     ) {
@@ -1964,22 +1948,6 @@ pub fn clamped_radius(radius: &BorderRadius, size: LayoutSize) -> BorderRadius {
 }
 
 impl ClipItemKind {
-    /// Returns true if this clip mask can run through the fast path
-    /// for the given clip item type.
-    ///
-    /// Note: this logic has to match `write_rounded_rect_clip_blocks` behavior.
-    fn supports_fast_path_rendering(&self, clip_rect: LayoutRect) -> bool {
-        match *self {
-            ClipItemKind::Rectangle { .. } |
-            ClipItemKind::Image { .. } => {
-                false
-            }
-            ClipItemKind::RoundedRectangle { ref radius, .. } => {
-                radius.can_use_fast_path_in(&clip_rect)
-            }
-        }
-    }
-
     // Get an optional clip rect that a clip source can provide to
     // reduce the size of a primitive region. This is typically
     // used to eliminate redundant clips, and reduce the size of
