@@ -144,7 +144,6 @@ use crate::tile_cache::{SliceId, TileCacheInstance, TileSurface, NativeSurface};
 use crate::tile_cache::{BackdropKind, BackdropSurface};
 use crate::tile_cache::{TileKey, SubSliceIndex};
 use crate::invalidation::InvalidationReason;
-use crate::tile_cache::MAX_SURFACE_SIZE;
 
 use crate::picture_composite_mode::{PictureCompositeMode, prepare_composite_mode};
 
@@ -801,10 +800,7 @@ impl PictureInstance {
                     self.prev_local_rect = local_rect;
                 }
 
-                let max_surface_size = frame_context
-                    .fb_config
-                    .max_surface_override
-                    .unwrap_or(MAX_SURFACE_SIZE) as f32;
+                let max_surface_size = frame_context.max_surface_size() as f32;
 
                 let surface_rects = match get_surface_rects(
                     raster_config.surface_index,
@@ -2900,6 +2896,7 @@ pub fn prepare_picture_primitive(
 #[test]
 fn test_large_surface_scale_1() {
     use crate::spatial_tree::{SceneSpatialTree, SpatialTree};
+    use crate::tile_cache::MAX_SURFACE_SIZE;
 
     let mut cst = SceneSpatialTree::new();
     let root_reference_frame_index = cst.root_reference_frame_index();
@@ -3003,6 +3000,7 @@ fn test_drop_filter_dirty_region_outside_prim() {
 
     use api::Shadow;
     use crate::spatial_tree::{SceneSpatialTree, SpatialTree};
+    use crate::tile_cache::MAX_SURFACE_SIZE;
 
     let mut cst = SceneSpatialTree::new();
     let root_reference_frame_index = cst.root_reference_frame_index();
@@ -3114,6 +3112,7 @@ fn test_drop_filter_partial_dirty_content_inflate() {
 
     use api::Shadow;
     use crate::spatial_tree::{SceneSpatialTree, SpatialTree};
+    use crate::tile_cache::MAX_SURFACE_SIZE;
 
     let mut cst = SceneSpatialTree::new();
     let root_reference_frame_index = cst.root_reference_frame_index();

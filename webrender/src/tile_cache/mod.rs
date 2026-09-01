@@ -90,10 +90,42 @@ pub const TILE_SIZE_SCROLLBAR_VERTICAL: DeviceIntSize = DeviceIntSize {
     _unit: marker::PhantomData,
 };
 
-/// The maximum size per axis of a surface, in DevicePixel coordinates.
-/// Render tasks larger than this size are scaled down to fit, which may cause
-/// some blurriness.
+/// The smallest value `max_surface_size_for_screen` will return, in DevicePixel
+/// coordinates. Render tasks larger than the limit are scaled down to fit,
+/// which may cause some blurriness.
 pub const MAX_SURFACE_SIZE: usize = 4096;
+
+/// The maximum size per axis of a surface, in DevicePixel coordinates, for a
+/// screen of the given device pixel size.
+///
+/// The limit tracks the screen because a surface that covers the screen is the
+/// largest one that screen-space content can legitimately need, and scaling it
+/// down to a fixed limit blurs the whole surface. Note that on a HiDPI screen
+/// the device pixel size already includes the backing scale, which is where
+/// the fixed limit used to be exceeded most often.
+///
+/// The value is rounded up to a power of two so that resizing a window does not
+/// change the limit - and so reallocate every surface sitting at it - on each
+/// pixel of a drag.
+///
+/// It is never below `MAX_SURFACE_SIZE`, since a surface can legitimately be
+/// larger than the screen when raster scale is above one, and lowering the
+/// limit on a small screen would newly scale down surfaces that render at full
+/// resolution today. It is never above what the device can allocate.
+pub fn max_surface_size_for_screen(
+    screen_size: DeviceIntSize,
+    max_target_size: i32,
+) -> usize {
+    let longest_edge = screen_size.width.max(screen_size.height).max(0) as u32;
+
+    let rounded = longest_edge
+        .checked_next_power_of_two()
+        .map_or(usize::MAX, |size| size as usize);
+
+    rounded
+        .max(MAX_SURFACE_SIZE)
+        .min(max_target_size.max(0) as usize)
+}
 
 /// Used to get unique tile IDs, even when the tile cache is
 /// destroyed between display lists / scenes.
@@ -3413,4 +3445,40 @@ struct TilePostUpdateState<'a> {
 
     /// Current configuration and setup for compositing all the picture cache tiles in renderer.
     composite_state: &'a mut CompositeState,
+}
+
+#[test]
+fn test_max_surface_size_for_screen() {
+    const DEVICE_LIMIT: i32 = 16384;
+    let for_screen = |w, h| max_surface_size_for_screen(DeviceIntSize::new(w, h), DEVICE_LIMIT);
+
+    // Screens at or below the floor leave the limit exactly where it was, so
+    // the common case sees no change at all. 4k at 1x is included: 3840 rounds
+    // up to 4096, which is already the floor.
+    assert_eq!(for_screen(1065, 665), MAX_SURFACE_SIZE);
+    assert_eq!(for_screen(1920, 1080), MAX_SURFACE_SIZE);
+    assert_eq!(for_screen(3840, 2160), MAX_SURFACE_SIZE);
+
+    // Rounding up to a power of two keeps the limit stable across a resize, so
+    // surfaces sitting at it are not reallocated on every pixel of a drag.
+    assert_eq!(for_screen(1265, 665), for_screen(1268, 666));
+    assert_eq!(for_screen(4865, 765), for_screen(5865, 1665));
+
+    // Above the floor the limit grows to cover the screen, including a HiDPI
+    // screen whose device size already has the backing scale applied.
+    assert_eq!(for_screen(4865, 765), 8192);
+    assert_eq!(for_screen(5865, 1665), 8192);
+    assert_eq!(for_screen(6016, 3384), 8192);
+
+    // The longest edge decides, in either orientation.
+    assert_eq!(for_screen(1080, 5000), 8192);
+
+    // Never above what the device can allocate, even when that is below the
+    // floor.
+    assert_eq!(max_surface_size_for_screen(DeviceIntSize::new(6016, 3384), 4096), 4096);
+    assert_eq!(max_surface_size_for_screen(DeviceIntSize::new(1920, 1080), 2048), 2048);
+
+    // Degenerate sizes fall back to the floor rather than underflowing.
+    assert_eq!(for_screen(0, 0), MAX_SURFACE_SIZE);
+    assert_eq!(for_screen(-1, -1), MAX_SURFACE_SIZE);
 }
