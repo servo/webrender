@@ -1,0 +1,5 @@
+# The same tile as a standalone image: nothing around it to sample.
+root:
+  items:
+    - image: solid-color(127, 127, 127, 255, 16, 16)
+      bounds: [0, 0, 40, 40]

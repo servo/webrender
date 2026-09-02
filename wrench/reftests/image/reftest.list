@@ -35,3 +35,4 @@ scale(*) == snapshot-empty.yaml empty.yaml
 scale(*) == snapshot-perspective-01.yaml empty.yaml
 scale(*) == snapshot-complex-clip.yaml snapshot-complex-clip-ref.yaml
 scale(*) == stretch-size-01.yaml stretch-size-01-ref.yaml
+scale(*) == sub-rect-clamp.yaml sub-rect-clamp-ref.yaml

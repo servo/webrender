@@ -79,7 +79,7 @@ use crate::prim_store::borders::ImageBorder;
 use crate::prim_store::gradient::{
     GradientStopKey,
 };
-use crate::prim_store::image::{Image, StretchSizeKey, YuvImage};
+use crate::prim_store::image::{Image, StretchSizeKey, SubRectKey, YuvImage};
 use crate::prim_store::line_dec::LineDecoration;
 use crate::prim_store::picture::{Picture, PictureKey};
 use crate::picture_composite_mode::{PictureCompositeKey, PictureCompositeMode};
@@ -2972,6 +2972,43 @@ impl<'a> SceneBuilder<'a> {
             .. *info
         };
 
+        // Only part of the image may be visible, as with a CSS sprite sheet
+        // positioned by a negative background-position. Restrict sampling to
+        // that part, so that filtering cannot pull in the neighbouring cells.
+        //
+        // The visible part is what the item's clip rect leaves of its bounds, so
+        // it is already implied by the item and does not need sending. Recorded
+        // as a fraction of the image because the size the image is rasterized at
+        // is not known until frame build.
+        //
+        // Only for an image that covers its rect once. When the pattern repeats,
+        // each repetition samples the whole image, so a single fraction of the
+        // prim rect is meaningless.
+        let repeats = stretch_size_for_simplify.width < prim_rect.width()
+            || stretch_size_for_simplify.height < prim_rect.height()
+            || tile_spacing != LayoutSize::zero();
+        let visible = info.clip_rect.intersection_unchecked(&prim_rect);
+        let sub_rect = if repeats
+            || visible.is_empty()
+            || prim_rect.width() <= 0.0
+            || prim_rect.height() <= 0.0
+            || visible.contains_box(&prim_rect)
+        {
+            None
+        } else {
+            let fraction = |v: f32, min: f32, extent: f32| ((v - min) / extent).clamp(0.0, 1.0);
+            Some(SubRectKey {
+                min: api::key_types::PointKey {
+                    x: fraction(visible.min.x, prim_rect.min.x, prim_rect.width()),
+                    y: fraction(visible.min.y, prim_rect.min.y, prim_rect.height()),
+                },
+                max: api::key_types::PointKey {
+                    x: fraction(visible.max.x, prim_rect.min.x, prim_rect.width()),
+                    y: fraction(visible.max.y, prim_rect.min.y, prim_rect.height()),
+                },
+            })
+        };
+
         self.add_primitive(
             spatial_node_index,
             clip_node_id,
@@ -2983,6 +3020,7 @@ impl<'a> SceneBuilder<'a> {
                 color: color.into(),
                 image_rendering,
                 alpha_type,
+                sub_rect,
             },
         );
     }

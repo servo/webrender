@@ -376,6 +376,19 @@ impl<U> From<Size2D<f32, U>> for SizeKey {
     }
 }
 
+/// The visible part of an image, as a fraction of the whole image on each axis,
+/// for use as a fragment of an interning key.
+///
+/// A fraction rather than image pixels because the size the image is finally
+/// rasterized at is not known until frame build, and resolving a pixel rect
+/// against the wrong size scales the primitive rather than just restricting
+/// sampling (bug 1452337, bug 2061491).
+#[derive(Copy, Debug, Clone, MallocSizeOf, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SubRectKey {
+    pub min: PointKey,
+    pub max: PointKey,
+}
+
 /// A hashable image stretch size for use as a fragment of an interning key. The
 /// per-axis `fills_*` flags mean the axis fills the primitive rect (resolved at
 /// frame build); when both are set the stored `size` is normalised to zero so

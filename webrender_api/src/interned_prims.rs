@@ -20,7 +20,7 @@ use crate::{
 use crate::key_types::{
     BorderRadiusAu, ConicGradientParams, GradientStopKey, NinePatchDescriptor,
     NormalBorderAu, PointKey, PrimKeyCommonData, RadialGradientParams, SizeKey, StretchSizeKey,
-    VectorKey,
+    SubRectKey, VectorKey,
 };
 use crate::units::{LayoutSideOffsetsAu, TileOffset};
 use app_units::Au;
@@ -71,6 +71,10 @@ pub struct Image {
     pub color: ColorU,
     pub image_rendering: ImageRendering,
     pub alpha_type: AlphaType,
+    /// The visible part of the image, derived at scene build from the item's
+    /// bounds and clip rect. Restricts sampling so that filtering cannot pull in
+    /// texels outside it, which for a CSS sprite sheet is the neighbouring cell.
+    pub sub_rect: Option<SubRectKey>,
 }
 
 #[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash, Serialize, Deserialize)]
