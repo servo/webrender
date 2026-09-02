@@ -167,6 +167,16 @@ impl QuadTransformState {
         (s.0 * self.device_pixel_scale().0, s.1 * self.device_pixel_scale().0)
     }
 
+    // X and Y scale factors of the local to device transform, or None if the
+    // transform's perspective divide varies across the primitive's plane, where
+    // no single scale factor describes it.
+    pub fn coplanar_scale_factors(&self) -> Option<(f32, f32)> {
+        let (x, y) = self.map_prim_to_raster.coplanar_scale_factors()?;
+        let device_pixel_scale = self.device_pixel_scale().0;
+
+        Some((x * device_pixel_scale, y * device_pixel_scale))
+    }
+
     pub fn prim_spatial_node_index(&self) -> SpatialNodeIndex {
         self.prim_spatial_node
     }

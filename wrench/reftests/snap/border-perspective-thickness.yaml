@@ -1,0 +1,26 @@
+# Bug 2064808: a border under a perspective transform must keep its authored
+# thickness. The snap that fixes bugs 1258112 and 1950029 widens the layout
+# width by 1/scale, which is only meaningful when one device scale describes
+# the whole edge. Under perspective `w` varies across the border box, and the
+# 2d scale factors of the transform (here |cos(45deg)| on the y axis) have no
+# relation to the on-screen thickness: applying them swells the horizontal
+# edges instead of leaving them alone, and the swelling grows without bound as
+# the element tilts away. Expected output is the same outline a plain 1px rect
+# per side produces under the identical transform.
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 300, 300]
+      perspective: 200
+      items:
+        - type: stacking-context
+          bounds: [0, 0, 300, 300]
+          transform: rotate-x(-45)
+          items:
+            - type: border
+              bounds: [20, 20, 100, 100]
+              width: [1, 1, 1, 1]
+              border-type: normal
+              style: solid
+              color: [black, black, black, black]

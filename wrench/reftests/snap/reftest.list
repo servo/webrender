@@ -26,3 +26,8 @@ scale(1.0) == slice-scroll-root-snap.yaml slice-scroll-root-snap-ref.yaml
 scale(1.0) == line-decoration-thickness.yaml line-decoration-thickness-ref.yaml
 scale(1.0) == border-thickness.yaml border-thickness-ref.yaml
 scale(1.0) == border-even-thickness.yaml border-even-thickness-ref.yaml
+
+# Fuzzy at the two top corners: the reference builds its outline from four
+# overlapping rects, so a corner pixel gets its partial antialiased coverage
+# composited twice, while the border draws that corner once.
+fuzzy(96,8) == border-perspective-thickness.yaml border-perspective-thickness-ref.yaml

@@ -1,0 +1,25 @@
+# Expected: a 1px outline of the border box, unwidened, projected through the
+# same perspective transform.
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 300, 300]
+      perspective: 200
+      items:
+        - type: stacking-context
+          bounds: [0, 0, 300, 300]
+          transform: rotate-x(-45)
+          items:
+            - type: rect
+              bounds: [20, 20, 100, 1]
+              color: black
+            - type: rect
+              bounds: [20, 119, 100, 1]
+              color: black
+            - type: rect
+              bounds: [20, 20, 1, 100]
+              color: black
+            - type: rect
+              bounds: [119, 20, 1, 100]
+              color: black
