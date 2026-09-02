@@ -16,13 +16,20 @@ It is a standalone Cargo workspace vendored into the Firefox repository.
 `wrench` is the standalone test/replay harness. Firefox CI reftests are golden
 when they disagree with wrench semantics.
 
-### Running wrench reftests
+### Running wrench
+
+On Linux, first determine whether distrobox is available. Run `distrobox ls`. If it produces an error you are likely sandboxed.
+
+(`cargo build -p wrench`) and hardware `wrench show`/`wrench png` runs do NOT need the distrobox; use the host for iteration, the distrobox only for the reftest suite and reference-PNG generation.
+
+
+### Running wrench reftests with distrobox
+
+The preferred option.
+
 Reftests must run **headless** for deterministic PNGs (OSMesa + llvmpipe at
 scale_factor 1.0) that match CI. This needs the `dev-wrench` distrobox image —
 the host glibc/GL stack will not produce matching pixels. Plain host builds
-(`cargo build -p wrench`) and hardware `wrench show`/`wrench png` runs do NOT
-need the distrobox; use the host for iteration, the distrobox only for the
-reftest suite and reference-PNG generation.
 
 Set the box up once from `ci-scripts/` (defined by `ci-scripts/distrobox.ini`):
 
@@ -59,6 +66,15 @@ full log stays available:
 distrobox enter dev-wrench -- bash -c \
   "cd gfx/wr/wrench && python3 script/headless.py reftest" \
   > artifacts/wrench-reftest.log 2>&1
+```
+
+## Running wrench reftests from a sandbox
+
+If distrobox can't be used, wrench reftests can still be run in headless mode with SWGL:
+
+```
+# in gfx/wr/wrench
+cargo run --features software -- --software --headless reftest <path>
 ```
 
 ## Screenshots of real WebRender output
