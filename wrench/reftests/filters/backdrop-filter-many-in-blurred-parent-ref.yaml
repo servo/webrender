@@ -1,0 +1,64 @@
+# Regression test for bug 2068836: many sibling backdrop-filters inside a
+# blurred parent used to make order_readers_after() walk the filter chain once
+# per path through it, which is exponential in the number of siblings. Before
+# the fix this test does not finish.
+#
+# Inverting the red backdrop gives cyan, so each backdrop-filter should match a
+# cyan rect drawn in its place.
+---
+root:
+  items:
+    - type: stacking-context
+      filters: blur(2,2)
+      items:
+        - type: rect
+          bounds: 0 0 256 256
+          color: red
+        - type: rect
+          bounds: 16 16 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 72 16 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 128 16 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 184 16 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 16 72 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 72 72 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 128 72 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 184 72 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 16 128 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 72 128 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 128 128 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 184 128 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 16 184 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 72 184 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 128 184 24 24
+          color: [0, 255, 255, 1]
+        - type: rect
+          bounds: 184 184 24 24
+          color: [0, 255, 255, 1]
