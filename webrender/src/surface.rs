@@ -9,7 +9,7 @@
 use api::units::*;
 use crate::box_shadow::BLUR_SAMPLE_SCALE;
 use crate::command_buffer::{CommandBufferBuilderKind, CommandBufferList, CommandBufferBuilder, CommandBufferIndex};
-use crate::internal_types::{FastHashMap, Filter};
+use crate::internal_types::{FastHashMap, FastHashSet, Filter};
 use crate::picture_composite_mode::PictureCompositeMode;
 use crate::tile_cache::{TileKey, SubSliceIndex, MAX_COMPOSITOR_SURFACES};
 use crate::prim_store::PictureIndex;
@@ -35,23 +35,30 @@ pub use crate::picture_composite_mode::get_surface_rects;
 ///    sample that one task.
 ///  - SVG filter graph: potentially several, since any node in the graph may
 ///    take SourceGraphic as an input.
-///
-/// Filter chains are small and acyclic, so a plain recursive walk is enough.
 fn order_readers_after(
     rg_builder: &mut RenderTaskGraphBuilder,
     task_id: RenderTaskId,
     src_task_id: RenderTaskId,
     dep_task_id: RenderTaskId,
 ) {
-    let children = rg_builder.get_task(task_id).children.clone();
+    let mut visited = FastHashSet::default();
+    let mut pending = FastHashSet::default();
+    pending.insert(task_id);
 
-    if children.contains(&src_task_id) {
-        rg_builder.add_dependency(task_id, dep_task_id);
-    }
+    while !pending.is_empty() {
+        for task_id in std::mem::take(&mut pending) {
+            visited.insert(task_id);
 
-    for child_id in children {
-        if child_id != src_task_id {
-            order_readers_after(rg_builder, child_id, src_task_id, dep_task_id);
+            let children = rg_builder.get_task(task_id).children.clone();
+
+            if children.contains(&src_task_id) {
+                rg_builder.add_dependency(task_id, dep_task_id);
+            }
+            for child_id in children {
+                if child_id != src_task_id && !visited.contains(&child_id) {
+                    pending.insert(child_id);
+                }
+            }
         }
     }
 }
