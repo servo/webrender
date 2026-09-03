@@ -49,7 +49,7 @@ pub fn prepare_border_image_nine_patch(
     );
 
     for_each_border_image_segment(nine_patch, &desc.pattern_rect, src_image_size, &mut|src_rect, dst_rect, side, stretch_size, spacing, offset| {
-        let segment_src = frame_state.rg_builder.add_sub_rect(src_image.src_task_id, &src_rect.to_f32());
+        let segment_src = frame_state.rg_builder.add_sub_rect(src_image.src_task_id, &src_rect);
 
         let segment_pattern = ImagePattern {
             src_task_id: segment_src,

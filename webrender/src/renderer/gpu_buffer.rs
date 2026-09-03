@@ -545,10 +545,10 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
                     let w = task_target_rect.width() as f32;
                     let h = task_target_rect.height() as f32;
                     [
-                        sub.sub_rect.min.x / w,
-                        sub.sub_rect.min.y / h,
-                        sub.sub_rect.max.x / w,
-                        sub.sub_rect.max.y / h,
+                        sub.sub_rect.min.x as f32 / w,
+                        sub.sub_rect.min.y as f32 / h,
+                        sub.sub_rect.max.x as f32 / w,
+                        sub.sub_rect.max.y as f32 / h,
                     ]
                 } else {
                     [0.0, 0.0, 1.0, 1.0]
@@ -562,7 +562,7 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
                 continue;
             }
 
-            let mut target_rect = render_task.get_target_rect().to_f32();
+            let mut target_rect = render_task.get_target_rect();
             if block.task_id.has_sub_rect() {
                 let sub = &render_tasks.sub_rects[block.task_id.sub_rect_index as usize];
                 target_rect = sub.sub_rect
@@ -570,6 +570,7 @@ impl<T> GpuBufferBuilderImpl<T> where T: Texel + std::convert::From<DeviceIntRec
                     .intersection_unchecked(&target_rect);
             }
 
+            let target_rect = target_rect.to_f32();
             let uv_rect = match render_task.uv_rect_kind() {
                 UvRectKind::Rect => {
                     target_rect

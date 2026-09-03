@@ -39,7 +39,7 @@ pub struct ImageCacheKey {
 // interning keys can reference it. The resolved `StretchSize` below (and its
 // frame-build `resolve`) stay here. Re-exported to keep existing references
 // working.
-pub use api::key_types::{StretchSizeKey, SubRectKey};
+pub use api::key_types::StretchSizeKey;
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -91,7 +91,6 @@ pub struct ImageData {
     pub color: ColorF,
     pub image_rendering: ImageRendering,
     pub alpha_type: AlphaType,
-    pub sub_rect: Option<SubRectKey>,
 }
 
 impl From<Image> for ImageData {
@@ -103,7 +102,6 @@ impl From<Image> for ImageData {
             tile_spacing: image.tile_spacing.into(),
             image_rendering: image.image_rendering,
             alpha_type: image.alpha_type,
-            sub_rect: image.sub_rect,
         }
     }
 }
@@ -200,79 +198,6 @@ pub fn prepare_image_quads(
                 }
             }
 
-            // Restrict sampling to the visible part of the image, so that
-            // filtering at the edges of a sprite-sheet cell cannot pull in the
-            // neighbouring cells.
-            //
-            // The restriction is a fraction of the image, resolved here because
-            // this is the first point that knows `size`, the size the image is
-            // actually rasterized at. Resolving it anywhere earlier -- against
-            // the size the caller happened to ask for -- reads the sub-rect at
-            // the wrong scale (bug 2061491).
-            //
-            // `add_sub_rect` narrows the one rect the shader uses for both the
-            // uv mapping and the sample bounds, so the pattern has to be
-            // situated on the sub-rect's destination rather than on the whole
-            // image, or the sub-rect would be stretched over the primitive.
-            // This is the same trick that `prepare_repeatable_quad` uses to
-            // bake a stretch size into the pattern rect.
-            let mut pattern_rect = prim_rect;
-            let mut stretch_size = stretch_size;
-            if let Some(sub_frac) = image_data.sub_rect {
-                // Resolve one axis of the fraction to texels, snapped out to
-                // whole texels. A sub-texel edge leaves the shader's half-texel
-                // clamp inside a texel, which pins sampling part-way across it
-                // and shifts the image against the pixels actually drawn.
-                //
-                // Round-tripping the edge through a fraction costs a few ULP at
-                // the scale of `extent`, which lands a whole-texel edge just off
-                // the integer. Snap those back before expanding, or the expansion
-                // would take in a texel of the neighbouring cell -- the bleed
-                // this is here to prevent. Layout cannot place a real edge that
-                // close to a boundary: one app unit is 1/60 of a CSS pixel,
-                // orders of magnitude coarser than this tolerance.
-                //
-                // The visible part can also be a vanishingly small fraction of a
-                // huge destination (`background-size: 2147483640px`), so keep at
-                // least a whole texel: below that the half-texel clamp inverts.
-                let axis = |min: f32, max: f32, extent: i32| {
-                    let extent = extent as f32;
-                    let tolerance = 4.0 * extent * f32::EPSILON;
-                    let snap = |v: f32| {
-                        let rounded = v.round();
-                        if (v - rounded).abs() <= tolerance { rounded } else { v }
-                    };
-                    let mut lo = snap((min * extent).max(0.0)).floor();
-                    let mut hi = snap((max * extent).min(extent)).ceil();
-                    if hi - lo < 1.0 {
-                        lo = lo.min(extent - 1.0).max(0.0);
-                        hi = (lo + 1.0).min(extent);
-                    }
-                    (lo, hi)
-                };
-                let (x0, x1) = axis(sub_frac.min.x, sub_frac.max.x, size.width);
-                let (y0, y1) = axis(sub_frac.min.y, sub_frac.max.y, size.height);
-                let sub_rect = DeviceRect {
-                    min: point2(x0, y0),
-                    max: point2(x1, y1),
-                };
-
-                if !sub_rect.is_empty() {
-                    src_task_id = frame_state.rg_builder.add_sub_rect(src_task_id, &sub_rect);
-
-                    // Where that part of the image lands. Derived from the same
-                    // texel rect the shader samples, so no rounding difference
-                    // between the two can displace or crop the image.
-                    let sx = stretch_size.width / size.width as f32;
-                    let sy = stretch_size.height / size.height as f32;
-                    pattern_rect = LayoutRect {
-                        min: point2(prim_rect.min.x + x0 * sx, prim_rect.min.y + y0 * sy),
-                        max: point2(prim_rect.min.x + x1 * sx, prim_rect.min.y + y1 * sy),
-                    };
-                    stretch_size = pattern_rect.size();
-                }
-            }
-
             let image_pattern = ImagePattern {
                 src_task_id,
                 src_is_opaque,
@@ -284,11 +209,7 @@ pub fn prepare_image_quads(
             quad::prepare_repeatable_quad(
                 &image_pattern,
                 &QuadDescriptor {
-                    // Coverage stays on the prim rect. The pattern rect only
-                    // situates the image's uv mapping, so deriving coverage
-                    // from it would let a sub-texel rounding difference
-                    // between the two crop the primitive.
-                    pattern_rect,
+                    pattern_rect: prim_rect,
                     bounds: tight_clip_rect.intersection_unchecked(&prim_rect),
                     aligned_aa_edges: common_data.aligned_aa_edges,
                     transformed_aa_edges: common_data.transformed_aa_edges,
@@ -674,9 +595,9 @@ fn test_struct_sizes() {
     //     test expectations and move on.
     // (b) You made a structure larger. This is not necessarily a problem, but should only
     //     be done with care, and after checking if talos performance regresses badly.
-    assert_eq!(mem::size_of::<Image>(), 56, "Image size changed");
-    assert_eq!(mem::size_of::<ImageTemplate>(), 72, "ImageTemplate size changed");
-    assert_eq!(mem::size_of::<ImageKey>(), 60, "ImageKey size changed");
+    assert_eq!(mem::size_of::<Image>(), 36, "Image size changed");
+    assert_eq!(mem::size_of::<ImageTemplate>(), 52, "ImageTemplate size changed");
+    assert_eq!(mem::size_of::<ImageKey>(), 40, "ImageKey size changed");
     assert_eq!(mem::size_of::<YuvImage>(), 32, "YuvImage size changed");
     assert_eq!(mem::size_of::<YuvImageTemplate>(), 72, "YuvImageTemplate size changed");
     assert_eq!(mem::size_of::<YuvImageKey>(), 36, "YuvImageKey size changed");

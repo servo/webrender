@@ -232,11 +232,7 @@ pub struct Pass {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TaskSubRect {
-    /// Sub-region of the source task to sample, in texels. Fractional because
-    /// it is derived from a fraction of the source image, and quantizing it to
-    /// whole texels would either admit a neighbouring sprite-sheet cell or crop
-    /// the visible one.
-    pub sub_rect: DeviceRect,
+    pub sub_rect: DeviceIntRect,
     source_task: RenderTaskId,
     uv_address: GpuBufferAddress,
 }
@@ -386,7 +382,7 @@ impl RenderTaskGraphBuilder {
         self.roots.remove(&input);
     }
 
-    pub fn add_sub_rect(&mut self, source_task: RenderTaskId, sub_rect: &DeviceRect) -> RenderTaskId {
+    pub fn add_sub_rect(&mut self, source_task: RenderTaskId, sub_rect: &DeviceIntRect) -> RenderTaskId {
         assert!(self.sub_rects.len() < u16::MAX as usize);
         if source_task == RenderTaskId::INVALID {
             return RenderTaskId::INVALID;
@@ -837,14 +833,14 @@ impl RenderTaskGraphBuilder {
         graph.sub_rects.reserve(self.sub_rects.len());
         for item in self.sub_rects.drain(..) {
             let task = &graph.tasks[item.source_task.index()];
-            let task_rect = task.get_target_rect().to_f32();
+            let task_rect = task.get_target_rect();
             let rect = item.sub_rect
                 .translate(task_rect.min.to_vector())
                 .intersection_unchecked(&task_rect);
 
             let image_source = ImageSource {
-                p0: rect.min,
-                p1: rect.max,
+                p0: rect.min.to_f32(),
+                p1: rect.max.to_f32(),
                 user_data: [0.0; 4],
                 uv_rect_kind: task.uv_rect_kind,
             };
