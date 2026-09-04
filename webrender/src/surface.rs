@@ -124,6 +124,27 @@ fn resolve_dest_to_src_raster(
     }
 }
 
+/// The spatial node that visibility, clipping, dirty-region and invalidation
+/// calculations for a surface are performed relative to.
+///
+/// Everything downstream treats `VisPixel` as the local space of the returned
+/// node, so a surface's culling rect and every primitive or clip rect projected
+/// for a culling decision must be built against the same node.
+///
+/// This is the root reference frame rather than the surface's own raster node,
+/// which means content drawn into an off-screen surface is culled against a
+/// region of the screen rather than a region of that surface's render target.
+/// Moving it to the raster node is the point of the migration described in
+/// `plan-wr-culling-in-raster-space.md`; this is the one place that decides.
+pub fn visibility_node(
+    raster_spatial_node_index: SpatialNodeIndex,
+    spatial_tree: &SpatialTree,
+) -> SpatialNodeIndex {
+    debug_assert_ne!(raster_spatial_node_index, SpatialNodeIndex::INVALID);
+
+    spatial_tree.root_reference_frame_index()
+}
+
 /// Maximum blur radius for blur filter
 const MAX_BLUR_RADIUS: f32 = 100.;
 
@@ -259,8 +280,8 @@ impl SurfaceInfo {
             pic_bounds,
         );
 
-        // TODO: replace the root with raster space.
-        let visibility_spatial_node_index = spatial_tree.root_reference_frame_index();
+        let visibility_spatial_node_index =
+            visibility_node(raster_spatial_node_index, spatial_tree);
 
         SurfaceInfo {
             unclipped_local_rect: PictureRect::zero(),
@@ -325,8 +346,7 @@ impl SurfaceInfo {
             if *should_inflate {
                 // Space mapping vis <-> picture space
                 let map_surface_to_vis = SpaceMapper::new_with_target(
-                    // TODO: switch from root to raster space.
-                    frame_context.root_spatial_node_index,
+                    self.visibility_spatial_node_index,
                     self.surface_spatial_node_index,
                     parent_culling_rect,
                     frame_context.spatial_tree,

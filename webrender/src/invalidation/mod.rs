@@ -66,6 +66,12 @@ impl DirtyRegion {
         rect_in_pic_space: PictureRect,
         spatial_tree: &SpatialTree,
     ) {
+        debug_assert_ne!(
+            self.visibility_spatial_node,
+            SpatialNodeIndex::INVALID,
+            "dirty region used before being targeted for this frame",
+        );
+
         let map_pic_to_raster = SpaceMapper::new_with_target(
             self.visibility_spatial_node,
             self.local_spatial_node,

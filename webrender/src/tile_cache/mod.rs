@@ -211,8 +211,6 @@ pub struct TileCacheParams {
     pub slice_flags: SliceFlags,
     // The anchoring spatial node / scroll root
     pub spatial_node_index: SpatialNodeIndex,
-    // The space in which visibility/invalidation/clipping computations are done.
-    pub visibility_node_index: SpatialNodeIndex,
     // Optional background color of this tilecache. If present, can be used as an optimization
     // to enable opaque blending and/or subpixel AA in more places.
     pub background_color: Option<ColorF>,
@@ -763,7 +761,9 @@ pub struct TileCacheInstance {
     pub sub_slices: Vec<SubSlice>,
     /// The positioning node for this tile cache.
     pub spatial_node_index: SpatialNodeIndex,
-    /// The coordinate space to do visibility/clipping/invalidation in.
+    /// The coordinate space to do visibility/clipping/invalidation in, resolved
+    /// each frame in `pre_update` from the tile cache's surface. `INVALID`
+    /// before the first `pre_update` of a frame.
     pub visibility_node_index: SpatialNodeIndex,
     /// List of opacity bindings, with some extra information
     /// about whether they changed since last frame.
@@ -878,13 +878,14 @@ impl TileCacheInstance {
             slice: params.slice,
             slice_flags: params.slice_flags,
             spatial_node_index: params.spatial_node_index,
-            visibility_node_index: params.visibility_node_index,
+            visibility_node_index: SpatialNodeIndex::INVALID,
             sub_slices,
             opacity_bindings: FastHashMap::default(),
             old_opacity_bindings: FastHashMap::default(),
             color_bindings: FastHashMap::default(),
             old_color_bindings: FastHashMap::default(),
-            dirty_region: DirtyRegion::new(params.visibility_node_index, params.spatial_node_index),
+            // Re-targeted every frame by `post_update` before anything reads it.
+            dirty_region: DirtyRegion::new(SpatialNodeIndex::INVALID, params.spatial_node_index),
             tile_size: PictureSize::zero(),
             tile_rect: TileRect::zero(),
             tile_bounds_p0: TileOffset::zero(),
@@ -1069,6 +1070,7 @@ impl TileCacheInstance {
         let pic_rect = surface.unclipped_local_rect;
 
         self.surface_index = surface_index;
+        self.visibility_node_index = surface.visibility_spatial_node_index;
         self.local_rect = pic_rect;
         self.local_clip_rect = PictureRect::max_rect();
         self.deferred_dirty_tests.clear();
@@ -3001,10 +3003,7 @@ impl TileCacheInstance {
     ) {
         assert!(self.current_surface_traversal_depth == 0);
 
-        // TODO: Switch from the root node ot raster space.
-        let visibility_node = frame_context.spatial_tree.root_reference_frame_index();
-
-        self.dirty_region.reset(visibility_node, self.spatial_node_index);
+        self.dirty_region.reset(self.visibility_node_index, self.spatial_node_index);
         self.subpixel_mode = self.calculate_subpixel_mode();
 
         self.transform_index = composite_state.register_transform(
