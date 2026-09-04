@@ -118,12 +118,6 @@ pub struct VisPixel;
 
 pub type VisRect = Box2D<f32, VisPixel>;
 
-/// TODO: Remove this once visibility rects have moved to raster space.
-pub fn vis_rect_as_world(r: VisRect) -> WorldRect {
-    r.cast_unit()
-}
-
-
 /// Offset in number of tiles.
 #[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Tiles;
