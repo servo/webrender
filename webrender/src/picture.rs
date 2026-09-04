@@ -877,8 +877,6 @@ impl PictureInstance {
         let context = PictureContext {
             pic_index,
             raster_spatial_node_index: frame_state.surfaces[surface_index.0].raster_spatial_node_index,
-            // TODO: switch the visibility spatial node from the root to raster space.
-            visibility_spatial_node_index: frame_context.root_spatial_node_index,
             surface_spatial_node_index,
             surface_index,
             dirty_region_count,
