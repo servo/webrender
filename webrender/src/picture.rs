@@ -741,14 +741,6 @@ impl PictureInstance {
             frame_context.spatial_tree,
         );
 
-        let map_pic_to_vis = SpaceMapper::new_with_target(
-            // TODO: switch from root to raster space.
-            frame_context.root_spatial_node_index,
-            surface_spatial_node_index,
-            surface.culling_rect,
-            frame_context.spatial_tree,
-        );
-
         // TODO: When moving VisRect to raster space, compute the picture
         // bounds by projecting the parent surface's culling rect into the
         // current surface's raster space.
@@ -854,7 +846,7 @@ impl PictureInstance {
 
         let state = PictureState {
             map_local_to_pic,
-            map_pic_to_vis,
+            map_pic_to_device,
         };
 
         let mut dirty_region_count = 0;
