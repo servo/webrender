@@ -1064,7 +1064,7 @@ impl TileCacheInstance {
         surface_index: SurfaceIndex,
         frame_context: &FrameVisibilityContext,
         frame_state: &mut FrameVisibilityState,
-    ) -> DeviceRect {
+    ) {
         let surface = &frame_state.surfaces[surface_index.0];
         let pic_rect = surface.unclipped_local_rect;
 
@@ -1481,8 +1481,6 @@ impl TileCacheInstance {
         self.tile_bounds_p1 = TileOffset::new(x1, y1);
         self.tile_rect = new_tile_rect;
 
-        let mut root_culling_rect = DeviceRect::zero();
-
         let mut ctx = TilePreUpdateContext {
             pic_to_device_mapper: pic_to_root_mapper,
             background_color: self.background_color,
@@ -1498,22 +1496,6 @@ impl TileCacheInstance {
         for sub_slice in &mut self.sub_slices {
             for tile in sub_slice.tiles.values_mut() {
                 tile.pre_update(&ctx);
-
-                // Only include the tiles that are currently in view into the device culling
-                // rect. This is a very important optimization for a couple of reasons:
-                // (1) Primitives that intersect with tiles in the grid that are not currently
-                //     visible can be skipped from primitive preparation, clip chain building
-                //     and tile dependency updates.
-                // (2) When we need to allocate an off-screen surface for a child picture (for
-                //     example a CSS filter) we clip the size of the GPU surface to the device
-                //     culling rect below (to ensure we draw enough of it to be sampled by any
-                //     tiles that reference it). Making the device culling rect only affected
-                //     by visible tiles (rather than the entire virtual tile display port) can
-                //     result in allocating _much_ smaller GPU surfaces for cases where the
-                //     true off-screen surface size is very large.
-                if tile.is_visible {
-                    root_culling_rect = root_culling_rect.union(&tile.device_tile_rect);
-                }
             }
 
             // The background color can only be applied to the first sub-slice.
@@ -1559,8 +1541,6 @@ impl TileCacheInstance {
                 }
             }
         }
-
-        root_culling_rect
     }
 
     fn can_promote_to_surface(

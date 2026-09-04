@@ -247,7 +247,6 @@ impl PrimitiveDrawHeader {
 pub fn update_prim_visibility(
     pic_index: PictureIndex,
     parent_surface_index: Option<SurfaceIndex>,
-    root_culling_rect: &DeviceRect,
     store: &PrimitiveStore,
     is_root_tile_cache: bool,
     frame_context: &FrameVisibilityContext,
@@ -422,7 +421,6 @@ pub fn update_prim_visibility(
                 update_prim_visibility(
                     pic_index,
                     Some(surface_index),
-                    root_culling_rect,
                     store,
                     false,
                     frame_context,
