@@ -79,7 +79,7 @@ use crate::prim_store::borders::ImageBorder;
 use crate::prim_store::gradient::{
     GradientStopKey,
 };
-use crate::prim_store::image::{Image, StretchSizeKey, YuvImage};
+use crate::prim_store::image::{Image, StretchSizeKey, SubRectKey, YuvImage};
 use crate::prim_store::line_dec::LineDecoration;
 use crate::prim_store::picture::{Picture, PictureKey};
 use crate::picture_composite_mode::{PictureCompositeKey, PictureCompositeMode};
@@ -2938,6 +2938,53 @@ impl<'a> SceneBuilder<'a> {
             .. *info
         };
 
+        // Only part of the image may be visible, as with a CSS sprite sheet
+        // positioned by a negative background-position. Restrict sampling to
+        // that part, so that filtering cannot pull in the neighbouring cells.
+        //
+        // The visible part is what the item's clip rect leaves of its bounds, so
+        // it is already implied by the item and does not need sending. Recorded
+        // as a fraction of the image because the size the image is rasterized at
+        // is not known until frame build.
+        //
+        // Only for an image that covers its rect once. When the pattern repeats,
+        // each repetition samples the whole image, so a single fraction is
+        // meaningless.
+        let repeats = stretch.width < prim_rect.width()
+            || stretch.height < prim_rect.height()
+            || tile_spacing != LayoutSize::zero();
+        // The image is mapped onto the stretch size anchored at the prim rect's
+        // origin, which is not the prim rect: Gecko trims the rect of a
+        // repeating background to the fill area while leaving the origin on the
+        // first tile, so it can be narrower than one repetition (bug 2068996).
+        // Take the fraction of this rect, the same rect `prepare_image_quads`
+        // resolves the fraction back against.
+        let image_rect = LayoutRect::from_origin_and_size(
+            prim_rect.min,
+            stretch,
+        );
+        let visible = info.clip_rect.intersection_unchecked(&prim_rect);
+        let sub_rect = if repeats
+            || visible.is_empty()
+            || image_rect.width() <= 0.0
+            || image_rect.height() <= 0.0
+            || visible.contains_box(&prim_rect)
+        {
+            None
+        } else {
+            let fraction = |v: f32, min: f32, extent: f32| ((v - min) / extent).clamp(0.0, 1.0);
+            Some(SubRectKey {
+                min: api::key_types::PointKey {
+                    x: fraction(visible.min.x, image_rect.min.x, image_rect.width()),
+                    y: fraction(visible.min.y, image_rect.min.y, image_rect.height()),
+                },
+                max: api::key_types::PointKey {
+                    x: fraction(visible.max.x, image_rect.min.x, image_rect.width()),
+                    y: fraction(visible.max.y, image_rect.min.y, image_rect.height()),
+                },
+            })
+        };
+
         self.add_primitive(
             spatial_node_index,
             clip_node_id,
@@ -2949,6 +2996,7 @@ impl<'a> SceneBuilder<'a> {
                 color: color.into(),
                 image_rendering,
                 alpha_type,
+                sub_rect,
             },
         );
     }

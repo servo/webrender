@@ -1,0 +1,6 @@
+# Sampling is restricted to the one grey texel the visible part covers, so the
+# visible area is uniform.
+root:
+  items:
+    - image: solid-color(127, 127, 127, 255, 16, 16)
+      bounds: 360 360 40 40

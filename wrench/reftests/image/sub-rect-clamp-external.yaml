@@ -1,0 +1,10 @@
+# Same as sub-rect-clamp.yaml, but the sheet is an external image. External
+# images resolve their uv rect in the renderer, so the sub-rect cannot be baked
+# in at frame build and travels as a fraction through DeferredUvCopy instead.
+# That is the path Android video (SurfaceTexture) takes. See bug 1452337.
+root:
+  items:
+    - image: checkerboard(0, 16, 16, 3, 3)
+      bounds: [-40, -40, 120, 120]
+      clip-rect: [0, 0, 40, 40]
+      external: true

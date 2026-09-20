@@ -32,3 +32,6 @@ scale(*) fuzzy(130,1800) == snapshot-perspective-01.yaml snapshot-perspective-01
 scale(*) == snapshot-complex-clip.yaml snapshot-complex-clip-ref.yaml
 scale(*) == stretch-size-01.yaml stretch-size-01-ref.yaml
 == one-to-one-fractional-extent.yaml one-to-one-fractional-extent-ref.yaml
+scale(*) == sub-rect-clamp.yaml sub-rect-clamp-ref.yaml
+platform(linux,mac) == sub-rect-clamp-external.yaml sub-rect-clamp-ref.yaml
+scale(*) == sub-rect-trimmed-bounds.yaml sub-rect-trimmed-bounds-ref.yaml

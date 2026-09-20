@@ -1,0 +1,17 @@
+# The sub-rect fraction is measured against the stretch size, not the primitive
+# rect. Gecko trims the rect of a repeating background to the fill area while
+# leaving its origin on the first tile, so the rect can be much narrower than
+# one repetition and dividing by it reads the fraction at the wrong scale.
+#
+# One repetition here is 3600 and the rect is 400, so the rect reads the
+# fraction 9x too large. The visible part is 360..400 of the repetition, i.e.
+# texels 2..3 of the 20x20 sheet, which is grey. Measured against the rect it
+# saturates to texels 18..20 -- the sheet's blue border -- painting the whole
+# visible area one flat wrong colour. That is how bug 2069245 appeared as a
+# black square over the content, and it is the same defect as bug 2068996.
+root:
+  items:
+    - image: checkerboard(2, 1, 1, 16, 16)
+      bounds: 0 0 400 400
+      stretch-size: 3600 3600
+      clip-rect: [360, 360, 40, 40]
