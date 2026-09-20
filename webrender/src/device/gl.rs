@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::super::shader_source::{OPTIMIZED_SHADERS, UNOPTIMIZED_SHADERS};
-use super::query_gl::{GpuDebugMethod, GpuProfiler};
+use super::query::{GpuProfiler, GpuQueryBackend, GpuQueryId, GpuQueryKind};
 use api::{ImageDescriptor, ImageFormat, Parameter, BoolParameter, IntParameter, ImageRendering};
 use api::{ExternalTextureHandle, MixBlendMode, ImageBufferKind, VoidPtrToSizeFn};
 use crate::composite::NativeSurfaceHandle;
@@ -262,6 +262,79 @@ fn get_gl_target(target: ImageBufferKind) -> gl::GLuint {
 
 fn supports_extension(extensions: &[String], extension: &str) -> bool {
     extensions.iter().any(|s| s == extension)
+}
+
+/// Which GL extension, if any, annotates the command stream for the GPU
+/// profiler.
+#[derive(Copy, Clone, Debug)]
+enum GpuDebugMethod {
+    None,
+    MarkerEXT,
+    KHR,
+}
+
+/// GPU queries and markers on a GL context.
+struct GlQueries {
+    gl: Rc<dyn gl::Gl>,
+    debug_method: GpuDebugMethod,
+}
+
+impl GpuQueryBackend for GlQueries {
+    fn create_queries(&self, count: usize) -> Vec<GpuQueryId> {
+        self.gl.gen_queries(count as gl::GLsizei).into_iter().map(GpuQueryId).collect()
+    }
+
+    fn delete_queries(&self, queries: &[GpuQueryId]) {
+        let ids: Vec<gl::GLuint> = queries.iter().map(|q| q.0).collect();
+        self.gl.delete_queries(&ids);
+    }
+
+    fn begin_query(&self, kind: GpuQueryKind, query: GpuQueryId) {
+        self.gl.begin_query(gl_query_target(kind), query.0);
+    }
+
+    fn end_query(&self, kind: GpuQueryKind) {
+        self.gl.end_query(gl_query_target(kind));
+    }
+
+    fn query_result(&self, query: GpuQueryId) -> u64 {
+        self.gl.get_query_object_ui64v(query.0, gl::QUERY_RESULT)
+    }
+
+    fn supports_markers(&self) -> bool {
+        !matches!(self.debug_method, GpuDebugMethod::None)
+    }
+
+    fn push_marker_group(&self, label: &str) {
+        match self.debug_method {
+            GpuDebugMethod::KHR => self.gl.push_debug_group_khr(gl::DEBUG_SOURCE_APPLICATION, 0, label),
+            GpuDebugMethod::MarkerEXT => self.gl.push_group_marker_ext(label),
+            GpuDebugMethod::None => {}
+        }
+    }
+
+    fn pop_marker_group(&self) {
+        match self.debug_method {
+            GpuDebugMethod::KHR => self.gl.pop_debug_group_khr(),
+            GpuDebugMethod::MarkerEXT => self.gl.pop_group_marker_ext(),
+            GpuDebugMethod::None => {}
+        }
+    }
+
+    fn insert_marker(&self, label: &str) {
+        match self.debug_method {
+            GpuDebugMethod::KHR => self.gl.debug_message_insert_khr(gl::DEBUG_SOURCE_APPLICATION, gl::DEBUG_TYPE_MARKER, 0, gl::DEBUG_SEVERITY_NOTIFICATION, label),
+            GpuDebugMethod::MarkerEXT => self.gl.insert_event_marker_ext(label),
+            GpuDebugMethod::None => {}
+        }
+    }
+}
+
+fn gl_query_target(kind: GpuQueryKind) -> gl::GLenum {
+    match kind {
+        GpuQueryKind::TimeElapsed => gl::TIME_ELAPSED,
+        GpuQueryKind::SamplesPassed => gl::SAMPLES_PASSED,
+    }
 }
 
 fn get_shader_version(gl: &dyn gl::Gl) -> ShaderVersion {
@@ -2293,7 +2366,7 @@ impl Device {
 
         info!("using {:?}", debug_method);
 
-        GpuProfiler::new(Rc::clone(&self.gl), debug_method)
+        GpuProfiler::new(Rc::new(GlQueries { gl: Rc::clone(&self.gl), debug_method }))
     }
 
     pub fn set_parameter(&mut self, param: &Parameter) {
