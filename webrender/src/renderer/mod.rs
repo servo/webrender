@@ -3929,7 +3929,6 @@ impl Renderer {
 
         self.device.set_depth_write(false);
         self.set_blend_mode(BlendMode::None, FramebufferKind::Other);
-        self.device.disable_stencil();
 
         self.bind_frame_data(frame);
 
