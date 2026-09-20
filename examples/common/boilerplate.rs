@@ -250,7 +250,7 @@ impl<'a, E: Example> ApplicationHandler for App<'a, E> {
         };
         let notifier = Box::new(Notifier::new(self.proxy.clone()));
         let (mut renderer, sender) = webrender::create_webrender_instance(
-            gl.clone(),
+            webrender::GpuBackendConfig::Gl(gl.clone()),
             notifier,
             opts,
             None,

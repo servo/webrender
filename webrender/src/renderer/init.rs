@@ -15,7 +15,7 @@ use crate::render_backend_pool::{PoolMemberSetup, RenderBackendPool};
 use crate::scene_builder_thread::SceneBuilderRequest;
 use crate::composite::{CompositorKind, CompositorConfig};
 use crate::device::{
-    DeviceOptions, UploadMethod, UploadBufferPool, VertexUsageHint, Device, ProgramCache, TextureFilter
+    DeviceOptions, GpuBackendConfig, UploadMethod, UploadBufferPool, VertexUsageHint, Device, ProgramCache, TextureFilter
 };
 use crate::frame_builder::FrameBuilderConfig;
 use glyph_rasterizer::{GlyphRasterThread, SharedFontResources};
@@ -24,7 +24,6 @@ use crate::internal_types::{FastHashMap, FastHashSet};
 use crate::profiler::{self, Profiler, TransactionProfile};
 use crate::render_backend::RenderBackend;
 use crate::texture_cache::TextureCacheConfig;
-use gleam::gl;
 use crate::renderer::{
     debug, vertex,
     debug::DebugOverlayState,
@@ -326,7 +325,7 @@ impl Default for WebRenderOptions {
 /// ```
 /// [WebRenderOptions]: struct.WebRenderOptions.html
 pub fn create_webrender_instance(
-    gl: Rc<dyn gl::Gl>,
+    backend: GpuBackendConfig,
     notifier: Box<dyn RenderNotifier>,
     mut options: WebRenderOptions,
     shaders: Option<&SharedShaders>,
@@ -361,7 +360,7 @@ pub fn create_webrender_instance(
     let (result_tx, result_rx) = unbounded_channel();
 
     let mut device = Device::new(
-        gl,
+        backend,
         DeviceOptions {
             crash_annotator: options.crash_annotator.clone(),
             resource_override_path: options.resource_override_path.clone(),

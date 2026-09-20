@@ -352,7 +352,7 @@ impl Wrench {
 
         let gl = window.clone_gl();
         let (renderer, sender) = webrender::create_webrender_instance(
-            gl.clone(),
+            webrender::GpuBackendConfig::Gl(gl.clone()),
             notifier,
             opts,
             None,

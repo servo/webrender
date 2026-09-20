@@ -16,17 +16,14 @@ const GL_BACKEND: &str = "device/gl.rs";
 
 /// Files outside the GL backend that still reference GL. Remove entries as
 /// the leaks are fixed. Do not add new entries.
-const ALLOWLIST: &[&str] = &[
-    "lib.rs",
-    "renderer/init.rs",
-    // Constructs the GL backend from the embedder's GL context.
-    "device/mod.rs",
-];
+const ALLOWLIST: &[&str] = &[];
 
 /// Files that are GL-specific by design and are never expected to be cleaned up.
 const PERMANENT_ALLOWLIST: &[&str] = &[
     // The SWGL compositor drives the software GL implementation directly.
     "compositor/sw_compositor.rs",
+    // Selects the backend, so it names the native context type of each one.
+    "device/mod.rs",
 ];
 
 fn is_ident_char(c: u8) -> bool {

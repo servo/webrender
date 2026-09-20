@@ -36,6 +36,14 @@ pub use self::gl::*;
 pub use self::types::*;
 pub use self::upload::*;
 
+/// The graphics API a device runs on, together with what the backend needs
+/// from the embedder to drive it.
+pub enum GpuBackendConfig {
+    /// OpenGL or OpenGL ES through the given context, which must be current
+    /// on the render thread.
+    Gl(Rc<dyn gleam::gl::Gl>),
+}
+
 /// A graphics API backend. Resources are created and destroyed through it,
 /// and all drawing happens inside a render pass with a pipeline bound.
 ///
@@ -480,9 +488,12 @@ impl DerefMut for Device {
 }
 
 impl Device {
-    pub fn new(gl: Rc<dyn gleam::gl::Gl>, options: DeviceOptions) -> Device {
+    pub fn new(config: GpuBackendConfig, options: DeviceOptions) -> Device {
+        let backend: Box<dyn GpuBackend> = match config {
+            GpuBackendConfig::Gl(gl) => Box::new(GlDevice::new(gl, options)),
+        };
         Device {
-            backend: Box::new(GlDevice::new(gl, options)),
+            backend,
             pending_state: RenderState::default(),
             #[cfg(debug_assertions)]
             pipeline_bound: false,

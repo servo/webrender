@@ -211,7 +211,6 @@ extern crate bincode;
 extern crate byteorder;
 pub extern crate euclid;
 extern crate rustc_hash;
-extern crate gleam;
 extern crate num_traits;
 extern crate plane_split;
 extern crate rayon;
@@ -234,7 +233,7 @@ pub use crate::composite::{NativeSurfaceId, NativeTileId, NativeSurfaceHandle, N
 pub use crate::composite::{MappableCompositor, MappedTileInfo, SWGLCompositeSurfaceInfo, WindowVisibility, WindowProperties};
 pub use crate::device::{UploadMethod, VertexUsageHint, get_unoptimized_shader_source};
 pub use crate::device::{ProgramBinary, ProgramCache, ProgramCacheObserver, ShaderError};
-pub use crate::device::{Device, DeviceOptions, GraphicsApi, GraphicsApiInfo};
+pub use crate::device::{Device, DeviceOptions, GpuBackendConfig, GraphicsApi, GraphicsApiInfo};
 pub use crate::profiler::{ProfilerHooks, set_profiler_hooks};
 pub use crate::renderer::{
     CpuProfile, DebugFlags, GpuProfile,
