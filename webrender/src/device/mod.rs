@@ -10,6 +10,8 @@
 
 mod gl;
 pub mod query;
+mod types;
+mod upload;
 
 use api::{ExternalTextureHandle, ImageBufferKind, ImageDescriptor, ImageFormat, Parameter};
 use api::units::*;
@@ -31,6 +33,8 @@ use crate::render_api::MemoryReport;
 use self::query::GpuProfiler;
 
 pub use self::gl::*;
+pub use self::types::*;
+pub use self::upload::*;
 
 /// A graphics API backend. Resources are created and destroyed through it,
 /// and all drawing happens inside a render pass with a pipeline bound.

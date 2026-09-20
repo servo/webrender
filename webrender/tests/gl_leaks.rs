@@ -2,22 +2,25 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-//! Guards against OpenGL knowledge leaking out of the device layer.
+//! Guards against OpenGL knowledge leaking out of the GL backend.
 //!
 //! Scans the crate for references to `gleam` or the `gl::` module outside
-//! `src/device/`. Files that still have them must be listed in `ALLOWLIST`.
-//! A stale entry fails the test too, so the list only shrinks.
+//! `src/device/gl.rs`. Files that still have them must be listed in
+//! `ALLOWLIST`. A stale entry fails the test too, so the list only shrinks.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const DEVICE_DIR: &str = "device";
+/// The GL backend, the only file allowed to use GL.
+const GL_BACKEND: &str = "device/gl.rs";
 
-/// Files outside the device layer that still reference GL. Remove entries as
+/// Files outside the GL backend that still reference GL. Remove entries as
 /// the leaks are fixed. Do not add new entries.
 const ALLOWLIST: &[&str] = &[
     "lib.rs",
     "renderer/init.rs",
+    // Constructs the GL backend from the embedder's GL context.
+    "device/mod.rs",
 ];
 
 /// Files that are GL-specific by design and are never expected to be cleaned up.
@@ -75,7 +78,7 @@ fn gl_does_not_leak_outside_device_layer() {
             .unwrap()
             .replace('\\', "/");
 
-        if rel.starts_with(&format!("{}/", DEVICE_DIR)) {
+        if rel == GL_BACKEND {
             continue;
         }
 
@@ -112,9 +115,9 @@ fn gl_does_not_leak_outside_device_layer() {
 
     assert!(
         unexpected.is_empty(),
-        "GL references found outside src/{}/. Route them through the Device API \
-         instead of adding to the allowlist:\n{}",
-        DEVICE_DIR,
+        "GL references found outside src/{}. Route them through the GpuBackend \
+         trait instead of adding to the allowlist:\n{}",
+        GL_BACKEND,
         unexpected.join("\n"),
     );
 
