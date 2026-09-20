@@ -3430,7 +3430,7 @@ impl Renderer {
         }
 
         if needs_depth {
-            self.device.reuse_render_target::<u8>(
+            self.device.reuse_render_target(
                 texture,
                 RenderTargetInfo { has_depth: needs_depth },
             );

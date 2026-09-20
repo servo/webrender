@@ -1030,13 +1030,6 @@ impl VertexUsageHint {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct UniformLocation(#[allow(dead_code)] gl::GLint);
-
-impl UniformLocation {
-    pub const INVALID: Self = UniformLocation(-1);
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum GraphicsApi {
     OpenGL,
@@ -2355,7 +2348,7 @@ impl Device {
         }
     }
 
-    pub fn depth_bits(&self) -> i32 {
+    fn depth_bits(&self) -> i32 {
         match self.depth_format {
             gl::DEPTH_COMPONENT16 => 16,
             gl::DEPTH_COMPONENT24 => 24,
@@ -2414,7 +2407,7 @@ impl Device {
         self.gl.bind_framebuffer(gl::DRAW_FRAMEBUFFER, self.bound_draw_fbo.0);
     }
 
-    pub fn compile_shader(
+    fn compile_shader(
         &self,
         name: &str,
         shader_type: gl::GLenum,
@@ -2615,7 +2608,7 @@ impl Device {
         self.bound_read_fbo = (fbo_id, offset);
     }
 
-    pub fn bind_read_target(&mut self, target: ReadTarget) {
+    fn bind_read_target(&mut self, target: ReadTarget) {
         let fbo_id = match target {
             ReadTarget::Default => self.default_read_fbo,
             ReadTarget::Texture { fbo_id } => fbo_id,
@@ -2640,7 +2633,7 @@ impl Device {
     }
 
 
-    pub fn reset_draw_target(&mut self) {
+    fn reset_draw_target(&mut self) {
         let fbo = self.default_draw_fbo;
         self.bind_draw_target_impl(fbo);
         self.depth_available = true;
@@ -2733,7 +2726,7 @@ impl Device {
         self.gl.delete_framebuffers(&[fbo.0]);
     }
 
-    pub fn bind_external_draw_target(&mut self, fbo_id: FBOId) {
+    fn bind_external_draw_target(&mut self, fbo_id: FBOId) {
         debug_assert!(self.inside_frame);
 
         if self.bound_draw_fbo != fbo_id {
@@ -3156,7 +3149,7 @@ impl Device {
     /// be called even when the contents of the colour attachment is still required.
     /// This should be called before unbinding the framebuffer at the end of a pass,
     /// to allow tiled GPUs to avoid writing the contents back to memory.
-    pub fn invalidate_depth_target(&mut self) {
+    fn invalidate_depth_target(&mut self) {
         assert!(self.depth_available);
         let attachments = if self.bound_draw_fbo == self.default_draw_fbo {
             &[gl::DEPTH] as &[gl::GLenum]
@@ -3169,7 +3162,7 @@ impl Device {
     /// Notifies the device that a render target is about to be reused.
     ///
     /// This method adds or removes a depth target as necessary.
-    pub fn reuse_render_target<T: Texel>(
+    pub fn reuse_render_target(
         &mut self,
         texture: &mut Texture,
         rt_info: RenderTargetInfo,
@@ -3619,10 +3612,6 @@ impl Device {
         }
     }
 
-    pub fn get_uniform_location(&self, program: &Program, name: &str) -> UniformLocation {
-        UniformLocation(self.gl.get_uniform_location(program.id, name))
-    }
-
     pub fn set_uniforms(
         &self,
         program: &Program,
@@ -3652,7 +3641,7 @@ impl Device {
         }
     }
 
-    pub fn create_transfer_buffer(&mut self) -> TransferBuffer {
+    fn create_transfer_buffer(&mut self) -> TransferBuffer {
         let id = self.gl.gen_buffers(1)[0];
         TransferBuffer {
             id,
@@ -3746,7 +3735,7 @@ impl Device {
 
     /// Returns the size and stride in bytes required to upload an area of pixels
     /// of the specified size, to a texture of the specified format.
-    pub fn required_upload_size_and_stride(&self, size: DeviceIntSize, format: ImageFormat) -> (usize, usize) {
+    fn required_upload_size_and_stride(&self, size: DeviceIntSize, format: ImageFormat) -> (usize, usize) {
         assert!(size.width >= 0);
         assert!(size.height >= 0);
 
@@ -4120,30 +4109,6 @@ impl Device {
         }
 
         self.gl.unmap_buffer(gl::ARRAY_BUFFER);
-    }
-
-    pub fn draw_triangles_u16(&mut self, first_vertex: i32, index_count: i32) {
-        debug_assert!(self.inside_frame);
-        debug_assert!(self.current_render_pass.is_some(), "draw outside of a render pass");
-        #[cfg(debug_assertions)]
-        debug_assert!(self.shader_is_ready);
-
-        let _guard = if self.annotate_draw_call_crashes {
-            Some(CrashAnnotatorGuard::new(
-                &self.crash_annotator,
-                CrashAnnotation::DrawShader,
-                &self.bound_program_name,
-            ))
-        } else {
-            None
-        };
-
-        self.gl.draw_elements(
-            gl::TRIANGLES,
-            index_count,
-            gl::UNSIGNED_SHORT,
-            first_vertex as u32 * 2,
-        );
     }
 
     pub fn draw_triangles_u32(&mut self, first_vertex: i32, index_count: i32) {
