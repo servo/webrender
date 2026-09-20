@@ -1,0 +1,17 @@
+# Control for the redundant_scroll_root tests: a scrollable scroll frame above
+# the minimum scroll root size gets a picture cache slice of its own.
+root:
+  items:
+    - type: rect
+      color: blue
+      bounds: [0, 0, 400, 50]
+    - type: scroll-frame
+      bounds: [0, 50, 400, 200]
+      content-size: [400, 600]
+      items:
+        - type: rect
+          color: green
+          bounds: [0, 50, 400, 600]
+    - type: rect
+      color: red
+      bounds: [0, 250, 400, 150]

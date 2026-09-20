@@ -13,6 +13,7 @@ root:
           radius: 32
     - type: scroll-frame
       bounds: [50, 50, 200, 200]
+      content-size: [400, 298]
       items:
         - type: yuv-image
           format: planar

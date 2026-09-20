@@ -1,0 +1,17 @@
+# A scroll frame below the minimum scroll root size, such as a text input,
+# is the only scroll root here. It must not start a picture cache slice.
+root:
+  items:
+    - type: rect
+      color: blue
+      bounds: [0, 0, 400, 50]
+    - type: scroll-frame
+      bounds: [0, 50, 100, 20]
+      content-size: [300, 20]
+      items:
+        - type: rect
+          color: green
+          bounds: [0, 50, 300, 20]
+    - type: rect
+      color: red
+      bounds: [0, 100, 400, 300]

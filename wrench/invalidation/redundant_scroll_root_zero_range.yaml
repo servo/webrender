@@ -1,0 +1,16 @@
+# A large scroll frame with no scrollable range is the only scroll root here.
+# It must not start a picture cache slice.
+root:
+  items:
+    - type: rect
+      color: blue
+      bounds: [0, 0, 400, 50]
+    - type: scroll-frame
+      bounds: [0, 50, 400, 200]
+      items:
+        - type: rect
+          color: green
+          bounds: [0, 50, 400, 200]
+    - type: rect
+      color: red
+      bounds: [0, 250, 400, 150]

@@ -319,8 +319,10 @@ impl TileCacheBuilder {
                             false
                         }
                         (_, _) if current_scroll_root == self.root_spatial_node_index => {
-                            // A real scroll root is being established, so create a cache slice
-                            true
+                            // A scroll root is being established. Give it a cache slice unless
+                            // it is a redundant fallback root (no scrollable range, or tiny like
+                            // a text input) that is cheaper to keep in the current slice.
+                            spatial_tree.is_slice_worthy_scroll_root(scroll_root)
                         }
                         (_, _) if scroll_root == self.root_spatial_node_index => {
                             // If quality settings force subpixel AA over performance, skip creating
