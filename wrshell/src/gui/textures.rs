@@ -24,6 +24,9 @@ pub struct TextureView {
     fit_requested: bool,
     /// Result of the last save, shown next to the save button.
     status: Option<String>,
+    /// Coordinates and color of the texel under the pointer during the
+    /// previous frame, shown in the toolbar.
+    hovered_texel: Option<(u32, u32, [u8; 4])>,
 }
 
 impl TextureView {
@@ -33,6 +36,7 @@ impl TextureView {
             offset: egui::Vec2::ZERO,
             fit_requested: true,
             status: None,
+            hovered_texel: None,
         }
     }
 
@@ -73,6 +77,19 @@ pub fn texture_viewer_ui(
 
         ui.separator();
 
+        // The texel is picked while painting the canvas below, so this shows
+        // the value from the previous frame.
+        let readout = match view.hovered_texel {
+            Some((x, y, [r, g, b, a])) => {
+                format!("({x}, {y}) rgba({r:>3}, {g:>3}, {b:>3}, {a:>3})")
+            }
+            None => "(-, -) rgba(  -,   -,   -,   -)".to_string(),
+        };
+        ui.label(egui::RichText::new(readout).monospace())
+            .on_hover_text("Color of the texel under the pointer");
+
+        ui.separator();
+
         if ui.button("Save as PNG").clicked() {
             view.status = Some(match save_png(image) {
                 Ok(path) => format!("Saved {}", path.display()),
@@ -104,8 +121,18 @@ pub fn texture_viewer_ui(
         view.offset += response.drag_delta();
     }
 
+    view.hovered_texel = None;
+
     if let Some(pointer) = response.hover_pos() {
         let anchor = pointer - viewport.min;
+
+        let texel = (anchor - view.offset) / view.zoom;
+        if texel.x >= 0.0 && texel.y >= 0.0
+            && texel.x < tex_size.x && texel.y < tex_size.y {
+            let (x, y) = (texel.x as u32, texel.y as u32);
+            view.hovered_texel = texel_at(image, x, y).map(|rgba| (x, y, rgba));
+        }
+
         // Pinch gestures and ctrl+wheel come as a zoom delta, a plain wheel
         // scroll comes as a scroll delta which we also treat as zoom since
         // panning is done by dragging.
@@ -158,6 +185,27 @@ fn save_png(texture: &DebuggerTextureContent) -> Result<PathBuf, String> {
     writer.write_image_data(&rgba).map_err(|e| e.to_string())?;
 
     Ok(std::fs::canonicalize(&path).unwrap_or(path))
+}
+
+/// Read a single texel as unmultiplied RGBA8, or None if the format is not
+/// supported or the coordinates are out of the texture's data.
+fn texel_at(texture: &DebuggerTextureContent, x: u32, y: u32) -> Option<[u8; 4]> {
+    let index = (y as usize) * (texture.width as usize) + (x as usize);
+    match texture.format {
+        ImageFormat::RGBA8 | ImageFormat::BGRA8 => {
+            let px: &[u8] = texture.data.get(index * 4 .. index * 4 + 4)?;
+            if texture.format == ImageFormat::BGRA8 {
+                Some([px[2], px[1], px[0], px[3]])
+            } else {
+                Some([px[0], px[1], px[2], px[3]])
+            }
+        }
+        ImageFormat::R8 => {
+            let gray = *texture.data.get(index)?;
+            Some([gray, gray, gray, 255])
+        }
+        _ => None,
+    }
 }
 
 /// Convert the texture's pixels into unmultiplied RGBA8, or None if the format
