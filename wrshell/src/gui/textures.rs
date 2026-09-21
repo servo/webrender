@@ -4,19 +4,181 @@
 
 use super::{Gui, Document, DocumentKind};
 use webrender_api::debugger::DebuggerTextureContent;
-use webrender_api::TextureCacheCategory;
+use webrender_api::{ImageFormat, TextureCacheCategory};
+use std::fs::File;
+use std::io::BufWriter;
+use std::path::PathBuf;
 
-pub fn texture_viewer_ui(ui: &mut egui::Ui, image: &DebuggerTextureContent, handle: &egui::TextureHandle) {
-    ui.label(format!("Size: {}x{}, Format {:?}", image.width, image.height, image.format));
+const MIN_ZOOM: f32 = 1.0 / 64.0;
+const MAX_ZOOM: f32 = 64.0;
 
-    egui::ScrollArea::both().show(ui, |ui| {
-        ui.image(egui::ImageSource::Texture(
-            egui::load::SizedTexture::new(
-                handle.id(),
-                egui::vec2(image.width as f32, image.height as f32)
-            )
-        ));
+/// Pan/zoom state of the texture viewer, one per texture document.
+pub struct TextureView {
+    /// Scale factor between texture pixels and screen points.
+    zoom: f32,
+    /// Position of the texture's top-left corner relative to the top-left
+    /// corner of the viewport, in screen points.
+    offset: egui::Vec2,
+    /// Recompute zoom and offset to fit the texture in the viewport on the
+    /// next frame.
+    fit_requested: bool,
+    /// Result of the last save, shown next to the save button.
+    status: Option<String>,
+}
+
+impl TextureView {
+    pub fn new() -> Self {
+        TextureView {
+            zoom: 1.0,
+            offset: egui::Vec2::ZERO,
+            fit_requested: true,
+            status: None,
+        }
+    }
+
+    /// Zoom around a fixed point of the viewport, so that the texel under that
+    /// point stays there.
+    fn zoom_around(&mut self, anchor: egui::Vec2, new_zoom: f32) {
+        let new_zoom = new_zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+        let texel = (anchor - self.offset) / self.zoom;
+        self.offset = anchor - texel * new_zoom;
+        self.zoom = new_zoom;
+    }
+}
+
+pub fn texture_viewer_ui(
+    ui: &mut egui::Ui,
+    image: &DebuggerTextureContent,
+    handle: &egui::TextureHandle,
+    view: &mut TextureView,
+) {
+    ui.horizontal(|ui| {
+        ui.label(format!("Size: {}x{}, Format {:?}", image.width, image.height, image.format));
+
+        ui.separator();
+
+        if ui.button("-").on_hover_text("Zoom out").clicked() {
+            view.zoom = (view.zoom * 0.5).clamp(MIN_ZOOM, MAX_ZOOM);
+        }
+        if ui.button("+").on_hover_text("Zoom in").clicked() {
+            view.zoom = (view.zoom * 2.0).clamp(MIN_ZOOM, MAX_ZOOM);
+        }
+        if ui.button("1:1").on_hover_text("Reset the zoom to 100%").clicked() {
+            view.zoom = 1.0;
+        }
+        if ui.button("Fit").on_hover_text("Fit the texture in the view").clicked() {
+            view.fit_requested = true;
+        }
+        ui.label(format!("{:.0}%", view.zoom * 100.0));
+
+        ui.separator();
+
+        if ui.button("Save as PNG").clicked() {
+            view.status = Some(match save_png(image) {
+                Ok(path) => format!("Saved {}", path.display()),
+                Err(e) => format!("Failed to save: {e}"),
+            });
+        }
+
+        if let Some(status) = &view.status {
+            ui.label(status.as_str());
+        }
     });
+
+    let (response, painter) = ui.allocate_painter(
+        ui.available_size(),
+        egui::Sense::click_and_drag(),
+    );
+
+    let viewport = response.rect;
+    let tex_size = egui::vec2(image.width as f32, image.height as f32);
+
+    if view.fit_requested {
+        view.fit_requested = false;
+        let scale = (viewport.width() / tex_size.x).min(viewport.height() / tex_size.y);
+        view.zoom = scale.clamp(MIN_ZOOM, MAX_ZOOM);
+        view.offset = (viewport.size() - tex_size * view.zoom) * 0.5;
+    }
+
+    if response.dragged() {
+        view.offset += response.drag_delta();
+    }
+
+    if let Some(pointer) = response.hover_pos() {
+        let anchor = pointer - viewport.min;
+        // Pinch gestures and ctrl+wheel come as a zoom delta, a plain wheel
+        // scroll comes as a scroll delta which we also treat as zoom since
+        // panning is done by dragging.
+        let (zoom_delta, scroll) = ui.input(|i| (i.zoom_delta(), i.smooth_scroll_delta.y));
+        let factor = zoom_delta * (scroll * 0.002).exp();
+        if factor != 1.0 {
+            view.zoom_around(anchor, view.zoom * factor);
+        }
+    }
+
+    let image_rect = egui::Rect::from_min_size(
+        viewport.min + view.offset,
+        tex_size * view.zoom,
+    );
+
+    painter.rect_filled(viewport, 0.0, egui::Color32::from_rgb(40, 40, 40));
+
+    painter.with_clip_rect(viewport).image(
+        handle.id(),
+        image_rect,
+        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+        egui::Color32::WHITE,
+    );
+
+    painter.rect_stroke(
+        image_rect,
+        0.0,
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 120, 120)),
+        egui::StrokeKind::Outside,
+    );
+}
+
+/// Write the texture to a PNG file in the current directory, named after the
+/// texture. Returns the path of the written file.
+fn save_png(texture: &DebuggerTextureContent) -> Result<PathBuf, String> {
+    let rgba = texture_to_rgba(texture)
+        .ok_or_else(|| format!("unsupported format {:?}", texture.format))?;
+
+    let file_name: String = texture.name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let path = PathBuf::from(format!("{file_name}.png"));
+
+    let file = File::create(&path).map_err(|e| e.to_string())?;
+    let mut encoder = png::Encoder::new(BufWriter::new(file), texture.width, texture.height);
+    encoder.set_color(png::ColorType::RGBA);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
+    writer.write_image_data(&rgba).map_err(|e| e.to_string())?;
+
+    Ok(std::fs::canonicalize(&path).unwrap_or(path))
+}
+
+/// Convert the texture's pixels into unmultiplied RGBA8, or None if the format
+/// is not supported.
+fn texture_to_rgba(texture: &DebuggerTextureContent) -> Option<Vec<u8>> {
+    match texture.format {
+        ImageFormat::RGBA8 => Some(texture.data.clone()),
+        ImageFormat::BGRA8 => {
+            let mut rgba = texture.data.clone();
+            for pixel in rgba.chunks_exact_mut(4) {
+                pixel.swap(0, 2);
+            }
+            Some(rgba)
+        }
+        ImageFormat::R8 => Some(
+            texture.data.iter()
+                .flat_map(|&gray| [gray, gray, gray, 255])
+                .collect()
+        ),
+        _ => None,
+    }
 }
 
 pub fn texture_list_ui(app: &mut Gui, ui: &mut egui::Ui) {
@@ -100,6 +262,7 @@ pub fn add_textures(
             kind: DocumentKind::Texture {
                 content: texture,
                 handle: None,
+                view: TextureView::new(),
             }
         });
     }
@@ -113,7 +276,7 @@ pub fn prepare(app: &mut super::Gui, ctx: &egui::Context) {
             return;
         }
 
-        let DocumentKind::Texture { content, handle } = &mut app.data_model.documents[idx].kind else {
+        let DocumentKind::Texture { content, handle, .. } = &mut app.data_model.documents[idx].kind else {
             return;
         };
 
@@ -131,47 +294,25 @@ fn upload_texture(
     ctx: &egui::Context,
     texture: &DebuggerTextureContent,
 ) -> Option<egui::TextureHandle> {
-    use webrender_api::ImageFormat;
-
-    let color_image = match texture.format {
-        ImageFormat::RGBA8 => {
-            egui::ColorImage::from_rgba_unmultiplied(
-                [texture.width as usize, texture.height as usize],
-                &texture.data,
-            )
-        }
-        ImageFormat::BGRA8 => {
-            // Convert BGRA to RGBA
-            let mut rgba_data = texture.data.clone();
-            for pixel in rgba_data.chunks_exact_mut(4) {
-                pixel.swap(0, 2); // Swap B and R
-            }
-            egui::ColorImage::from_rgba_unmultiplied(
-                [texture.width as usize, texture.height as usize],
-                &rgba_data,
-            )
-        }
-        ImageFormat::R8 => {
-            // Convert grayscale to RGBA
-            let rgba_data: Vec<u8> = texture.data.iter()
-                .flat_map(|&gray| [gray, gray, gray, 255])
-                .collect();
-            egui::ColorImage::from_rgba_unmultiplied(
-                [texture.width as usize, texture.height as usize],
-                &rgba_data,
-            )
-        }
-        _ => {
-            println!("Unsupported texture format: {:?}", texture.format);
-            return None;
-        }
+    let Some(rgba) = texture_to_rgba(texture) else {
+        println!("Unsupported texture format: {:?}", texture.format);
+        return None;
     };
 
-    Some(ctx.load_texture(
-        &texture.name,
-        color_image,
-        egui::TextureOptions::default(),
-    ))
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+        [texture.width as usize, texture.height as usize],
+        &rgba,
+    );
+
+    // Nearest magnification keeps texels crisp when zoomed in, while linear
+    // minification avoids aliasing when zoomed out.
+    let options = egui::TextureOptions {
+        magnification: egui::TextureFilter::Nearest,
+        minification: egui::TextureFilter::Linear,
+        ..Default::default()
+    };
+
+    Some(ctx.load_texture(&texture.name, color_image, options))
 }
 
 fn doc_is_texture(doc: &Document, kind: TextureCacheCategory) -> bool {

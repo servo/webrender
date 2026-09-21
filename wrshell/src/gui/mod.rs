@@ -578,6 +578,7 @@ pub enum DocumentKind {
     Texture {
         content: DebuggerTextureContent,
         handle: Option<egui::TextureHandle>,
+        view: textures::TextureView,
     }
 }
 
@@ -629,9 +630,13 @@ fn do_preview_ui(app: &mut Gui, ui: &mut egui::Ui) {
                     composite_view::ui(ui, info);
                 }
             }
-            DocumentKind::Texture { content, handle } => {
-                if let Some(handle) = handle {
-                    textures::texture_viewer_ui(ui, &content, &handle);
+            DocumentKind::Texture { .. } => {
+                // Re-borrow mutably to give the viewer access to its pan/zoom state.
+                if let Some(Document { kind: DocumentKind::Texture { content, handle, view }, .. }) =
+                    app.data_model.documents.get_mut(idx) {
+                    if let Some(handle) = handle {
+                        textures::texture_viewer_ui(ui, content, handle, view);
+                    }
                 }
             }
         }
