@@ -372,8 +372,8 @@ impl SurfaceInfo {
         // A raster node in the root coordinate system always gives a
         // scale+offset, so the guard only bites for a raster root established
         // inside a 3D context - where the answer is to cull nothing.
-        let projected = map_raster_to_root
-            .as_2d_scale_offset()
+        let raster_to_root = map_raster_to_root.as_2d_scale_offset();
+        let projected = raster_to_root
             .and_then(|_| map_raster_to_root.unmap(&global_culling_rect));
 
         let mut culling_rect_projection_failed = false;
@@ -409,9 +409,23 @@ impl SurfaceInfo {
             .filter(|_| !culling_rect_projection_failed)
             .and_then(|rect| map_raster_to_root.map(rect))
         {
+            // The round trip is only exact while the raster space stays near the
+            // origin. `unmap` divides the screen by the mapping's transform and
+            // `map` multiplies it back, each rounding at the magnitude of the
+            // translation involved, so a surface at a large scroll or pinch-zoom
+            // offset loses a fraction of a pixel even when its space is a sound
+            // pre-image of the screen. Widen the tolerance with that magnitude so
+            // f32 rounding is not mistaken for culled content.
             const EPSILON: f32 = 0.05;
+            let epsilon = EPSILON + raster_to_root.map_or(0.0, |scale_offset| {
+                scale_offset.offset.x.abs()
+                    .max(scale_offset.offset.y.abs())
+                    .max(scale_offset.scale.x.abs())
+                    .max(scale_offset.scale.y.abs())
+                    * EPSILON * 4.0
+            });
             debug_assert!(
-                round_trip.inflate(EPSILON, EPSILON).contains_box(&global_culling_rect),
+                round_trip.inflate(epsilon, epsilon).contains_box(&global_culling_rect),
                 "vis culling rect {:?} loses part of the screen {:?} (round trip {:?})",
                 culling_rect,
                 global_culling_rect,

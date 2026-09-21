@@ -1,0 +1,26 @@
+# Regression test: a picture cache slice whose raster space sits far from the
+# origin (a large scroll or pinch-zoom offset) cannot round-trip its culling
+# rect through the f32 scale+offset exactly, and the resulting sub-pixel loss
+# must not trip the "culling rect loses part of the screen" assertion
+# (bug 2073850). The slice itself is scrolled out of view, so the visible rect
+# is there to keep the reftest non-blank.
+---
+root:
+  items:
+    - type: reference-frame
+      id: 4
+      bounds: [0, 5000001.3, 400, 300]
+      is-2d: true
+      transform: scale(1.125)
+      items:
+        - type: scroll-frame
+          id: 5
+          bounds: [0, 0, 400, 300]
+          content-size: [400, 600]
+          items:
+            - type: rect
+              bounds: [0, 0, 400, 300]
+              color: green
+    - type: rect
+      bounds: [0, 0, 100, 100]
+      color: red
