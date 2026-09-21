@@ -59,6 +59,10 @@ pub mod key_types;
 /// `webrender` crate. Not part of the public API surface.
 #[doc(hidden)]
 pub mod interned_prims;
+/// Internal: content-side interning for the display list builder. Not part of
+/// the public API surface.
+#[doc(hidden)]
+pub mod interning;
 /// Internal: primitive geometry simplification / gradient optimization helpers,
 /// shared with the `webrender` crate. Not part of the public API surface.
 #[doc(hidden)]
