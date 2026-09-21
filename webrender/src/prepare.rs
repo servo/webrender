@@ -366,31 +366,10 @@ fn prepare_prim_for_render(
     }
 
     let prim_instance = &mut prim_instances[prim_instance_index];
-    let mut use_legacy_path = true;
     if !is_passthrough {
-        match &prim_instance.kind {
-            PrimitiveKind::Rectangle { .. }
-            | PrimitiveKind::RadialGradient { .. }
-            | PrimitiveKind::ConicGradient { .. }
-            | PrimitiveKind::LinearGradient { .. }
-            | PrimitiveKind::Image { .. }
-            | PrimitiveKind::NormalBorder { .. }
-            | PrimitiveKind::ImageBorder { .. }
-            | PrimitiveKind::LineDecoration { .. }
-            | PrimitiveKind::BackdropRender { .. }
-            | PrimitiveKind::BoxShadow { .. }
-            => {
-                use_legacy_path = false;
-            }
-            _ => {}
-        };
-
-        // In the new quad rendering path, want to skip the entry point to
-        // `update_clip_task` as that does old-style segmenting and mask
-        // generation.
-        let should_update_clip_task = match &mut prim_instance.kind {
-            PrimitiveKind::Picture { .. } => false,
-            _ => use_legacy_path,
+        let should_update_clip_task = match &prim_instance.kind {
+            PrimitiveKind::TextRun { .. } => true,
+            _ => false,
         };
 
         if should_update_clip_task {
