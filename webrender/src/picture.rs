@@ -2705,11 +2705,14 @@ pub fn prepare_picture_primitive(
     // source task above, so the compositing quad must not
     // re-apply them (which would mask twice). Target clip masks
     // are applied here by the quad path, and are the only clips
-    // `composite_clips` holds.
+    // `composite_clips` holds. The clip bounds must be expressed in the
+    // same space as `transform`: when the picture is rasterized in a
+    // different coordinate system, the local clip rect was remapped
+    // above so that it is consistent with the compositing quad.
     let needs_mask = !composite_clips.is_empty();
     let surface = &frame_state.surfaces[pic_context.surface_index.0];
     composite_clips.set_bounds(
-        prim_info.clip_chain.local_clip_rect,
+        local_clip_rect,
         surface.map_to_device_rect(&prim_info.clip_chain.pic_coverage_rect),
         surface.clipping_rect,
         needs_mask,

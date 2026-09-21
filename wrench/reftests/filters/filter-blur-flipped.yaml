@@ -1,0 +1,23 @@
+# A blurred picture whose spatial node flips it vertically (scale 1 -1
+# about the center of a 200px tall box) must land where the flip puts it.
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 300, 300]
+      color: black
+    - type: clip
+      bounds: [50, 200, 200, 50]
+      id: 2
+    - type: reference-frame
+      bounds: [50, 50, 200, 200]
+      transform: [1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 200, 0, 1]
+      items:
+        - type: stacking-context
+          bounds: [0, 0, 200, 200]
+          filters: blur(6, 6)
+          clip-chain: [2]
+          items:
+            - type: rect
+              bounds: [20, 20, 160, 60]
+              color: 0 255 0 1.0
