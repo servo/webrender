@@ -277,7 +277,9 @@ PrimitiveInfo quad_primive_info(void) {
         case PART_LEFT:
             local_coverage_rect.p1.x = local_coverage_rect.p0.x + AA_PIXEL_RADIUS;
 #ifdef SWGL_ANTIALIAS
-            swgl_antiAlias(EDGE_AA_LEFT);
+            // The strip covers the full height of the primitive, so its top
+            // and bottom rows lie on the primitive's top and bottom edges.
+            swgl_antiAlias(EDGE_AA_LEFT | (qi.edge_flags & (EDGE_AA_TOP | EDGE_AA_BOTTOM)));
 #else
             local_coverage_rect.p0.x -= AA_PIXEL_RADIUS;
             local_coverage_rect.p0.y -= aa_top * AA_PIXEL_RADIUS;
@@ -297,7 +299,9 @@ PrimitiveInfo quad_primive_info(void) {
         case PART_RIGHT:
             local_coverage_rect.p0.x = local_coverage_rect.p1.x - AA_PIXEL_RADIUS;
 #ifdef SWGL_ANTIALIAS
-            swgl_antiAlias(EDGE_AA_RIGHT);
+            // The strip covers the full height of the primitive, so its top
+            // and bottom rows lie on the primitive's top and bottom edges.
+            swgl_antiAlias(EDGE_AA_RIGHT | (qi.edge_flags & (EDGE_AA_TOP | EDGE_AA_BOTTOM)));
 #else
             local_coverage_rect.p1.x += AA_PIXEL_RADIUS;
             local_coverage_rect.p0.y -= aa_top * AA_PIXEL_RADIUS;

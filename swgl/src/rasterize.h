@@ -518,9 +518,55 @@ static ALWAYS_INLINE FloatRange aa_dist(const E& e, float dir) {
   }
 }
 
+// Horizontal edges are never traced as left or right edges, so their AA is
+// handled per row instead: the coverage of a row is bounded by the fraction
+// of the row (y - 0.5 .. y + 0.5) that lies between the anti-aliased top and
+// bottom horizontal edges, if any. Edges that are not horizontal or not
+// anti-aliased are passed as -/+ infinity so they don't bound the row.
+static ALWAYS_INLINE float aa_row_coverage(float y, float topY,
+                                           float bottomY) {
+  return 256.0f *
+         clamp(min(bottomY, y + 0.5f) - max(topY, y - 0.5f), 0.0f, 1.0f);
+}
+
+// Describes how the rows at the top or bottom extremity of a polygon are
+// selected. Without AA, rows are rounded to the nearest row center. With AA,
+// rows are rounded outward so that partially covered rows get drawn, unless
+// the extremity is a horizontal edge that is not anti-aliased, which stays a
+// hard edge rounded to the nearest row.
+struct RowExtremity {
+  // Whether the extremity is an anti-aliased horizontal edge.
+  bool aaEdge;
+  // Y coordinate of the anti-aliased horizontal edge, used to bound the
+  // coverage of the partially covered rows. Placed infinitely far away when
+  // the extremity is not such an edge.
+  float edgeY;
+  // 0.5 to round to the nearest row, 0 to round outward.
+  float round;
+};
+
+// The extremity is formed by consecutive vertices a and b (with indices ai
+// and bi), joined by the edge with the given index, or is the single vertex
+// a == b.
+template <typename T>
+static ALWAYS_INLINE RowExtremity row_extremity(const T& a, int ai, const T& b,
+                                                int bi, int edgeIndex,
+                                                float noEdge) {
+  if (!(swgl_ClipFlags & SWGL_CLIP_FLAG_AA)) {
+    return {false, noEdge, 0.5f};
+  }
+  if (ai == bi || a.y != b.y) {
+    return {false, noEdge, 0.0f};
+  }
+  return (swgl_AAEdgeMask >> edgeIndex) & 1
+             ? RowExtremity{true, a.y, 0.0f}
+             : RowExtremity{false, noEdge, 0.5f};
+}
+
 template <typename P, typename E>
 static ALWAYS_INLINE IntRange aa_span(P* buf, const E& left, const E& right,
-                                      const FloatRange& bounds) {
+                                      const FloatRange& bounds,
+                                      float rowCoverage) {
   // If there is no AA, just return the span from the rounded left edge X
   // position to the rounded right edge X position. Clip the span to be within
   // the valid bounds.
@@ -545,6 +591,13 @@ static ALWAYS_INLINE IntRange aa_span(P* buf, const E& left, const E& right,
   // be scaled by the pixel size in bytes.
   swgl_OpaqueStart = (const uint8_t*)(buf + leftAA.end);
   swgl_OpaqueSize = max(rightAA.start - leftAA.end - 3, 0) * sizeof(P);
+
+  // A partially covered row has no opaque region: every pixel of the span
+  // must go through the AA blend stage so the row coverage bound applies.
+  swgl_AAMaxCoverage = rowCoverage;
+  if (rowCoverage < 256.0f) {
+    swgl_OpaqueSize = 0;
+  }
 
   // Offset the coverage distances by the end of the left AA span, which
   // corresponds to the opaque start pointer, so that pixels become opaque
@@ -888,9 +941,10 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint32_t z,
   // Vertex selection above should result in equal left and right start rows
   assert(l0.y == r0.y);
   // Find the start y, clip to within the clip rect, and round to row center.
-  // If AA is enabled, round out conservatively rather than round to nearest.
-  float aaRound = swgl_ClipFlags & SWGL_CLIP_FLAG_AA ? 0.0f : 0.5f;
-  float y = floor(max(min(l0.y, clipRect.y1), clipRect.y0) + aaRound) + 0.5f;
+  // The top edge runs from r0 to l0 in vertex order.
+  RowExtremity top = row_extremity(l0, l0i, r0, r0i, l0i, -1.0e6f);
+  float y =
+      floor(max(min(l0.y, clipRect.y1), clipRect.y0) + top.round) + 0.5f;
   // Initialize left and right edges from end points and start Y
   Edge left(y, l0, l1, interp_outs[l0i], interp_outs[l1i], l1i);
   Edge right(y, r0, r1, interp_outs[r0i], interp_outs[r1i], r0i);
@@ -902,8 +956,13 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint32_t z,
   DepthRun* fdepth = depthtex.buf != nullptr
                          ? (DepthRun*)depthtex.sample_ptr(0, int(y))
                          : nullptr;
-  // Loop along advancing Ys, rasterizing spans at each row
-  float checkY = min(min(l1.y, r1.y), clipRect.y1);
+  // Loop along advancing Ys, rasterizing spans at each row. The bottom edge
+  // runs from l1 to r1 in vertex order. Rows are only rounded outward past an
+  // anti-aliased horizontal bottom edge: the row holding a bottom vertex is
+  // drawn only when its center lies above the vertex.
+  RowExtremity bottom = row_extremity(l1, l1i, r1, r1i, r1i, 1.0e6f);
+  float endY = min(l1.y, r1.y);
+  float checkY = min(bottom.aaEdge ? ceil(endY) : endY, clipRect.y1);
   // Ensure we don't rasterize out edge bounds
   FloatRange clipSpan =
       clipRect.x_range().clip(x_range(l0, l1).merge(x_range(r0, r1)));
@@ -943,11 +1002,13 @@ static inline void draw_quad_spans(int nump, Point2D p[4], uint32_t z,
       clipSpan =
           clipRect.x_range().clip(x_range(l0, l1).merge(x_range(r0, r1)));
       // Reset check condition for next time around.
-      checkY = min(ceil(min(l1.y, r1.y) - aaRound), clipRect.y1);
+      bottom = row_extremity(l1, l1i, r1, r1i, r1i, 1.0e6f);
+      checkY = min(ceil(min(l1.y, r1.y) - bottom.round), clipRect.y1);
     }
 
     // Calculate a potentially AA'd span and check if it is non-empty.
-    IntRange span = aa_span(fbuf, left, right, clipSpan);
+    IntRange span = aa_span(fbuf, left, right, clipSpan,
+                            aa_row_coverage(y, top.edgeY, bottom.edgeY));
     if (span.len() > 0) {
       // If user clip planes are enabled, use them to bound the current span.
       if (vertex_shader->use_clip_distance()) {
@@ -1157,9 +1218,10 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
   // Vertex selection above should result in equal left and right start rows
   assert(l0.y == r0.y);
   // Find the start y, clip to within the clip rect, and round to row center.
-  // If AA is enabled, round out conservatively rather than round to nearest.
-  float aaRound = swgl_ClipFlags & SWGL_CLIP_FLAG_AA ? 0.0f : 0.5f;
-  float y = floor(max(min(l0.y, clipRect.y1), clipRect.y0) + aaRound) + 0.5f;
+  // The top edge runs from r0 to l0 in vertex order.
+  RowExtremity top = row_extremity(l0, l0i, r0, r0i, l0i, -1.0e6f);
+  float y =
+      floor(max(min(l0.y, clipRect.y1), clipRect.y0) + top.round) + 0.5f;
   // Initialize left and right edges from end points and start Y
   Edge left(y, l0, l1, interp_outs[l0i], interp_outs[l1i], l1i);
   Edge right(y, r0, r1, interp_outs[r0i], interp_outs[r1i], r0i);
@@ -1171,8 +1233,13 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
   DepthRun* fdepth = depthtex.buf != nullptr
                          ? (DepthRun*)depthtex.sample_ptr(0, int(y))
                          : nullptr;
-  // Loop along advancing Ys, rasterizing spans at each row
-  float checkY = min(min(l1.y, r1.y), clipRect.y1);
+  // Loop along advancing Ys, rasterizing spans at each row. The bottom edge
+  // runs from l1 to r1 in vertex order. Rows are only rounded outward past an
+  // anti-aliased horizontal bottom edge: the row holding a bottom vertex is
+  // drawn only when its center lies above the vertex.
+  RowExtremity bottom = row_extremity(l1, l1i, r1, r1i, r1i, 1.0e6f);
+  float endY = min(l1.y, r1.y);
+  float checkY = min(bottom.aaEdge ? ceil(endY) : endY, clipRect.y1);
   // Ensure we don't rasterize out edge bounds
   FloatRange clipSpan =
       clipRect.x_range().clip(x_range(l0, l1).merge(x_range(r0, r1)));
@@ -1199,11 +1266,13 @@ static inline void draw_perspective_spans(int nump, Point3D* p,
       clipSpan =
           clipRect.x_range().clip(x_range(l0, l1).merge(x_range(r0, r1)));
       // Reset check condition for next time around.
-      checkY = min(ceil(min(l1.y, r1.y) - aaRound), clipRect.y1);
+      bottom = row_extremity(l1, l1i, r1, r1i, r1i, 1.0e6f);
+      checkY = min(ceil(min(l1.y, r1.y) - bottom.round), clipRect.y1);
     }
 
     // Calculate a potentially AA'd span and check if it is non-empty.
-    IntRange span = aa_span(fbuf, left, right, clipSpan);
+    IntRange span = aa_span(fbuf, left, right, clipSpan,
+                            aa_row_coverage(y, top.edgeY, bottom.edgeY));
     if (span.len() > 0) {
       // If user clip planes are enabled, use them to bound the current span.
       if (vertex_shader->use_clip_distance()) {

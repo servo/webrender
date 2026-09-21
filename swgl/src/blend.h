@@ -386,6 +386,10 @@ static Float swgl_LeftAADist = 0.0f;
 static Float swgl_RightAADist = 0.0f;
 // AA coverage slope values used for accumulating coverage for each step.
 static Float swgl_AASlope = 0.0f;
+// Upper bound on the AA coverage of the current row, in the range 0..256.
+// Rows only partially covered by a horizontal anti-aliased edge get a bound
+// below 256, which limits the coverage of the whole span.
+static float swgl_AAMaxCoverage = 256.0f;
 
 // Get the amount of pixels we need to process before the start of the opaque
 // region.
@@ -437,7 +441,7 @@ static PREFER_INLINE WideRGBA8 blend_pixels(uint32_t* buf, PackedRGBA8 pdst,
       Float delta = swgl_AASlope * float(offset);             \
       Float dist = clamp(min(swgl_LeftAADist + delta.x,       \
                              swgl_RightAADist + delta.y),     \
-                         0.0f, 256.0f);                       \
+                         0.0f, swgl_AAMaxCoverage);           \
       auto aa = pack_pixels_##format(dist, 1.0f);             \
       body;                                                   \
     }                                                         \
