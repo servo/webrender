@@ -305,6 +305,10 @@ impl IBOId {
     }
 }
 
+/// A GL framebuffer object.
+#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
+struct FBOId(gl::GLuint);
+
 impl FBOId {
     fn bind(&self, gl: &dyn gl::Gl, target: FBOTarget) {
         let target = match target {
@@ -531,6 +535,20 @@ impl Default for GlRenderStateCache {
     }
 }
 
+/// The framebuffer objects through which a render target texture is drawn
+/// to and read from.
+///
+/// FBOs are cheap to create but expensive to reconfigure (since doing so
+/// invalidates framebuffer completeness caching). Moreover, rendering with
+/// a depth buffer attached but the depth write+test disabled relies on the
+/// driver to optimize it out of the rendering pass, which most drivers
+/// probably do but, according to jgilbert, is best not to rely on. So a
+/// second FBO with depth is created lazily, the first time depth is requested.
+struct GlRenderTarget {
+    fbo: FBOId,
+    fbo_with_depth: Option<FBOId>,
+}
+
 /// A refcounted depth target, which may be shared by multiple textures across
 /// the device.
 struct SharedDepthTarget {
@@ -581,6 +599,8 @@ pub struct GlDevice {
     scratch_read_fbo: Option<FBOId>,
     default_read_fbo: FBOId,
     default_draw_fbo: FBOId,
+    /// The FBOs of every render target texture, by texture id.
+    render_targets: FastHashMap<TextureId, GlRenderTarget>,
 
     /// Track depth state for assertions. Note that the default FBO has depth,
     /// so this defaults to true.
@@ -1275,6 +1295,7 @@ impl GlDevice {
             bound_read_fbo: (FBOId(0), DeviceIntPoint::zero()),
             current_render_pass: None,
             scratch_read_fbo: None,
+            render_targets: FastHashMap::default(),
             bound_draw_fbo: FBOId(0),
             default_read_fbo: FBOId(0),
             default_draw_fbo: FBOId(0),
@@ -1428,11 +1449,21 @@ impl GlDevice {
         self.bound_read_fbo = (fbo_id, offset);
     }
 
+    /// The FBO a render target texture is drawn to, with or without depth.
+    fn render_target_fbo(&self, texture: TextureId, with_depth: bool) -> FBOId {
+        let target = &self.render_targets[&texture];
+        if with_depth {
+            target.fbo_with_depth.expect("render target has no depth")
+        } else {
+            target.fbo
+        }
+    }
+
     fn bind_read_target(&mut self, target: ReadTarget) {
         let fbo_id = match target {
             ReadTarget::Default => self.default_read_fbo,
-            ReadTarget::Texture { fbo_id } => fbo_id,
-            ReadTarget::NativeSurface { fbo_id, .. } => fbo_id,
+            ReadTarget::Texture { texture } => self.render_target_fbo(texture, false),
+            ReadTarget::NativeSurface { handle, .. } => FBOId(handle.0 as gl::GLuint),
         };
 
         self.bind_read_target_impl(fbo_id, target.offset())
@@ -1461,15 +1492,15 @@ impl GlDevice {
             DrawTarget::Default { rect, .. } => {
                 (self.default_draw_fbo, rect, false)
             }
-            DrawTarget::Texture { dimensions, fbo_id, with_depth, .. } => {
+            DrawTarget::Texture { dimensions, texture, with_depth, .. } => {
                 let rect = FramebufferIntRect::from_size(
                     device_size_as_framebuffer_size(dimensions),
                 );
-                (fbo_id, rect, with_depth)
+                (self.render_target_fbo(texture, with_depth), rect, with_depth)
             },
             DrawTarget::NativeSurface { handle, offset, dimensions, .. } => {
                 (
-                    FBOId(handle.0 as u32),
+                    FBOId(handle.0 as gl::GLuint),
                     device_rect_as_framebuffer_rect(&DeviceIntRect::from_origin_and_size(offset, dimensions)),
                     true
                 )
@@ -1543,18 +1574,29 @@ impl GlDevice {
         self.gl.invalidate_framebuffer(gl::DRAW_FRAMEBUFFER, attachments);
     }
 
+    /// Creates the FBO through which `texture` is drawn to, with or without
+    /// depth, and records it. With depth, the texture must already be a
+    /// render target without one.
     fn init_fbos(&mut self, texture: &mut Texture, with_depth: bool) {
-        let (fbo, depth_rb) = if with_depth {
-            let depth_target = self.acquire_depth_target(texture.get_dimensions());
-            (&mut texture.fbo_with_depth, Some(depth_target))
+        let depth_rb = if with_depth {
+            Some(self.acquire_depth_target(texture.get_dimensions()))
         } else {
-            (&mut texture.fbo, None)
+            None
         };
 
         // Generate the FBOs.
-        assert!(fbo.is_none());
         let fbo_id = FBOId(*self.gl.gen_framebuffers(1).first().unwrap());
-        *fbo = Some(fbo_id);
+        let texture_id = TextureId(texture.id);
+        if with_depth {
+            let target = self.render_targets.get_mut(&texture_id).expect("not a render target");
+            assert!(target.fbo_with_depth.is_none());
+            target.fbo_with_depth = Some(fbo_id);
+            texture.render_target = Some(RenderTargetInfo { has_depth: true });
+        } else {
+            let old = self.render_targets.insert(texture_id, GlRenderTarget { fbo: fbo_id, fbo_with_depth: None });
+            assert!(old.is_none());
+            texture.render_target = Some(RenderTargetInfo { has_depth: false });
+        }
 
         // Bind the FBOs.
         let original_bound_fbo = self.bound_draw_fbo;
@@ -2672,8 +2714,7 @@ impl GpuBackend for GlDevice {
             format,
             filter,
             active_swizzle: Cell::default(),
-            fbo: None,
-            fbo_with_depth: None,
+            render_target: None,
             last_frame_used: self.frame_id,
             flags: TextureFlags::default(),
         };
@@ -2812,22 +2853,24 @@ impl GpuBackend for GlDevice {
 
     fn invalidate_render_target(&mut self, texture: &Texture) {
         if self.capabilities.supports_render_target_invalidate {
-            let (fbo, attachments) = if texture.supports_depth() {
-                (&texture.fbo_with_depth,
-                 &[gl::COLOR_ATTACHMENT0, gl::DEPTH_ATTACHMENT] as &[gl::GLenum])
-            } else {
-                (&texture.fbo, &[gl::COLOR_ATTACHMENT0] as &[gl::GLenum])
-            };
-
-            if let Some(fbo_id) = fbo {
-                let original_bound_fbo = self.bound_draw_fbo;
-                // Note: The invalidate extension may not be supported, in which
-                // case this is a no-op. That's ok though, because it's just a
-                // hint.
-                self.bind_external_draw_target(*fbo_id);
-                self.gl.invalidate_framebuffer(gl::FRAMEBUFFER, attachments);
-                self.bind_external_draw_target(original_bound_fbo);
+            if texture.render_target.is_none() {
+                return;
             }
+            let with_depth = texture.supports_depth();
+            let attachments = if with_depth {
+                &[gl::COLOR_ATTACHMENT0, gl::DEPTH_ATTACHMENT] as &[gl::GLenum]
+            } else {
+                &[gl::COLOR_ATTACHMENT0] as &[gl::GLenum]
+            };
+            let fbo_id = self.render_target_fbo(TextureId(texture.id), with_depth);
+
+            let original_bound_fbo = self.bound_draw_fbo;
+            // Note: The invalidate extension may not be supported, in which
+            // case this is a no-op. That's ok though, because it's just a
+            // hint.
+            self.bind_external_draw_target(fbo_id);
+            self.gl.invalidate_framebuffer(gl::FRAMEBUFFER, attachments);
+            self.bind_external_draw_target(original_bound_fbo);
         }
     }
 
@@ -2873,14 +2916,13 @@ impl GpuBackend for GlDevice {
     fn delete_texture(&mut self, mut texture: Texture) {
         debug_assert!(self.inside_frame);
         let had_depth = texture.supports_depth();
-        if let Some(fbo) = texture.fbo {
-            self.gl.delete_framebuffers(&[fbo.0]);
-            texture.fbo = None;
+        if let Some(target) = self.render_targets.remove(&TextureId(texture.id)) {
+            self.gl.delete_framebuffers(&[target.fbo.0]);
+            if let Some(fbo) = target.fbo_with_depth {
+                self.gl.delete_framebuffers(&[fbo.0]);
+            }
         }
-        if let Some(fbo) = texture.fbo_with_depth {
-            self.gl.delete_framebuffers(&[fbo.0]);
-            texture.fbo_with_depth = None;
-        }
+        texture.render_target = None;
 
         if had_depth {
             self.release_depth_target(texture.get_dimensions());

@@ -9,7 +9,7 @@
 use api::{CrashAnnotator, ExternalTextureHandle, ImageBufferKind, ImageFormat, ImageRendering, MixBlendMode, VoidPtrToSizeFn};
 use api::units::*;
 use crate::composite::NativeSurfaceHandle;
-use crate::internal_types::{FastHashMap, Swizzle};
+use crate::internal_types::{FastHashMap, RenderTargetInfo, Swizzle};
 use std::{
     cell::{Cell, RefCell},
     mem,
@@ -277,28 +277,9 @@ pub struct Texture {
     pub(super) flags: TextureFlags,
     /// An internally mutable swizzling state that may change between batches.
     pub(super) active_swizzle: Cell<Swizzle>,
-    /// Backend-defined handle for rendering to this texture.
-    ///
-    /// Empty if this texture is not used as a render target or if a depth buffer is needed.
-    pub(super) fbo: Option<FBOId>,
-    /// Same as the above, but with a depth buffer attached.
-    ///
-    /// FBOs are cheap to create but expensive to reconfigure (since doing so
-    /// invalidates framebuffer completeness caching). Moreover, rendering with
-    /// a depth buffer attached but the depth write+test disabled relies on the
-    /// driver to optimize it out of the rendering pass, which most drivers
-    /// probably do but, according to jgilbert, is best not to rely on.
-    ///
-    /// So we lazily generate a second list of FBOs with depth. This list is
-    /// empty if this texture is not used as a render target _or_ if it is, but
-    /// the depth buffer has never been requested.
-    ///
-    /// Note that we always fill fbo, and then lazily create fbo_with_depth
-    /// when needed. We could make both lazy (i.e. render targets would have one
-    /// or the other, but not both, unless they were actually used in both
-    /// configurations). But that would complicate a lot of logic in this module,
-    /// and FBOs are cheap enough to create.
-    pub(super) fbo_with_depth: Option<FBOId>,
+    /// Set if this texture can be rendered to, and whether a depth buffer has
+    /// been requested for it. The backend owns whatever attaches the two.
+    pub(super) render_target: Option<RenderTargetInfo>,
     pub(super) last_frame_used: GpuFrameId,
 }
 
@@ -320,7 +301,7 @@ impl Texture {
     }
 
     pub fn supports_depth(&self) -> bool {
-        self.fbo_with_depth.is_some()
+        self.render_target.map_or(false, |info| info.has_depth)
     }
 
     pub fn last_frame_used(&self) -> GpuFrameId {
@@ -505,10 +486,9 @@ impl<'a> Drop for MappedTransferBuffer<'a> {
     }
 }
 
-/// Backend-defined identifier of a framebuffer, i.e. a set of attachments
-/// that can be drawn to or read from.
+/// Backend-defined identifier of a texture, for naming one as a target.
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
-pub struct FBOId(pub(super) u32);
+pub struct TextureId(pub(super) u32);
 
 /// Backend-defined identifier of a vertex buffer.
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
@@ -914,8 +894,7 @@ pub enum DrawTarget {
         dimensions: DeviceIntSize,
         /// Whether to draw with the texture's associated depth target
         with_depth: bool,
-        /// FBO that corresponds to the selected layer / depth mode
-        fbo_id: FBOId,
+        texture: TextureId,
     },
     /// An OS compositor surface
     NativeSurface {
@@ -947,15 +926,12 @@ impl DrawTarget {
         texture: &Texture,
         with_depth: bool,
     ) -> Self {
-        let fbo_id = if with_depth {
-            texture.fbo_with_depth.unwrap()
-        } else {
-            texture.fbo.unwrap()
-        };
+        assert!(texture.render_target.is_some(), "drawing to a non-render-target texture");
+        assert!(!with_depth || texture.supports_depth(), "drawing with depth to a texture without it");
 
         DrawTarget::Texture {
             dimensions: texture.get_dimensions(),
-            fbo_id,
+            texture: TextureId(texture.id),
             with_depth,
         }
     }
@@ -1042,14 +1018,13 @@ impl DrawTarget {
 pub enum ReadTarget {
     /// Use the device's default draw target.
     Default,
-    /// Use the provided texture,
+    /// Use the provided texture, which must be a render target.
     Texture {
-        /// ID of the FBO to read from.
-        fbo_id: FBOId,
+        texture: TextureId,
     },
-    /// An FBO bound to a native (OS compositor) surface
+    /// A native (OS compositor) surface
     NativeSurface {
-        fbo_id: FBOId,
+        handle: NativeSurfaceHandle,
         offset: DeviceIntPoint,
     },
 }
@@ -1058,8 +1033,9 @@ impl ReadTarget {
     pub fn from_texture(
         texture: &Texture,
     ) -> Self {
+        assert!(texture.render_target.is_some(), "reading from a non-render-target texture");
         ReadTarget::Texture {
-            fbo_id: texture.fbo.unwrap(),
+            texture: TextureId(texture.id),
         }
     }
 
@@ -1084,13 +1060,10 @@ impl From<DrawTarget> for ReadTarget {
                 ReadTarget::Default
             }
             DrawTarget::NativeSurface { handle, offset, .. } => {
-                ReadTarget::NativeSurface {
-                    fbo_id: FBOId(handle.0 as u32),
-                    offset,
-                }
+                ReadTarget::NativeSurface { handle, offset }
             }
-            DrawTarget::Texture { fbo_id, .. } => {
-                ReadTarget::Texture { fbo_id }
+            DrawTarget::Texture { texture, .. } => {
+                ReadTarget::Texture { texture }
             }
         }
     }
