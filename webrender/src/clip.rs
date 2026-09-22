@@ -1502,13 +1502,14 @@ impl ClipStore {
 
             let clip_rect = match clip_snap {
                 ClipSnap::Nearest => node.snapped_clip_rect(snapper, spatial_tree),
-                // Device-space prim: leave the clip exact. A text run's clips
-                // must NOT be rounded out to the grid - an overflow clip sits
-                // flush with its container's painted border box, and rounding it
-                // outward spills a whole device row/column of scrolled content
-                // over that border (bug 2065629). Left exact, the clip
-                // rasterizes at the pixel centre, which is the same grid the
-                // container's own snapped geometry landed on.
+                // Device-space / anti-aliased prim: leave the clip exact. A
+                // text run's clips must NOT be rounded out to the grid - an
+                // overflow clip sits flush with its container's painted
+                // border box, and rounding it outward spills a whole device
+                // row/column of scrolled content over that border (bug
+                // 2065629). Left exact, the clip rasterizes at the pixel
+                // centre, which is the same grid the container's own snapped
+                // geometry landed on.
                 ClipSnap::Exact => node.unsnapped_clip_rect,
             };
 

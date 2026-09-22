@@ -417,11 +417,17 @@ impl SpaceSnapper {
     /// each mode is for.
     pub fn snap_rect_rounded<F>(&self, rect: &Box2D<f32, F>, rounding: SnapRounding) -> Box2D<f32, F> where F: fmt::Debug {
         debug_assert!(!self.enabled || self.current_target_spatial_node_index != SpatialNodeIndex::INVALID);
+        // Short-circuit rather than round-tripping through the snap transform,
+        // which wouldn't be bit-exact.
+        if rounding == SnapRounding::Exact {
+            return *rect;
+        }
         match self.snapping_transform {
             Some(SnapTransform { ref scale_offset, swap_xy }) => {
                 let rect = if swap_xy { swap_box_xy(rect) } else { *rect };
                 let device_rect: DeviceRect = scale_offset.map_rect(&rect);
                 let snapped: DeviceRect = match rounding {
+                    SnapRounding::Exact => unreachable!("returned above"),
                     SnapRounding::Nearest => device_rect.snap(),
                     SnapRounding::RoundOut => device_rect.round_out(),
                     SnapRounding::Line { horizontal } =>
@@ -438,6 +444,10 @@ impl SpaceSnapper {
 /// How a rect is rounded to the device pixel grid by `snap_rect_rounded`.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum SnapRounding {
+    /// Don't round: leave the rect at its exact sub-pixel position. For a prim
+    /// that resolves its own edges in the shader (anti-aliasing), where moving an
+    /// edge to the grid is what the anti-aliasing is there to avoid.
+    Exact,
     /// Round each edge to the nearest device pixel. Crisp fills / borders that
     /// tile seamlessly with neighbours (`round(max_of_A) == round(min_of_B)`).
     Nearest,
