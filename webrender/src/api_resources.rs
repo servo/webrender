@@ -111,6 +111,7 @@ impl ApiResources {
                 ResourceUpdate::DeleteBlobImage(key) => {
                     transaction.use_scene_builder_thread = true;
                     self.blob_image_templates.remove(&key);
+                    blobs_to_rasterize.retain(|k| *k != key);
                     if let Some(ref mut handler) = self.blob_image_handler {
                         handler.delete(key);
                     }

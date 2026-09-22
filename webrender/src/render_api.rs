@@ -1709,3 +1709,58 @@ pub struct MemoryReport {
     pub render_texture_hosts: usize,
     pub upload_staging_textures: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::{BlobImageResources, ImageDescriptorFlags};
+
+    struct NullRasterizer;
+    impl AsyncBlobImageRasterizer for NullRasterizer {
+        fn rasterize(
+            &mut self,
+            _requests: &[BlobImageParams],
+            _low_priority: bool,
+            _tile_pool: &mut crate::api::BlobTilePool,
+        ) -> Vec<(BlobImageRequest, BlobImageResult)> {
+            Vec::new()
+        }
+    }
+
+    struct NullBlobHandler;
+    impl BlobImageHandler for NullBlobHandler {
+        fn create_blob_rasterizer(&mut self) -> Box<dyn AsyncBlobImageRasterizer> {
+            Box::new(NullRasterizer)
+        }
+        fn create_similar(&self) -> Box<dyn BlobImageHandler> {
+            Box::new(NullBlobHandler)
+        }
+        fn prepare_resources(&mut self, _: &dyn BlobImageResources, _: &[BlobImageParams]) {}
+        fn add(&mut self, _: BlobImageKey, _: Arc<BlobImageData>, _: &DeviceIntRect, _: TileSize) {}
+        fn update(&mut self, _: BlobImageKey, _: Arc<BlobImageData>, _: &DeviceIntRect, _: &BlobDirtyRect) {}
+        fn delete(&mut self, _: BlobImageKey) {}
+        fn delete_font(&mut self, _: FontKey) {}
+        fn delete_font_instance(&mut self, _: FontInstanceKey) {}
+        fn clear_namespace(&mut self, _: IdNamespace) {}
+        fn enable_multithreading(&mut self, _: bool) {}
+    }
+
+    #[test]
+    fn delete_blob_image_in_same_transaction_as_add() {
+        let namespace = IdNamespace(1);
+        let mut resources = ApiResources::new(
+            Some(Box::new(NullBlobHandler)),
+            SharedFontResources::new(namespace),
+        );
+        let key = BlobImageKey(ImageKey::new(namespace, 1));
+        let rect = DeviceIntRect::from_size(DeviceIntSize::new(64, 64));
+        let descriptor = ImageDescriptor::new(64, 64, ImageFormat::BGRA8, ImageDescriptorFlags::empty());
+
+        let mut txn = Transaction::new();
+        txn.add_blob_image(key, descriptor, Arc::new(vec![0; 16]), rect, None);
+        txn.delete_blob_image(key);
+        let mut msg = txn.finalize(DocumentId::new(namespace, 0));
+        resources.update(&mut msg);
+        assert!(msg.blob_requests.is_empty());
+    }
+}
