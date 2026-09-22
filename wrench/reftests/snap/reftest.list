@@ -31,3 +31,5 @@ scale(1.0) == border-even-thickness.yaml border-even-thickness-ref.yaml
 # overlapping rects, so a corner pixel gets its partial antialiased coverage
 # composited twice, while the border draws that corner once.
 fuzzy(96,8) == border-perspective-thickness.yaml border-perspective-thickness-ref.yaml
+
+== antialiased.yaml antialiased-ref.png
