@@ -1816,7 +1816,7 @@ impl TransactionProfile {
     pub fn end_time_if_started(&mut self, id: usize) -> Option<f64> {
         if let Event::Start(start) = self.events[id] {
             let now = zeitstempel::now();
-            let time_ns = now - start;
+            let time_ns = now.saturating_sub(start);
 
             let time_ms = ns_to_ms(time_ns);
             self.events[id] = Event::Value(time_ms);
@@ -2187,5 +2187,17 @@ impl RenderCommandLog {
             shader: self.current_shader.into(),
             instances,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn end_time_before_start_time() {
+        let mut profile = TransactionProfile::new();
+        profile.events[API_SEND_TIME] = Event::Start(zeitstempel::now() + 1_000_000);
+        assert_eq!(profile.end_time_if_started(API_SEND_TIME), Some(0.0));
     }
 }
