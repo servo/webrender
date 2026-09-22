@@ -130,11 +130,12 @@ pub fn upload_to_texture_cache(
                         target: draw_target,
                         render_area: None,
                         color_load: LoadOp::Load,
+                        depth_load: LoadOp::DontCare,
                     });
-                    renderer.device.clear_target(
+                    renderer.device.clear_rect(
+                        draw_target.to_framebuffer_rect(update.rect.to_i32()),
                         Some(TEXTURE_CACHE_DBG_CLEAR_COLOR),
                         None,
-                        Some(draw_target.to_framebuffer_rect(update.rect.to_i32()))
                     );
                     renderer.device.end_render_pass(StoreOp::Store);
 
@@ -585,6 +586,7 @@ fn copy_from_staging_to_cache_using_draw_calls(
                 target: draw_target,
                 render_area: None,
                 color_load: LoadOp::Load,
+                depth_load: LoadOp::DontCare,
             });
 
             renderer.shaders
