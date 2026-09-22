@@ -1,0 +1,10 @@
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 300, 300]
+      color: white
+    - type: rect
+      bounds: [33, 33, 200, 200]
+      color: blue
+      antialiased: true
