@@ -4,6 +4,7 @@
 
 
 use gleam::gl;
+use std::cell::RefCell;
 use std::rc::Rc;
 use crate::blob;
 use crossbeam::sync::chase_lev;
@@ -351,12 +352,48 @@ impl Wrench {
         });
 
         let gl = window.clone_gl();
+
+        // Build the shaders on a device of their own and share them with the
+        // renderer, as Gecko does, so that programs created or linked through
+        // one device are drawn with through another.
+        let shaders = {
+            let mut device = webrender::Device::new(
+                webrender::GpuBackendConfig::Gl(gl.clone()),
+                webrender::DeviceOptions {
+                    crash_annotator: None,
+                    resource_override_path: opts.resource_override_path.clone(),
+                    use_optimized_shaders: opts.use_optimized_shaders,
+                    upload_method: opts.upload_method.clone(),
+                    batched_upload_threshold: opts.batched_upload_threshold,
+                    cached_programs: None,
+                    allow_texture_storage_support: opts.allow_texture_storage_support,
+                    allow_texture_swizzling: opts.allow_texture_swizzling,
+                    dump_shader_source: opts.dump_shader_source.clone(),
+                    surface_origin_is_top_left: opts.surface_origin_is_top_left,
+                    panic_on_gl_error: opts.panic_on_gl_error,
+                },
+            );
+            device.begin_frame();
+            let mut shaders = webrender::Shaders::new(&mut device, &opts).unwrap();
+            let precache_flags = if precache_shaders {
+                ShaderPrecacheFlags::FULL_COMPILE
+            } else {
+                ShaderPrecacheFlags::ASYNC_COMPILE
+            };
+            let mut pending = shaders.precache_all(precache_flags);
+            while shaders.resume_precache(&mut device, &mut pending).unwrap() {}
+            device.end_frame();
+            Rc::new(RefCell::new(shaders))
+        };
+
         let (renderer, sender) = webrender::create_webrender_instance(
             webrender::GpuBackendConfig::Gl(gl.clone()),
             notifier,
             opts,
-            None,
+            Some(&shaders),
         ).unwrap();
+        // The renderer now holds the only reference, so its deinit releases them.
+        drop(shaders);
 
         let api = sender.create_api();
         let document_id = api.add_document(size);
