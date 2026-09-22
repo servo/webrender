@@ -513,6 +513,7 @@ struct GlRenderStateCache {
     depth_test: Option<Option<DepthFunction>>,
     depth_write: Option<bool>,
     color_write: Option<bool>,
+    scissor: Option<Option<FramebufferIntRect>>,
 }
 
 impl Default for GlRenderStateCache {
@@ -525,6 +526,7 @@ impl Default for GlRenderStateCache {
             // device, as it always has been; SWGL does not implement
             // glColorMask, so it must not be set unless the renderer asks.
             color_write: Some(true),
+            scissor: None,
         }
     }
 }
@@ -1865,21 +1867,41 @@ impl GlDevice {
         if clear_bits != 0 {
             match rect {
                 Some(rect) => {
-                    self.gl.enable(gl::SCISSOR_TEST);
-                    self.gl.scissor(
-                        rect.min.x,
-                        rect.min.y,
-                        rect.width(),
-                        rect.height(),
-                    );
+                    let scissor = self.gl_state.scissor.flatten();
+                    self.apply_scissor(Some(rect));
                     self.gl.clear(clear_bits);
-                    self.gl.disable(gl::SCISSOR_TEST);
+                    self.apply_scissor(scissor);
                 }
                 None => {
                     self.gl.clear(clear_bits);
                 }
             }
         }
+    }
+
+    /// Brings the context's scissor to `rect`, skipping the parts it is known
+    /// to hold already.
+    fn apply_scissor(&mut self, rect: Option<FramebufferIntRect>) {
+        if self.gl_state.scissor == Some(rect) {
+            return;
+        }
+        match rect {
+            Some(rect) => {
+                if !matches!(self.gl_state.scissor, Some(Some(_))) {
+                    self.gl.enable(gl::SCISSOR_TEST);
+                }
+                self.gl.scissor(
+                    rect.min.x,
+                    rect.min.y,
+                    rect.width(),
+                    rect.height(),
+                );
+            }
+            None => {
+                self.gl.disable(gl::SCISSOR_TEST);
+            }
+        }
+        self.gl_state.scissor = Some(rect);
     }
 
     /// Issues the GL calls that bring the context to `state`, skipping the
@@ -2392,6 +2414,7 @@ impl GpuBackend for GlDevice {
         debug_assert!(self.current_render_pass.is_none(), "render pass already in progress");
 
         self.bind_draw_target(desc.target);
+        self.apply_scissor(None);
 
         if self.capabilities.supports_qcom_tiled_rendering {
             if let Some(area) = desc.render_area {
@@ -3718,21 +3741,9 @@ impl GpuBackend for GlDevice {
         self.clear_target_impl(color, depth, rect);
     }
 
-    fn set_scissor_rect(&self, rect: FramebufferIntRect) {
-        self.gl.scissor(
-            rect.min.x,
-            rect.min.y,
-            rect.width(),
-            rect.height(),
-        );
-    }
-
-    fn enable_scissor(&self) {
-        self.gl.enable(gl::SCISSOR_TEST);
-    }
-
-    fn disable_scissor(&self) {
-        self.gl.disable(gl::SCISSOR_TEST);
+    fn set_scissor(&mut self, rect: Option<FramebufferIntRect>) {
+        debug_assert!(self.current_render_pass.is_some(), "scissor outside of a render pass");
+        self.apply_scissor(rect);
     }
 
     fn echo_driver_messages(&self) {
