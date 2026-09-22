@@ -1299,15 +1299,17 @@ impl<'a> SceneBuilder<'a> {
             common.clip_chain_id,
         );
 
+        let aligned_aa_edges = if common.flags.contains(PrimitiveFlags::ANTIALISED) {
+            EdgeMask::all()
+        } else {
+            EdgeMask::empty()
+        };
+
         let layout = LayoutPrimitiveInfo {
             rect: prim_rect,
             clip_rect,
             flags: common.flags,
-            // TODO: for CSS primitives axis-aligned edges should not get anti-aliased whereas
-            // for SVG primitives, they should. WebRender currently does not apply anti-aliasing
-            // to SVG aligned primitives as it should, which has gone largely unnoticed because
-            // most SVG primitives are rendered via blob-images.
-            aligned_aa_edges: EdgeMask::empty(),
+            aligned_aa_edges,
             transformed_aa_edges: EdgeMask::all(),
         };
 
