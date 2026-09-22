@@ -2420,7 +2420,7 @@ impl GpuBackend for GlDevice {
             if let Some(area) = desc.render_area {
                 let preserve_mask = match desc.color_load {
                     LoadOp::Load => gl::COLOR_BUFFER_BIT0_QCOM,
-                    LoadOp::DontCare => 0,
+                    LoadOp::DontCare | LoadOp::Clear(..) => 0,
                 };
                 self.gl.start_tiling_qcom(
                     area.min.x.max(0) as _,
@@ -2433,6 +2433,19 @@ impl GpuBackend for GlDevice {
         }
 
         self.current_render_pass = Some(*desc);
+
+        let color = match desc.color_load {
+            LoadOp::Clear(color) => Some(color),
+            LoadOp::Load | LoadOp::DontCare => None,
+        };
+        let depth = match desc.depth_load {
+            LoadOp::Clear(depth) => {
+                debug_assert!(self.depth_available, "Clearing depth without depth target");
+                Some(depth)
+            }
+            LoadOp::Load | LoadOp::DontCare => None,
+        };
+        self.clear_target_impl(color, depth, None);
     }
 
     fn end_render_pass(&mut self, depth_store: StoreOp) {
@@ -3731,14 +3744,14 @@ impl GpuBackend for GlDevice {
         }
     }
 
-    fn clear_target(
+    fn clear_rect(
         &mut self,
+        rect: FramebufferIntRect,
         color: Option<[f32; 4]>,
         depth: Option<f32>,
-        rect: Option<FramebufferIntRect>,
     ) {
         debug_assert!(self.current_render_pass.is_some(), "clear outside of a render pass");
-        self.clear_target_impl(color, depth, rect);
+        self.clear_target_impl(color, depth, Some(rect));
     }
 
     fn set_scissor(&mut self, rect: Option<FramebufferIntRect>) {

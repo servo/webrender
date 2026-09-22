@@ -685,14 +685,16 @@ pub enum BlendMode {
     ShowOverdraw,
 }
 
-/// How the existing contents of a color attachment are treated when a
-/// render pass begins.
+/// How the existing contents of an attachment are treated when a render
+/// pass begins. Applies to the whole attachment.
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum LoadOp {
+pub enum LoadOp<T> {
     Load,
     /// The pass overwrites everything it later reads, so tiled GPUs need not
     /// load the previous contents.
     DontCare,
+    /// The attachment starts out cleared to the given value.
+    Clear(T),
 }
 
 /// What happens to an attachment's contents when a render pass ends.
@@ -734,7 +736,9 @@ pub struct RenderPassDescriptor {
     /// The region of the target this pass writes to, if known. Tiled GPUs
     /// only need to load and store this region.
     pub render_area: Option<DeviceIntRect>,
-    pub color_load: LoadOp,
+    pub color_load: LoadOp<[f32; 4]>,
+    /// May only be `Clear` when the target has a depth attachment.
+    pub depth_load: LoadOp<f32>,
 }
 
 /// Describes the graphics API and driver a device is running on.

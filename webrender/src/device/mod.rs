@@ -115,9 +115,10 @@ pub trait GpuBackend {
 
     fn reset_read_target(&mut self);
 
-    /// Begins rendering to the target described by `desc`. Draws, clears and
-    /// blits into the target must happen before the matching `end_render_pass`.
-    /// Passes may not nest. The pass starts with no scissor.
+    /// Begins rendering to the target described by `desc`, applying its load
+    /// ops. Draws, clears and blits into the target must happen before the
+    /// matching `end_render_pass`. Passes may not nest. The pass starts with
+    /// no scissor.
     fn begin_render_pass(&mut self, desc: &RenderPassDescriptor);
 
     /// Ends the current render pass. `depth_store` says whether the depth
@@ -436,13 +437,14 @@ pub trait GpuBackend {
 
     fn end_frame(&mut self);
 
-    /// Clears the current render pass target, or just `rect` of it. Clears
-    /// are independent of the bound pipeline's write masks and of the scissor.
-    fn clear_target(
+    /// Clears `rect` of the current render pass target. Whole-target clears
+    /// are the pass's load ops instead. Clears are independent of the bound
+    /// pipeline's write masks and of the scissor.
+    fn clear_rect(
         &mut self,
+        rect: FramebufferIntRect,
         color: Option<[f32; 4]>,
         depth: Option<f32>,
-        rect: Option<FramebufferIntRect>,
     );
 
     /// Restricts subsequent draws in the current render pass to `rect`, or
