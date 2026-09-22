@@ -33,3 +33,4 @@ scale(1.0) == border-even-thickness.yaml border-even-thickness-ref.yaml
 fuzzy(96,8) == border-perspective-thickness.yaml border-perspective-thickness-ref.yaml
 
 == antialiased.yaml antialiased-ref.png
+== reference-frame-origin-scaled.yaml reference-frame-origin-scaled-ref.yaml

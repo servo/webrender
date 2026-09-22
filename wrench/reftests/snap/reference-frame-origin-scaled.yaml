@@ -1,0 +1,24 @@
+# An anti-aliased rect inside a reference frame whose origin is fractional in
+# the coordinate space of a scaled ancestor: origin (0.1, 0.1) under a
+# scale(250) frame, so the rect lands on device pixel 8 + 250 * 0.1 = 33.
+# The origin must be used exactly. Quantizing it in local units (1/128 of a
+# local unit is 0.39 device pixels here) shifts the rect off the pixel grid
+# and its edges come out anti-aliased instead of crisp.
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 300, 300]
+      color: white
+    - type: reference-frame
+      bounds: [8, 8, 2, 2]
+      transform: scale(250, 250)
+      transform-origin: [0, 0]
+      items:
+        - type: reference-frame
+          bounds: [0.1, 0.1, 0.8, 0.8]
+          items:
+            - type: rect
+              bounds: [0, 0, 0.8, 0.8]
+              color: blue
+              antialiased: true
