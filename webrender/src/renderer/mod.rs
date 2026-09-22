@@ -1651,7 +1651,6 @@ impl Renderer {
             let frame_id = self.device.begin_frame();
             self.gpu_profiler.begin_frame(frame_id);
 
-            self.device.disable_scissor();
             self.device.set_depth_test(None);
             self.set_blend_mode(BlendMode::None, FramebufferKind::Main);
             //self.update_shaders();
@@ -2350,7 +2349,7 @@ impl Renderer {
     fn handle_readback_composite(
         &mut self,
         draw_target: DrawTarget,
-        uses_scissor: bool,
+        scissor_rect: Option<FramebufferIntRect>,
         backdrop: &RenderTask,
         readback: &RenderTask,
     ) {
@@ -2367,9 +2366,7 @@ impl Renderer {
             _ => unreachable!(),
         };
 
-        if uses_scissor {
-            self.device.disable_scissor();
-        }
+        self.device.set_scissor(None);
 
         let texture_source = TextureSource::TextureCache(
             readback.get_target_texture(),
@@ -2446,9 +2443,7 @@ impl Renderer {
             );
         }
 
-        if uses_scissor {
-            self.device.enable_scissor();
-        }
+        self.device.set_scissor(scissor_rect);
     }
 
     fn handle_resolves(
@@ -2522,7 +2517,6 @@ impl Renderer {
 
             if !prim_instances_with_scissor.is_empty() {
                 self.set_blend_mode(BlendMode::PremultipliedAlpha, FramebufferKind::Other);
-                self.device.enable_scissor();
 
                 let mut prev_pattern = None;
 
@@ -2539,7 +2533,7 @@ impl Renderer {
                         );
                     }
 
-                    self.device.set_scissor_rect(draw_target.to_framebuffer_rect(*scissor_rect));
+                    self.device.set_scissor(Some(draw_target.to_framebuffer_rect(*scissor_rect)));
 
                     for (texture_set, prim_instances) in prim_instances_map {
                         let texture_bindings = BatchTextures {
@@ -2556,7 +2550,7 @@ impl Renderer {
                     }
                 }
 
-                self.device.disable_scissor();
+                self.device.set_scissor(None);
             }
         }
     }
@@ -2603,10 +2597,8 @@ impl Renderer {
                     &mut self.command_log,
                 );
 
-                self.device.enable_scissor();
-
                 for (scissor_rect, instances) in &masks.mask_instances_fast_with_scissor {
-                    self.device.set_scissor_rect(draw_target.to_framebuffer_rect(*scissor_rect));
+                    self.device.set_scissor(Some(draw_target.to_framebuffer_rect(*scissor_rect)));
 
                     self.draw_instanced_batch(
                         instances,
@@ -2616,7 +2608,7 @@ impl Renderer {
                     );
                 }
 
-                self.device.disable_scissor();
+                self.device.set_scissor(None);
             }
 
             if !masks.mask_instances_superellipse.is_empty() {
@@ -2647,10 +2639,8 @@ impl Renderer {
                     &mut self.command_log,
                 );
 
-                self.device.enable_scissor();
-
                 for (scissor_rect, instances) in &masks.mask_instances_superellipse_with_scissor {
-                    self.device.set_scissor_rect(draw_target.to_framebuffer_rect(*scissor_rect));
+                    self.device.set_scissor(Some(draw_target.to_framebuffer_rect(*scissor_rect)));
 
                     self.draw_instanced_batch(
                         instances,
@@ -2660,7 +2650,7 @@ impl Renderer {
                     );
                 }
 
-                self.device.disable_scissor();
+                self.device.set_scissor(None);
             }
 
             if !masks.image_mask_instances.is_empty() {
@@ -2684,8 +2674,6 @@ impl Renderer {
             }
 
             if !masks.image_mask_instances_with_scissor.is_empty() {
-                self.device.enable_scissor();
-
                 self.shaders.borrow_mut().ps_quad_textured().bind(
                     &mut self.device,
                     projection,
@@ -2696,7 +2684,7 @@ impl Renderer {
                 );
 
                 for ((scissor_rect, texture), prim_instances) in &masks.image_mask_instances_with_scissor {
-                    self.device.set_scissor_rect(draw_target.to_framebuffer_rect(*scissor_rect));
+                    self.device.set_scissor(Some(draw_target.to_framebuffer_rect(*scissor_rect)));
 
                     self.draw_instanced_batch(
                         prim_instances,
@@ -2706,7 +2694,7 @@ impl Renderer {
                     );
                 }
 
-                self.device.disable_scissor();
+                self.device.set_scissor(None);
             }
 
             if !masks.mask_instances_slow.is_empty() {
@@ -2737,10 +2725,8 @@ impl Renderer {
                     &mut self.command_log,
                 );
 
-                self.device.enable_scissor();
-
                 for (scissor_rect, instances) in &masks.mask_instances_slow_with_scissor {
-                    self.device.set_scissor_rect(draw_target.to_framebuffer_rect(*scissor_rect));
+                    self.device.set_scissor(Some(draw_target.to_framebuffer_rect(*scissor_rect)));
 
                     self.draw_instanced_batch(
                         instances,
@@ -2750,7 +2736,7 @@ impl Renderer {
                     );
                 }
 
-                self.device.disable_scissor();
+                self.device.set_scissor(None);
             }
         }
     }
@@ -3144,15 +3130,10 @@ impl Renderer {
         render_tasks: &RenderTaskGraph,
         stats: &mut RendererStats,
     ) {
-        let uses_scissor = alpha_batch_container.task_scissor_rect.is_some();
-
-        if uses_scissor {
-            self.device.enable_scissor();
-            let scissor_rect = draw_target.build_scissor_rect(
-                alpha_batch_container.task_scissor_rect,
-            );
-            self.device.set_scissor_rect(scissor_rect)
-        }
+        let scissor_rect = alpha_batch_container
+            .task_scissor_rect
+            .map(|rect| draw_target.build_scissor_rect(Some(rect)));
+        self.device.set_scissor(scissor_rect);
 
         if !alpha_batch_container.opaque_batches.is_empty()
             && !self.debug_flags.contains(DebugFlags::DISABLE_OPAQUE_PASS) {
@@ -3236,7 +3217,7 @@ impl Renderer {
                     debug_assert_eq!(batch.instances.len(), 1);
                     self.handle_readback_composite(
                         draw_target,
-                        uses_scissor,
+                        scissor_rect,
                         &render_tasks[readback.src_task_id],
                         &render_tasks[readback.readback_task_id],
                     );
@@ -3265,9 +3246,7 @@ impl Renderer {
         }
 
         self.device.set_depth_test(None);
-        if uses_scissor {
-            self.device.disable_scissor();
-        }
+        self.device.set_scissor(None);
     }
 
     fn clear_render_target(

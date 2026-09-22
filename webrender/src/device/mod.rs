@@ -117,7 +117,7 @@ pub trait GpuBackend {
 
     /// Begins rendering to the target described by `desc`. Draws, clears and
     /// blits into the target must happen before the matching `end_render_pass`.
-    /// Passes may not nest.
+    /// Passes may not nest. The pass starts with no scissor.
     fn begin_render_pass(&mut self, desc: &RenderPassDescriptor);
 
     /// Ends the current render pass. `depth_store` says whether the depth
@@ -436,8 +436,8 @@ pub trait GpuBackend {
 
     fn end_frame(&mut self);
 
-    /// Clears the current render pass target. Clears are independent of the
-    /// bound pipeline's write masks.
+    /// Clears the current render pass target, or just `rect` of it. Clears
+    /// are independent of the bound pipeline's write masks and of the scissor.
     fn clear_target(
         &mut self,
         color: Option<[f32; 4]>,
@@ -445,11 +445,9 @@ pub trait GpuBackend {
         rect: Option<FramebufferIntRect>,
     );
 
-    fn set_scissor_rect(&self, rect: FramebufferIntRect);
-
-    fn enable_scissor(&self);
-
-    fn disable_scissor(&self);
+    /// Restricts subsequent draws in the current render pass to `rect`, or
+    /// removes the restriction. Dynamic state that lasts until the pass ends.
+    fn set_scissor(&mut self, rect: Option<FramebufferIntRect>);
 
     fn echo_driver_messages(&self);
 
