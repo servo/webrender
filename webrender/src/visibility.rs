@@ -54,6 +54,7 @@ use crate::prim_store::text_run::TextRunScratch;
 use crate::render_backend::{DataStores, ScratchBuffer};
 use crate::render_task_graph::RenderTaskGraphBuilder;
 use crate::resource_cache::ResourceCache;
+use crate::util::MaxRect;
 use crate::scene::SceneProperties;
 use crate::scene_debug::SceneDebugOverride;
 use crate::space::{SpaceMapper, SpaceSnapper};
@@ -340,6 +341,29 @@ pub fn update_prim_visibility(
             (parent_surface_index.expect("bug: pass-through with no parent"), false)
         }
     };
+
+    // A snapshot is sampled as a texture, so content inside its area can be
+    // needed even when it falls outside of the screen. A detached snapshot is
+    // only ever read through that texture, so its area is the sole region it
+    // contributes to; a composited one is also drawn on screen and needs both.
+    if let Some(snapshot) = &pic.snapshot {
+        let surface = &mut frame_state.surfaces[surface_index.0 as usize];
+        let map_surface_to_raster: SpaceMapper<PicturePixel, RasterPixel> =
+            SpaceMapper::new_with_target(
+                surface.raster_spatial_node_index,
+                surface.surface_spatial_node_index,
+                RasterRect::max_rect(),
+                frame_context.spatial_tree,
+            );
+        match map_surface_to_raster.map(&snapshot.area.cast_unit()) {
+            Some(area) if snapshot.detached => surface.culling_rect = area,
+            Some(area) => surface.culling_rect = surface.culling_rect.union(&area),
+            None => {
+                surface.culling_rect = RasterRect::max_rect();
+                surface.culling_rect_projection_failed = true;
+            }
+        }
+    }
 
     let surface = &frame_state.surfaces[surface_index.0 as usize];
     let surface_culling_rect = surface.culling_rect;

@@ -1,0 +1,42 @@
+# A snapshot can contain content that is outside of the viewport (the widget
+# size in Gecko). When the content is clipped through a transform, the clip's
+# raster-space culling rect is the viewport, which used to reject content that
+# is inside the snapshot area but off-screen (bug 2023566).
+---
+pipelines:
+- id: [0, 1]
+  offscreen: true
+  items:
+  - type: stacking-context
+    bounds: [0, 0, 1920, 1080]
+    snapshot:
+      name: "snap0"
+      area: [0, 0, 2400, 1080]
+      detached: true
+    items:
+    - type: clip
+      id: 1
+      complex:
+        - rect: [0, 0, 2400, 1080]
+    - type: clip-chain
+      id: 2
+      clips: [1]
+    - type: stacking-context
+      bounds: [0, 0, 1920, 1080]
+      perspective: 1000
+      clip-chain: 2
+      items:
+      - type: stacking-context
+        bounds: [0, 0, 1920, 0]
+        transform: translate(-5158, 222, 333.333)
+        items:
+        - type: rect
+          bounds: [5985, 0, 120, 40]
+          color: red
+        - type: rect
+          bounds: [6800, 0, 120, 40]
+          color: green
+root:
+  items:
+  - image: snapshot(snap0)
+    bounds: [0, 0, 1200, 540]

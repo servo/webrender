@@ -1,0 +1,32 @@
+# Same content as snapshot-offscreen-03.yaml but without the transformed clip,
+# so every primitive is rendered regardless of where it falls in the viewport.
+---
+pipelines:
+- id: [0, 1]
+  offscreen: true
+  items:
+  - type: stacking-context
+    bounds: [0, 0, 1920, 1080]
+    snapshot:
+      name: "snap0"
+      area: [0, 0, 2400, 1080]
+      detached: true
+    items:
+    - type: stacking-context
+      bounds: [0, 0, 1920, 1080]
+      perspective: 1000
+      items:
+      - type: stacking-context
+        bounds: [0, 0, 1920, 0]
+        transform: translate(-5158, 222, 333.333)
+        items:
+        - type: rect
+          bounds: [5985, 0, 120, 40]
+          color: red
+        - type: rect
+          bounds: [6800, 0, 120, 40]
+          color: green
+root:
+  items:
+  - image: snapshot(snap0)
+    bounds: [0, 0, 1200, 540]
