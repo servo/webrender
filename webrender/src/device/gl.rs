@@ -305,10 +305,6 @@ impl IBOId {
     }
 }
 
-/// A GL framebuffer object.
-#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
-struct FBOId(gl::GLuint);
-
 impl FBOId {
     fn bind(&self, gl: &dyn gl::Gl, target: FBOTarget) {
         let target = match target {
@@ -517,7 +513,6 @@ struct GlRenderStateCache {
     depth_test: Option<Option<DepthFunction>>,
     depth_write: Option<bool>,
     color_write: Option<bool>,
-    scissor: Option<Option<FramebufferIntRect>>,
 }
 
 impl Default for GlRenderStateCache {
@@ -530,23 +525,8 @@ impl Default for GlRenderStateCache {
             // device, as it always has been; SWGL does not implement
             // glColorMask, so it must not be set unless the renderer asks.
             color_write: Some(true),
-            scissor: None,
         }
     }
-}
-
-/// The framebuffer objects through which a render target texture is drawn
-/// to and read from.
-///
-/// FBOs are cheap to create but expensive to reconfigure (since doing so
-/// invalidates framebuffer completeness caching). Moreover, rendering with
-/// a depth buffer attached but the depth write+test disabled relies on the
-/// driver to optimize it out of the rendering pass, which most drivers
-/// probably do but, according to jgilbert, is best not to rely on. So a
-/// second FBO with depth is created lazily, the first time depth is requested.
-struct GlRenderTarget {
-    fbo: FBOId,
-    fbo_with_depth: Option<FBOId>,
 }
 
 /// A refcounted depth target, which may be shared by multiple textures across
@@ -599,8 +579,6 @@ pub struct GlDevice {
     scratch_read_fbo: Option<FBOId>,
     default_read_fbo: FBOId,
     default_draw_fbo: FBOId,
-    /// The FBOs of every render target texture, by texture id.
-    render_targets: FastHashMap<TextureId, GlRenderTarget>,
 
     /// Track depth state for assertions. Note that the default FBO has depth,
     /// so this defaults to true.
@@ -1295,7 +1273,6 @@ impl GlDevice {
             bound_read_fbo: (FBOId(0), DeviceIntPoint::zero()),
             current_render_pass: None,
             scratch_read_fbo: None,
-            render_targets: FastHashMap::default(),
             bound_draw_fbo: FBOId(0),
             default_read_fbo: FBOId(0),
             default_draw_fbo: FBOId(0),
@@ -1449,21 +1426,11 @@ impl GlDevice {
         self.bound_read_fbo = (fbo_id, offset);
     }
 
-    /// The FBO a render target texture is drawn to, with or without depth.
-    fn render_target_fbo(&self, texture: TextureId, with_depth: bool) -> FBOId {
-        let target = &self.render_targets[&texture];
-        if with_depth {
-            target.fbo_with_depth.expect("render target has no depth")
-        } else {
-            target.fbo
-        }
-    }
-
     fn bind_read_target(&mut self, target: ReadTarget) {
         let fbo_id = match target {
             ReadTarget::Default => self.default_read_fbo,
-            ReadTarget::Texture { texture } => self.render_target_fbo(texture, false),
-            ReadTarget::NativeSurface { handle, .. } => FBOId(handle.0 as gl::GLuint),
+            ReadTarget::Texture { fbo_id } => fbo_id,
+            ReadTarget::NativeSurface { fbo_id, .. } => fbo_id,
         };
 
         self.bind_read_target_impl(fbo_id, target.offset())
@@ -1492,15 +1459,15 @@ impl GlDevice {
             DrawTarget::Default { rect, .. } => {
                 (self.default_draw_fbo, rect, false)
             }
-            DrawTarget::Texture { dimensions, texture, with_depth, .. } => {
+            DrawTarget::Texture { dimensions, fbo_id, with_depth, .. } => {
                 let rect = FramebufferIntRect::from_size(
                     device_size_as_framebuffer_size(dimensions),
                 );
-                (self.render_target_fbo(texture, with_depth), rect, with_depth)
+                (fbo_id, rect, with_depth)
             },
             DrawTarget::NativeSurface { handle, offset, dimensions, .. } => {
                 (
-                    FBOId(handle.0 as gl::GLuint),
+                    FBOId(handle.0 as u32),
                     device_rect_as_framebuffer_rect(&DeviceIntRect::from_origin_and_size(offset, dimensions)),
                     true
                 )
@@ -1574,29 +1541,18 @@ impl GlDevice {
         self.gl.invalidate_framebuffer(gl::DRAW_FRAMEBUFFER, attachments);
     }
 
-    /// Creates the FBO through which `texture` is drawn to, with or without
-    /// depth, and records it. With depth, the texture must already be a
-    /// render target without one.
     fn init_fbos(&mut self, texture: &mut Texture, with_depth: bool) {
-        let depth_rb = if with_depth {
-            Some(self.acquire_depth_target(texture.get_dimensions()))
+        let (fbo, depth_rb) = if with_depth {
+            let depth_target = self.acquire_depth_target(texture.get_dimensions());
+            (&mut texture.fbo_with_depth, Some(depth_target))
         } else {
-            None
+            (&mut texture.fbo, None)
         };
 
         // Generate the FBOs.
+        assert!(fbo.is_none());
         let fbo_id = FBOId(*self.gl.gen_framebuffers(1).first().unwrap());
-        let texture_id = TextureId(texture.id);
-        if with_depth {
-            let target = self.render_targets.get_mut(&texture_id).expect("not a render target");
-            assert!(target.fbo_with_depth.is_none());
-            target.fbo_with_depth = Some(fbo_id);
-            texture.render_target = Some(RenderTargetInfo { has_depth: true });
-        } else {
-            let old = self.render_targets.insert(texture_id, GlRenderTarget { fbo: fbo_id, fbo_with_depth: None });
-            assert!(old.is_none());
-            texture.render_target = Some(RenderTargetInfo { has_depth: false });
-        }
+        *fbo = Some(fbo_id);
 
         // Bind the FBOs.
         let original_bound_fbo = self.bound_draw_fbo;
@@ -1909,41 +1865,21 @@ impl GlDevice {
         if clear_bits != 0 {
             match rect {
                 Some(rect) => {
-                    let scissor = self.gl_state.scissor.flatten();
-                    self.apply_scissor(Some(rect));
+                    self.gl.enable(gl::SCISSOR_TEST);
+                    self.gl.scissor(
+                        rect.min.x,
+                        rect.min.y,
+                        rect.width(),
+                        rect.height(),
+                    );
                     self.gl.clear(clear_bits);
-                    self.apply_scissor(scissor);
+                    self.gl.disable(gl::SCISSOR_TEST);
                 }
                 None => {
                     self.gl.clear(clear_bits);
                 }
             }
         }
-    }
-
-    /// Brings the context's scissor to `rect`, skipping the parts it is known
-    /// to hold already.
-    fn apply_scissor(&mut self, rect: Option<FramebufferIntRect>) {
-        if self.gl_state.scissor == Some(rect) {
-            return;
-        }
-        match rect {
-            Some(rect) => {
-                if !matches!(self.gl_state.scissor, Some(Some(_))) {
-                    self.gl.enable(gl::SCISSOR_TEST);
-                }
-                self.gl.scissor(
-                    rect.min.x,
-                    rect.min.y,
-                    rect.width(),
-                    rect.height(),
-                );
-            }
-            None => {
-                self.gl.disable(gl::SCISSOR_TEST);
-            }
-        }
-        self.gl_state.scissor = Some(rect);
     }
 
     /// Issues the GL calls that bring the context to `state`, skipping the
@@ -2456,13 +2392,12 @@ impl GpuBackend for GlDevice {
         debug_assert!(self.current_render_pass.is_none(), "render pass already in progress");
 
         self.bind_draw_target(desc.target);
-        self.apply_scissor(None);
 
         if self.capabilities.supports_qcom_tiled_rendering {
             if let Some(area) = desc.render_area {
                 let preserve_mask = match desc.color_load {
                     LoadOp::Load => gl::COLOR_BUFFER_BIT0_QCOM,
-                    LoadOp::DontCare | LoadOp::Clear(..) => 0,
+                    LoadOp::DontCare => 0,
                 };
                 self.gl.start_tiling_qcom(
                     area.min.x.max(0) as _,
@@ -2475,19 +2410,6 @@ impl GpuBackend for GlDevice {
         }
 
         self.current_render_pass = Some(*desc);
-
-        let color = match desc.color_load {
-            LoadOp::Clear(color) => Some(color),
-            LoadOp::Load | LoadOp::DontCare => None,
-        };
-        let depth = match desc.depth_load {
-            LoadOp::Clear(depth) => {
-                debug_assert!(self.depth_available, "Clearing depth without depth target");
-                Some(depth)
-            }
-            LoadOp::Load | LoadOp::DontCare => None,
-        };
-        self.clear_target_impl(color, depth, None);
     }
 
     fn end_render_pass(&mut self, depth_store: StoreOp) {
@@ -2714,7 +2636,8 @@ impl GpuBackend for GlDevice {
             format,
             filter,
             active_swizzle: Cell::default(),
-            render_target: None,
+            fbo: None,
+            fbo_with_depth: None,
             last_frame_used: self.frame_id,
             flags: TextureFlags::default(),
         };
@@ -2853,24 +2776,22 @@ impl GpuBackend for GlDevice {
 
     fn invalidate_render_target(&mut self, texture: &Texture) {
         if self.capabilities.supports_render_target_invalidate {
-            if texture.render_target.is_none() {
-                return;
-            }
-            let with_depth = texture.supports_depth();
-            let attachments = if with_depth {
-                &[gl::COLOR_ATTACHMENT0, gl::DEPTH_ATTACHMENT] as &[gl::GLenum]
+            let (fbo, attachments) = if texture.supports_depth() {
+                (&texture.fbo_with_depth,
+                 &[gl::COLOR_ATTACHMENT0, gl::DEPTH_ATTACHMENT] as &[gl::GLenum])
             } else {
-                &[gl::COLOR_ATTACHMENT0] as &[gl::GLenum]
+                (&texture.fbo, &[gl::COLOR_ATTACHMENT0] as &[gl::GLenum])
             };
-            let fbo_id = self.render_target_fbo(TextureId(texture.id), with_depth);
 
-            let original_bound_fbo = self.bound_draw_fbo;
-            // Note: The invalidate extension may not be supported, in which
-            // case this is a no-op. That's ok though, because it's just a
-            // hint.
-            self.bind_external_draw_target(fbo_id);
-            self.gl.invalidate_framebuffer(gl::FRAMEBUFFER, attachments);
-            self.bind_external_draw_target(original_bound_fbo);
+            if let Some(fbo_id) = fbo {
+                let original_bound_fbo = self.bound_draw_fbo;
+                // Note: The invalidate extension may not be supported, in which
+                // case this is a no-op. That's ok though, because it's just a
+                // hint.
+                self.bind_external_draw_target(*fbo_id);
+                self.gl.invalidate_framebuffer(gl::FRAMEBUFFER, attachments);
+                self.bind_external_draw_target(original_bound_fbo);
+            }
         }
     }
 
@@ -2916,13 +2837,14 @@ impl GpuBackend for GlDevice {
     fn delete_texture(&mut self, mut texture: Texture) {
         debug_assert!(self.inside_frame);
         let had_depth = texture.supports_depth();
-        if let Some(target) = self.render_targets.remove(&TextureId(texture.id)) {
-            self.gl.delete_framebuffers(&[target.fbo.0]);
-            if let Some(fbo) = target.fbo_with_depth {
-                self.gl.delete_framebuffers(&[fbo.0]);
-            }
+        if let Some(fbo) = texture.fbo {
+            self.gl.delete_framebuffers(&[fbo.0]);
+            texture.fbo = None;
         }
-        texture.render_target = None;
+        if let Some(fbo) = texture.fbo_with_depth {
+            self.gl.delete_framebuffers(&[fbo.0]);
+            texture.fbo_with_depth = None;
+        }
 
         if had_depth {
             self.release_depth_target(texture.get_dimensions());
@@ -3786,19 +3708,31 @@ impl GpuBackend for GlDevice {
         }
     }
 
-    fn clear_rect(
+    fn clear_target(
         &mut self,
-        rect: FramebufferIntRect,
         color: Option<[f32; 4]>,
         depth: Option<f32>,
+        rect: Option<FramebufferIntRect>,
     ) {
         debug_assert!(self.current_render_pass.is_some(), "clear outside of a render pass");
-        self.clear_target_impl(color, depth, Some(rect));
+        self.clear_target_impl(color, depth, rect);
     }
 
-    fn set_scissor(&mut self, rect: Option<FramebufferIntRect>) {
-        debug_assert!(self.current_render_pass.is_some(), "scissor outside of a render pass");
-        self.apply_scissor(rect);
+    fn set_scissor_rect(&self, rect: FramebufferIntRect) {
+        self.gl.scissor(
+            rect.min.x,
+            rect.min.y,
+            rect.width(),
+            rect.height(),
+        );
+    }
+
+    fn enable_scissor(&self) {
+        self.gl.enable(gl::SCISSOR_TEST);
+    }
+
+    fn disable_scissor(&self) {
+        self.gl.disable(gl::SCISSOR_TEST);
     }
 
     fn echo_driver_messages(&self) {

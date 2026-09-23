@@ -681,19 +681,6 @@ fn preferred_gpu_buffer_texture_height(required_height: i32) -> i32 {
     ((required_height + 7) & !7).max(8)
 }
 
-/// How a color or alpha render target is cleared: what its render pass loads,
-/// and what clearing is left to do once the pass has begun.
-struct RenderTargetClear {
-    color_load: LoadOp<[f32; 4]>,
-    depth_load: LoadOp<f32>,
-    /// A clear of part of the target, with its color and depth values.
-    rect: Option<(FramebufferIntRect, Option<[f32; 4]>, Option<f32>)>,
-    /// Only the target's clear rects are cleared, each to its own color.
-    precise: bool,
-    /// The clear rects are drawn with a shader rather than cleared.
-    with_quads: bool,
-}
-
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
 ///
@@ -1664,6 +1651,7 @@ impl Renderer {
             let frame_id = self.device.begin_frame();
             self.gpu_profiler.begin_frame(frame_id);
 
+            self.device.disable_scissor();
             self.device.set_depth_test(None);
             self.set_blend_mode(BlendMode::None, FramebufferKind::Main);
             //self.update_shaders();
@@ -2089,7 +2077,6 @@ impl Renderer {
                     target: draw_target,
                     render_area: None,
                     color_load: LoadOp::Load,
-                    depth_load: LoadOp::DontCare,
                 });
 
                 self.shaders
@@ -2363,7 +2350,7 @@ impl Renderer {
     fn handle_readback_composite(
         &mut self,
         draw_target: DrawTarget,
-        scissor_rect: Option<FramebufferIntRect>,
+        uses_scissor: bool,
         backdrop: &RenderTask,
         readback: &RenderTask,
     ) {
@@ -2380,7 +2367,9 @@ impl Renderer {
             _ => unreachable!(),
         };
 
-        self.device.set_scissor(None);
+        if uses_scissor {
+            self.device.disable_scissor();
+        }
 
         let texture_source = TextureSource::TextureCache(
             readback.get_target_texture(),
@@ -2457,7 +2446,9 @@ impl Renderer {
             );
         }
 
-        self.device.set_scissor(scissor_rect);
+        if uses_scissor {
+            self.device.enable_scissor();
+        }
     }
 
     fn handle_resolves(
@@ -2531,6 +2522,7 @@ impl Renderer {
 
             if !prim_instances_with_scissor.is_empty() {
                 self.set_blend_mode(BlendMode::PremultipliedAlpha, FramebufferKind::Other);
+                self.device.enable_scissor();
 
                 let mut prev_pattern = None;
 
@@ -2547,7 +2539,7 @@ impl Renderer {
                         );
                     }
 
-                    self.device.set_scissor(Some(draw_target.to_framebuffer_rect(*scissor_rect)));
+                    self.device.set_scissor_rect(draw_target.to_framebuffer_rect(*scissor_rect));
 
                     for (texture_set, prim_instances) in prim_instances_map {
                         let texture_bindings = BatchTextures {
@@ -2564,7 +2556,7 @@ impl Renderer {
                     }
                 }
 
-                self.device.set_scissor(None);
+                self.device.disable_scissor();
             }
         }
     }
@@ -2611,8 +2603,10 @@ impl Renderer {
                     &mut self.command_log,
                 );
 
+                self.device.enable_scissor();
+
                 for (scissor_rect, instances) in &masks.mask_instances_fast_with_scissor {
-                    self.device.set_scissor(Some(draw_target.to_framebuffer_rect(*scissor_rect)));
+                    self.device.set_scissor_rect(draw_target.to_framebuffer_rect(*scissor_rect));
 
                     self.draw_instanced_batch(
                         instances,
@@ -2622,7 +2616,7 @@ impl Renderer {
                     );
                 }
 
-                self.device.set_scissor(None);
+                self.device.disable_scissor();
             }
 
             if !masks.mask_instances_superellipse.is_empty() {
@@ -2653,8 +2647,10 @@ impl Renderer {
                     &mut self.command_log,
                 );
 
+                self.device.enable_scissor();
+
                 for (scissor_rect, instances) in &masks.mask_instances_superellipse_with_scissor {
-                    self.device.set_scissor(Some(draw_target.to_framebuffer_rect(*scissor_rect)));
+                    self.device.set_scissor_rect(draw_target.to_framebuffer_rect(*scissor_rect));
 
                     self.draw_instanced_batch(
                         instances,
@@ -2664,7 +2660,7 @@ impl Renderer {
                     );
                 }
 
-                self.device.set_scissor(None);
+                self.device.disable_scissor();
             }
 
             if !masks.image_mask_instances.is_empty() {
@@ -2688,6 +2684,8 @@ impl Renderer {
             }
 
             if !masks.image_mask_instances_with_scissor.is_empty() {
+                self.device.enable_scissor();
+
                 self.shaders.borrow_mut().ps_quad_textured().bind(
                     &mut self.device,
                     projection,
@@ -2698,7 +2696,7 @@ impl Renderer {
                 );
 
                 for ((scissor_rect, texture), prim_instances) in &masks.image_mask_instances_with_scissor {
-                    self.device.set_scissor(Some(draw_target.to_framebuffer_rect(*scissor_rect)));
+                    self.device.set_scissor_rect(draw_target.to_framebuffer_rect(*scissor_rect));
 
                     self.draw_instanced_batch(
                         prim_instances,
@@ -2708,7 +2706,7 @@ impl Renderer {
                     );
                 }
 
-                self.device.set_scissor(None);
+                self.device.disable_scissor();
             }
 
             if !masks.mask_instances_slow.is_empty() {
@@ -2739,8 +2737,10 @@ impl Renderer {
                     &mut self.command_log,
                 );
 
+                self.device.enable_scissor();
+
                 for (scissor_rect, instances) in &masks.mask_instances_slow_with_scissor {
-                    self.device.set_scissor(Some(draw_target.to_framebuffer_rect(*scissor_rect)));
+                    self.device.set_scissor_rect(draw_target.to_framebuffer_rect(*scissor_rect));
 
                     self.draw_instanced_batch(
                         instances,
@@ -2750,7 +2750,7 @@ impl Renderer {
                     );
                 }
 
-                self.device.set_scissor(None);
+                self.device.disable_scissor();
             }
         }
     }
@@ -3023,6 +3023,15 @@ impl Renderer {
 
         {
             let _timer = self.gpu_profiler.start_timer(GPU_TAG_SETUP_TARGET);
+            // The dirty rect is fully redrawn, so nothing needs loading.
+            self.device.begin_render_pass(&RenderPassDescriptor {
+                target: draw_target,
+                render_area: Some(target.dirty_rect),
+                color_load: LoadOp::DontCare,
+            });
+
+            self.device.set_depth_write(true);
+            self.set_blend_mode(BlendMode::None, framebuffer_kind);
 
             let clear_color = target.clear_color.map(|c| c.to_array());
             let scissor_rect = if self.device.get_capabilities().supports_render_target_partial_update
@@ -3033,24 +3042,6 @@ impl Renderer {
             } else {
                 None
             };
-
-            // The dirty rect is fully redrawn, so nothing needs loading. A clear
-            // of the whole target is the pass's load op; one restricted to the
-            // dirty rect is issued once the pass has begun.
-            let full_clear = scissor_rect.is_none();
-            self.device.begin_render_pass(&RenderPassDescriptor {
-                target: draw_target,
-                render_area: Some(target.dirty_rect),
-                color_load: match clear_color {
-                    Some(color) if full_clear => LoadOp::Clear(color),
-                    _ => LoadOp::DontCare,
-                },
-                depth_load: if full_clear { LoadOp::Clear(1.0) } else { LoadOp::DontCare },
-            });
-
-            self.device.set_depth_write(true);
-            self.set_blend_mode(BlendMode::None, framebuffer_kind);
-
             match scissor_rect {
                 // If updating only a dirty rect within a picture cache target, the
                 // clear must also be scissored to that dirty region.
@@ -3088,14 +3079,12 @@ impl Renderer {
                     stats.total_draw_calls = old_draw_call_count;
                     self.device.set_depth_test(None);
                 }
-                Some(r) => {
-                    self.device.clear_rect(
-                        draw_target.build_scissor_rect(Some(r)),
-                        clear_color,
-                        Some(1.0),
-                    );
+                other => {
+                    let scissor_rect = other.map(|rect| {
+                        draw_target.build_scissor_rect(Some(rect))
+                    });
+                    self.device.clear_target(clear_color, Some(1.0), scissor_rect);
                 }
-                None => {}
             };
             self.device.set_depth_write(false);
         }
@@ -3155,10 +3144,15 @@ impl Renderer {
         render_tasks: &RenderTaskGraph,
         stats: &mut RendererStats,
     ) {
-        let scissor_rect = alpha_batch_container
-            .task_scissor_rect
-            .map(|rect| draw_target.build_scissor_rect(Some(rect)));
-        self.device.set_scissor(scissor_rect);
+        let uses_scissor = alpha_batch_container.task_scissor_rect.is_some();
+
+        if uses_scissor {
+            self.device.enable_scissor();
+            let scissor_rect = draw_target.build_scissor_rect(
+                alpha_batch_container.task_scissor_rect,
+            );
+            self.device.set_scissor_rect(scissor_rect)
+        }
 
         if !alpha_batch_container.opaque_batches.is_empty()
             && !self.debug_flags.contains(DebugFlags::DISABLE_OPAQUE_PASS) {
@@ -3242,7 +3236,7 @@ impl Renderer {
                     debug_assert_eq!(batch.instances.len(), 1);
                     self.handle_readback_composite(
                         draw_target,
-                        scissor_rect,
+                        uses_scissor,
                         &render_tasks[readback.src_task_id],
                         &render_tasks[readback.readback_task_id],
                     );
@@ -3271,17 +3265,32 @@ impl Renderer {
         }
 
         self.device.set_depth_test(None);
-        self.device.set_scissor(None);
+        if uses_scissor {
+            self.device.disable_scissor();
+        }
     }
 
-    /// Decides how a color or alpha target is cleared. Whole-target clears
-    /// are the render pass's load ops; anything restricted to part of the
-    /// target is issued by `clear_render_target` once the pass has begun.
-    fn plan_render_target_clear(
-        &self,
+    fn clear_render_target(
+        &mut self,
         target: &RenderTarget,
         draw_target: DrawTarget,
-    ) -> RenderTargetClear {
+        framebuffer_kind: FramebufferKind,
+        projection: &default::Transform3D<f32>,
+        stats: &mut RendererStats,
+    ) {
+        let needs_depth = target.needs_depth();
+
+        let clear_depth = if needs_depth {
+            Some(1.0)
+        } else {
+            None
+        };
+
+        let _timer = self.gpu_profiler.start_timer(GPU_TAG_SETUP_TARGET);
+
+        self.device.set_depth_test(None);
+        self.set_blend_mode(BlendMode::None, framebuffer_kind);
+
         let is_alpha = target.target_kind == RenderTargetKind::Alpha;
         let require_precise_clear = target.cached;
 
@@ -3303,108 +3312,66 @@ impl Renderer {
         let clear_color = target
             .clear_color
             .map(|color| color.to_array());
-        let clear_depth = if target.needs_depth() {
-            Some(1.0)
-        } else {
-            None
-        };
 
-        // A target with a clear color is fully overwritten by the clear,
-        // so its previous contents need not be loaded.
-        let color_load = match clear_color {
-            Some(..) => LoadOp::DontCare,
-            None => LoadOp::Load,
-        };
-        let depth_load = clear_depth.map_or(LoadOp::DontCare, LoadOp::Clear);
-
-        if clear_with_quads || require_precise_clear {
-            // Only specific rects will be cleared.
-            return RenderTargetClear {
-                color_load,
-                depth_load,
-                rect: None,
-                precise: require_precise_clear,
-                with_quads: clear_with_quads,
-            };
-        }
-
-        // At this point we know we don't require precise clears for correctness.
-        // We may still attempt to restrict the clear rect as an optimization on
-        // some configurations.
-        let clear_rect = if require_full_clear {
-            None
-        } else {
-            match draw_target {
-                DrawTarget::Default { rect, total_size, .. } => {
-                    if rect.min == FramebufferIntPoint::zero() && rect.size() == total_size {
-                        // Whole screen is covered, no need for scissor
-                        None
-                    } else {
-                        Some(rect)
-                    }
-                }
-                DrawTarget::Texture { .. } => {
-                    // TODO(gw): Applying a scissor rect and minimal clear here
-                    // is a very large performance win on the Intel and nVidia
-                    // GPUs that I have tested with. It's possible it may be a
-                    // performance penalty on other GPU types - we should test this
-                    // and consider different code paths.
-                    //
-                    // Note: The above measurements were taken when render
-                    // target slices were minimum 2048x2048. Now that we size
-                    // them adaptively, this may be less of a win (except perhaps
-                    // on a mostly-unused last slice of a large texture array).
-                    target.used_rect.map(|rect| draw_target.to_framebuffer_rect(rect))
-                }
-                // Full clear.
-                _ => None,
-            }
-        };
-
-        match clear_rect {
-            None => RenderTargetClear {
-                color_load: clear_color.map_or(LoadOp::Load, LoadOp::Clear),
-                depth_load,
-                rect: None,
-                precise: false,
-                with_quads: false,
-            },
-            Some(rect) => RenderTargetClear {
-                color_load,
-                depth_load: LoadOp::DontCare,
-                rect: Some((rect, clear_color, clear_depth)),
-                precise: false,
-                with_quads: false,
-            },
-        }
-    }
-
-    /// Issues the clears of `clear` that happen inside the render pass.
-    fn clear_render_target(
-        &mut self,
-        target: &RenderTarget,
-        draw_target: DrawTarget,
-        framebuffer_kind: FramebufferKind,
-        clear: &RenderTargetClear,
-        projection: &default::Transform3D<f32>,
-        stats: &mut RendererStats,
-    ) {
-        self.device.set_depth_test(None);
-        self.set_blend_mode(BlendMode::None, framebuffer_kind);
-
-        if let Some((rect, color, depth)) = clear.rect {
-            self.device.clear_rect(rect, color, depth);
-        }
-
-        if clear.precise && !clear.with_quads {
+        let mut cleared_depth = false;
+        if clear_with_quads {
+            // Will be handled last. Only specific rects will be cleared.
+        } else if require_precise_clear {
             // Only clear specific rects
             for (rect, color) in &target.clears {
-                self.device.clear_rect(
-                    draw_target.to_framebuffer_rect(*rect),
+                self.device.clear_target(
                     Some(color.to_array()),
                     None,
+                    Some(draw_target.to_framebuffer_rect(*rect)),
                 );
             }
+        } else {
+            // At this point we know we don't require precise clears for correctness.
+            // We may still attempt to restruct the clear rect as an optimization on
+            // some configurations.
+            let clear_rect = if require_full_clear {
+                None
+            } else {
+                match draw_target {
+                    DrawTarget::Default { rect, total_size, .. } => {
+                        if rect.min == FramebufferIntPoint::zero() && rect.size() == total_size {
+                            // Whole screen is covered, no need for scissor
+                            None
+                        } else {
+                            Some(rect)
+                        }
+                    }
+                    DrawTarget::Texture { .. } => {
+                        // TODO(gw): Applying a scissor rect and minimal clear here
+                        // is a very large performance win on the Intel and nVidia
+                        // GPUs that I have tested with. It's possible it may be a
+                        // performance penalty on other GPU types - we should test this
+                        // and consider different code paths.
+                        //
+                        // Note: The above measurements were taken when render
+                        // target slices were minimum 2048x2048. Now that we size
+                        // them adaptively, this may be less of a win (except perhaps
+                        // on a mostly-unused last slice of a large texture array).
+                        target.used_rect.map(|rect| draw_target.to_framebuffer_rect(rect))
+                    }
+                    // Full clear.
+                    _ => None,
+                }
+            };
+
+            self.device.clear_target(
+                clear_color,
+                clear_depth,
+                clear_rect,
+            );
+            cleared_depth = true;
+        }
+
+        // Make sure to clear the depth buffer if it is used.
+        if needs_depth && !cleared_depth {
+            // TODO: We could also clear the depth buffer via ps_clear. This
+            // is done by picture cache targets in some cases.
+            self.device.clear_target(None, clear_depth, None);
         }
 
         // Finally, if we decided to clear with quads or if we need to clear
@@ -3413,7 +3380,7 @@ impl Renderer {
 
         let mut clear_instances = Vec::with_capacity(target.clears.len());
         for (rect, color) in &target.clears {
-            if clear.with_quads || (!clear.precise && target.clear_color != Some(*color)) {
+            if clear_with_quads || (!require_precise_clear && target.clear_color != Some(*color)) {
                 let rect = rect.to_f32();
                 clear_instances.push(ClearInstance {
                     rect: [
@@ -3508,36 +3475,34 @@ impl Renderer {
             FramebufferKind::Other
         };
 
-        let clear = self.plan_render_target_clear(target, draw_target);
-
-        {
-            let _timer = self.gpu_profiler.start_timer(GPU_TAG_SETUP_TARGET);
-
-            self.device.begin_render_pass(&RenderPassDescriptor {
-                target: draw_target,
-                render_area: target.used_rect,
-                color_load: clear.color_load,
-                depth_load: clear.depth_load,
-            });
-
-            if needs_depth {
-                self.device.set_depth_write(true);
+        self.device.begin_render_pass(&RenderPassDescriptor {
+            target: draw_target,
+            render_area: target.used_rect,
+            // A target with a clear color is fully overwritten by the clear,
+            // so its previous contents need not be loaded.
+            color_load: if target.clear_color.is_some() {
+                LoadOp::DontCare
             } else {
-                self.device.set_depth_write(false);
-            }
+                LoadOp::Load
+            },
+        });
 
-            self.clear_render_target(
-                target,
-                draw_target,
-                framebuffer_kind,
-                &clear,
-                &projection,
-                stats,
-            );
+        if needs_depth {
+            self.device.set_depth_write(true);
+        } else {
+            self.device.set_depth_write(false);
+        }
 
-            if needs_depth {
-                self.device.set_depth_write(false);
-            }
+        self.clear_render_target(
+            target,
+            draw_target,
+            framebuffer_kind,
+            &projection,
+            stats,
+        );
+
+        if needs_depth {
+            self.device.set_depth_write(false);
         }
 
         // Handle any resolves from parent pictures to this target
@@ -4332,9 +4297,9 @@ impl Renderer {
         self.device.begin_render_pass(&RenderPassDescriptor {
             target: DrawTarget::from_texture(&texture, false),
             render_area: None,
-            color_load: LoadOp::Clear(color),
-            depth_load: LoadOp::DontCare,
+            color_load: LoadOp::DontCare,
         });
+        self.device.clear_target(Some(color), None, None);
         self.device.end_render_pass(StoreOp::Store);
     }
 }
