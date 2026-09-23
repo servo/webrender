@@ -144,6 +144,7 @@ mod debug_colors;
 mod debug_font_data;
 mod debug_item;
 mod device;
+mod dl_interner;
 mod ellipse;
 mod filterdata;
 mod frame_builder;

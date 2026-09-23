@@ -107,6 +107,15 @@ impl ItemUid {
     pub fn get_uid(&self) -> u64 {
         self.uid
     }
+
+    /// Wrap an id from a counter the caller guarantees is unique, for interning
+    /// schemes that mint their own rather than deriving one from a handle.
+    /// `Handle::uid` packs an index and an epoch, which only works because one
+    /// interner owns the whole index space; see `DlStore::uid` for a scheme that
+    /// cannot make that assumption.
+    pub fn from_counter(id: u64) -> Self {
+        ItemUid { uid: id }
+    }
 }
 
 impl std::fmt::Debug for ItemUid {
