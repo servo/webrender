@@ -1,0 +1,16 @@
+# Regression test: a mix-blend-mode picture with a non-axis-aligned transform
+# must not split its readback composite into AA segment instances (bug 2058972).
+---
+root:
+  items:
+    - type: rect
+      bounds: [0, 0, 400, 400]
+      color: green
+    - type: stacking-context
+      mix-blend-mode: hue
+      transform: rotate(10)
+      transform-origin: 200 200
+      items:
+        - type: rect
+          bounds: [100, 100, 200, 200]
+          color: red

@@ -1,3 +1,5 @@
 scale(*) != iframe-dup.yaml blank.yaml
 scale(*) != many-segments.yaml blank.yaml
 scale(*) != culling-rect-large-offset.yaml blank.yaml
+scale(*) != mix-blend-unmappable-transform.yaml blank.yaml
+scale(*) != mix-blend-rotated.yaml blank.yaml

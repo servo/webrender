@@ -535,14 +535,15 @@ pub fn prepare_composite_mode(
                 frame_context.spatial_tree,
             );
             let pic_rect = surface.clipped_local_rect;
-            let pic_in_raster_space = map_pic_to_parent
-                .map(&pic_rect)
-                .expect("bug: unable to map mix-blend content into parent");
+            let backdrop = map_pic_to_parent.map(&pic_rect).and_then(|pic_in_raster_space| {
+                let backdrop_rect = parent_surface.map_to_device_rect(&pic_in_raster_space);
+                backdrop_rect
+                    .intersection(&parent_surface.clipping_rect)
+                    .map(|available_rect| (available_rect, backdrop_rect))
+            });
 
-            let backdrop_rect = parent_surface.map_to_device_rect(&pic_in_raster_space);
-
-            let readback_task_id = match backdrop_rect.intersection(&parent_surface.clipping_rect) {
-                Some(available_rect) => {
+            let readback_task_id = match backdrop {
+                Some((available_rect, backdrop_rect)) => {
                     let available_rect = available_rect.round_out();
 
                     let backdrop_uv = calculate_uv_rect_kind(

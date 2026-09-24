@@ -697,10 +697,13 @@ fn prepare_quad_impl(
         };
 
         // Only use AA edge instances if the drawn area is large enough to require it.
+        // A batch with an inline backdrop readback must hold a single instance, so
+        // patterns that need one can't be split into AA edge instances.
         if device_bounds.width() > MIN_AA_SEGMENTS_SIZE
             && device_bounds.height() > MIN_AA_SEGMENTS_SIZE
             && local_bounds.width() > MIN_AA_SEGMENTS_SIZE
-            && local_bounds.height() > MIN_AA_SEGMENTS_SIZE {
+            && local_bounds.height() > MIN_AA_SEGMENTS_SIZE
+            && !pattern.kind.requires_backdrop_readback() {
             quad_flags |= QuadFlags::USE_AA_SEGMENTS;
         }
 
