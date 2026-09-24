@@ -291,15 +291,9 @@ impl Filter {
             Filter::Opacity(api::PropertyBinding::Value(amount), _) => amount >= 1.0,
             Filter::Saturate(amount) => amount == 1.0,
             Filter::Sepia(amount) => amount == 0.0,
-            Filter::DropShadows(ref shadows) => {
-                for shadow in shadows {
-                    if shadow.offset.x != 0.0 || shadow.offset.y != 0.0 || shadow.blur_radius != 0.0 {
-                        return false;
-                    }
-                }
-
-                true
-            }
+            // A shadow with no offset and no blur is still visible beneath
+            // any translucent pixels of the source.
+            Filter::DropShadows(ref shadows) => shadows.iter().all(|shadow| shadow.color.a == 0.0),
             Filter::ColorMatrix(ref matrix) => {
                 **matrix == [
                     1.0, 0.0, 0.0, 0.0,
