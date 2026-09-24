@@ -270,6 +270,9 @@ bitflags! {
 pub struct Texture {
     /// Backend-defined identifier of the texture.
     pub(super) id: u32,
+    /// Unique identifier naming this texture as a render target. Unlike `id`,
+    /// never reused, even when the backend hands out repeated names.
+    pub(super) target_id: TextureId,
     pub(super) target: ImageBufferKind,
     pub(super) format: ImageFormat,
     pub(super) size: DeviceIntSize,
@@ -488,7 +491,7 @@ impl<'a> Drop for MappedTransferBuffer<'a> {
 
 /// Backend-defined identifier of a texture, for naming one as a target.
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
-pub struct TextureId(pub(super) u32);
+pub struct TextureId(pub(super) u64);
 
 /// Backend-defined identifier of a vertex buffer.
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
@@ -931,7 +934,7 @@ impl DrawTarget {
 
         DrawTarget::Texture {
             dimensions: texture.get_dimensions(),
-            texture: TextureId(texture.id),
+            texture: texture.target_id,
             with_depth,
         }
     }
@@ -1035,7 +1038,7 @@ impl ReadTarget {
     ) -> Self {
         assert!(texture.render_target.is_some(), "reading from a non-render-target texture");
         ReadTarget::Texture {
-            texture: TextureId(texture.id),
+            texture: texture.target_id,
         }
     }
 

@@ -601,6 +601,9 @@ pub struct GlDevice {
     default_draw_fbo: FBOId,
     /// The FBOs of every render target texture, by texture id.
     render_targets: FastHashMap<TextureId, GlRenderTarget>,
+    /// Source of `Texture::target_id`. GL texture names can't key
+    /// `render_targets`: a lost context returns 0 for every new name.
+    next_texture_target_id: u64,
 
     /// Track depth state for assertions. Note that the default FBO has depth,
     /// so this defaults to true.
@@ -1296,6 +1299,7 @@ impl GlDevice {
             current_render_pass: None,
             scratch_read_fbo: None,
             render_targets: FastHashMap::default(),
+            next_texture_target_id: 0,
             bound_draw_fbo: FBOId(0),
             default_read_fbo: FBOId(0),
             default_draw_fbo: FBOId(0),
@@ -1586,7 +1590,7 @@ impl GlDevice {
 
         // Generate the FBOs.
         let fbo_id = FBOId(*self.gl.gen_framebuffers(1).first().unwrap());
-        let texture_id = TextureId(texture.id);
+        let texture_id = texture.target_id;
         if with_depth {
             let target = self.render_targets.get_mut(&texture_id).expect("not a render target");
             assert!(target.fbo_with_depth.is_none());
@@ -2707,8 +2711,10 @@ impl GpuBackend for GlDevice {
 
         // Set up the texture book-keeping.
         let gl_target = get_gl_target(target);
+        self.next_texture_target_id += 1;
         let mut texture = Texture {
             id: self.gl.gen_textures(1)[0],
+            target_id: TextureId(self.next_texture_target_id),
             target,
             size: DeviceIntSize::new(width, height),
             format,
@@ -2862,7 +2868,7 @@ impl GpuBackend for GlDevice {
             } else {
                 &[gl::COLOR_ATTACHMENT0] as &[gl::GLenum]
             };
-            let fbo_id = self.render_target_fbo(TextureId(texture.id), with_depth);
+            let fbo_id = self.render_target_fbo(texture.target_id, with_depth);
 
             let original_bound_fbo = self.bound_draw_fbo;
             // Note: The invalidate extension may not be supported, in which
@@ -2916,7 +2922,7 @@ impl GpuBackend for GlDevice {
     fn delete_texture(&mut self, mut texture: Texture) {
         debug_assert!(self.inside_frame);
         let had_depth = texture.supports_depth();
-        if let Some(target) = self.render_targets.remove(&TextureId(texture.id)) {
+        if let Some(target) = self.render_targets.remove(&texture.target_id) {
             self.gl.delete_framebuffers(&[target.fbo.0]);
             if let Some(fbo) = target.fbo_with_depth {
                 self.gl.delete_framebuffers(&[fbo.0]);
