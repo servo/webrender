@@ -214,6 +214,14 @@ macro_rules! declare_interners {
                 )+
             }
 
+            fn take_pending_updates(&mut self) -> InternerUpdates {
+                InternerUpdates {
+                    $(
+                        $name: self.$name.take_pending_updates(),
+                    )+
+                }
+            }
+
             fn end_frame_and_get_pending_updates(&mut self) -> InternerUpdates {
                 InternerUpdates {
                     $(
@@ -683,11 +691,9 @@ impl SceneBuilderThread {
                     // scene. The transient offscreen items are evicted by a
                     // later end_frame GC once the temporary pipeline is gone.
                     //
-                    // This relies on a main scene rebuild happening in the same
-                    // transaction; the Gecko caller always issues a
-                    // SetDisplayList immediately before RenderOffscreen (see
-                    // WebRenderBridgeParent), and the debug_assert after this
-                    // loop enforces it.
+                    // If there is no main scene rebuild in this transaction
+                    // (e.g. the root pipeline has no display list yet), the
+                    // pending updates are flushed on their own after this loop.
                     let mut spatial_tree = SceneSpatialTree::new();
                     let built = SceneBuilder::build(
                         &scene,
@@ -757,15 +763,13 @@ impl SceneBuilderThread {
             built_scene = Some(built);
         }
 
-        // Offscreen scenes intern into the document interners but don't flush
-        // their own delta; they rely on the main scene rebuild above emitting
-        // a combined delta that materializes their items into the document
-        // data store. The Gecko caller guarantees a SetDisplayList (hence a
-        // rebuild) accompanies every RenderOffscreen.
-        debug_assert!(
-            offscreen_scenes.is_empty() || interner_updates.is_some(),
-            "RenderOffscreen without a main scene rebuild to flush its interned items",
-        );
+        // Offscreen scenes intern into the document interners and normally rely
+        // on the main scene rebuild above to flush their items into the
+        // document data store. Without a rebuild, flush them without ending the
+        // interner frame, so that no GC step runs and the epoch doesn't advance.
+        if !offscreen_scenes.is_empty() && interner_updates.is_none() {
+            interner_updates = Some(doc.interners.take_pending_updates());
+        }
 
         let scene_build_time_ms =
             profiler::ns_to_ms(zeitstempel::now() - scene_build_start);

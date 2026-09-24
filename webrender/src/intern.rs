@@ -354,6 +354,12 @@ impl<I: Internable> Interner<I> {
         handle
     }
 
+    /// Retrieve the pending list of updates without running a GC step or
+    /// advancing the epoch.
+    pub fn take_pending_updates(&mut self) -> UpdateList<I::Key> {
+        self.update_list.take_and_preallocate()
+    }
+
     /// Retrieve the pending list of updates for an interner
     /// that need to be applied to the data store. Also run
     /// a GC step that removes old entries.
