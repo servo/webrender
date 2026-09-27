@@ -92,5 +92,6 @@ platform(linux) == blend-clipped-raster-root.yaml blend-clipped-raster-root.png
 scale(*) == drop-shadow-inverse-scale.yaml blank.yaml
 platform(linux,mac) == filter-drop-shadow-fractional.yaml filter-drop-shadow-fractional.png
 == filter-drop-shadow-zero-offset.yaml filter-drop-shadow-zero-offset-ref.yaml
+== filter-drop-shadow-rotate-180.yaml filter-drop-shadow-rotate-180-ref.yaml
 == filter-blur-flipped.yaml filter-blur-flipped-ref.yaml
 == filter-blur-flipped-rounded-clip.yaml filter-blur-flipped-rounded-clip-ref.yaml

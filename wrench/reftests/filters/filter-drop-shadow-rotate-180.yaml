@@ -1,0 +1,16 @@
+# Drop shadow offsets must follow a 180 degree rotation of the filtered element.
+---
+root:
+  items:
+    - type: reference-frame
+      bounds: [100, 100, 100, 100]
+      transform: rotate(180)
+      transform-origin: [50, 50]
+      items:
+        - type: stacking-context
+          bounds: [0, 0, 100, 100]
+          filters: drop-shadow([30, 10], 0, blue)
+          items:
+            - type: rect
+              bounds: [0, 0, 60, 60]
+              color: green
