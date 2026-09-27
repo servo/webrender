@@ -1,0 +1,44 @@
+# Content that meets a border in layout must meet it on screen under a
+# fractional scale, with the border kept one device pixel wide (bug 2074176).
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [10.4, 10.4, 92, 92]
+      transform: scale(1.1, 1.1, 1)
+      items:
+        - type: rect
+          bounds: [1, 1, 90, 90]
+          color: [128, 128, 128, 1]
+        - type: border
+          bounds: [0, 0, 92, 92]
+          width: 1
+          border-type: normal
+          style: solid
+          color: black
+    - type: stacking-context
+      bounds: [150.25, 10.25, 92, 92]
+      transform: scale(1.25, 1.25, 1)
+      items:
+        - type: rect
+          bounds: [1, 1, 90, 90]
+          color: [128, 128, 128, 1]
+        - type: border
+          bounds: [0, 0, 92, 92]
+          width: 1
+          border-type: normal
+          style: solid
+          color: black
+    - type: stacking-context
+      bounds: [300.7, 10.7, 92, 92]
+      transform: scale(1.14, 1.14, 1)
+      items:
+        - type: rect
+          bounds: [1, 1, 90, 90]
+          color: [128, 128, 128, 1]
+        - type: border
+          bounds: [0, 0, 92, 92]
+          width: 1
+          border-type: normal
+          style: solid
+          color: black

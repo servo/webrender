@@ -371,6 +371,9 @@ impl PrimitiveInstance {
                 horizontal: data_stores.line_decoration[data_handle].kind.orientation
                     == LineOrientation::Horizontal,
             },
+            PrimitiveKind::NormalBorder { data_handle, .. } => SnapRounding::BorderInner {
+                widths: data_stores.normal_border[data_handle].kind.widths,
+            },
             _ => SnapRounding::Nearest,
         };
         SnapPolicy { rect, clip: ClipSnap::Nearest }

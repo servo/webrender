@@ -49,3 +49,7 @@ platform(linux,mac) == border-shape-inset.yaml border-shape-inset.png
 # The interior split of an over-thick border must land at the same device pixel
 # for both neighbouring segments (bug 2059620).
 fuzzy(1,40) == border-overlap-split.yaml border-overlap-split.png
+
+# Content meeting a border in layout meets it on screen under a fractional
+# scale, and the border stays one device pixel wide (bug 2074176).
+== border-content-snap-scale.yaml border-content-snap-scale-ref.yaml
