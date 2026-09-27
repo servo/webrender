@@ -6300,6 +6300,7 @@ name = "webrender_api"
 version = "0.62.0"
 dependencies = [
  "app_units",
+ "bincode",
  "bitflags 2.11.0",
  "byteorder",
  "crossbeam-channel",

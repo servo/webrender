@@ -23,6 +23,7 @@ use crate::gradient_builder::GradientBuilder;
 use crate::color::{ColorF, ColorU};
 use crate::font::{FontInstanceKey, GlyphInstance, GlyphOptions};
 use crate::image::{ColorDepth, ImageKey};
+use crate::interning::{self, DlDelta};
 use crate::key_types::{EdgeMask, GradientStopKey, StretchSizeKey};
 use crate::prim_geometry::{
     apply_gradient_local_clip, image_stretch_size, optimize_linear_gradient,
@@ -139,6 +140,11 @@ pub struct DisplayListPayload {
 
     /// Serde encoded SpatialTreeItem structs
     pub spatial_tree: Vec<u8>,
+
+    /// The build's interner delta, encoded only when the list has to cross a
+    /// process boundary. Empty in process, where `BuiltDisplayList::delta`
+    /// carries it directly; see `BuiltDisplayList::into_data`.
+    pub interner_delta: Vec<u8>,
 }
 
 impl DisplayListPayload {
@@ -146,6 +152,7 @@ impl DisplayListPayload {
         DisplayListPayload {
             items_data: Vec::new(),
             spatial_tree: Vec::new(),
+            interner_delta: Vec::new(),
         }
     }
 
@@ -171,7 +178,8 @@ impl DisplayListPayload {
 
     fn size_in_bytes(&self) -> usize {
         self.items_data.len() +
-        self.spatial_tree.len()
+        self.spatial_tree.len() +
+        self.interner_delta.len()
     }
 
     #[cfg(feature = "serialize")]
@@ -189,7 +197,8 @@ impl DisplayListPayload {
 impl MallocSizeOf for DisplayListPayload {
     fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
         self.items_data.size_of(ops) +
-        self.spatial_tree.size_of(ops)
+        self.spatial_tree.size_of(ops) +
+        self.interner_delta.size_of(ops)
     }
 }
 
@@ -198,6 +207,10 @@ impl MallocSizeOf for DisplayListPayload {
 pub struct BuiltDisplayList {
     payload: DisplayListPayload,
     descriptor: BuiltDisplayListDescriptor,
+    /// What this build did to the builder's interners. The receiver has to
+    /// apply it to its stores before it can resolve any handle in `payload`,
+    /// including ones minted by earlier builds that this list still references.
+    delta: DlDelta,
 }
 
 impl MallocSizeOf for BuiltDisplayList {
@@ -369,7 +382,13 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
             payload: DisplayListPayload {
                 items_data,
                 spatial_tree,
+                interner_delta: Vec::new(),
             },
+            // A capture records one build's delta, but the list can reference
+            // handles interned by earlier builds, so replaying needs the store
+            // contents rather than a delta. Empty until captures carry the
+            // stores.
+            delta: DlDelta::default(),
         })
     }
 }
@@ -509,18 +528,45 @@ pub struct AuxIter<'a, T> {
 }
 
 impl BuiltDisplayList {
+    /// Reconstruct a list from the buffers it was sent as. The inverse of
+    /// `into_data`, and the only path that decodes the interner delta.
     pub fn from_data(
         payload: DisplayListPayload,
         descriptor: BuiltDisplayListDescriptor,
     ) -> Self {
+        let delta = if payload.interner_delta.is_empty() {
+            DlDelta::default()
+        } else {
+            bincode::deserialize(&payload.interner_delta)
+                .expect("corrupt display list interner delta")
+        };
+
         BuiltDisplayList {
             payload,
             descriptor,
+            delta,
         }
     }
 
-    pub fn into_data(self) -> (DisplayListPayload, BuiltDisplayListDescriptor) {
+    /// Take the list apart into the buffers that cross a process boundary.
+    ///
+    /// The interner delta is encoded here rather than in `end`, so that a
+    /// consumer in the same process (wrench, and the parent-side pipelines) is
+    /// handed `delta` directly and pays nothing for a round trip it does not
+    /// need. A delta that asks for nothing is still encoded: it carries the
+    /// build number, and builds have to stay contiguous for the receiver to
+    /// tell an idle build from a lost one. Dropping it would make the next
+    /// non-empty delta look out of sequence.
+    pub fn into_data(mut self) -> (DisplayListPayload, BuiltDisplayListDescriptor) {
+        self.payload.interner_delta = bincode::serialize(&self.delta)
+            .expect("failed to encode display list interner delta");
+
         (self.payload, self.descriptor)
+    }
+
+    /// This build's interner delta. See the field.
+    pub fn delta(&self) -> &DlDelta {
+        &self.delta
     }
 
     pub fn items_data(&self) -> &[u8] {
@@ -1103,6 +1149,11 @@ pub struct DisplayListBuilder {
     /// `Screen` base. Resolving here rather than in the scene builder means one
     /// stack instead of two that have to agree.
     raster_space_stack: Vec<di::RasterSpace>,
+    /// Everything the `push_*` functions intern. Deliberately *not* cleared
+    /// by `reset`: retaining it across builds is what lets an unchanged item
+    /// keep its handle and stay off the wire entirely. See
+    /// [`crate::interning`].
+    interners: interning::DlInterners,
 }
 
 /// A shadow declared by `push_shadow`, awaiting desugaring at `pop_all_shadows`.
@@ -1150,6 +1201,7 @@ impl DisplayListBuilder {
             shadow_capture: Vec::new(),
             pending_shadows: Vec::new(),
             raster_space_stack: vec![di::RasterSpace::Screen],
+            interners: interning::DlInterners::default(),
         }
     }
 
@@ -1170,6 +1222,8 @@ impl DisplayListBuilder {
 
         self.raster_space_stack.clear();
         self.raster_space_stack.push(di::RasterSpace::Screen);
+
+        // `interners` is intentionally left alone - see its declaration.
     }
 
     /// Saves the current display list state, so it may be `restore()`'d.
@@ -2936,6 +2990,7 @@ impl DisplayListBuilder {
         self.builder_start_time = zeitstempel::now();
         self.reset();
         self.au_grid = AuGrid::new(au_per_dev_px);
+        self.interners.begin_build();
     }
 
     pub fn end(&mut self) -> (PipelineId, BuiltDisplayList) {
@@ -2968,6 +3023,10 @@ impl DisplayListBuilder {
         );
         let end_time = zeitstempel::now();
 
+        // Close the build on every interner: collect stale entries and take the
+        // delta the receiver needs. Must happen exactly once per build.
+        let delta = self.interners.end_build();
+
         self.state = BuildState::Idle;
 
         (
@@ -2983,6 +3042,7 @@ impl DisplayListBuilder {
                     off_grid_coords: self.off_grid_coords,
                 },
                 payload,
+                delta,
             },
         )
     }

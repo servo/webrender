@@ -16,6 +16,7 @@ debugger = ["serialize", "deserialize"]
 
 [dependencies]
 app_units = "0.7.3"
+bincode = "1.0"
 bitflags = { version = "2", features = ["serde"] }
 byteorder = "1.2.1"
 euclid = { version = "0.22.13", features = ["serde"] }
