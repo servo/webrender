@@ -294,7 +294,7 @@ pub fn prepare_box_shadow(
     } else {
         0
     };
-    content_scale.0 /= (1u32 << n_downscales) as f32;
+    content_scale.0 /= (n_downscales as f32).exp2();
 
     // Safety cap: reduces content_scale further only for pathological
     // small-blur-huge-element cases where the alloc would exceed the max task size.
