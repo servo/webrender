@@ -417,7 +417,13 @@ void main(void) {
     switch (clip_mode) {
         case CLIP_DOT: {
             // Set clip distance based or dot position and radius.
-            d = distance(vClipParams1.xy, vPos) - vClipParams1.z;
+            if (vClipParams1.w != 0.0) {
+                // Square dots are pixel aligned and drawn without AA.
+                vec2 offset = abs(vPos - vClipParams1.xy);
+                d = max(offset.x, offset.y) < vClipParams1.z ? -1.0 : 1.0;
+            } else {
+                d = distance(vClipParams1.xy, vPos) - vClipParams1.z;
+            }
             break;
         }
         case CLIP_DASH_EDGE: {

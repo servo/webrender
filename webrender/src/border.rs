@@ -31,6 +31,10 @@ pub const MAX_BORDER_RESOLUTION: u32 = 2048;
 /// a list of per-dot information in the first place.
 pub const MAX_DASH_COUNT: u32 = 2048;
 
+/// Dotted edges at most this many device pixels wide are drawn with square
+/// dots.
+const MAX_SQUARE_DOT_WIDTH: f32 = 2.0;
+
 // TODO(gw): Perhaps there is a better way to store
 //           the border cache key than duplicating
 //           all the border structs with hashable
@@ -288,10 +292,11 @@ fn write_dotted_corner_instances(
 
     if max_dot_count == 1 {
         let dot_diameter = lerp(widths.width, widths.height, 0.5);
+        let is_square = widths.width == widths.height && dot_diameter <= MAX_SQUARE_DOT_WIDTH;
         instances.push(BorderInstance {
             flags: base_instance.flags | ((BorderClipKind::Dot as i32) << 24),
             clip_params: [
-                widths.width / 2.0, widths.height / 2.0, 0.5 * dot_diameter, 0.,
+                widths.width / 2.0, widths.height / 2.0, 0.5 * dot_diameter, is_square as i32 as f32,
                 0., 0., 0., 0.,
             ],
             .. *base_instance
@@ -980,20 +985,29 @@ fn add_segment(
                     });
                 }
                 BorderStyle::Dotted => {
-                    let (x, y, r) = if is_vertical {
-                        (widths.width * 0.5,
-                         widths.width,
-                         widths.width * 0.5)
+                    let width = if is_vertical { widths.width } else { widths.height };
+                    let r = width * 0.5;
+
+                    // Like Gecko, draw dots no wider than two device pixels as
+                    // squares, placed on the pixel grid so that each one is
+                    // fully covered rather than an antialiased circle.
+                    let is_square = width <= MAX_SQUARE_DOT_WIDTH;
+                    let along = if is_square {
+                        (width * 0.5).round() + r
                     } else {
-                        (widths.height,
-                         widths.height * 0.5,
-                         widths.height * 0.5)
+                        width
+                    };
+
+                    let (x, y) = if is_vertical {
+                        (r, along)
+                    } else {
+                        (along, r)
                     };
 
                     instances.push(BorderInstance {
                         flags: base_flags | ((BorderClipKind::Dot as i32) << 24),
                         clip_params: [
-                            x, y, r, 0.0, 0.0, 0.0, 0.0, 0.0,
+                            x, y, r, is_square as i32 as f32, 0.0, 0.0, 0.0, 0.0,
                         ],
                         ..base_instance
                     });
