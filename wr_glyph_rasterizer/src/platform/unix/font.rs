@@ -526,7 +526,7 @@ impl FontContext {
             unsafe { FT_Set_Transform(face, ptr::null_mut(), ptr::null_mut()) };
             Self::choose_bitmap_size(face, req_size * y_scale)
         } else {
-            let mut shape = font.transform.invert_scale(x_scale, y_scale);
+            let mut shape = font.transform;
             if font.flags.contains(FontInstanceFlags::FLIP_X) {
                 shape = shape.flip_x();
             }
@@ -536,6 +536,11 @@ impl FontContext {
             if font.flags.contains(FontInstanceFlags::TRANSPOSE) {
                 shape = shape.swap_xy();
             }
+            // FT_Set_Char_Size scales the glyph before the transform is applied,
+            // so the scale must be taken from the oriented glyph transform. For a
+            // transposed glyph, its x axis maps to the device y axis.
+            let (x_scale, y_scale) = shape.compute_scale().unwrap_or((1.0, 1.0));
+            shape = shape.invert_scale(x_scale, y_scale);
             let (mut tx, mut ty) = (0.0, 0.0);
             if font.synthetic_italics.is_enabled() {
                 let (shape_, (tx_, ty_)) = font.synthesize_italics(shape, y_scale * req_size);

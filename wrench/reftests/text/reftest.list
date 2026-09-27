@@ -65,6 +65,8 @@ scale(1.0) platform(linux) != 2061411-bitmap-scale.yaml 2061411-bitmap-scale-not
 fuzzy(1,22) platform(linux) == clipped-transform.yaml clipped-transform.png
 platform(mac) fuzzy(195,30) == color-bitmap-shadow.yaml color-bitmap-shadow-ref.yaml
 scale(*) platform(linux) == writing-modes.yaml writing-modes-ref.yaml
+platform(linux) == writing-modes-scale-x.yaml writing-modes-scale-x-ref.yaml
+platform(linux) == writing-modes-scale-y.yaml writing-modes-scale-y-ref.yaml
 fuzzy(1,5) platform(linux) == blurred-shadow-local-clip-rect.yaml blurred-shadow-local-clip-rect-ref.png
 fuzzy(1,1) platform(linux) == two-shadows.yaml two-shadows.png
 scale(*) == shadow-clip.yaml shadow-clip-ref.yaml

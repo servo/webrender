@@ -1,0 +1,18 @@
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 400, 400]
+      transform: scale(2, 1)
+      items:
+        - text: "This is sideways-left"
+          origin: 20 40
+          size: 20
+          transpose: true
+          flip-x: true
+          font: "FreeSans.ttf"
+        - text: "This is sideways-right"
+          origin: 70 300
+          size: 20
+          transpose: true
+          flip-y: true
+          font: "FreeSans.ttf"
