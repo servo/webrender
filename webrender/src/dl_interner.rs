@@ -17,16 +17,60 @@
 //! the inner level deliberately has no free list - if a store allocated for
 //! itself the two sides would diverge with nothing able to notice.
 
-// Nothing feeds a store yet: the scene builder thread starts driving the
-// allocator and applying deltas in the next part of this series.
+// Handles are only minted once a primitive type moves its interning into the
+// display list builder, so until then the store's read side has no caller.
 #![allow(dead_code)]
 
 use crate::intern::ItemUid;
 use crate::internal_types::{FastHashMap, FastHashSet};
 use api::interning::{BuildId, BuilderId};
-use api::PipelineId;
+use api::{FontRenderMode, IdNamespace, PipelineId};
+use glyph_rasterizer::SharedFontResources;
 use std::marker::PhantomData;
 use std::{fmt, ops};
+
+/// Every follower store the render backend holds, one line each: the field
+/// name (the same one `enumerate_dl_interned_types!` in `webrender_api` uses
+/// for the delta), the content key type, the value the store holds for it,
+/// the profiler gauge set from the store's size, and the field of the
+/// interning memory report it is accounted under.
+///
+/// Adding a type here and to the api-side list is all the plumbing a
+/// primitive needs on the receiving side; see `doc/dl-builder-interning.md`.
+#[macro_export]
+macro_rules! enumerate_dl_stores {
+    ($macro_name: ident) => {
+        $macro_name! {
+        }
+    }
+}
+
+/// The follower stores the scene builder itself reads, in the same shape as
+/// `enumerate_dl_stores!` minus the gauge. Most types need none: scene
+/// building only consumes a handle. Clips will, since clip chain building,
+/// slice partitioning and hit testing read the clip's key.
+#[macro_export]
+macro_rules! enumerate_scene_dl_stores {
+    ($macro_name: ident) => {
+        $macro_name! {
+        }
+    }
+}
+
+/// What a store needs to turn a content key into the value it holds.
+pub struct DlResolveContext<'a> {
+    /// The id namespace the display list carrying the delta was submitted
+    /// with, for validating any resource key the interned item names.
+    pub id_namespace: IdNamespace,
+    pub fonts: &'a SharedFontResources,
+    pub default_font_render_mode: FontRenderMode,
+}
+
+/// A store value that can be built from its content key. Done where the delta
+/// is applied, once per interned entry rather than once per scene build.
+pub trait DlResolve<K>: Sized {
+    fn resolve(key: &K, ctx: &DlResolveContext) -> Self;
+}
 
 /// Dense index identifying one content display list builder's slot space.
 /// Recycled when its pipeline goes away, so it stays small enough to index an
@@ -373,6 +417,46 @@ pub enum DlOp<T> {
         slot: u32,
     },
     Close(DlNamespace),
+}
+
+/// Turn one type's delta into store ops. Adds before removes, which cannot
+/// conflict within a delta: a slot this build frees is only ever handed out
+/// again by a later one.
+pub fn resolve_into<K, T>(
+    ops: &mut Vec<DlOp<T>>,
+    namespace: DlNamespace,
+    delta: &api::interning::InternOps<K>,
+    mut resolve: impl FnMut(&K) -> T,
+) {
+    for add in &delta.adds {
+        ops.push(DlOp::Insert {
+            namespace,
+            slot: add.slot,
+            value: resolve(&add.key),
+        });
+    }
+
+    for &slot in &delta.removes {
+        ops.push(DlOp::Remove { namespace, slot });
+    }
+}
+
+/// Adds and removes in one resolved op list. A close is not counted: it drops a
+/// whole namespace at once, and totalling its slots would cost a lookup per op
+/// for a number nothing acts on.
+pub fn count_dl_ops<T>(ops: &[DlOp<T>]) -> (usize, usize) {
+    let mut insertions = 0;
+    let mut removals = 0;
+
+    for op in ops {
+        match op {
+            DlOp::Insert { .. } => insertions += 1,
+            DlOp::Remove { .. } => removals += 1,
+            DlOp::Open(..) | DlOp::Close(..) => {}
+        }
+    }
+
+    (insertions, removals)
 }
 
 /// Two-level store fed by the content interner's delta: an outer array indexed

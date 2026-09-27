@@ -6,6 +6,7 @@ use api::{AsyncBlobImageRasterizer, BlobImageResult, DebugFlags, Parameter};
 use api::{DocumentId, PipelineId, ExternalEvent, BlobImageRequest};
 use api::{NotificationRequest, Checkpoint, IdNamespace, QualitySettings, RenderBackendId};
 use api::{GlyphDimensionRequest, GlyphIndexRequest};
+use api::interning::DlDelta;
 use api::channel::{unbounded_channel, single_msg_channel, Receiver, Sender};
 use api::units::*;
 use crate::render_api::{ApiMsg, FrameMsg, SceneMsg, ResourceUpdate, TransactionMsg, MemoryReport};
@@ -16,6 +17,7 @@ use crate::capture::CaptureConfig;
 use crate::frame_builder::FrameBuilderConfig;
 use crate::scene_building::{SceneBuilder, SceneRecycler};
 use crate::clip::{ClipIntern, PolygonIntern};
+use crate::dl_interner::{DeltaAction, DlBuilderMap, DlNamespace, DlResolveContext};
 use crate::filterdata::FilterDataIntern;
 use glyph_rasterizer::SharedFontResources;
 use crate::intern::{Internable, Interner, UpdateList};
@@ -68,6 +70,7 @@ pub struct BuiltTransaction {
     pub removed_pipelines: Vec<(PipelineId, DocumentId)>,
     pub notifications: Vec<NotificationRequest>,
     pub interner_updates: Option<InternerUpdates>,
+    pub dl_updates: DlUpdates,
     pub spatial_tree_updates: Option<SpatialTreeUpdates>,
     pub render_frame: bool,
     pub present: bool,
@@ -235,6 +238,156 @@ macro_rules! declare_interners {
 
 crate::enumerate_interners!(declare_interners);
 
+macro_rules! declare_scene_dl_stores {
+    ( $( $field:ident : $key:ty => $value:ty, $report:ident, )* ) => {
+        /// The follower stores scene building reads. Per scene builder, like
+        /// the render backend's `DlStores` are per backend, and fed from the
+        /// same op stream, but applied the moment a display list's delta is
+        /// resolved so that a scene built later in the same transaction sees
+        /// the entries it names.
+        #[derive(Default)]
+        pub struct SceneDlStores {
+            $( pub $field: crate::dl_interner::DlStore<$key, $value>, )*
+        }
+
+        /// The op lists bound for `SceneDlStores`.
+        #[derive(Default)]
+        struct SceneDlUpdates {
+            $( $field: Vec<crate::dl_interner::DlOp<$value>>, )*
+        }
+
+        // Until the first type is listed nothing in here has anything to do.
+        #[allow(unused_variables)]
+        impl SceneDlStores {
+            fn report_memory(&self, ops: &mut MallocSizeOfOps, r: &mut MemoryReport) {
+                $( r.interning.dl_stores.$report += self.$field.size_of(ops); )*
+            }
+
+            fn apply(&mut self, updates: SceneDlUpdates) {
+                $( self.$field.apply(updates.$field); )*
+            }
+        }
+
+        #[allow(unused_variables, unused_mut)]
+        impl SceneDlUpdates {
+            fn open(&mut self, namespace: DlNamespace) {
+                $( self.$field.push(crate::dl_interner::DlOp::Open(namespace)); )*
+            }
+
+            fn close(&mut self, namespace: DlNamespace) {
+                $( self.$field.push(crate::dl_interner::DlOp::Close(namespace)); )*
+            }
+
+            fn resolve(&mut self, namespace: DlNamespace, delta: &DlDelta, ctx: &DlResolveContext) {
+                $(
+                    crate::dl_interner::resolve_into(&mut self.$field, namespace, &delta.$field, |key| {
+                        <$value as crate::dl_interner::DlResolve<$key>>::resolve(key, ctx)
+                    });
+                )*
+            }
+
+            fn append(&mut self, mut later: SceneDlUpdates) {
+                $( self.$field.append(&mut later.$field); )*
+            }
+        }
+    }
+}
+
+crate::enumerate_scene_dl_stores!(declare_scene_dl_stores);
+
+macro_rules! declare_dl_updates {
+    ( $( $field:ident : $key:ty => $template:ty, $gauge:ident, $report:ident, )* ) => {
+        /// Everything a transaction asks of the follower stores for items
+        /// interned by the content display list builders: one ordered op list
+        /// per store, resolved out of the deltas that arrived with this
+        /// transaction's display lists.
+        ///
+        /// The scene builder rewrites the delta rather than forwarding it
+        /// verbatim, which is what lets it resolve against its own resources
+        /// once per entry and stamp in the namespace. The render backend
+        /// therefore needs no pipeline map of its own, and the two sides
+        /// cannot disagree about one.
+        #[derive(Default)]
+        pub struct DlUpdates {
+            $( pub $field: Vec<crate::dl_interner::DlOp<$template>>, )*
+            /// Namespaces released by `close`, kept out of the op lists so the
+            /// render backend can apply them after it has frame-built this
+            /// transaction's offscreen scenes. Those can reference a pipeline
+            /// removed in the same transaction - Gecko pairs `RenderOffscreen`
+            /// with `RemovePipeline` - while the op lists are applied before
+            /// the scene swap.
+            pub closes: Vec<DlNamespace>,
+            /// Applied on this thread by `apply_to_scene`; never travels.
+            scene: SceneDlUpdates,
+        }
+
+        // Until the first type is listed nothing in here has anything to do.
+        #[allow(unused_variables)]
+        impl DlUpdates {
+            /// A namespace comes into use: every store must be told before
+            /// anything lands in it. Namespace lifetime rides the same op
+            /// lists as the contents so a store cannot see an open and an
+            /// insert out of order, which is why this fans out here rather
+            /// than being a call on the stores.
+            fn open(&mut self, namespace: DlNamespace) {
+                $( self.$field.push(crate::dl_interner::DlOp::Open(namespace)); )*
+                self.scene.open(namespace);
+            }
+
+            /// A namespace goes out of use, dropping every entry in it at once.
+            /// The scene builder's store drops it now; the render backend's
+            /// only once nothing in this transaction can still read it, see
+            /// `closes`.
+            fn close(&mut self, namespace: DlNamespace) {
+                self.closes.push(namespace);
+                self.scene.close(namespace);
+            }
+
+            /// Empty a namespace for a new builder's slot space. Unlike `close`
+            /// this stays in the op lists, so the two halves cannot be
+            /// separated by an insert.
+            fn reopen(&mut self, namespace: DlNamespace) {
+                $( self.$field.push(crate::dl_interner::DlOp::Close(namespace)); )*
+                self.scene.close(namespace);
+                self.open(namespace);
+            }
+
+            /// Resolve one display list's delta into store ops, one type at a
+            /// time.
+            fn resolve(&mut self, namespace: DlNamespace, delta: &DlDelta, ctx: &DlResolveContext) {
+                $(
+                    crate::dl_interner::resolve_into(&mut self.$field, namespace, &delta.$field, |key| {
+                        <$template as crate::dl_interner::DlResolve<$key>>::resolve(key, ctx)
+                    });
+                )*
+                self.scene.resolve(namespace, delta, ctx);
+            }
+
+            /// Hand the scene builder's stores their ops. Called as soon as a
+            /// display list's delta has been resolved, so that a scene built
+            /// later in the same transaction - including an offscreen one -
+            /// sees the entries it names.
+            fn apply_to_scene(&mut self, stores: &mut SceneDlStores) {
+                stores.apply(std::mem::take(&mut self.scene));
+            }
+
+            /// Queue `later` behind these ops, for a render backend holding a
+            /// document's ops across transactions.
+            pub fn append(&mut self, mut later: DlUpdates) {
+                $( self.$field.append(&mut later.$field); )*
+                self.closes.append(&mut later.closes);
+                self.scene.append(later.scene);
+            }
+
+            pub fn is_empty(&self) -> bool {
+                true $( && self.$field.is_empty() )* && self.closes.is_empty()
+            }
+        }
+    }
+}
+
+crate::enumerate_dl_stores!(declare_dl_updates);
+
 // A document in the scene builder contains the current scene,
 // as well as a persistent clip interner. This allows clips
 // to be de-duplicated, and persisted in the GPU cache between
@@ -286,6 +439,13 @@ pub struct SceneBuilderThread {
     hooks: FastHashMap<RenderBackendId, Box<dyn SceneBuilderHooks + Send>>,
     simulate_slow_ms: u32,
     removed_pipelines: FastHashSet<PipelineId>,
+    /// Namespace and delta stream per pipeline for items interned by the
+    /// content display list builder. Per scene builder rather than per
+    /// document, which is the same scope as the render backend it is paired
+    /// with.
+    dl_builders: DlBuilderMap,
+    /// See `SceneDlStores`.
+    scene_stores: SceneDlStores,
     #[cfg(feature = "capture")]
     capture_config: Option<CaptureConfig>,
     debug_flags: DebugFlags,
@@ -335,6 +495,8 @@ impl SceneBuilderThread {
             hooks: FastHashMap::default(),
             simulate_slow_ms: 0,
             removed_pipelines: FastHashSet::default(),
+            dl_builders: DlBuilderMap::default(),
+            scene_stores: SceneDlStores::default(),
             #[cfg(feature = "capture")]
             capture_config: None,
             debug_flags: DebugFlags::default(),
@@ -397,13 +559,18 @@ impl SceneBuilderThread {
                     self.doc_to_window.insert(document_id, backend_id);
                 }
                 Ok(SceneBuilderRequest::DeleteDocument(document_id)) => {
-                    self.documents.remove(&document_id);
-                    self.doc_to_window.remove(&document_id);
+                    self.remove_document(document_id);
                     self.send(SceneBuilderResult::DeleteDocument(document_id));
                 }
                 Ok(SceneBuilderRequest::ClearNamespace(backend_id, id)) => {
-                    self.documents.retain(|doc_id, _doc| doc_id.namespace_id != id);
-                    self.doc_to_window.retain(|doc_id, _| doc_id.namespace_id != id);
+                    let doomed: Vec<DocumentId> = self.documents
+                        .keys()
+                        .filter(|doc_id| doc_id.namespace_id == id)
+                        .copied()
+                        .collect();
+                    for document_id in doomed {
+                        self.remove_document(document_id);
+                    }
                     self.send(SceneBuilderResult::ClearNamespace(backend_id, id));
                 }
                 Ok(SceneBuilderRequest::ExternalEvent(backend_id, evt)) => {
@@ -484,6 +651,18 @@ impl SceneBuilderThread {
         }
     }
 
+    /// Forget a document. Its pipelines go the way of `RemovePipeline`: their
+    /// namespaces are released at the next scene build, by which point the
+    /// render backend has dropped the document too.
+    fn remove_document(&mut self, document_id: DocumentId) {
+        if let Some(doc) = self.documents.remove(&document_id) {
+            for pipeline_id in doc.scene.pipelines.keys() {
+                self.dl_builders.remove_pipeline(*pipeline_id);
+            }
+        }
+        self.doc_to_window.remove(&document_id);
+    }
+
     #[cfg(feature = "capture")]
     fn save_scene(&mut self, config: CaptureConfig) {
         for (id, doc) in &self.documents {
@@ -509,6 +688,18 @@ impl SceneBuilderThread {
             let mut built_scene = None;
             let mut interner_updates = None;
             let mut spatial_tree_updates = None;
+            let mut dl_updates = DlUpdates::default();
+
+            // A capture holds no interning deltas, so give every pipeline it
+            // brings a namespace here instead, as its display lists arriving
+            // would have.
+            for pipeline_id in item.scene.pipelines.keys() {
+                let (namespace, allocated) = self.dl_builders.get_or_alloc(*pipeline_id);
+                if allocated {
+                    dl_updates.open(namespace);
+                }
+            }
+            dl_updates.apply_to_scene(&mut self.scene_stores);
 
             if item.scene.has_root_pipeline() {
                 built_scene = Some(SceneBuilder::build(
@@ -559,6 +750,7 @@ impl SceneBuilderThread {
                 removed_pipelines: Vec::new(),
                 notifications: Vec::new(),
                 interner_updates,
+                dl_updates,
                 spatial_tree_updates,
                 profile: TransactionProfile::new(),
                 frame_stats: FullFrameStats::default(),
@@ -629,6 +821,7 @@ impl SceneBuilderThread {
         let mut rebuild_scene = false;
         let mut frame_stats = FullFrameStats::default();
         let mut offscreen_scenes = Vec::new();
+        let mut dl_updates = DlUpdates::default();
 
         for message in txn.scene_ops.drain(..) {
             match message {
@@ -666,9 +859,50 @@ impl SceneBuilderThread {
                         continue;
                     }
 
+                    // First display list from this pipeline: give its builder a
+                    // namespace to qualify the slots it mints, and open it on
+                    // every store before anything lands in it.
+                    let (dl_namespace, allocated) =
+                        self.dl_builders.get_or_alloc(pipeline_id);
+                    if allocated {
+                        dl_updates.open(dl_namespace);
+                    }
+
+                    let delta = display_list.delta();
+                    let action = self.dl_builders.check_delta(
+                        pipeline_id,
+                        delta.builder,
+                        delta.build,
+                        delta.is_empty(),
+                    );
+
+                    if action == DeltaAction::Reset {
+                        // Empty the namespace for the new builder's slot space.
+                        // Sound because this list replaces the scene that
+                        // referenced the old entries, and the rebuild below
+                        // happens after these ops are applied.
+                        dl_updates.reopen(dl_namespace);
+                    }
+
+                    if action != DeltaAction::Ignore {
+                        dl_updates.resolve(
+                            dl_namespace,
+                            delta,
+                            &DlResolveContext {
+                                id_namespace: namespace,
+                                fonts: &self.fonts,
+                                default_font_render_mode: config.default_font_render_mode,
+                            },
+                        );
+                    }
+                    dl_updates.apply_to_scene(&mut self.scene_stores);
+
                     // Note: We could further reduce the amount of unnecessary scene
                     // building by keeping track of which pipelines are used by the
-                    // scene (bug 1490751).
+                    // scene (bug 1490751). If that lands, the interning delta
+                    // handled above must still be forwarded on the builds it
+                    // skips - content has already advanced past those adds and
+                    // will not mint them again.
                     rebuild_scene = true;
 
                     scene.set_display_list(
@@ -723,6 +957,11 @@ impl SceneBuilderThread {
                     scene.remove_pipeline(pipeline_id);
                     self.removed_pipelines.insert(pipeline_id);
                     removed_pipelines.push((pipeline_id, txn.document_id));
+
+                    // Not released here: removing a pipeline does not rebuild
+                    // the scene, and the render backend goes on building frames
+                    // from one that still references it.
+                    self.dl_builders.remove_pipeline(pipeline_id);
                 }
             }
         }
@@ -761,6 +1000,16 @@ impl SceneBuilderThread {
             );
 
             built_scene = Some(built);
+
+            // The scene just built no longer references any removed pipeline.
+            // The render backend releases these once it has swapped that scene
+            // in and frame-built this transaction's offscreen scenes, so the
+            // release cannot land while a scene that still references the
+            // namespace is the one being drawn.
+            for namespace in self.dl_builders.take_removals() {
+                dl_updates.close(namespace);
+            }
+            dl_updates.apply_to_scene(&mut self.scene_stores);
         }
 
         // Offscreen scenes intern into the document interners and normally rely
@@ -813,6 +1062,7 @@ impl SceneBuilderThread {
             removed_pipelines,
             notifications: txn.notifications,
             interner_updates,
+            dl_updates,
             spatial_tree_updates,
             profile,
             frame_stats,
@@ -985,6 +1235,7 @@ impl SceneBuilderThread {
             doc.interners.report_memory(ops, &mut report);
             doc.scene.report_memory(ops, &mut report);
         }
+        self.scene_stores.report_memory(ops, &mut report);
 
         report
     }
