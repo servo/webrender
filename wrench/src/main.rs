@@ -19,6 +19,7 @@ extern crate tracy_rs;
 pub const AU_PER_DEV_PX: f32 = 60.0;
 
 mod angle;
+mod bench;
 mod blob;
 #[cfg(target_os = "windows")]
 mod composite;
@@ -46,6 +47,7 @@ use glutin::context::{ContextApi, ContextAttributesBuilder, NotCurrentGlContext,
 use glutin::display::{GetGlDisplay, GlDisplay};
 use glutin::surface::{GlSurface, Surface, SurfaceAttributesBuilder, SwapInterval, WindowSurface};
 use glutin_winit::DisplayBuilder;
+use crate::bench::{BenchHarness, BenchInput, BenchMode, BenchOptions};
 use crate::perf::PerfHarness;
 use crate::rawtest::RawtestHarness;
 use crate::reftest::{ReftestHarness, ReftestOptions};
@@ -716,6 +718,9 @@ struct WrenchApp {
     perf_warmup_frames: Option<usize>,
     perf_sample_count: Option<usize>,
 
+    // Bench
+    bench: Option<(BenchInput, BenchOptions)>,
+
     // ComparePerf
     compare_first: String,
     compare_second: String,
@@ -812,7 +817,7 @@ impl ApplicationHandler for WrenchApp {
 
         let needs_frame_notifier = matches!(
             self.subcommand.as_str(),
-            "perf" | "reftest" | "png" | "rawtest" | "test_invalidation"
+            "perf" | "bench" | "reftest" | "png" | "rawtest" | "test_invalidation"
         );
         let (notifier, rx) = if needs_frame_notifier {
             let (n, r) = create_notifier();
@@ -955,6 +960,13 @@ impl ApplicationHandler for WrenchApp {
                 );
                 let base_manifest = Path::new(&self.perf_benchmark);
                 harness.run(base_manifest, &self.perf_filename, self.perf_as_csv);
+                wrench.shut_down(rx);
+                event_loop.exit();
+            }
+            "bench" => {
+                let rx = rx.unwrap();
+                let (input, options) = self.bench.take().unwrap();
+                BenchHarness::new(&mut wrench, &mut window, &rx, options).run(input);
                 wrench.shut_down(rx);
                 event_loop.exit();
             }
@@ -1292,6 +1304,30 @@ fn build_app(args: clap::ArgMatches, proxy: Option<EventLoopProxy<()>>) -> Wrenc
             (String::new(), String::new(), false, None, None)
         };
 
+    // Bench
+    let bench = args.subcommand_matches("bench").map(|m| {
+        let input = BenchInput::from_path(m.value_of("INPUT").map(PathBuf::from).unwrap());
+        let options = BenchOptions {
+            mode: if m.is_present("scene-build") {
+                BenchMode::SceneBuild
+            } else if m.is_present("render") && !m.is_present("frame-build") {
+                BenchMode::RenderOnly
+            } else {
+                BenchMode::FrameBuild
+            },
+            render: m.is_present("render"),
+            gpu_sync: m.is_present("gpu-sync"),
+            gpu_queries: m.is_present("gpu-queries"),
+            iterations: m.value_of("iterations").map(|s| s.parse::<usize>().expect("Invalid iteration count")).unwrap_or(100),
+            warmup: m.value_of("warmup").map(|s| s.parse::<usize>().expect("Invalid warmup count")).unwrap_or(10),
+            all_counters: m.is_present("counters"),
+            csv: m.value_of("csv").map(PathBuf::from),
+            save: m.value_of("save").map(PathBuf::from),
+            baseline: m.value_of("baseline").map(PathBuf::from),
+        };
+        (input, options)
+    });
+
     // ComparePerf
     let (compare_first, compare_second) = if let Some(m) = args.subcommand_matches("compare_perf") {
         (m.value_of("first_filename").unwrap().to_owned(),
@@ -1308,6 +1344,7 @@ fn build_app(args: clap::ArgMatches, proxy: Option<EventLoopProxy<()>>) -> Wrenc
         thing_to_build, show_no_block, show_no_batch,
         png_reader, png_surface, png_output_path,
         perf_benchmark, perf_filename, perf_as_csv, perf_warmup_frames, perf_sample_count,
+        bench,
         compare_first, compare_second,
         proxy,
         window: None, wrench: None, rx: None, show_state: None, exit_code: 0,
@@ -1396,7 +1433,7 @@ fn run_headless(args: clap::ArgMatches) -> i32 {
 
     let needs_frame_notifier = matches!(
         app.subcommand.as_str(),
-        "perf" | "reftest" | "png" | "rawtest" | "test_invalidation"
+        "perf" | "bench" | "reftest" | "png" | "rawtest" | "test_invalidation"
     );
     let (notifier, rx) = if needs_frame_notifier {
         let (n, r) = create_notifier();
@@ -1473,6 +1510,13 @@ fn run_headless(args: clap::ArgMatches) -> i32 {
             );
             let base_manifest = Path::new(&app.perf_benchmark);
             harness.run(base_manifest, &app.perf_filename, app.perf_as_csv);
+            wrench.shut_down(rx);
+            0
+        }
+        "bench" => {
+            let rx = rx.unwrap();
+            let (input, options) = app.bench.take().unwrap();
+            BenchHarness::new(&mut wrench, &mut window, &rx, options).run(input);
             wrench.shut_down(rx);
             0
         }

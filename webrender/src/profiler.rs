@@ -599,6 +599,20 @@ impl Profiler {
         }
     }
 
+    /// The named values of the counters that were set in a transaction profile.
+    pub fn counter_values(&self, profile: &TransactionProfile) -> Vec<ProfileCounterValue> {
+        profile.events.iter().zip(self.counters.iter()).filter_map(|(event, counter)| {
+            match *event {
+                Event::Value(value) => Some(ProfileCounterValue {
+                    name: counter.name,
+                    unit: counter.unit,
+                    value,
+                }),
+                _ => None,
+            }
+        }).collect()
+    }
+
     pub fn set_parameter(&mut self, param: &api::Parameter) {
         match param {
             api::Parameter::Float(api::FloatParameter::SlowCpuFrameThreshold, threshold) => {
@@ -1621,6 +1635,14 @@ impl Expected<i64> {
             },
         }
     }
+}
+
+/// The value a profiler counter was set to in one transaction profile.
+#[derive(Copy, Clone, Debug)]
+pub struct ProfileCounterValue {
+    pub name: &'static str,
+    pub unit: &'static str,
+    pub value: f64,
 }
 
 pub struct CounterDescriptor {

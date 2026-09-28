@@ -181,6 +181,55 @@ subcommands:
               long: sample_count
               takes_value: true
               help: number of samples to capture
+    - bench:
+        about: 'Repeatedly build (and optionally render) the frame of a YAML file or capture as fast as possible and report timings. With --frame-build, every iteration invalidates all picture cache tiles.'
+        args:
+          - frame-build:
+              long: frame-build
+              help: Benchmark frame building. The default unless --render is passed alone. Without --render, built frames are discarded without being drawn
+              conflicts_with: scene-build
+          - scene-build:
+              long: scene-build
+              help: Resend the display lists every iteration to benchmark scene building followed by frame building (YAML only)
+          - render:
+              long: render
+              help: Render and present every iteration and report renderer timings. Alone, builds the frame once and redraws all of it every iteration; with --frame-build or --scene-build, builds a new frame every iteration
+          - gpu-sync:
+              long: gpu-sync
+              help: With --render, wait for the GPU to finish each frame (glFinish) within the measured time
+              requires: render
+          - gpu-queries:
+              long: gpu-queries
+              help: With --render, measure GPU time with timer queries
+              requires: render
+          - iterations:
+              short: n
+              long: iterations
+              takes_value: true
+              help: Number of measured iterations (default 100)
+          - warmup:
+              long: warmup
+              takes_value: true
+              help: Number of iterations to run before measuring (default 10)
+          - counters:
+              long: counters
+              help: Print statistics for every profiler counter recorded while building frames
+          - csv:
+              long: csv
+              takes_value: true
+              help: Write per-iteration samples to a CSV file
+          - save:
+              long: save
+              takes_value: true
+              help: Save the results to a JSON file, to be used later as a --baseline
+          - baseline:
+              long: baseline
+              takes_value: true
+              help: Compare the results against a JSON file written by --save
+          - INPUT:
+              help: The input YAML file or capture directory
+              required: true
+              index: 1
     - test_invalidation:
         about: run invalidation tests
     - compare_perf:

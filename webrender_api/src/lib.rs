@@ -808,6 +808,13 @@ bitflags! {
         /// which has no quad-shader path to fall back to: dropping that clip
         /// would not reroute it, it would lose it.
         const DISABLE_COMPOSITOR_CLIPS = (1 as u64) << 37;
+        /// Never draw frames: Renderer::render only applies pending resource
+        /// updates, and frames that are replaced or rendered offscreen are
+        /// dropped. The persistent targets (texture cache render tasks and
+        /// picture cache tiles) are left with stale content, so rendering is
+        /// incorrect after the flag is cleared until they are invalidated.
+        /// Useful to benchmark frame building on its own.
+        const SKIP_RENDERING = (1 as u64) << 38;
     }
 }
 

@@ -449,6 +449,11 @@ impl YamlFrameReader {
         &self.yaml_path
     }
 
+    /// The number of transactions sent so far.
+    pub fn frame_count(&self) -> u32 {
+        self.frame_count
+    }
+
     pub fn new_from_args(args: &clap::ArgMatches) -> YamlFrameReader {
         let yaml_file = args.value_of("INPUT").map(PathBuf::from).unwrap();
         YamlFrameReader::new(&yaml_file)

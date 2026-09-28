@@ -79,7 +79,7 @@ use crate::internal_types::{TextureCacheAllocInfo, TextureCacheAllocationKind, T
 use crate::internal_types::{RenderTargetInfo, Swizzle, DeferredResolveIndex};
 use crate::picture::ResolvedSurfaceTexture;
 use crate::profiler::{self, RenderCommandLog, GpuProfileTag, TransactionProfile};
-use crate::profiler::{Profiler, add_event_marker, add_text_marker, thread_is_being_profiled};
+use crate::profiler::{Profiler, ProfileCounterValue, add_event_marker, add_text_marker, thread_is_being_profiled};
 use crate::device::query::GpuProfiler;
 use crate::render_target::ResolveOp;
 use crate::render_task_graph::RenderTaskGraph;
@@ -778,6 +778,9 @@ pub struct Renderer {
     /// via get_frame_profiles().
     cpu_profiles: VecDeque<CpuProfile>,
     gpu_profiles: VecDeque<GpuProfile>,
+    /// Profiler counters of the frames built by the render backend, in the
+    /// order they were published. Can be retrieved via take_frame_build_profiles().
+    frame_build_profiles: VecDeque<Vec<ProfileCounterValue>>,
 
     /// Notification requests to be fulfilled after rendering.
     notifications: Vec<NotificationRequest>,
@@ -994,6 +997,13 @@ impl Renderer {
                     mut doc,
                     resource_update_list,
                 ) => {
+                    if self.max_recorded_profiles > 0 {
+                        while self.frame_build_profiles.len() >= self.max_recorded_profiles {
+                            self.frame_build_profiles.pop_front();
+                        }
+                        self.frame_build_profiles.push_back(self.profiler.counter_values(&doc.profile));
+                    }
+
                     // Add a new document to the active set
 
                     // If the document we are replacing must be drawn (in order to
@@ -1005,7 +1015,7 @@ impl Renderer {
                     let prev_frame_memory = if let Some(mut prev_doc) = self.active_documents.remove(&document_id) {
                         doc.profile.merge(&mut prev_doc.profile);
 
-                        if prev_doc.frame.must_be_drawn() {
+                        if self.frame_must_be_drawn(&prev_doc) {
                             prev_doc.render_reasons |= RenderReasons::TEXTURE_CACHE_FLUSH;
                             self.render_impl(
                                 document_id,
@@ -1043,6 +1053,13 @@ impl Renderer {
                     self.pending_texture_updates.push(resource_update_list.texture_updates);
                     self.pending_native_surface_updates.extend(resource_update_list.native_surface_updates);
                     self.documents_seen.insert(document_id);
+
+                    // Nothing draws the frames, so the texture updates must not
+                    // wait for a render to be applied, otherwise they accumulate
+                    // while frames are only built.
+                    if self.debug_flags.contains(DebugFlags::SKIP_RENDERING) {
+                        self.apply_pending_resource_updates();
+                    }
                 }
                 ResultMsg::UpdateResources {
                     resource_updates,
@@ -1069,7 +1086,7 @@ impl Renderer {
                             FastHashMap::default(),
                         );
                         for (doc_id, mut doc) in active_documents {
-                            if doc.frame.must_be_drawn() {
+                            if self.frame_must_be_drawn(&doc) {
                                 // As this render will not be presented, we must pass None to
                                 // render_impl. This avoids interfering with partial present
                                 // logic, as well as being more efficient.
@@ -1105,7 +1122,7 @@ impl Renderer {
                     // Borrow-ck dance.
                     let prev_doc = self.active_documents.remove(&document_id);
                     if let Some(mut prev_doc) = prev_doc {
-                        if prev_doc.frame.must_be_drawn() {
+                        if self.frame_must_be_drawn(&prev_doc) {
                             prev_doc.render_reasons |= RenderReasons::TEXTURE_CACHE_FLUSH;
                             self.render_impl(
                                 document_id,
@@ -1124,12 +1141,16 @@ impl Renderer {
                     self.pending_texture_updates.push(resources.texture_updates);
                     self.pending_native_surface_updates.extend(resources.native_surface_updates);
 
-                    self.render_impl(
-                        document_id,
-                        &mut offscreen_doc,
-                        None,
-                        0,
-                    ).unwrap();
+                    if self.debug_flags.contains(DebugFlags::SKIP_RENDERING) {
+                        self.apply_pending_resource_updates();
+                    } else {
+                        self.render_impl(
+                            document_id,
+                            &mut offscreen_doc,
+                            None,
+                            0,
+                        ).unwrap();
+                    }
                 }
                 ResultMsg::AppendNotificationRequests(mut notifications) => {
                     // We need to know specifically if there are any pending
@@ -1172,6 +1193,17 @@ impl Renderer {
                 }
             }
         }
+    }
+
+    fn frame_must_be_drawn(&self, doc: &RenderedDocument) -> bool {
+        doc.frame.must_be_drawn() && !self.debug_flags.contains(DebugFlags::SKIP_RENDERING)
+    }
+
+    fn apply_pending_resource_updates(&mut self) {
+        self.device.begin_frame();
+        self.update_texture_cache();
+        self.update_native_surfaces();
+        self.device.end_frame();
     }
 
     /// update() defers processing of ResultMsg, if frame_publish_id of
@@ -1478,6 +1510,23 @@ impl Renderer {
         (cpu_profiles, gpu_profiles)
     }
 
+    /// Retrieve (and clear) the profiler counters of the frames published since
+    /// the last call, oldest first. Only recorded if max_recorded_profiles is
+    /// non-zero.
+    pub fn take_frame_build_profiles(&mut self) -> Vec<Vec<ProfileCounterValue>> {
+        self.frame_build_profiles.drain(..).collect()
+    }
+
+    /// Mark the active frames as not rendered, so that the next call to render()
+    /// draws their picture cache tiles and texture cache targets again instead
+    /// of only compositing them. Useful to benchmark rendering the same frame
+    /// repeatedly.
+    pub fn invalidate_rendered_frames(&mut self) {
+        for doc in self.active_documents.values_mut() {
+            doc.frame.has_been_rendered = false;
+        }
+    }
+
     /// Reset the current partial present state. This forces the entire framebuffer
     /// to be refreshed next time `render` is called.
     pub fn force_redraw(&mut self) {
@@ -1505,6 +1554,11 @@ impl Renderer {
         let doc_id = self.active_documents.keys().last().cloned();
 
         let result = match doc_id {
+            Some(_) if self.debug_flags.contains(DebugFlags::SKIP_RENDERING) => {
+                self.apply_pending_resource_updates();
+                self.last_time = zeitstempel::now();
+                Ok(RenderResults::default())
+            }
             Some(doc_id) => {
                 // Remove the doc from the map to appease the borrow checker
                 let mut doc = self.active_documents

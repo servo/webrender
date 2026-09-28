@@ -789,6 +789,7 @@ pub fn create_webrender_instance(
         size_of_ops: make_size_of_ops(),
         cpu_profiles: VecDeque::new(),
         gpu_profiles: VecDeque::new(),
+        frame_build_profiles: VecDeque::new(),
         texture_upload_buffer_pool,
         staging_texture_pool,
         texture_resolver,
