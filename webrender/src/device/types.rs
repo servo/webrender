@@ -387,29 +387,55 @@ impl Drop for Program {
     }
 }
 
-pub struct VAO {
-    /// Backend-defined identifier of the vertex array.
-    pub(super) id: u32,
-    pub(super) ibo_id: IBOId,
-    pub(super) main_vbo_id: VBOId,
-    pub(super) instance_vbo_id: VBOId,
-    pub(super) instance_stride: usize,
-    pub(super) instance_divisor: u32,
-    pub(super) owns_vertices_and_indices: bool,
-    pub(super) owns_instances: bool,
+/// What a buffer holds, which decides how a backend places it.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum BufferKind {
+    Vertex,
+    Index,
 }
 
-impl VAO {
+/// A GPU buffer of vertex, instance or index data. Its storage is allocated
+/// by the first write or reallocation.
+#[derive(Debug)]
+pub struct Buffer {
+    /// Backend-defined identifier of the buffer.
+    pub(super) id: u32,
+    pub(super) kind: BufferKind,
+    /// Size of the current storage in bytes.
+    pub(super) size: usize,
+}
+
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        debug_assert!(
+            thread::panicking() || self.id == 0,
+            "renderer::deinit not called"
+        );
+    }
+}
+
+/// Backend-defined identifier of a buffer, for naming one a vertex array reads.
+#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
+pub struct BufferId(pub(super) u32);
+
+/// A vertex layout together with the buffers its attributes and indices are
+/// read from, bound as a unit for drawing.
+pub struct VertexArray {
+    /// Backend-defined identifier of the vertex array.
+    pub(super) id: u32,
+    pub(super) vertices: BufferId,
+    pub(super) instances: Option<BufferId>,
+    pub(super) indices: Option<BufferId>,
+    pub(super) instance_stride: usize,
+}
+
+impl VertexArray {
     pub fn instance_stride(&self) -> usize {
         self.instance_stride
     }
-
-    pub fn instance_vbo_id(&self) -> VBOId {
-        self.instance_vbo_id
-    }
 }
 
-impl Drop for VAO {
+impl Drop for VertexArray {
     fn drop(&mut self) {
         debug_assert!(
             thread::panicking() || self.id == 0,
@@ -492,14 +518,6 @@ impl<'a> Drop for MappedTransferBuffer<'a> {
 /// Backend-defined identifier of a texture, for naming one as a target.
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 pub struct TextureId(pub(super) u64);
-
-/// Backend-defined identifier of a vertex buffer.
-#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
-pub struct VBOId(pub(super) u32);
-
-/// Backend-defined identifier of an index buffer.
-#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
-pub struct IBOId(pub(super) u32);
 
 #[derive(Clone, Debug)]
 pub(super) enum ProgramSourceType {

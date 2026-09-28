@@ -11,7 +11,7 @@ use crate::composite::{NativeSurfaceId, NativeTileId};
 use crate::debug_colors;
 use crate::debug_font_data;
 use crate::debug_item::DebugItem;
-use crate::device::{BlendMode, Device, Program, Texture, TextureSlot, VertexDescriptor, ShaderError, VAO};
+use crate::device::{BlendMode, Buffer, BufferKind, Device, Program, Texture, TextureSlot, VertexArray, VertexDescriptor, ShaderError};
 use crate::device::{DrawTarget, LoadOp, ReadTarget, RenderPassDescriptor, TextureFlags};
 use crate::device::{TextureFilter, VertexAttribute, VertexAttributeKind, VertexUsageHint};
 use euclid::{rect, Point2D, Rect, Size2D, Transform3D, default};
@@ -101,14 +101,19 @@ pub struct DebugRenderer {
     font_vertices: Vec<DebugFontVertex>,
     font_indices: Vec<u32>,
     font_program: Program,
-    font_vao: VAO,
+    font_vao: VertexArray,
+    font_vertex_buffer: Buffer,
+    font_index_buffer: Buffer,
     font_texture: Texture,
 
     tri_vertices: Vec<DebugColorVertex>,
     tri_indices: Vec<u32>,
-    tri_vao: VAO,
+    tri_vao: VertexArray,
+    tri_vertex_buffer: Buffer,
+    tri_index_buffer: Buffer,
     line_vertices: Vec<DebugColorVertex>,
-    line_vao: VAO,
+    line_vao: VertexArray,
+    line_vertex_buffer: Buffer,
     color_program: Program,
 }
 
@@ -128,9 +133,14 @@ impl DebugRenderer {
             &[],
         )?;
 
-        let font_vao = device.create_vao(&DESC_FONT, 1);
-        let line_vao = device.create_vao(&DESC_COLOR, 1);
-        let tri_vao = device.create_vao(&DESC_COLOR, 1);
+        let font_vertex_buffer = device.create_buffer(BufferKind::Vertex);
+        let font_index_buffer = device.create_buffer(BufferKind::Index);
+        let font_vao = device.create_vertex_array(&DESC_FONT, &font_vertex_buffer, None, Some(&font_index_buffer), 1);
+        let line_vertex_buffer = device.create_buffer(BufferKind::Vertex);
+        let line_vao = device.create_vertex_array(&DESC_COLOR, &line_vertex_buffer, None, None, 1);
+        let tri_vertex_buffer = device.create_buffer(BufferKind::Vertex);
+        let tri_index_buffer = device.create_buffer(BufferKind::Index);
+        let tri_vao = device.create_vertex_array(&DESC_COLOR, &tri_vertex_buffer, None, Some(&tri_index_buffer), 1);
 
         let font_texture = device.create_texture(
             ImageBufferKind::Texture2D,
@@ -150,12 +160,17 @@ impl DebugRenderer {
             font_indices: Vec::new(),
             line_vertices: Vec::new(),
             tri_vao,
+            tri_vertex_buffer,
+            tri_index_buffer,
             tri_vertices: Vec::new(),
             tri_indices: Vec::new(),
             font_program,
             color_program,
             font_vao,
+            font_vertex_buffer,
+            font_index_buffer,
             line_vao,
+            line_vertex_buffer,
             font_texture,
         })
     }
@@ -164,9 +179,14 @@ impl DebugRenderer {
         device.delete_texture(self.font_texture);
         device.delete_program(self.font_program);
         device.delete_program(self.color_program);
-        device.delete_vao(self.tri_vao);
-        device.delete_vao(self.line_vao);
-        device.delete_vao(self.font_vao);
+        device.delete_vertex_array(self.tri_vao);
+        device.delete_vertex_array(self.line_vao);
+        device.delete_vertex_array(self.font_vao);
+        device.delete_buffer(self.tri_vertex_buffer);
+        device.delete_buffer(self.tri_index_buffer);
+        device.delete_buffer(self.line_vertex_buffer);
+        device.delete_buffer(self.font_vertex_buffer);
+        device.delete_buffer(self.font_index_buffer);
     }
 
     pub fn line_height(&self) -> f32 {
@@ -342,13 +362,9 @@ impl DebugRenderer {
             if !self.tri_vertices.is_empty() {
                 device.bind_program(&self.color_program);
                 device.set_uniforms(&self.color_program, &projection);
-                device.bind_vao(&self.tri_vao);
-                device.update_vao_indices(&self.tri_vao, &self.tri_indices, VertexUsageHint::Dynamic);
-                device.update_vao_main_vertices(
-                    &self.tri_vao,
-                    &self.tri_vertices,
-                    VertexUsageHint::Dynamic,
-                );
+                device.bind_vertex_array(&self.tri_vao);
+                device.write_buffer(&mut self.tri_index_buffer, &self.tri_indices, VertexUsageHint::Dynamic);
+                device.write_buffer(&mut self.tri_vertex_buffer, &self.tri_vertices, VertexUsageHint::Dynamic);
                 device.draw_triangles_u32(0, self.tri_indices.len() as i32);
             }
 
@@ -356,12 +372,8 @@ impl DebugRenderer {
             if !self.line_vertices.is_empty() {
                 device.bind_program(&self.color_program);
                 device.set_uniforms(&self.color_program, &projection);
-                device.bind_vao(&self.line_vao);
-                device.update_vao_main_vertices(
-                    &self.line_vao,
-                    &self.line_vertices,
-                    VertexUsageHint::Dynamic,
-                );
+                device.bind_vertex_array(&self.line_vao);
+                device.write_buffer(&mut self.line_vertex_buffer, &self.line_vertices, VertexUsageHint::Dynamic);
                 device.draw_nonindexed_lines(0, self.line_vertices.len() as i32);
             }
 
@@ -370,13 +382,9 @@ impl DebugRenderer {
                 device.bind_program(&self.font_program);
                 device.set_uniforms(&self.font_program, &projection);
                 device.bind_texture(DebugSampler::Font, &self.font_texture, Swizzle::default());
-                device.bind_vao(&self.font_vao);
-                device.update_vao_indices(&self.font_vao, &self.font_indices, VertexUsageHint::Dynamic);
-                device.update_vao_main_vertices(
-                    &self.font_vao,
-                    &self.font_vertices,
-                    VertexUsageHint::Dynamic,
-                );
+                device.bind_vertex_array(&self.font_vao);
+                device.write_buffer(&mut self.font_index_buffer, &self.font_indices, VertexUsageHint::Dynamic);
+                device.write_buffer(&mut self.font_vertex_buffer, &self.font_vertices, VertexUsageHint::Dynamic);
                 device.draw_triangles_u32(0, self.font_indices.len() as i32);
             }
         }

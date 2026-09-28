@@ -2359,13 +2359,14 @@ impl Renderer {
         debug_assert!(!data.is_empty());
 
         let vao = &self.vaos[vertex_array_kind];
-        self.device.bind_vao(vao);
+        self.device.bind_vertex_array(vao);
+        let instance_stride = vao.instance_stride();
 
         let chunk_size = if self.debug_flags.contains(DebugFlags::DISABLE_BATCHING) {
             1
         } else if self.use_shared_instance_buffer {
             // Ensure each chunk will fit within the fixed size instance buffer.
-            vertex::SHARED_INSTANCE_BUFFER_SIZE / vao.instance_stride()
+            vertex::SHARED_INSTANCE_BUFFER_SIZE / instance_stride
         } else if vertex_array_kind == VertexArrayKind::Primitive {
             self.max_primitive_instance_count
         } else {
@@ -2373,7 +2374,6 @@ impl Renderer {
         };
 
         if self.use_shared_instance_buffer {
-            let instance_stride = vao.instance_stride();
             for chunk in data.chunks(chunk_size) {
                 let offset = self
                     .vaos
@@ -2392,14 +2392,15 @@ impl Renderer {
             }
         } else {
             for chunk in data.chunks(chunk_size) {
+                let instances = self.vaos.instance_buffer_mut(vertex_array_kind);
                 if self.enable_instancing {
                     self.device
-                        .update_vao_instances(vao, chunk, ONE_TIME_USAGE_HINT, None);
+                        .write_buffer(instances, chunk, ONE_TIME_USAGE_HINT);
                     self.device
                         .draw_indexed_triangles_instanced_u16(6, chunk.len() as i32);
                 } else {
                     self.device
-                        .update_vao_instances(vao, chunk, ONE_TIME_USAGE_HINT, NonZeroUsize::new(4));
+                        .write_buffer_repeated(instances, chunk, NonZeroUsize::new(4).unwrap(), ONE_TIME_USAGE_HINT);
                     self.device
                         .draw_indexed_triangles(6 * chunk.len() as i32);
                 }
