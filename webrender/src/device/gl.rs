@@ -6,8 +6,10 @@ use super::super::shader_source::{OPTIMIZED_SHADERS, UNOPTIMIZED_SHADERS};
 use super::query::{GpuProfiler, GpuQueryBackend, GpuQueryId, GpuQueryKind};
 use super::types::*;
 use super::GpuBackend;
-use api::{ImageDescriptor, ImageFormat, Parameter, BoolParameter, IntParameter, ImageRendering};
-use api::{ExternalTextureHandle, MixBlendMode, ImageBufferKind};
+use api::{ImageFormat, Parameter, BoolParameter, IntParameter, ImageRendering};
+use api::{MixBlendMode, ImageBufferKind};
+#[cfg(feature = "capture")]
+use api::{ExternalTextureHandle, ImageDescriptor};
 use api::{CrashAnnotator, CrashAnnotation, CrashAnnotatorGuard};
 use api::units::*;
 use euclid::default::Transform3D;
@@ -592,8 +594,10 @@ pub struct GlDevice {
     bound_program: gl::GLuint,
     bound_program_name: Rc<std::ffi::CString>,
     bound_vao: gl::GLuint,
-    bound_read_fbo: (FBOId, DeviceIntPoint),
-    bound_draw_fbo: FBOId,
+    /// The framebuffers the context has bound, or `None` where the embedder
+    /// may have rebound them.
+    bound_read_fbo: Option<(FBOId, DeviceIntPoint)>,
+    bound_draw_fbo: Option<FBOId>,
     current_render_pass: Option<RenderPassDescriptor>,
     /// Framebuffer used to read back textures, created on first use.
     scratch_read_fbo: Option<FBOId>,
@@ -1295,12 +1299,12 @@ impl GlDevice {
             bound_program: 0,
             bound_program_name: Rc::new(std::ffi::CString::new("").unwrap()),
             bound_vao: 0,
-            bound_read_fbo: (FBOId(0), DeviceIntPoint::zero()),
+            bound_read_fbo: None,
             current_render_pass: None,
             scratch_read_fbo: None,
             render_targets: FastHashMap::default(),
             next_texture_target_id: 0,
-            bound_draw_fbo: FBOId(0),
+            bound_draw_fbo: None,
             default_read_fbo: FBOId(0),
             default_draw_fbo: FBOId(0),
 
@@ -1444,13 +1448,11 @@ impl GlDevice {
         fbo_id: FBOId,
         offset: DeviceIntPoint,
     ) {
-        debug_assert!(self.inside_frame);
-
-        if self.bound_read_fbo != (fbo_id, offset) {
+        if self.bound_read_fbo != Some((fbo_id, offset)) {
             fbo_id.bind(self.gl(), FBOTarget::Read);
         }
 
-        self.bound_read_fbo = (fbo_id, offset);
+        self.bound_read_fbo = Some((fbo_id, offset));
     }
 
     /// The FBO a render target texture is drawn to, with or without depth.
@@ -1476,8 +1478,8 @@ impl GlDevice {
     fn bind_draw_target_impl(&mut self, fbo_id: FBOId) {
         debug_assert!(self.inside_frame);
 
-        if self.bound_draw_fbo != fbo_id {
-            self.bound_draw_fbo = fbo_id;
+        if self.bound_draw_fbo != Some(fbo_id) {
+            self.bound_draw_fbo = Some(fbo_id);
             fbo_id.bind(self.gl(), FBOTarget::Draw);
         }
     }
@@ -1534,8 +1536,8 @@ impl GlDevice {
     fn bind_external_draw_target(&mut self, fbo_id: FBOId) {
         debug_assert!(self.inside_frame);
 
-        if self.bound_draw_fbo != fbo_id {
-            self.bound_draw_fbo = fbo_id;
+        if self.bound_draw_fbo != Some(fbo_id) {
+            self.bound_draw_fbo = Some(fbo_id);
             fbo_id.bind(self.gl(), FBOTarget::Draw);
         }
     }
@@ -1570,7 +1572,7 @@ impl GlDevice {
     /// to allow tiled GPUs to avoid writing the contents back to memory.
     fn invalidate_depth_target(&mut self) {
         assert!(self.depth_available);
-        let attachments = if self.bound_draw_fbo == self.default_draw_fbo {
+        let attachments = if self.bound_draw_fbo == Some(self.default_draw_fbo) {
             &[gl::DEPTH] as &[gl::GLenum]
         } else {
             &[gl::DEPTH_ATTACHMENT] as &[gl::GLenum]
@@ -1630,7 +1632,27 @@ impl GlDevice {
             "Incomplete framebuffer",
         );
 
-        self.bind_external_draw_target(original_bound_fbo);
+        self.restore_draw_target(original_bound_fbo);
+    }
+
+    /// Rebinds the draw framebuffer recorded before an external bind, or the
+    /// current pass's target when that binding was not known.
+    fn restore_draw_target(&mut self, original: Option<FBOId>) {
+        match original {
+            Some(fbo_id) => self.bind_external_draw_target(fbo_id),
+            None => {
+                if let Some(pass) = self.current_render_pass {
+                    self.bind_draw_target(pass.target);
+                }
+            }
+        }
+    }
+
+    /// A native surface is bound and unbound by the embedder's compositor,
+    /// which may leave either framebuffer target bound to something else.
+    fn forget_framebuffer_bindings(&mut self) {
+        self.bound_read_fbo = None;
+        self.bound_draw_fbo = None;
     }
 
     fn acquire_depth_target(&mut self, dimensions: DeviceIntSize) -> RBOId {
@@ -1682,8 +1704,9 @@ impl GlDevice {
             TextureFilter::Linear | TextureFilter::Trilinear => gl::LINEAR,
         };
 
-        let src_x0 = src_rect.min.x + self.bound_read_fbo.1.x;
-        let src_y0 = src_rect.min.y + self.bound_read_fbo.1.y;
+        let (_, read_offset) = self.bound_read_fbo.expect("no read framebuffer bound");
+        let src_x0 = src_rect.min.x + read_offset.x;
+        let src_y0 = src_rect.min.y + read_offset.y;
 
         self.gl.blit_framebuffer(
             src_x0,
@@ -1817,6 +1840,35 @@ impl GlDevice {
             texture_id,
             0,
         )
+    }
+
+    fn reset_read_target(&mut self) {
+        let fbo = self.default_read_fbo;
+        self.bind_read_target_impl(fbo, DeviceIntPoint::zero());
+    }
+
+    /// Reads `rect` of the bound read framebuffer into `output`.
+    fn read_pixels_impl(
+        &mut self,
+        rect: FramebufferIntRect,
+        format: ImageFormat,
+        output: &mut [u8],
+    ) {
+        let bytes_per_pixel = format.bytes_per_pixel();
+        let desc = self.gl_describe_format(format);
+        let size_in_bytes = (bytes_per_pixel * rect.area()) as usize;
+        assert_eq!(output.len(), size_in_bytes);
+
+        self.gl.flush();
+        self.gl.read_pixels_into_buffer(
+            rect.min.x as _,
+            rect.min.y as _,
+            rect.width() as _,
+            rect.height() as _,
+            desc.read,
+            desc.pixel_type,
+            output,
+        );
     }
 
     /// Binds the device-owned scratch read framebuffer, so that a texture can
@@ -2359,11 +2411,11 @@ impl GpuBackend for GlDevice {
         self.bound_vao = 0;
         self.gl.bind_vertex_array(0);
 
-        self.bound_read_fbo = (self.default_read_fbo, DeviceIntPoint::zero());
+        self.bound_read_fbo = Some((self.default_read_fbo, DeviceIntPoint::zero()));
         self.gl.bind_framebuffer(gl::READ_FRAMEBUFFER, self.default_read_fbo.0);
 
-        self.bound_draw_fbo = self.default_draw_fbo;
-        self.gl.bind_framebuffer(gl::DRAW_FRAMEBUFFER, self.bound_draw_fbo.0);
+        self.bound_draw_fbo = Some(self.default_draw_fbo);
+        self.gl.bind_framebuffer(gl::DRAW_FRAMEBUFFER, self.default_draw_fbo.0);
 
         self.gl_state = GlRenderStateCache::default();
     }
@@ -2450,15 +2502,13 @@ impl GpuBackend for GlDevice {
         );
     }
 
-    fn reset_read_target(&mut self) {
-        let fbo = self.default_read_fbo;
-        self.bind_read_target_impl(fbo, DeviceIntPoint::zero());
-    }
-
     fn begin_render_pass(&mut self, desc: &RenderPassDescriptor) {
         debug_assert!(self.inside_frame);
         debug_assert!(self.current_render_pass.is_none(), "render pass already in progress");
 
+        if let DrawTarget::NativeSurface { .. } = desc.target {
+            self.forget_framebuffer_bindings();
+        }
         self.bind_draw_target(desc.target);
         self.apply_scissor(None);
 
@@ -2504,6 +2554,10 @@ impl GpuBackend for GlDevice {
 
         if self.capabilities.supports_qcom_tiled_rendering && desc.render_area.is_some() {
             self.gl.end_tiling_qcom(gl::COLOR_BUFFER_BIT0_QCOM);
+        }
+
+        if let DrawTarget::NativeSurface { .. } = desc.target {
+            self.forget_framebuffer_bindings();
         }
     }
 
@@ -2876,7 +2930,7 @@ impl GpuBackend for GlDevice {
             // hint.
             self.bind_external_draw_target(fbo_id);
             self.gl.invalidate_framebuffer(gl::FRAMEBUFFER, attachments);
-            self.bind_external_draw_target(original_bound_fbo);
+            self.restore_draw_target(original_bound_fbo);
         }
     }
 
@@ -3404,50 +3458,41 @@ impl GpuBackend for GlDevice {
         );
     }
 
-    fn read_pixels(&mut self, img_desc: &ImageDescriptor) -> Vec<u8> {
-        let desc = self.gl_describe_format(img_desc.format);
-        self.gl.read_pixels(
-            0, 0,
-            img_desc.size.width as i32,
-            img_desc.size.height as i32,
-            desc.read,
-            desc.pixel_type,
-        )
-    }
-
     fn read_pixels_into(
         &mut self,
+        target: ReadTarget,
         rect: FramebufferIntRect,
         format: ImageFormat,
         output: &mut [u8],
     ) {
-        let bytes_per_pixel = format.bytes_per_pixel();
-        let desc = self.gl_describe_format(format);
-        let size_in_bytes = (bytes_per_pixel * rect.area()) as usize;
-        assert_eq!(output.len(), size_in_bytes);
-
-        self.gl.flush();
-        self.gl.read_pixels_into_buffer(
-            rect.min.x as _,
-            rect.min.y as _,
-            rect.width() as _,
-            rect.height() as _,
-            desc.read,
-            desc.pixel_type,
-            output,
-        );
+        self.bind_read_target(target);
+        self.read_pixels_impl(rect, format, output);
     }
 
-    fn attach_read_texture_external(
-        &mut self, handle: ExternalTextureHandle, target: ImageBufferKind
-    ) {
+    fn read_texture(&mut self, texture: &Texture, format: ImageFormat, output: &mut [u8]) {
         self.bind_scratch_read_target();
-        self.attach_read_texture_raw(handle.0 as gl::GLuint, get_gl_target(target))
+        self.attach_read_texture_raw(texture.id, get_gl_target(texture.target));
+        let rect = FramebufferIntRect::from_size(device_size_as_framebuffer_size(texture.size));
+        self.read_pixels_impl(rect, format, output);
     }
 
-    fn attach_read_texture(&mut self, texture: &Texture) {
+    #[cfg(feature = "capture")]
+    fn read_external_texture(
+        &mut self,
+        handle: ExternalTextureHandle,
+        target: ImageBufferKind,
+        desc: &ImageDescriptor,
+    ) -> Vec<u8> {
         self.bind_scratch_read_target();
-        self.attach_read_texture_raw(texture.id, get_gl_target(texture.target))
+        self.attach_read_texture_raw(handle.0 as gl::GLuint, get_gl_target(target));
+        let gl_desc = self.gl_describe_format(desc.format);
+        self.gl.read_pixels(
+            0, 0,
+            desc.size.width as i32,
+            desc.size.height as i32,
+            gl_desc.read,
+            gl_desc.pixel_type,
+        )
     }
 
     fn bind_vao(&mut self, vao: &VAO) {

@@ -13,7 +13,9 @@ pub mod query;
 mod types;
 mod upload;
 
-use api::{ExternalTextureHandle, ImageBufferKind, ImageDescriptor, ImageFormat, Parameter};
+#[cfg(feature = "capture")]
+use api::{ExternalTextureHandle, ImageDescriptor};
+use api::{ImageBufferKind, ImageFormat, Parameter};
 use api::units::*;
 use euclid::default::Transform3D;
 use malloc_size_of::MallocSizeOfOps;
@@ -112,8 +114,6 @@ pub trait GpuBackend {
     fn bind_texture(&mut self, slot: TextureSlot, texture: &Texture, swizzle: Swizzle);
 
     fn bind_external_texture(&mut self, slot: TextureSlot, external_texture: &ExternalTexture);
-
-    fn reset_read_target(&mut self);
 
     /// Begins rendering to the target described by `desc`, applying its load
     /// ops. Draws, clears and blits into the target must happen before the
@@ -351,26 +351,32 @@ pub trait GpuBackend {
     /// Performs an immediate (non-PBO) upload of the whole texture.
     fn upload_texture_immediate(&mut self, texture: &Texture, pixels: &[u8]);
 
-    fn read_pixels(&mut self, img_desc: &ImageDescriptor) -> Vec<u8>;
-
-    /// Read rectangle of pixels into the specified output slice.
+    /// Reads `rect` of `target` into `output`. The default target may also
+    /// be read outside a frame, once it has been presented.
     ///
     /// Reading back `BGRA8` requires `Capabilities::supports_bgra_read`. When
     /// that is false the caller must instead read `RGBA8` and swap the red and
     /// blue channels itself.
     fn read_pixels_into(
         &mut self,
+        target: ReadTarget,
         rect: FramebufferIntRect,
         format: ImageFormat,
         output: &mut [u8],
     );
 
-    /// Makes an application-owned texture the current read target.
-    fn attach_read_texture_external(
-        &mut self, handle: ExternalTextureHandle, target: ImageBufferKind
-    );
+    /// Reads the whole of `texture`, which need not be a render target, into
+    /// `output` as `format`.
+    fn read_texture(&mut self, texture: &Texture, format: ImageFormat, output: &mut [u8]);
 
-    fn attach_read_texture(&mut self, texture: &Texture);
+    /// Reads the whole of an application-owned texture, described by `desc`.
+    #[cfg(feature = "capture")]
+    fn read_external_texture(
+        &mut self,
+        handle: ExternalTextureHandle,
+        target: ImageBufferKind,
+        desc: &ImageDescriptor,
+    ) -> Vec<u8>;
 
     fn bind_vao(&mut self, vao: &VAO);
 
