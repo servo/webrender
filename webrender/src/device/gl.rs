@@ -5,7 +5,7 @@
 use super::super::shader_source::{OPTIMIZED_SHADERS, UNOPTIMIZED_SHADERS};
 use super::query::{GpuProfiler, GpuQueryBackend, GpuQueryId, GpuQueryKind};
 use super::types::*;
-use super::GpuBackend;
+use super::{GlBackendConfig, GpuBackend};
 use api::{ImageFormat, Parameter, BoolParameter, IntParameter, ImageRendering};
 use api::{MixBlendMode, ImageBufferKind};
 #[cfg(feature = "capture")]
@@ -30,7 +30,6 @@ use std::{
     collections::hash_map::Entry,
     mem,
     num::NonZeroUsize,
-    os::raw::c_void,
     path::PathBuf,
     ptr,
     rc::Rc,
@@ -44,7 +43,6 @@ use webrender_build::shader::{
     build_shader_main_string, build_shader_prefix_string, do_build_shader_string,
     shader_source_from_file,
 };
-use malloc_size_of::MallocSizeOfOps;
 
 // In some places we need to temporarily bind a texture to any slot.
 const DEFAULT_TEXTURE: TextureSlot = TextureSlot(0);
@@ -293,6 +291,30 @@ impl VertexDescriptor {
             );
         }
     }
+}
+
+/// What the GL backend knows about the context beyond the neutral
+/// `Capabilities` the renderer consults.
+struct GlCapabilities {
+    /// Whether the function `glCopyImageSubData` is available.
+    supports_copy_image_sub_data: bool,
+    /// Whether KHR_debug is supported for getting debug messages from
+    /// the driver.
+    supports_khr_debug: bool,
+    /// Whether we can configure texture units to do swizzling on sampling.
+    supports_texture_swizzle: bool,
+    /// Whether the driver supports specifying the texture usage up front.
+    supports_texture_usage: bool,
+    /// Whether to enforce that texture uploads be batched regardless of what
+    /// the pref says.
+    requires_batched_texture_uploads: Option<bool>,
+    /// Whether the driver can correctly invalidate render targets. This can be
+    /// a worthwhile optimization, but is buggy on some devices.
+    supports_render_target_invalidate: bool,
+    /// Whether the extension QCOM_tiled_rendering is supported.
+    supports_qcom_tiled_rendering: bool,
+    /// Whether the VAO must be rebound after an attached VBO has been orphaned.
+    requires_vao_rebind_after_orphaning: bool,
 }
 
 /// The vertex array the context has bound, with the buffers it reads, which
@@ -641,6 +663,7 @@ pub struct GlDevice {
 
     // HW or API capabilities
     capabilities: Capabilities,
+    gl_capabilities: GlCapabilities,
 
     color_formats: TextureFormatPair<ImageFormat>,
     bgra_formats: TextureFormatPair<gl::GLuint>,
@@ -784,9 +807,14 @@ fn gl_error_string(code: u32) -> &'static str {
 
 impl GlDevice {
     pub fn new(
-        mut gl: Rc<dyn gl::Gl>,
+        config: GlBackendConfig,
         options: DeviceOptions,
     ) -> GlDevice {
+        let GlBackendConfig {
+            mut gl,
+            allow_texture_storage,
+            panic_on_error,
+        } = config;
         let DeviceOptions {
             crash_annotator,
             resource_override_path,
@@ -794,11 +822,9 @@ impl GlDevice {
             upload_method,
             batched_upload_threshold,
             cached_programs,
-            allow_texture_storage_support,
             allow_texture_swizzling,
             dump_shader_source,
             surface_origin_is_top_left,
-            panic_on_gl_error,
         } = options;
         let mut max_texture_size = [0];
         unsafe {
@@ -834,7 +860,7 @@ impl GlDevice {
         // On debug builds, assert that each GL call is error-free. We don't do
         // this on release builds because the synchronous call can stall the
         // pipeline.
-        if panic_on_gl_error || cfg!(debug_assertions) {
+        if panic_on_error || cfg!(debug_assertions) {
             gl = gl::ErrorReactingGl::wrap(gl, move |gl, name, code| {
                 if supports_khr_debug {
                     Self::log_driver_messages(gl);
@@ -906,7 +932,7 @@ impl GlDevice {
             !renderer_name.starts_with("ANGLE");
 
         // We block texture storage on mac with native GL because it doesn't support BGRA
-        let supports_texture_storage = allow_texture_storage_support && !is_macos_native_gl &&
+        let supports_texture_storage = allow_texture_storage && !is_macos_native_gl &&
             match gl.get_type() {
                 gl::GlType::Gl => supports_extension(&extensions, "GL_ARB_texture_storage"),
                 gl::GlType::Gles => true,
@@ -1035,7 +1061,7 @@ impl GlDevice {
         // driver which prevents usage of persistenly mapped buffers.
         // See bugs 1678585 and 1683936.
         // TODO: only disable feature for affected driver versions.
-        let supports_buffer_storage = if is_adreno {
+        let supports_persistent_upload_buffers = if is_adreno {
             false
         } else {
             supports_extension(&extensions, "GL_EXT_buffer_storage") ||
@@ -1109,7 +1135,7 @@ impl GlDevice {
         // from a non-zero offset within a PBO to fail. See bug 1603783. We
         // apply this restriction to all GPUs when using native GL to handle
         // switching.
-        let supports_nonzero_pbo_offsets = !is_macos_native_gl;
+        let supports_upload_buffer_offsets = !is_macos_native_gl;
 
         // We have encountered several issues when only partially updating render targets on a
         // variety of Mali GPUs. As a precaution avoid doing so on all Midgard and Bifrost GPUs.
@@ -1153,7 +1179,7 @@ impl GlDevice {
         // extension instead.
         // Mesa versions prior to 20.0 do not implement textureSize(samplerExternalOES),
         // so we must use the fallback path.
-        let supports_image_external_essl3 = match android_mesa_version {
+        let supports_external_textures_in_all_shaders = match android_mesa_version {
             Some(major) if major < 20 => false,
             _ => supports_extension(&extensions, "GL_OES_EGL_image_external_essl3"),
         };
@@ -1270,35 +1296,37 @@ impl GlDevice {
 
             capabilities: Capabilities {
                 supports_multisampling: false, //TODO
-                supports_copy_image_sub_data,
-                supports_buffer_storage,
+                supports_persistent_upload_buffers,
                 supports_advanced_blend_equation,
                 supports_advanced_blend_equation_coherent,
                 supports_dual_source_blending,
-                supports_khr_debug,
-                supports_texture_swizzle,
-                supports_nonzero_pbo_offsets,
-                supports_texture_usage,
+                supports_upload_buffer_offsets,
                 supports_render_target_partial_update,
                 supports_shader_storage_object,
-                requires_batched_texture_uploads,
                 supports_alpha_target_clears,
                 requires_alpha_target_full_clear,
                 prefers_clear_scissor,
-                supports_render_target_invalidate,
                 supports_r8_texture_upload,
-                supports_qcom_tiled_rendering,
                 uses_native_clip_mask,
                 uses_native_antialiasing,
-                supports_image_external_essl3,
+                supports_external_textures_in_all_shaders,
                 supports_texture_rect,
                 supports_texture_external,
                 supports_texture_external_bt709,
                 readback_rows_top_down,
-                requires_vao_rebind_after_orphaning,
                 supports_bgra_read,
                 supports_base_instance,
                 renderer_name,
+            },
+            gl_capabilities: GlCapabilities {
+                supports_copy_image_sub_data,
+                supports_khr_debug,
+                supports_texture_swizzle,
+                supports_texture_usage,
+                requires_batched_texture_uploads,
+                supports_render_target_invalidate,
+                supports_qcom_tiled_rendering,
+                requires_vao_rebind_after_orphaning,
             },
 
             color_formats,
@@ -1433,7 +1461,7 @@ impl GlDevice {
             }
             self.gl.bind_texture(target, id);
             if let Some(swizzle) = set_swizzle {
-                if self.capabilities.supports_texture_swizzle {
+                if self.gl_capabilities.supports_texture_swizzle {
                     let components = match swizzle {
                         Swizzle::Rgba => [gl::RED, gl::GREEN, gl::BLUE, gl::ALPHA],
                         Swizzle::Bgra => [gl::BLUE, gl::GREEN, gl::RED, gl::ALPHA],
@@ -1930,7 +1958,7 @@ impl GlDevice {
     /// buffer's contents being used for the subsequent draw call, rather than the new buffer's
     /// contents.
     fn rebind_vertex_array_after_orphaning(&mut self, buffer: &Buffer) {
-        if self.capabilities.requires_vao_rebind_after_orphaning
+        if self.gl_capabilities.requires_vao_rebind_after_orphaning
             && self.bound_vao.instances == Some(buffer.id)
         {
             let bound = self.bound_vao;
@@ -2273,7 +2301,7 @@ impl GpuBackend for GlDevice {
     fn create_gpu_profiler(&self, enable_markers: bool) -> GpuProfiler {
         let debug_method = if !enable_markers {
             GpuDebugMethod::None
-        } else if self.capabilities.supports_khr_debug {
+        } else if self.gl_capabilities.supports_khr_debug {
             GpuDebugMethod::KHR
         } else if self.supports_extension("GL_EXT_debug_marker") {
             GpuDebugMethod::MarkerEXT
@@ -2299,7 +2327,7 @@ impl GpuBackend for GlDevice {
                 }
             }
             Parameter::Bool(BoolParameter::BatchedUploads, enabled) => {
-                if self.capabilities.requires_batched_texture_uploads.is_none() {
+                if self.gl_capabilities.requires_batched_texture_uploads.is_none() {
                     self.use_batched_texture_uploads = *enabled;
                 }
             }
@@ -2347,7 +2375,7 @@ impl GpuBackend for GlDevice {
             gl::GlType::Gl => ShaderFeatureFlags::GL,
             gl::GlType::Gles => {
                 let mut flags = ShaderFeatureFlags::GLES;
-                flags |= if self.capabilities.supports_image_external_essl3 {
+                flags |= if self.capabilities.supports_external_textures_in_all_shaders {
                     ShaderFeatureFlags::TEXTURE_EXTERNAL
                 } else {
                     ShaderFeatureFlags::TEXTURE_EXTERNAL_ESSL1
@@ -2365,7 +2393,7 @@ impl GpuBackend for GlDevice {
     }
 
     fn swizzle_settings(&self) -> Option<SwizzleSettings> {
-        if self.capabilities.supports_texture_swizzle {
+        if self.gl_capabilities.supports_texture_swizzle {
             Some(self.swizzle_settings)
         } else {
             None
@@ -2515,7 +2543,7 @@ impl GpuBackend for GlDevice {
         self.bind_draw_target(desc.target);
         self.apply_scissor(None);
 
-        if self.capabilities.supports_qcom_tiled_rendering {
+        if self.gl_capabilities.supports_qcom_tiled_rendering {
             if let Some(area) = desc.render_area {
                 let preserve_mask = match desc.color_load {
                     LoadOp::Load => gl::COLOR_BUFFER_BIT0_QCOM,
@@ -2555,7 +2583,7 @@ impl GpuBackend for GlDevice {
             self.invalidate_depth_target();
         }
 
-        if self.capabilities.supports_qcom_tiled_rendering && desc.render_area.is_some() {
+        if self.gl_capabilities.supports_qcom_tiled_rendering && desc.render_area.is_some() {
             self.gl.end_tiling_qcom(gl::COLOR_BUFFER_BIT0_QCOM);
         }
 
@@ -2798,7 +2826,7 @@ impl GpuBackend for GlDevice {
         self.bind_texture(DEFAULT_TEXTURE, &texture, Swizzle::default());
         self.set_texture_parameters(gl_target, filter);
 
-        if self.capabilities.supports_texture_usage && render_target.is_some() {
+        if self.gl_capabilities.supports_texture_usage && render_target.is_some() {
             self.gl.tex_parameter_i(gl_target, gl::TEXTURE_USAGE_ANGLE, gl::FRAMEBUFFER_ATTACHMENT_ANGLE as gl::GLint);
         }
 
@@ -2886,7 +2914,7 @@ impl GpuBackend for GlDevice {
         width: usize,
         height: usize,
     ) {
-        if self.capabilities.supports_copy_image_sub_data {
+        if self.gl_capabilities.supports_copy_image_sub_data {
             assert_ne!(
                 src_texture.id, dest_texture.id,
                 "glCopyImageSubData's behaviour is undefined if src and dst images are identical and the rectangles overlap."
@@ -2929,7 +2957,7 @@ impl GpuBackend for GlDevice {
     }
 
     fn invalidate_render_target(&mut self, texture: &Texture) {
-        if self.capabilities.supports_render_target_invalidate {
+        if self.gl_capabilities.supports_render_target_invalidate {
             if texture.render_target.is_none() {
                 return;
             }
@@ -3309,7 +3337,7 @@ impl GpuBackend for GlDevice {
 
         self.gl.bind_buffer(gl::PIXEL_UNPACK_BUFFER, buffer.id);
         if persistent {
-            assert!(self.capabilities.supports_buffer_storage);
+            assert!(self.capabilities.supports_persistent_upload_buffers);
             self.gl.buffer_storage(
                 gl::PIXEL_UNPACK_BUFFER,
                 size as _,
@@ -3803,22 +3831,14 @@ impl GpuBackend for GlDevice {
     }
 
     fn echo_driver_messages(&self) {
-        if self.capabilities.supports_khr_debug {
+        if self.gl_capabilities.supports_khr_debug {
             GlDevice::log_driver_messages(self.gl());
         }
     }
 
-    fn report_memory(&self, size_op_funs: &MallocSizeOfOps, swgl: *mut c_void) -> MemoryReport {
+    fn report_memory(&self) -> MemoryReport {
         let mut report = MemoryReport::default();
         report.depth_target_textures += self.depth_targets_memory();
-
-        #[cfg(feature = "sw_compositor")]
-        if !swgl.is_null() {
-            report.swgl += swgl::Context::from(swgl).report_memory(size_op_funs.size_of_op);
-        }
-        // unconditionally use swgl stuff
-        let _ = size_op_funs;
-        let _ = swgl;
         report
     }
 

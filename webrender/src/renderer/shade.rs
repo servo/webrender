@@ -645,7 +645,7 @@ impl Shaders {
             device.get_capabilities().supports_advanced_blend_equation &&
             options.allow_advanced_blend_equation;
 
-        let texture_external_version = if device.get_capabilities().supports_image_external_essl3 {
+        let texture_external_version = if device.get_capabilities().supports_external_textures_in_all_shaders {
             TextureExternalVersion::ESSL3
         } else {
             TextureExternalVersion::ESSL1
@@ -1235,7 +1235,7 @@ impl CompositorShaders {
         let mut yuv_clip = Vec::new();
         let mut yuv_fast = Vec::new();
 
-        let texture_external_version = if device.get_capabilities().supports_image_external_essl3 {
+        let texture_external_version = if device.get_capabilities().supports_external_textures_in_all_shaders {
             TextureExternalVersion::ESSL3
         } else {
             TextureExternalVersion::ESSL1

@@ -4362,7 +4362,15 @@ impl Renderer {
         report += self.texture_upload_buffer_pool.report_memory();
 
         // Textures held internally within the device layer.
-        report += self.device.report_memory(self.size_of_ops.as_ref().unwrap(), swgl);
+        report += self.device.report_memory();
+
+        #[cfg(feature = "sw_compositor")]
+        if !swgl.is_null() {
+            let size_of_op = self.size_of_ops.as_ref().unwrap().size_of_op;
+            report.swgl += swgl::Context::from(swgl).report_memory(size_of_op);
+        }
+        #[cfg(not(feature = "sw_compositor"))]
+        let _ = swgl;
 
         report
     }
