@@ -69,11 +69,6 @@ pub const MAX_COMPOSITOR_SURFACES: usize = 4;
 /// This is an arbitrary number that should be enough for most cases.
 pub const MAX_COMPOSITOR_UNDERLAY_SURFACES: usize = 5;
 
-/// Number of consecutive frames that a YUV primitive must remain at the same
-/// picture-space coverage rect before it may be promoted to an OS compositor
-/// overlay or underlay.
-const YUV_SURFACE_STABLE_FRAMES: u32 = 15;
-
 /// The size in device pixels of a normal cached tile.
 pub const TILE_SIZE_DEFAULT: DeviceIntSize = DeviceIntSize {
     width: 1024,
@@ -747,12 +742,6 @@ pub struct DeferredDirtyTest {
     pub prim_rect: PictureRect,
 }
 
-struct YuvSurfaceStability {
-    pic_coverage_rect: PictureRect,
-    stable_frames: u32,
-    seen_this_frame: bool,
-}
-
 /// Represents a cache of tiles that make up a picture primitives.
 pub struct TileCacheInstance {
     // The current debug flags for the system.
@@ -869,8 +858,6 @@ pub struct TileCacheInstance {
     /// The remaining number of YuvImage prims we will see this frame. We prioritize
     /// promoting these before promoting any Image prims.
     pub yuv_images_remaining: usize,
-    /// Per-YUV-primitive stability state retained across frames.
-    yuv_surface_stability: FastHashMap<crate::intern::ItemUid, YuvSurfaceStability>,
     /// Persistent cache for computing and storing raster-space primitive corners.
     corners_cache: CornersCache,
 }
@@ -938,7 +925,6 @@ impl TileCacheInstance {
             overlay_region: PictureRect::zero(),
             yuv_images_count: params.yuv_image_surface_count,
             yuv_images_remaining: 0,
-            yuv_surface_stability: FastHashMap::default(),
             corners_cache: CornersCache::new(),
         }
     }
@@ -1092,9 +1078,6 @@ impl TileCacheInstance {
         self.underlays.clear();
         self.overlay_region = PictureRect::zero();
         self.yuv_images_remaining = self.yuv_images_count;
-        for stability in self.yuv_surface_stability.values_mut() {
-            stability.seen_this_frame = false;
-        }
 
         for sub_slice in &mut self.sub_slices {
             sub_slice.reset();
@@ -2492,7 +2475,6 @@ impl TileCacheInstance {
                 });
             }
             PrimitiveKind::YuvImage { data_handle, .. } => {
-                let prim_uid = prim_instance.uid();
                 let prim_data = &data_stores.yuv_image[data_handle];
 
                 let mut promotion_result: Result<CompositorSurfaceKind, SurfacePromotionFailure> = Ok(CompositorSurfaceKind::Blit);
@@ -2506,65 +2488,37 @@ impl TileCacheInstance {
                         self.yuv_images_remaining -= 1;
                     }
 
-                    // Wide-color / HDR YUV images must keep the existing immediate
-                    // promotion behavior. WebRender cannot faithfully flatten these
-                    // into 8-bit content, so only apply the stability delay to Color8.
-                    let apply_stability_delay =
-                        frame_context.config.enable_yuv_overlay_stability &&
-                        prim_data.kind.color_depth == ColorDepth::Color8;
-                    let allow_promotion = !apply_stability_delay || {
-                        let stability = self.yuv_surface_stability
-                            .entry(prim_uid)
-                            .or_insert(YuvSurfaceStability {
-                                pic_coverage_rect,
-                                stable_frames: 0,
-                                seen_this_frame: true,
-                            });
+                    let promotion_attempts =
+                        [CompositorSurfaceKind::Overlay, CompositorSurfaceKind::Underlay];
 
-                        stability.seen_this_frame = true;
-                        if stability.pic_coverage_rect == pic_coverage_rect {
-                            stability.stable_frames = stability.stable_frames.saturating_add(1);
-                        } else {
-                            stability.pic_coverage_rect = pic_coverage_rect;
-                            stability.stable_frames = 1;
+                    for kind in promotion_attempts {
+                        // Since this might be an attempt after an earlier error, clear the flag
+                        // so that we are allowed to report another error.
+                        promotion_result = self.can_promote_to_surface(
+                                                    prim_clip_chain,
+                                                    prim_spatial_node_index,
+                                                    is_root_tile_cache,
+                                                    sub_slice_index,
+                                                    kind,
+                                                    pic_coverage_rect,
+                                                    frame_context,
+                                                    data_stores,
+                                                    clip_store,
+                                                    composite_state,
+                                                    Some(prim_data.kind.color_depth));
+                        if promotion_result.is_ok() {
+                            break;
                         }
 
-                        stability.stable_frames >= YUV_SURFACE_STABLE_FRAMES
-                    };
-
-                    if !allow_promotion {
-                        promotion_result = Err(YuvImageNotStable);
-                    } else {
-                        let promotion_attempts =
-                            [CompositorSurfaceKind::Overlay, CompositorSurfaceKind::Underlay];
-                        for kind in promotion_attempts {
-                            // Since this might be an attempt after an earlier error, clear the flag
-                            // so that we are allowed to report another error.
-                            promotion_result = self.can_promote_to_surface(
-                                                        prim_clip_chain,
-                                                        prim_spatial_node_index,
-                                                        is_root_tile_cache,
-                                                        sub_slice_index,
-                                                        kind,
-                                                        pic_coverage_rect,
-                                                        frame_context,
-                                                        data_stores,
-                                                        clip_store,
-                                                        composite_state,
-                                                        Some(prim_data.kind.color_depth));
-                            if promotion_result.is_ok() {
+                        // We couldn't promote, but did we give up because the slice is marked
+                        // atomic? If that was the reason, and the YuvImage is wide color,
+                        // failing to promote will flatten the colors and look terrible. Let's
+                        // ignore the atomic slice restriction in such a case.
+                        if let Err(SliceAtomic) = promotion_result {
+                            if prim_data.kind. color_depth != ColorDepth::Color8 {
+                                // Let's promote with the attempted kind.
+                                promotion_result = Ok(kind);
                                 break;
-                            }
-                            // We couldn't promote, but did we give up because the slice is marked
-                            // atomic? If that was the reason, and the YuvImage is wide color,
-                            // failing to promote will flatten the colors and look terrible. Let's
-                            // ignore the atomic slice restriction in such a case.
-                            if let Err(SliceAtomic) = promotion_result {
-                                if prim_data.kind. color_depth != ColorDepth::Color8 {
-                                    // Let's promote with the attempted kind.
-                                    promotion_result = Ok(kind);
-                                    break;
-                                }
                             }
                         }
                     }
@@ -3049,8 +3003,6 @@ impl TileCacheInstance {
     ) {
         assert!(self.current_surface_traversal_depth == 0);
 
-        self.yuv_surface_stability
-            .retain(|_, stability| stability.seen_this_frame);
         self.dirty_region.reset(self.visibility_node_index, self.spatial_node_index);
         self.subpixel_mode = self.calculate_subpixel_mode();
 
@@ -3390,7 +3342,6 @@ impl SubSlice {
 #[derive(Clone, Copy, Debug)]
 enum SurfacePromotionFailure {
     ImageWaitingOnYuvImage,
-    YuvImageNotStable,
     NotPremultipliedAlpha,
     OverlaySurfaceLimit,
     OverlayNeedsMask,
@@ -3411,7 +3362,6 @@ impl Display for SurfacePromotionFailure {
             "{}",
             match *self {
                 SurfacePromotionFailure::ImageWaitingOnYuvImage => "Image prim waiting for all YuvImage prims to be considered for promotion",
-                SurfacePromotionFailure::YuvImageNotStable => "YuvImage has not remained spatially stable long enough for surface promotion",
                 SurfacePromotionFailure::NotPremultipliedAlpha => "does not use premultiplied alpha",
                 SurfacePromotionFailure::OverlaySurfaceLimit => "hit the overlay surface limit",
                 SurfacePromotionFailure::OverlayNeedsMask => "overlay not allowed for prim with mask",
