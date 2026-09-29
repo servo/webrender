@@ -18,12 +18,10 @@ use api::{ExternalTextureHandle, ImageDescriptor};
 use api::{ImageBufferKind, ImageFormat, Parameter};
 use api::units::*;
 use euclid::default::Transform3D;
-use malloc_size_of::MallocSizeOfOps;
 use std::borrow::Cow;
 use std::mem;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
-use std::os::raw::c_void;
 use std::ptr;
 use std::rc::Rc;
 use std::slice;
@@ -41,9 +39,31 @@ pub use self::upload::*;
 /// The graphics API a device runs on, together with what the backend needs
 /// from the embedder to drive it.
 pub enum GpuBackendConfig {
-    /// OpenGL or OpenGL ES through the given context, which must be current
-    /// on the render thread.
-    Gl(Rc<dyn gleam::gl::Gl>),
+    /// OpenGL or OpenGL ES.
+    Gl(GlBackendConfig),
+}
+
+/// What the GL backend needs from the embedder.
+pub struct GlBackendConfig {
+    /// The context to render through, which must be current on the render
+    /// thread.
+    pub gl: Rc<dyn gleam::gl::Gl>,
+    /// If true, allow textures to be initialized with glTexStorage.
+    /// This affects VRAM consumption and data upload paths.
+    pub allow_texture_storage: bool,
+    /// If true, panic whenever a GL error occurs. This has a significant
+    /// performance impact, so only use when debugging specific problems!
+    pub panic_on_error: bool,
+}
+
+impl GlBackendConfig {
+    pub fn new(gl: Rc<dyn gleam::gl::Gl>) -> Self {
+        GlBackendConfig {
+            gl,
+            allow_texture_storage: true,
+            panic_on_error: false,
+        }
+    }
 }
 
 /// A graphics API backend. Resources are created and destroyed through it,
@@ -299,7 +319,7 @@ pub trait GpuBackend {
 
     /// Allocates `size` bytes of storage for an upload buffer and maps it for
     /// writing. A `persistent` mapping stays valid across flushes, and needs
-    /// `Capabilities::supports_buffer_storage`.
+    /// `Capabilities::supports_persistent_upload_buffers`.
     fn allocate_upload_buffer(
         &mut self,
         buffer: &mut TransferBuffer,
@@ -459,7 +479,7 @@ pub trait GpuBackend {
     fn echo_driver_messages(&self);
 
     /// Generates a memory report for the resources managed by the device layer.
-    fn report_memory(&self, size_op_funs: &MallocSizeOfOps, swgl: *mut c_void) -> MemoryReport;
+    fn report_memory(&self) -> MemoryReport;
 
     fn depth_targets_memory(&self) -> usize;
 }
@@ -495,7 +515,7 @@ impl DerefMut for Device {
 impl Device {
     pub fn new(config: GpuBackendConfig, options: DeviceOptions) -> Device {
         let backend: Box<dyn GpuBackend> = match config {
-            GpuBackendConfig::Gl(gl) => Box::new(GlDevice::new(gl, options)),
+            GpuBackendConfig::Gl(config) => Box::new(GlDevice::new(config, options)),
         };
         Device {
             backend,

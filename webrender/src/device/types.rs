@@ -758,21 +758,17 @@ pub struct DeviceOptions {
     pub upload_method: UploadMethod,
     pub batched_upload_threshold: i32,
     pub cached_programs: Option<Rc<ProgramCache>>,
-    pub allow_texture_storage_support: bool,
     pub allow_texture_swizzling: bool,
     pub dump_shader_source: Option<String>,
     pub surface_origin_is_top_left: bool,
-    pub panic_on_gl_error: bool,
 }
 
 #[derive(Debug)]
 pub struct Capabilities {
     /// Whether multisampled render targets are supported.
     pub supports_multisampling: bool,
-    /// Whether the function `glCopyImageSubData` is available.
-    pub supports_copy_image_sub_data: bool,
-    /// Whether the device supports persistently mapped buffers, via glBufferStorage.
-    pub supports_buffer_storage: bool,
+    /// Whether upload buffers can stay mapped while the GPU reads from them.
+    pub supports_persistent_upload_buffers: bool,
     /// Whether advanced blend equations are supported.
     pub supports_advanced_blend_equation: bool,
     /// Whether advanced blend equations are coherent, meaning no barrier is
@@ -780,23 +776,13 @@ pub struct Capabilities {
     pub supports_advanced_blend_equation_coherent: bool,
     /// Whether dual-source blending is supported.
     pub supports_dual_source_blending: bool,
-    /// Whether KHR_debug is supported for getting debug messages from
-    /// the driver.
-    pub supports_khr_debug: bool,
-    /// Whether we can configure texture units to do swizzling on sampling.
-    pub supports_texture_swizzle: bool,
-    /// Whether the driver supports uploading to textures from a non-zero
-    /// offset within a PBO.
-    pub supports_nonzero_pbo_offsets: bool,
-    /// Whether the driver supports specifying the texture usage up front.
-    pub supports_texture_usage: bool,
+    /// Whether a texture can be uploaded from an offset other than zero
+    /// within an upload buffer.
+    pub supports_upload_buffer_offsets: bool,
     /// Whether offscreen render targets can be partially updated.
     pub supports_render_target_partial_update: bool,
     /// Whether we can use SSBOs.
     pub supports_shader_storage_object: bool,
-    /// Whether to enforce that texture uploads be batched regardless of what
-    /// the pref says.
-    pub requires_batched_texture_uploads: Option<bool>,
     /// Whether we are able to ue glClear to clear regions of an alpha render target.
     /// If false, we must use a shader to clear instead.
     pub supports_alpha_target_clears: bool,
@@ -806,23 +792,18 @@ pub struct Capabilities {
     /// Whether clearing a render target (immediately after binding it) is faster using a scissor
     /// rect to clear just the required area, or clearing the entire target without a scissor rect.
     pub prefers_clear_scissor: bool,
-    /// Whether the driver can correctly invalidate render targets. This can be
-    /// a worthwhile optimization, but is buggy on some devices.
-    pub supports_render_target_invalidate: bool,
     /// Whether the driver can reliably upload data to R8 format textures.
     pub supports_r8_texture_upload: bool,
-    /// Whether the extension QCOM_tiled_rendering is supported.
-    pub supports_qcom_tiled_rendering: bool,
     /// Whether clip-masking is supported natively by the GL implementation
     /// rather than emulated in shaders.
     pub uses_native_clip_mask: bool,
     /// Whether anti-aliasing is supported natively by the GL implementation
     /// rather than emulated in shaders.
     pub uses_native_antialiasing: bool,
-    /// Whether the extension GL_OES_EGL_image_external_essl3 is supported. If true, external
-    /// textures can be used as normal. If false, external textures can only be rendered with
-    /// certain shaders, and must first be copied in to regular textures for others.
-    pub supports_image_external_essl3: bool,
+    /// If true, external textures can be used as normal. If false, external
+    /// textures can only be rendered with certain shaders, and must first be
+    /// copied in to regular textures for others.
+    pub supports_external_textures_in_all_shaders: bool,
     /// Whether rectangle textures (GL_TEXTURE_RECTANGLE) can be sampled.
     pub supports_texture_rect: bool,
     /// Whether external textures (GL_TEXTURE_EXTERNAL_OES) can be sampled.
@@ -832,8 +813,6 @@ pub struct Capabilities {
     /// Whether pixels read back from the default framebuffer arrive with the
     /// top row first.
     pub readback_rows_top_down: bool,
-    /// Whether the VAO must be rebound after an attached VBO has been orphaned.
-    pub requires_vao_rebind_after_orphaning: bool,
     /// Whether glReadPixels can read back BGRA directly (e.g. on GLES this
     /// requires GL_EXT_read_format_bgra). If false, callers must read RGBA
     /// instead and swap the red and blue channels themselves.

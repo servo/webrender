@@ -358,7 +358,7 @@ impl Wrench {
         // one device are drawn with through another.
         let shaders = {
             let mut device = webrender::Device::new(
-                webrender::GpuBackendConfig::Gl(gl.clone()),
+                webrender::GpuBackendConfig::Gl(webrender::GlBackendConfig::new(gl.clone())),
                 webrender::DeviceOptions {
                     crash_annotator: None,
                     resource_override_path: opts.resource_override_path.clone(),
@@ -366,11 +366,9 @@ impl Wrench {
                     upload_method: opts.upload_method.clone(),
                     batched_upload_threshold: opts.batched_upload_threshold,
                     cached_programs: None,
-                    allow_texture_storage_support: opts.allow_texture_storage_support,
                     allow_texture_swizzling: opts.allow_texture_swizzling,
                     dump_shader_source: opts.dump_shader_source.clone(),
                     surface_origin_is_top_left: opts.surface_origin_is_top_left,
-                    panic_on_gl_error: opts.panic_on_gl_error,
                 },
             );
             device.begin_frame();
@@ -387,7 +385,7 @@ impl Wrench {
         };
 
         let (renderer, sender) = webrender::create_webrender_instance(
-            webrender::GpuBackendConfig::Gl(gl.clone()),
+            webrender::GpuBackendConfig::Gl(webrender::GlBackendConfig::new(gl.clone())),
             notifier,
             opts,
             Some(&shaders),
