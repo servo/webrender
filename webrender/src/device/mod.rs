@@ -13,15 +13,15 @@ pub mod query;
 mod types;
 mod upload;
 
-#[cfg(feature = "capture")]
-use api::{ExternalTextureHandle, ImageDescriptor};
-use api::{ImageBufferKind, ImageFormat, Parameter};
+use api::{ExternalTextureHandle, ImageBufferKind, ImageDescriptor, ImageFormat, Parameter};
 use api::units::*;
 use euclid::default::Transform3D;
+use malloc_size_of::MallocSizeOfOps;
 use std::borrow::Cow;
 use std::mem;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
+use std::os::raw::c_void;
 use std::ptr;
 use std::rc::Rc;
 use std::slice;
@@ -39,31 +39,9 @@ pub use self::upload::*;
 /// The graphics API a device runs on, together with what the backend needs
 /// from the embedder to drive it.
 pub enum GpuBackendConfig {
-    /// OpenGL or OpenGL ES.
-    Gl(GlBackendConfig),
-}
-
-/// What the GL backend needs from the embedder.
-pub struct GlBackendConfig {
-    /// The context to render through, which must be current on the render
-    /// thread.
-    pub gl: Rc<dyn gleam::gl::Gl>,
-    /// If true, allow textures to be initialized with glTexStorage.
-    /// This affects VRAM consumption and data upload paths.
-    pub allow_texture_storage: bool,
-    /// If true, panic whenever a GL error occurs. This has a significant
-    /// performance impact, so only use when debugging specific problems!
-    pub panic_on_error: bool,
-}
-
-impl GlBackendConfig {
-    pub fn new(gl: Rc<dyn gleam::gl::Gl>) -> Self {
-        GlBackendConfig {
-            gl,
-            allow_texture_storage: true,
-            panic_on_error: false,
-        }
-    }
+    /// OpenGL or OpenGL ES through the given context, which must be current
+    /// on the render thread.
+    Gl(Rc<dyn gleam::gl::Gl>),
 }
 
 /// A graphics API backend. Resources are created and destroyed through it,
@@ -135,6 +113,8 @@ pub trait GpuBackend {
 
     fn bind_external_texture(&mut self, slot: TextureSlot, external_texture: &ExternalTexture);
 
+    fn reset_read_target(&mut self);
+
     /// Begins rendering to the target described by `desc`, applying its load
     /// ops. Draws, clears and blits into the target must happen before the
     /// matching `end_render_pass`. Passes may not nest. The pass starts with
@@ -146,9 +126,7 @@ pub trait GpuBackend {
     /// always stored.
     fn end_render_pass(&mut self, depth_store: StoreOp);
 
-    /// Link a program, attaching the supplied vertex format, and fix which
-    /// texture slot each named sampler reads from. Sampler names the program
-    /// does not declare are skipped.
+    /// Link a program, attaching the supplied vertex format.
     ///
     /// If `create_program()` finds a binary shader on disk, it will kick
     /// off linking immediately, which some drivers (notably ANGLE) run
@@ -163,7 +141,6 @@ pub trait GpuBackend {
         &mut self,
         program: &mut Program,
         descriptor: &VertexDescriptor,
-        samplers: &[(&'static str, TextureSlot)],
     ) -> Result<(), ShaderError>;
 
     /// Makes `program` and `state` current for subsequent draws.
@@ -279,6 +256,8 @@ pub trait GpuBackend {
         features: &[&'static str],
     ) -> (String, String);
 
+    fn bind_shader_samplers(&mut self, program: &Program, bindings: &[(&'static str, TextureSlot)]);
+
     fn set_uniforms(
         &self,
         program: &Program,
@@ -319,7 +298,7 @@ pub trait GpuBackend {
 
     /// Allocates `size` bytes of storage for an upload buffer and maps it for
     /// writing. A `persistent` mapping stays valid across flushes, and needs
-    /// `Capabilities::supports_persistent_upload_buffers`.
+    /// `Capabilities::supports_buffer_storage`.
     fn allocate_upload_buffer(
         &mut self,
         buffer: &mut TransferBuffer,
@@ -372,74 +351,70 @@ pub trait GpuBackend {
     /// Performs an immediate (non-PBO) upload of the whole texture.
     fn upload_texture_immediate(&mut self, texture: &Texture, pixels: &[u8]);
 
-    /// Reads `rect` of `target` into `output`. The default target may also
-    /// be read outside a frame, once it has been presented.
+    fn read_pixels(&mut self, img_desc: &ImageDescriptor) -> Vec<u8>;
+
+    /// Read rectangle of pixels into the specified output slice.
     ///
     /// Reading back `BGRA8` requires `Capabilities::supports_bgra_read`. When
     /// that is false the caller must instead read `RGBA8` and swap the red and
     /// blue channels itself.
     fn read_pixels_into(
         &mut self,
-        target: ReadTarget,
         rect: FramebufferIntRect,
         format: ImageFormat,
         output: &mut [u8],
     );
 
-    /// Reads the whole of `texture`, which need not be a render target, into
-    /// `output` as `format`.
-    fn read_texture(&mut self, texture: &Texture, format: ImageFormat, output: &mut [u8]);
+    /// Makes an application-owned texture the current read target.
+    fn attach_read_texture_external(
+        &mut self, handle: ExternalTextureHandle, target: ImageBufferKind
+    );
 
-    /// Reads the whole of an application-owned texture, described by `desc`.
-    #[cfg(feature = "capture")]
-    fn read_external_texture(
+    fn attach_read_texture(&mut self, texture: &Texture);
+
+    fn bind_vao(&mut self, vao: &VAO);
+
+    fn create_vao(&mut self, descriptor: &VertexDescriptor, instance_divisor: u32) -> VAO;
+
+    fn delete_vao(&mut self, vao: VAO);
+
+    fn create_vao_with_new_instances(
         &mut self,
-        handle: ExternalTextureHandle,
-        target: ImageBufferKind,
-        desc: &ImageDescriptor,
-    ) -> Vec<u8>;
+        descriptor: &VertexDescriptor,
+        base_vao: &VAO,
+    ) -> VAO;
 
-    fn create_buffer(&mut self, kind: BufferKind) -> Buffer;
-
-    fn delete_buffer(&mut self, buffer: Buffer);
-
-    /// Replaces the contents of `buffer` with `data`, resizing it to fit.
-    fn write_buffer(&mut self, buffer: &mut Buffer, data: &[u8], usage_hint: VertexUsageHint);
-
-    /// Like `write_buffer`, but each `element_size`-byte element of `data` is
-    /// written `repeat` times in a row.
-    fn write_buffer_repeated(
+    fn create_vao_with_shared_instances(
         &mut self,
-        buffer: &mut Buffer,
-        data: &[u8],
-        element_size: usize,
-        repeat: NonZeroUsize,
+        descriptor: &VertexDescriptor,
+        base_vao: &VAO,
+    ) -> VAO;
+
+    fn update_vao_main_vertices(
+        &mut self,
+        vao: &VAO,
+        vertices: &[u8],
         usage_hint: VertexUsageHint,
     );
 
-    /// (Re)allocates the storage of `buffer` to `size` bytes, leaving the contents uninitialized.
-    fn reallocate_buffer(&mut self, buffer: &mut Buffer, size: usize);
+    fn update_vao_instances(
+        &mut self,
+        vao: &VAO,
+        instances: &[u8],
+        instance_stride: usize,
+        usage_hint: VertexUsageHint,
+        repeat: Option<NonZeroUsize>,
+    );
 
-    /// Writes `data` into `buffer` at the given byte offset using an unsynchronized mapping, i.e.
+    fn update_vao_indices(&mut self, vao: &VAO, indices: &[u8], usage_hint: VertexUsageHint);
+
+    /// (Re)allocates the storage of a VBO to `size` bytes, leaving the contents uninitialized.
+    fn reallocate_vbo(&mut self, vbo: VBOId, size: usize);
+
+    /// Writes `data` into a VBO at the given byte offset using an unsynchronized mapping, i.e.
     /// without waiting for in-flight draws to complete. The caller must guarantee the written range
     /// does not overlap data still being read by those draws.
-    fn write_buffer_unsynchronized(&mut self, buffer: &Buffer, offset: usize, data: &[u8]);
-
-    /// Pairs `layout` with the buffers its attributes are read from.
-    /// `instances` is required exactly when the layout has instance
-    /// attributes, which advance once every `instance_divisor` instances.
-    fn create_vertex_array(
-        &mut self,
-        layout: &VertexDescriptor,
-        vertices: &Buffer,
-        instances: Option<&Buffer>,
-        indices: Option<&Buffer>,
-        instance_divisor: u32,
-    ) -> VertexArray;
-
-    fn delete_vertex_array(&mut self, vertex_array: VertexArray);
-
-    fn bind_vertex_array(&mut self, vertex_array: &VertexArray);
+    fn update_vbo_data_unsynchronized(&mut self, vbo: VBOId, data: &[u8], offset: usize);
 
     fn draw_triangles_u32(&mut self, first_vertex: i32, index_count: i32);
 
@@ -479,7 +454,7 @@ pub trait GpuBackend {
     fn echo_driver_messages(&self);
 
     /// Generates a memory report for the resources managed by the device layer.
-    fn report_memory(&self) -> MemoryReport;
+    fn report_memory(&self, size_op_funs: &MallocSizeOfOps, swgl: *mut c_void) -> MemoryReport;
 
     fn depth_targets_memory(&self) -> usize;
 }
@@ -515,7 +490,7 @@ impl DerefMut for Device {
 impl Device {
     pub fn new(config: GpuBackendConfig, options: DeviceOptions) -> Device {
         let backend: Box<dyn GpuBackend> = match config {
-            GpuBackendConfig::Gl(config) => Box::new(GlDevice::new(config, options)),
+            GpuBackendConfig::Gl(gl) => Box::new(GlDevice::new(gl, options)),
         };
         Device {
             backend,
@@ -614,27 +589,10 @@ impl Device {
         base_filename: &'static str,
         features: &[&'static str],
         descriptor: &VertexDescriptor,
-        samplers: &[(&'static str, TextureSlot)],
     ) -> Result<Program, ShaderError> {
         let mut program = self.create_program(base_filename, features)?;
-        self.backend.link_program(&mut program, descriptor, samplers)?;
+        self.link_program(&mut program, descriptor)?;
         Ok(program)
-    }
-
-    pub fn link_program<S>(
-        &mut self,
-        program: &mut Program,
-        descriptor: &VertexDescriptor,
-        samplers: &[(&'static str, S)],
-    ) -> Result<(), ShaderError>
-    where
-        S: Into<TextureSlot> + Copy,
-    {
-        let samplers: Vec<(&'static str, TextureSlot)> = samplers
-            .iter()
-            .map(|&(name, slot)| (name, slot.into()))
-            .collect();
-        self.backend.link_program(program, descriptor, &samplers)
     }
 
     /// Performs a blit while flipping vertically. Useful for blitting textures
@@ -674,26 +632,46 @@ impl Device {
         self.backend.bind_external_texture(slot.into(), external_texture)
     }
 
-    pub fn write_buffer<V>(&mut self, buffer: &mut Buffer, data: &[V], usage_hint: VertexUsageHint) {
-        self.backend.write_buffer(buffer, as_bytes(data), usage_hint)
+    pub fn bind_shader_samplers<S>(&mut self, program: &Program, bindings: &[(&'static str, S)])
+    where
+        S: Into<TextureSlot> + Copy,
+    {
+        let bindings: Vec<(&'static str, TextureSlot)> = bindings
+            .iter()
+            .map(|&(name, slot)| (name, slot.into()))
+            .collect();
+        self.backend.bind_shader_samplers(program, &bindings)
     }
 
-    /// Writes `data` with each element repeated `repeat` times in a row.
-    pub fn write_buffer_repeated<V>(
+    pub fn update_vao_main_vertices<V>(
         &mut self,
-        buffer: &mut Buffer,
-        data: &[V],
-        repeat: NonZeroUsize,
+        vao: &VAO,
+        vertices: &[V],
         usage_hint: VertexUsageHint,
     ) {
-        self.backend.write_buffer_repeated(buffer, as_bytes(data), mem::size_of::<V>(), repeat, usage_hint)
+        self.backend.update_vao_main_vertices(vao, as_bytes(vertices), usage_hint)
     }
 
-    /// Writes `data` into `buffer` at the given byte offset using an unsynchronized mapping, i.e.
+    /// If `repeat` is `Some(count)`, each instance is repeated `count` times.
+    pub fn update_vao_instances<V>(
+        &mut self,
+        vao: &VAO,
+        instances: &[V],
+        usage_hint: VertexUsageHint,
+        repeat: Option<NonZeroUsize>,
+    ) {
+        self.backend.update_vao_instances(vao, as_bytes(instances), mem::size_of::<V>(), usage_hint, repeat)
+    }
+
+    pub fn update_vao_indices<I>(&mut self, vao: &VAO, indices: &[I], usage_hint: VertexUsageHint) {
+        self.backend.update_vao_indices(vao, as_bytes(indices), usage_hint)
+    }
+
+    /// Writes `data` into a VBO at the given byte offset using an unsynchronized mapping, i.e.
     /// without waiting for in-flight draws to complete. The caller must guarantee the written range
     /// does not overlap data still being read by those draws.
-    pub fn write_buffer_unsynchronized<V>(&mut self, buffer: &Buffer, offset: usize, data: &[V]) {
-        self.backend.write_buffer_unsynchronized(buffer, offset, as_bytes(data))
+    pub fn update_vbo_data_unsynchronized<V>(&mut self, vbo: VBOId, data: &[V], offset: usize) {
+        self.backend.update_vbo_data_unsynchronized(vbo, as_bytes(data), offset)
     }
 
     /// Performs an immediate (non-PBO) upload of the whole texture.

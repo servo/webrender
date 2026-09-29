@@ -171,7 +171,7 @@ impl UploadBufferPool {
         // The exception to this is when due to driver bugs we cannot upload from
         // offsets other than zero within a PBO. In this case, there is no point in
         // allocating buffers larger than required, as they cannot be shared.
-        let (can_recycle, size) = if min_size <= self.default_size && device.get_capabilities().supports_upload_buffer_offsets {
+        let (can_recycle, size) = if min_size <= self.default_size && device.get_capabilities().supports_nonzero_pbo_offsets {
             (true, self.default_size)
         } else {
             (false, min_size)
@@ -207,7 +207,7 @@ impl UploadBufferPool {
             None => device.create_transfer_buffer(),
         };
 
-        let persistent = device.get_capabilities().supports_persistent_upload_buffers && can_recycle;
+        let persistent = device.get_capabilities().supports_buffer_storage && can_recycle;
         let mapping = device.allocate_upload_buffer(&mut pbo, size, self.usage_hint, persistent)?;
 
         Ok(UploadPBO { pbo, mapping, can_recycle })
@@ -365,7 +365,7 @@ impl<'a> TextureUploader<'a> {
             None => PixelBuffer::new(self.pbo_pool.get_pbo(device, dst_size)?),
         };
 
-        if !device.get_capabilities().supports_upload_buffer_offsets {
+        if !device.get_capabilities().supports_nonzero_pbo_offsets {
             assert_eq!(buffer.size_used, 0, "TransferBuffer uploads from non-zero offset are not supported.");
         }
         assert!(buffer.size_used + dst_size <= buffer.inner.pbo.reserved_size, "PixelBuffer is too small");

@@ -60,8 +60,8 @@ pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 4] = [
     ImageBufferKind::TextureExternalBT709,
 ];
 
-/// The texture slot each sampler reads from, fixed on every program when it
-/// is linked. Names absent from a given shader are skipped.
+/// Sampler uniforms bound on every program after a successful link. Names
+/// absent from a given shader are skipped by `bind_shader_samplers`.
 const SAMPLER_BINDINGS: &[(&'static str, TextureSampler)] = &[
     ("sColor0", TextureSampler::Color0),
     ("sColor1", TextureSampler::Color1),
@@ -216,10 +216,13 @@ impl LazilyCompiledShader {
     fn build_program(&self, device: &mut Device) -> Result<Program, ShaderError> {
         let mut program = device.create_program(self.name, &self.features)?;
 
-        if let Err(err) = device.link_program(&mut program, self.vertex_descriptor(), SAMPLER_BINDINGS) {
+        if let Err(err) = device.link_program(&mut program, self.vertex_descriptor()) {
             device.delete_program(program);
             return Err(err);
         }
+
+        device.bind_program(&program);
+        device.bind_shader_samplers(&program, SAMPLER_BINDINGS);
 
         Ok(program)
     }
@@ -321,7 +324,7 @@ impl LazilyCompiledShader {
             let vertex_descriptor = self.vertex_descriptor();
 
             let program = self.program.as_mut().unwrap();
-            if let Err(err) = device.link_program(program, vertex_descriptor, SAMPLER_BINDINGS) {
+            if let Err(err) = device.link_program(program, vertex_descriptor) {
                 // A failed link deletes the program object, so drop it rather
                 // than retrying against a dead GL name on the next bind. The
                 // next attempt builds a fresh one, which is what makes a
@@ -331,6 +334,10 @@ impl LazilyCompiledShader {
                 }
                 return Err(err);
             }
+
+            let program = self.program.as_mut().unwrap();
+            device.bind_program(program);
+            device.bind_shader_samplers(&program, SAMPLER_BINDINGS);
 
             if let Some(profile) = &mut profile {
                 let end_time = zeitstempel::now();
@@ -645,7 +652,7 @@ impl Shaders {
             device.get_capabilities().supports_advanced_blend_equation &&
             options.allow_advanced_blend_equation;
 
-        let texture_external_version = if device.get_capabilities().supports_external_textures_in_all_shaders {
+        let texture_external_version = if device.get_capabilities().supports_image_external_essl3 {
             TextureExternalVersion::ESSL3
         } else {
             TextureExternalVersion::ESSL1
@@ -1235,7 +1242,7 @@ impl CompositorShaders {
         let mut yuv_clip = Vec::new();
         let mut yuv_fast = Vec::new();
 
-        let texture_external_version = if device.get_capabilities().supports_external_textures_in_all_shaders {
+        let texture_external_version = if device.get_capabilities().supports_image_external_essl3 {
             TextureExternalVersion::ESSL3
         } else {
             TextureExternalVersion::ESSL1

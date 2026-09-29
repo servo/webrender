@@ -11,8 +11,8 @@ use std::{marker::PhantomData, mem, num::NonZeroUsize, ops};
 use api::units::*;
 use crate::{
     device::{
-        Buffer, BufferKind, Device, Texture, TextureFilter, TextureUploader, UploadBufferPool,
-        VertexArray, VertexDescriptor, VertexUsageHint,
+        Device, Texture, TextureFilter, TextureUploader, UploadBufferPool, VBOId, VertexDescriptor,
+        VertexUsageHint, VAO,
     },
     frame_builder::Frame,
     gpu_types::{PrimitiveHeaderI, PrimitiveHeaderF},
@@ -361,22 +361,24 @@ impl VertexDataTextures {
 /// that no single upload exceeds this.
 pub(crate) const SHARED_INSTANCE_BUFFER_SIZE: usize = 1024 * 1024;
 
-/// An instance data buffer shared between all vertex arrays. Rather than
-/// reallocating a per-array instance buffer on every draw, each draw uploads
-/// its instance data to the next free offset within this buffer via an
-/// unsynchronized mapping and draws from that offset. The buffer is
-/// reallocated and used count reset to zero whenever a draw would not fit.
+/// An instance data VBO shared between all VAOs. Rather than reallocating a
+/// per-VAO instance buffer on every draw, each draw uploads its instance data
+/// to the next free offset within this buffer via an unsynchronized mapping and
+/// draws from that offset. The buffer is reallocated and used count reset to
+/// zero whenever a draw would not fit.
+///
+/// Note the underlying VBO is owned by one of the VAOs, so this struct does not
+/// manage its lifetime: it only tracks the current offset.
 pub struct SharedInstanceBuffer {
-    buffer: Buffer,
+    vbo: VBOId,
     /// Number of bytes currently used.
     used: usize,
 }
 
 impl SharedInstanceBuffer {
-    fn new(device: &mut Device) -> Self {
-        let mut buffer = device.create_buffer(BufferKind::Vertex);
-        device.reallocate_buffer(&mut buffer, SHARED_INSTANCE_BUFFER_SIZE);
-        SharedInstanceBuffer { buffer, used: 0 }
+    fn new(device: &mut Device, vbo: VBOId) -> Self {
+        device.reallocate_vbo(vbo, SHARED_INSTANCE_BUFFER_SIZE);
+        SharedInstanceBuffer { vbo, used: 0 }
     }
 
     /// Uploads a chunk of instance data to the shared buffer and returns the
@@ -388,54 +390,34 @@ impl SharedInstanceBuffer {
         let needed = instances.len() * stride;
         assert!(needed <= SHARED_INSTANCE_BUFFER_SIZE);
 
-        // The buffer may previously have been used for a different vertex array
-        // with a different stride, so we must round up the current used offset to
-        // the next multiple of the stride to ensure our data is correctly aligned.
+        // The buffer may previously have been used for a different VAO with a
+        // different stride, so we must round up the current used offset to the
+        // next multiple of the stride to ensure our data is correctly aligned.
         let mut offset = round_up_to_multiple(self.used, NonZeroUsize::new(stride).unwrap());
 
         if offset + needed > SHARED_INSTANCE_BUFFER_SIZE {
-            device.reallocate_buffer(&mut self.buffer, SHARED_INSTANCE_BUFFER_SIZE);
+            device.reallocate_vbo(self.vbo, SHARED_INSTANCE_BUFFER_SIZE);
             offset = 0;
         }
 
-        device.write_buffer_unsynchronized(&self.buffer, offset, instances);
+        device.update_vbo_data_unsynchronized(self.vbo, instances, offset);
         self.used = offset + needed;
 
         offset
     }
 }
 
-/// Every kind, in the order `RendererVAOs::instance_buffers` is indexed.
-const VERTEX_ARRAY_KINDS: [VertexArrayKind; 10] = [
-    VertexArrayKind::Primitive,
-    VertexArrayKind::Blur,
-    VertexArrayKind::Border,
-    VertexArrayKind::Scale,
-    VertexArrayKind::LineDecoration,
-    VertexArrayKind::SvgFilterNode,
-    VertexArrayKind::Composite,
-    VertexArrayKind::Clear,
-    VertexArrayKind::Copy,
-    VertexArrayKind::Mask,
-];
-
 pub struct RendererVAOs {
-    /// The unit quad's indices and vertices, read by every vertex array.
-    quad_indices: Buffer,
-    quad_vertices: Buffer,
-    /// One per kind, in `VERTEX_ARRAY_KINDS` order, unless the shared
-    /// instance buffer is in use.
-    instance_buffers: Vec<Buffer>,
-    prim_vao: VertexArray,
-    blur_vao: VertexArray,
-    border_vao: VertexArray,
-    line_vao: VertexArray,
-    scale_vao: VertexArray,
-    svg_filter_node_vao: VertexArray,
-    composite_vao: VertexArray,
-    clear_vao: VertexArray,
-    copy_vao: VertexArray,
-    mask_vao: VertexArray,
+    prim_vao: VAO,
+    blur_vao: VAO,
+    border_vao: VAO,
+    line_vao: VAO,
+    scale_vao: VAO,
+    svg_filter_node_vao: VAO,
+    composite_vao: VAO,
+    clear_vao: VAO,
+    copy_vao: VAO,
+    mask_vao: VAO,
     pub shared_instance_buffer: Option<SharedInstanceBuffer>,
 }
 
@@ -449,119 +431,73 @@ impl RendererVAOs {
         const QUAD_VERTICES: [[u8; 2]; 4] = [[0, 0], [0xFF, 0], [0, 0xFF], [0xFF, 0xFF]];
 
         let instance_divisor = if indexed_quads.is_some() { 0 } else { 1 };
+        let prim_vao = device.create_vao(&desc::PRIM_INSTANCES, instance_divisor);
 
-        let mut quad_indices = device.create_buffer(BufferKind::Index);
-        let mut quad_vertices = device.create_buffer(BufferKind::Vertex);
-
-        // In shared instance buffer mode every vertex array reads its instances
-        // from the one shared buffer, otherwise each gets its own.
-        let shared_instance_buffer = use_shared_instance_buffer.then(|| SharedInstanceBuffer::new(device));
-        let instance_buffers: Vec<Buffer> = if use_shared_instance_buffer {
-            Vec::new()
-        } else {
-            VERTEX_ARRAY_KINDS.iter().map(|_| device.create_buffer(BufferKind::Vertex)).collect()
-        };
-        let instances_of = |kind: VertexArrayKind| -> &Buffer {
-            match &shared_instance_buffer {
-                Some(shared) => &shared.buffer,
-                None => &instance_buffers[kind as usize],
-            }
-        };
-
-        let prim_vao = device.create_vertex_array(
-            &desc::PRIM_INSTANCES,
-            &quad_vertices,
-            Some(instances_of(VertexArrayKind::Primitive)),
-            Some(&quad_indices),
-            instance_divisor,
-        );
-
-        device.bind_vertex_array(&prim_vao);
+        device.bind_vao(&prim_vao);
         match indexed_quads {
             Some(count) => {
                 assert!(count.get() < u16::MAX as usize);
-                let indices = (0 .. count.get() as u16)
+                let quad_indices = (0 .. count.get() as u16)
                     .flat_map(|instance| QUAD_INDICES.iter().map(move |&index| instance * 4 + index))
                     .collect::<Vec<_>>();
-                device.write_buffer(&mut quad_indices, &indices, VertexUsageHint::Static);
-                let vertices = (0 .. count.get() as u16)
+                device.update_vao_indices(&prim_vao, &quad_indices, VertexUsageHint::Static);
+                let quad_vertices = (0 .. count.get() as u16)
                     .flat_map(|_| QUAD_VERTICES.iter().cloned())
                     .collect::<Vec<_>>();
-                device.write_buffer(&mut quad_vertices, &vertices, VertexUsageHint::Static);
+                device.update_vao_main_vertices(&prim_vao, &quad_vertices, VertexUsageHint::Static);
             }
             None => {
-                device.write_buffer(&mut quad_indices, &QUAD_INDICES, VertexUsageHint::Static);
-                device.write_buffer(&mut quad_vertices, &QUAD_VERTICES, VertexUsageHint::Static);
+                device.update_vao_indices(&prim_vao, &QUAD_INDICES, VertexUsageHint::Static);
+                device.update_vao_main_vertices(&prim_vao, &QUAD_VERTICES, VertexUsageHint::Static);
             }
         }
 
-        let make_vao = |device: &mut Device, layout: &VertexDescriptor, kind: VertexArrayKind| {
-            device.create_vertex_array(
-                layout,
-                &quad_vertices,
-                Some(instances_of(kind)),
-                Some(&quad_indices),
-                instance_divisor,
-            )
+        // The prim VAO always owns the index buffer and "main" VBO, which are
+        // then shared with all other VAOs. In shared instance buffer mode the
+        // prim VAO additionally owns the instance VBO which is shared,
+        // otherwise all VAOs get their own instance VBO.
+        let shared_instance_buffer = use_shared_instance_buffer.then(
+            || SharedInstanceBuffer::new(device, prim_vao.instance_vbo_id()));
+        let make_vao = |device: &mut Device, desc: &VertexDescriptor| {
+            if use_shared_instance_buffer {
+                device.create_vao_with_shared_instances(desc, &prim_vao)
+            } else {
+                device.create_vao_with_new_instances(desc, &prim_vao)
+            }
         };
-        let blur_vao = make_vao(device, &desc::BLUR, VertexArrayKind::Blur);
-        let border_vao = make_vao(device, &desc::BORDER, VertexArrayKind::Border);
-        let scale_vao = make_vao(device, &desc::SCALE, VertexArrayKind::Scale);
-        let line_vao = make_vao(device, &desc::LINE, VertexArrayKind::LineDecoration);
-        let svg_filter_node_vao = make_vao(device, &desc::SVG_FILTER_NODE, VertexArrayKind::SvgFilterNode);
-        let composite_vao = make_vao(device, &desc::COMPOSITE, VertexArrayKind::Composite);
-        let clear_vao = make_vao(device, &desc::CLEAR, VertexArrayKind::Clear);
-        let copy_vao = make_vao(device, &desc::COPY, VertexArrayKind::Copy);
-        let mask_vao = make_vao(device, &desc::MASK, VertexArrayKind::Mask);
 
         RendererVAOs {
-            quad_indices,
-            quad_vertices,
-            instance_buffers,
+            blur_vao: make_vao(device, &desc::BLUR),
+            border_vao: make_vao(device, &desc::BORDER),
+            scale_vao: make_vao(device, &desc::SCALE),
+            line_vao: make_vao(device, &desc::LINE),
+            svg_filter_node_vao: make_vao(device, &desc::SVG_FILTER_NODE),
+            composite_vao: make_vao(device, &desc::COMPOSITE),
+            clear_vao: make_vao(device, &desc::CLEAR),
+            copy_vao: make_vao(device, &desc::COPY),
+            mask_vao: make_vao(device, &desc::MASK),
             prim_vao,
-            blur_vao,
-            border_vao,
-            line_vao,
-            scale_vao,
-            svg_filter_node_vao,
-            composite_vao,
-            clear_vao,
-            copy_vao,
-            mask_vao,
             shared_instance_buffer,
         }
     }
 
-    /// The instance buffer of `kind`, when the shared buffer is not in use.
-    pub fn instance_buffer_mut(&mut self, kind: VertexArrayKind) -> &mut Buffer {
-        &mut self.instance_buffers[kind as usize]
-    }
-
     pub fn deinit(self, device: &mut Device) {
-        device.delete_vertex_array(self.prim_vao);
-        device.delete_vertex_array(self.blur_vao);
-        device.delete_vertex_array(self.line_vao);
-        device.delete_vertex_array(self.border_vao);
-        device.delete_vertex_array(self.scale_vao);
-        device.delete_vertex_array(self.svg_filter_node_vao);
-        device.delete_vertex_array(self.composite_vao);
-        device.delete_vertex_array(self.clear_vao);
-        device.delete_vertex_array(self.copy_vao);
-        device.delete_vertex_array(self.mask_vao);
-        device.delete_buffer(self.quad_indices);
-        device.delete_buffer(self.quad_vertices);
-        for buffer in self.instance_buffers {
-            device.delete_buffer(buffer);
-        }
-        if let Some(shared) = self.shared_instance_buffer {
-            device.delete_buffer(shared.buffer);
-        }
+        device.delete_vao(self.prim_vao);
+        device.delete_vao(self.blur_vao);
+        device.delete_vao(self.line_vao);
+        device.delete_vao(self.border_vao);
+        device.delete_vao(self.scale_vao);
+        device.delete_vao(self.svg_filter_node_vao);
+        device.delete_vao(self.composite_vao);
+        device.delete_vao(self.clear_vao);
+        device.delete_vao(self.copy_vao);
+        device.delete_vao(self.mask_vao);
     }
 }
 
 impl ops::Index<VertexArrayKind> for RendererVAOs {
-    type Output = VertexArray;
-    fn index(&self, kind: VertexArrayKind) -> &VertexArray {
+    type Output = VAO;
+    fn index(&self, kind: VertexArrayKind) -> &VAO {
         match kind {
             VertexArrayKind::Primitive => &self.prim_vao,
             VertexArrayKind::Blur => &self.blur_vao,
