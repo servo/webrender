@@ -379,49 +379,47 @@ pub trait GpuBackend {
         desc: &ImageDescriptor,
     ) -> Vec<u8>;
 
-    fn bind_vao(&mut self, vao: &VAO);
+    fn create_buffer(&mut self, kind: BufferKind) -> Buffer;
 
-    fn create_vao(&mut self, descriptor: &VertexDescriptor, instance_divisor: u32) -> VAO;
+    fn delete_buffer(&mut self, buffer: Buffer);
 
-    fn delete_vao(&mut self, vao: VAO);
+    /// Replaces the contents of `buffer` with `data`, resizing it to fit.
+    fn write_buffer(&mut self, buffer: &mut Buffer, data: &[u8], usage_hint: VertexUsageHint);
 
-    fn create_vao_with_new_instances(
+    /// Like `write_buffer`, but each `element_size`-byte element of `data` is
+    /// written `repeat` times in a row.
+    fn write_buffer_repeated(
         &mut self,
-        descriptor: &VertexDescriptor,
-        base_vao: &VAO,
-    ) -> VAO;
-
-    fn create_vao_with_shared_instances(
-        &mut self,
-        descriptor: &VertexDescriptor,
-        base_vao: &VAO,
-    ) -> VAO;
-
-    fn update_vao_main_vertices(
-        &mut self,
-        vao: &VAO,
-        vertices: &[u8],
+        buffer: &mut Buffer,
+        data: &[u8],
+        element_size: usize,
+        repeat: NonZeroUsize,
         usage_hint: VertexUsageHint,
     );
 
-    fn update_vao_instances(
-        &mut self,
-        vao: &VAO,
-        instances: &[u8],
-        instance_stride: usize,
-        usage_hint: VertexUsageHint,
-        repeat: Option<NonZeroUsize>,
-    );
+    /// (Re)allocates the storage of `buffer` to `size` bytes, leaving the contents uninitialized.
+    fn reallocate_buffer(&mut self, buffer: &mut Buffer, size: usize);
 
-    fn update_vao_indices(&mut self, vao: &VAO, indices: &[u8], usage_hint: VertexUsageHint);
-
-    /// (Re)allocates the storage of a VBO to `size` bytes, leaving the contents uninitialized.
-    fn reallocate_vbo(&mut self, vbo: VBOId, size: usize);
-
-    /// Writes `data` into a VBO at the given byte offset using an unsynchronized mapping, i.e.
+    /// Writes `data` into `buffer` at the given byte offset using an unsynchronized mapping, i.e.
     /// without waiting for in-flight draws to complete. The caller must guarantee the written range
     /// does not overlap data still being read by those draws.
-    fn update_vbo_data_unsynchronized(&mut self, vbo: VBOId, data: &[u8], offset: usize);
+    fn write_buffer_unsynchronized(&mut self, buffer: &Buffer, offset: usize, data: &[u8]);
+
+    /// Pairs `layout` with the buffers its attributes are read from.
+    /// `instances` is required exactly when the layout has instance
+    /// attributes, which advance once every `instance_divisor` instances.
+    fn create_vertex_array(
+        &mut self,
+        layout: &VertexDescriptor,
+        vertices: &Buffer,
+        instances: Option<&Buffer>,
+        indices: Option<&Buffer>,
+        instance_divisor: u32,
+    ) -> VertexArray;
+
+    fn delete_vertex_array(&mut self, vertex_array: VertexArray);
+
+    fn bind_vertex_array(&mut self, vertex_array: &VertexArray);
 
     fn draw_triangles_u32(&mut self, first_vertex: i32, index_count: i32);
 
@@ -656,35 +654,26 @@ impl Device {
         self.backend.bind_external_texture(slot.into(), external_texture)
     }
 
-    pub fn update_vao_main_vertices<V>(
+    pub fn write_buffer<V>(&mut self, buffer: &mut Buffer, data: &[V], usage_hint: VertexUsageHint) {
+        self.backend.write_buffer(buffer, as_bytes(data), usage_hint)
+    }
+
+    /// Writes `data` with each element repeated `repeat` times in a row.
+    pub fn write_buffer_repeated<V>(
         &mut self,
-        vao: &VAO,
-        vertices: &[V],
+        buffer: &mut Buffer,
+        data: &[V],
+        repeat: NonZeroUsize,
         usage_hint: VertexUsageHint,
     ) {
-        self.backend.update_vao_main_vertices(vao, as_bytes(vertices), usage_hint)
+        self.backend.write_buffer_repeated(buffer, as_bytes(data), mem::size_of::<V>(), repeat, usage_hint)
     }
 
-    /// If `repeat` is `Some(count)`, each instance is repeated `count` times.
-    pub fn update_vao_instances<V>(
-        &mut self,
-        vao: &VAO,
-        instances: &[V],
-        usage_hint: VertexUsageHint,
-        repeat: Option<NonZeroUsize>,
-    ) {
-        self.backend.update_vao_instances(vao, as_bytes(instances), mem::size_of::<V>(), usage_hint, repeat)
-    }
-
-    pub fn update_vao_indices<I>(&mut self, vao: &VAO, indices: &[I], usage_hint: VertexUsageHint) {
-        self.backend.update_vao_indices(vao, as_bytes(indices), usage_hint)
-    }
-
-    /// Writes `data` into a VBO at the given byte offset using an unsynchronized mapping, i.e.
+    /// Writes `data` into `buffer` at the given byte offset using an unsynchronized mapping, i.e.
     /// without waiting for in-flight draws to complete. The caller must guarantee the written range
     /// does not overlap data still being read by those draws.
-    pub fn update_vbo_data_unsynchronized<V>(&mut self, vbo: VBOId, data: &[V], offset: usize) {
-        self.backend.update_vbo_data_unsynchronized(vbo, as_bytes(data), offset)
+    pub fn write_buffer_unsynchronized<V>(&mut self, buffer: &Buffer, offset: usize, data: &[V]) {
+        self.backend.write_buffer_unsynchronized(buffer, offset, as_bytes(data))
     }
 
     /// Performs an immediate (non-PBO) upload of the whole texture.

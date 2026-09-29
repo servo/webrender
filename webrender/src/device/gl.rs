@@ -264,9 +264,9 @@ impl VertexDescriptor {
         start_index: usize,
         divisor: u32,
         gl: &dyn gl::Gl,
-        vbo: VBOId,
+        buffer: gl::GLuint,
     ) {
-        vbo.bind(gl);
+        gl.bind_buffer(gl::ARRAY_BUFFER, buffer);
 
         let stride: u32 = attributes
             .iter()
@@ -281,8 +281,8 @@ impl VertexDescriptor {
         }
     }
 
-    fn bind(&self, gl: &dyn gl::Gl, main: VBOId, instance: VBOId, instance_divisor: u32) {
-        Self::bind_attributes(self.vertex_attributes, 0, 0, gl, main);
+    fn bind(&self, gl: &dyn gl::Gl, vertices: gl::GLuint, instances: Option<gl::GLuint>, instance_divisor: u32) {
+        Self::bind_attributes(self.vertex_attributes, 0, 0, gl, vertices);
 
         if !self.instance_attributes.is_empty() {
             Self::bind_attributes(
@@ -290,21 +290,37 @@ impl VertexDescriptor {
                 self.vertex_attributes.len(),
                 instance_divisor,
                 gl,
-                instance,
+                instances.expect("layout has instance attributes but no instance buffer"),
             );
         }
     }
 }
 
-impl VBOId {
-    fn bind(&self, gl: &dyn gl::Gl) {
-        gl.bind_buffer(gl::ARRAY_BUFFER, self.0);
-    }
+/// The vertex array the context has bound, with the buffers it reads, which
+/// decide how a write to one of those buffers has to be issued.
+#[derive(Clone, Copy, PartialEq)]
+struct GlBoundVertexArray {
+    id: gl::GLuint,
+    vertices: gl::GLuint,
+    instances: Option<gl::GLuint>,
+    indices: Option<gl::GLuint>,
 }
 
-impl IBOId {
-    fn bind(&self, gl: &dyn gl::Gl) {
-        gl.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, self.0);
+const NO_VERTEX_ARRAY: GlBoundVertexArray = GlBoundVertexArray {
+    id: 0,
+    vertices: 0,
+    instances: None,
+    indices: None,
+};
+
+impl GlBoundVertexArray {
+    fn of(vertex_array: &VertexArray) -> Self {
+        GlBoundVertexArray {
+            id: vertex_array.id,
+            vertices: vertex_array.vertices.0,
+            instances: vertex_array.instances.map(|buffer| buffer.0),
+            indices: vertex_array.indices.map(|buffer| buffer.0),
+        }
     }
 }
 
@@ -594,7 +610,7 @@ pub struct GlDevice {
     bound_textures: [gl::GLuint; 16],
     bound_program: gl::GLuint,
     bound_program_name: Rc<std::ffi::CString>,
-    bound_vao: gl::GLuint,
+    bound_vao: GlBoundVertexArray,
     /// The framebuffers the context has bound, or `None` where the embedder
     /// may have rebound them.
     bound_read_fbo: Option<(FBOId, DeviceIntPoint)>,
@@ -1302,7 +1318,7 @@ impl GlDevice {
             bound_textures: [0; 16],
             bound_program: 0,
             bound_program_name: Rc::new(std::ffi::CString::new("").unwrap()),
-            bound_vao: 0,
+            bound_vao: NO_VERTEX_ARRAY,
             bound_read_fbo: None,
             current_render_pass: None,
             scratch_read_fbo: None,
@@ -1895,55 +1911,42 @@ impl GlDevice {
         self.bind_read_target_impl(fbo, DeviceIntPoint::zero());
     }
 
-    fn bind_vao_impl(&mut self, id: gl::GLuint) {
+    fn bind_vao_impl(&mut self, vertex_array: GlBoundVertexArray) {
         debug_assert!(self.inside_frame);
 
-        if self.bound_vao != id {
-            self.bound_vao = id;
-            self.gl.bind_vertex_array(id);
+        if self.bound_vao.id != vertex_array.id {
+            self.gl.bind_vertex_array(vertex_array.id);
         }
+        self.bound_vao = vertex_array;
     }
 
-    fn create_vao_with_vbos(
-        &mut self,
-        descriptor: &VertexDescriptor,
-        main_vbo_id: VBOId,
-        instance_vbo_id: VBOId,
-        instance_divisor: u32,
-        ibo_id: IBOId,
-        owns_vertices_and_indices: bool,
-        owns_instances: bool,
-    ) -> VAO {
-        let instance_stride = descriptor.instance_stride() as usize;
-        let vao_id = self.gl.gen_vertex_arrays(1)[0];
-
-        self.bind_vao_impl(vao_id);
-
-        descriptor.bind(self.gl(), main_vbo_id, instance_vbo_id, instance_divisor);
-        ibo_id.bind(self.gl()); // force it to be a part of VAO
-
-        VAO {
-            id: vao_id,
-            ibo_id,
-            main_vbo_id,
-            instance_vbo_id,
-            instance_stride,
-            instance_divisor,
-            owns_vertices_and_indices,
-            owns_instances,
-        }
-    }
-
-    fn update_vbo_data(
-        &mut self,
-        vbo: VBOId,
-        data: &[u8],
-        usage_hint: VertexUsageHint,
-    ) {
+    /// Binds `buffer` for a write and returns the target it is bound to. The
+    /// element array binding is vertex array state, so an index buffer only
+    /// goes through it while the vertex array reading it is bound; otherwise
+    /// the data goes through the array buffer target, which a buffer object
+    /// is indifferent to.
+    fn bind_buffer_for_write(&mut self, buffer: &Buffer) -> gl::GLenum {
         debug_assert!(self.inside_frame);
+        let target = match buffer.kind {
+            BufferKind::Index if self.bound_vao.indices == Some(buffer.id) => gl::ELEMENT_ARRAY_BUFFER,
+            BufferKind::Index | BufferKind::Vertex => gl::ARRAY_BUFFER,
+        };
+        self.gl.bind_buffer(target, buffer.id);
+        target
+    }
 
-        vbo.bind(self.gl());
-        gl::buffer_data(self.gl(), gl::ARRAY_BUFFER, data, usage_hint.to_gl());
+    /// On some devices the vertex array must be manually unbound and rebound after an attached
+    /// instance buffer has been orphaned. Failure to do so appeared to result in the orphaned
+    /// buffer's contents being used for the subsequent draw call, rather than the new buffer's
+    /// contents.
+    fn rebind_vertex_array_after_orphaning(&mut self, buffer: &Buffer) {
+        if self.capabilities.requires_vao_rebind_after_orphaning
+            && self.bound_vao.instances == Some(buffer.id)
+        {
+            let bound = self.bound_vao;
+            self.bind_vao_impl(NO_VERTEX_ARRAY);
+            self.bind_vao_impl(bound);
+        }
     }
 
     fn clear_target_impl(
@@ -2418,7 +2421,7 @@ impl GpuBackend for GlDevice {
             self.gl.bind_texture(gl::TEXTURE_2D, 0);
         }
 
-        self.bound_vao = 0;
+        self.bound_vao = NO_VERTEX_ARRAY;
         self.gl.bind_vertex_array(0);
 
         self.bound_read_fbo = Some((self.default_read_fbo, DeviceIntPoint::zero()));
@@ -3514,182 +3517,86 @@ impl GpuBackend for GlDevice {
         )
     }
 
-    fn bind_vao(&mut self, vao: &VAO) {
-        self.bind_vao_impl(vao.id)
-    }
-
-    fn create_vao(&mut self, descriptor: &VertexDescriptor, instance_divisor: u32) -> VAO {
+    fn create_buffer(&mut self, kind: BufferKind) -> Buffer {
         debug_assert!(self.inside_frame);
-
-        let buffer_ids = self.gl.gen_buffers(3);
-        let ibo_id = IBOId(buffer_ids[0]);
-        let main_vbo_id = VBOId(buffer_ids[1]);
-        let instance_vbo_id = VBOId(buffer_ids[2]);
-
-        self.create_vao_with_vbos(
-            descriptor,
-            main_vbo_id,
-            instance_vbo_id,
-            instance_divisor,ibo_id,
-            /* owns_vertices_and_indices */ true,
-            /* owns_instances */ true
-        )
-    }
-
-    fn delete_vao(&mut self, mut vao: VAO) {
-        self.gl.delete_vertex_arrays(&[vao.id]);
-        vao.id = 0;
-
-        if vao.owns_vertices_and_indices {
-            self.gl.delete_buffers(&[vao.ibo_id.0]);
-            self.gl.delete_buffers(&[vao.main_vbo_id.0]);
-        }
-
-        if vao.owns_instances {
-            self.gl.delete_buffers(&[vao.instance_vbo_id.0]);
+        Buffer {
+            id: self.gl.gen_buffers(1)[0],
+            kind,
+            size: 0,
         }
     }
 
-    fn create_vao_with_new_instances(
-        &mut self,
-        descriptor: &VertexDescriptor,
-        base_vao: &VAO,
-    ) -> VAO {
-        debug_assert!(self.inside_frame);
-
-        let buffer_ids = self.gl.gen_buffers(1);
-        let instance_vbo_id = VBOId(buffer_ids[0]);
-
-        self.create_vao_with_vbos(
-            descriptor,
-            base_vao.main_vbo_id,
-            instance_vbo_id,
-            base_vao.instance_divisor,
-            base_vao.ibo_id,
-            /* owns_vertices_and_indices */ false,
-            /* owns_instances */ true,
-        )
+    fn delete_buffer(&mut self, mut buffer: Buffer) {
+        self.gl.delete_buffers(&[buffer.id]);
+        buffer.id = 0;
     }
 
-    fn create_vao_with_shared_instances(
-        &mut self,
-        descriptor: &VertexDescriptor,
-        base_vao: &VAO,
-    ) -> VAO {
-        debug_assert!(self.inside_frame);
-
-        self.create_vao_with_vbos(
-            descriptor,
-            base_vao.main_vbo_id,
-            base_vao.instance_vbo_id,
-            base_vao.instance_divisor,
-            base_vao.ibo_id,
-            /* owns_vertices_and_indices */ false,
-            /* owns_instances */ false,
-        )
+    fn write_buffer(&mut self, buffer: &mut Buffer, data: &[u8], usage_hint: VertexUsageHint) {
+        let target = self.bind_buffer_for_write(buffer);
+        gl::buffer_data(self.gl(), target, data, usage_hint.to_gl());
+        buffer.size = data.len();
+        self.rebind_vertex_array_after_orphaning(buffer);
     }
 
-    fn update_vao_main_vertices(
+    fn write_buffer_repeated(
         &mut self,
-        vao: &VAO,
-        vertices: &[u8],
+        buffer: &mut Buffer,
+        data: &[u8],
+        element_size: usize,
+        repeat: NonZeroUsize,
         usage_hint: VertexUsageHint,
     ) {
-        debug_assert_eq!(self.bound_vao, vao.id);
-        self.update_vbo_data(vao.main_vbo_id, vertices, usage_hint)
-    }
-
-    fn update_vao_instances(
-        &mut self,
-        vao: &VAO,
-        instances: &[u8],
-        instance_stride: usize,
-        usage_hint: VertexUsageHint,
-        repeat: Option<NonZeroUsize>,
-    ) {
-        debug_assert_eq!(self.bound_vao, vao.id);
-        debug_assert_eq!(vao.instance_stride, instance_stride);
-
-        match repeat {
-            Some(count) => {
-                let count = count.get();
-                let target = gl::ARRAY_BUFFER;
-                self.gl.bind_buffer(target, vao.instance_vbo_id.0);
-                let size = instances.len() * count;
-                self.gl.buffer_data_untyped(
-                    target,
-                    size as _,
-                    ptr::null(),
-                    usage_hint.to_gl(),
-                );
-
-                let ptr = match self.gl.get_type() {
-                    gl::GlType::Gl => {
-                        self.gl.map_buffer(target, gl::WRITE_ONLY)
-                    }
-                    gl::GlType::Gles => {
-                        self.gl.map_buffer_range(target, 0, size as _, gl::MAP_WRITE_BIT)
-                    }
-                };
-                assert!(!ptr.is_null());
-
-                let buffer_slice = unsafe {
-                    slice::from_raw_parts_mut(ptr as *mut u8, size)
-                };
-                let repeated_stride = instance_stride * count;
-                for (dst, instance) in buffer_slice.chunks_mut(repeated_stride).zip(instances.chunks(instance_stride)) {
-                    for copy in dst.chunks_mut(instance_stride) {
-                        copy.copy_from_slice(instance);
-                    }
-                }
-                self.gl.unmap_buffer(target);
-            }
-            None => {
-                self.update_vbo_data(vao.instance_vbo_id, instances, usage_hint);
-            }
-        }
-
-        // On some devices the VAO must be manually unbound and rebound after an attached buffer has
-        // been orphaned. Failure to do so appeared to result in the orphaned buffer's contents
-        // being used for the subsequent draw call, rather than the new buffer's contents.
-        if self.capabilities.requires_vao_rebind_after_orphaning {
-            self.bind_vao_impl(0);
-            self.bind_vao_impl(vao.id);
-        }
-    }
-
-    fn update_vao_indices(&mut self, vao: &VAO, indices: &[u8], usage_hint: VertexUsageHint) {
-        debug_assert!(self.inside_frame);
-        debug_assert_eq!(self.bound_vao, vao.id);
-
-        vao.ibo_id.bind(self.gl());
-        gl::buffer_data(
-            self.gl(),
-            gl::ELEMENT_ARRAY_BUFFER,
-            indices,
+        let count = repeat.get();
+        let target = self.bind_buffer_for_write(buffer);
+        let size = data.len() * count;
+        self.gl.buffer_data_untyped(
+            target,
+            size as _,
+            ptr::null(),
             usage_hint.to_gl(),
         );
+
+        let ptr = match self.gl.get_type() {
+            gl::GlType::Gl => {
+                self.gl.map_buffer(target, gl::WRITE_ONLY)
+            }
+            gl::GlType::Gles => {
+                self.gl.map_buffer_range(target, 0, size as _, gl::MAP_WRITE_BIT)
+            }
+        };
+        assert!(!ptr.is_null());
+
+        let buffer_slice = unsafe {
+            slice::from_raw_parts_mut(ptr as *mut u8, size)
+        };
+        let repeated_stride = element_size * count;
+        for (dst, element) in buffer_slice.chunks_mut(repeated_stride).zip(data.chunks(element_size)) {
+            for copy in dst.chunks_mut(element_size) {
+                copy.copy_from_slice(element);
+            }
+        }
+        self.gl.unmap_buffer(target);
+        buffer.size = size;
+        self.rebind_vertex_array_after_orphaning(buffer);
     }
 
-    fn reallocate_vbo(&mut self, vbo: VBOId, size: usize) {
-        debug_assert!(self.inside_frame);
-
-        vbo.bind(self.gl());
+    fn reallocate_buffer(&mut self, buffer: &mut Buffer, size: usize) {
+        let target = self.bind_buffer_for_write(buffer);
         self.gl.buffer_data_untyped(
-            gl::ARRAY_BUFFER,
+            target,
             size as _,
             ptr::null(),
             VertexUsageHint::Stream.to_gl(),
         );
+        buffer.size = size;
     }
 
-    fn update_vbo_data_unsynchronized(&mut self, vbo: VBOId, data: &[u8], offset: usize) {
-        debug_assert!(self.inside_frame);
-
+    fn write_buffer_unsynchronized(&mut self, buffer: &Buffer, offset: usize, data: &[u8]) {
         let size = data.len();
-        vbo.bind(self.gl());
+        debug_assert!(offset + size <= buffer.size);
+        let target = self.bind_buffer_for_write(buffer);
         let ptr = self.gl.map_buffer_range(
-            gl::ARRAY_BUFFER,
+            target,
             offset as _,
             size as _,
             gl::MAP_WRITE_BIT | gl::MAP_UNSYNCHRONIZED_BIT,
@@ -3700,7 +3607,49 @@ impl GpuBackend for GlDevice {
             ptr::copy_nonoverlapping(data.as_ptr(), ptr as *mut u8, size);
         }
 
-        self.gl.unmap_buffer(gl::ARRAY_BUFFER);
+        self.gl.unmap_buffer(target);
+    }
+
+    fn create_vertex_array(
+        &mut self,
+        layout: &VertexDescriptor,
+        vertices: &Buffer,
+        instances: Option<&Buffer>,
+        indices: Option<&Buffer>,
+        instance_divisor: u32,
+    ) -> VertexArray {
+        debug_assert!(self.inside_frame);
+        debug_assert_eq!(instances.is_some(), !layout.instance_attributes.is_empty());
+        debug_assert_eq!(vertices.kind, BufferKind::Vertex);
+        debug_assert!(instances.map_or(true, |buffer| buffer.kind == BufferKind::Vertex));
+        debug_assert!(indices.map_or(true, |buffer| buffer.kind == BufferKind::Index));
+
+        let vertex_array = VertexArray {
+            id: self.gl.gen_vertex_arrays(1)[0],
+            vertices: BufferId(vertices.id),
+            instances: instances.map(|buffer| BufferId(buffer.id)),
+            indices: indices.map(|buffer| BufferId(buffer.id)),
+            instance_stride: layout.instance_stride() as usize,
+        };
+
+        self.bind_vao_impl(GlBoundVertexArray::of(&vertex_array));
+
+        layout.bind(self.gl(), vertices.id, instances.map(|buffer| buffer.id), instance_divisor);
+        if let Some(indices) = indices {
+            // The element array binding is recorded in the vertex array.
+            self.gl.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, indices.id);
+        }
+
+        vertex_array
+    }
+
+    fn delete_vertex_array(&mut self, mut vertex_array: VertexArray) {
+        self.gl.delete_vertex_arrays(&[vertex_array.id]);
+        vertex_array.id = 0;
+    }
+
+    fn bind_vertex_array(&mut self, vertex_array: &VertexArray) {
+        self.bind_vao_impl(GlBoundVertexArray::of(vertex_array));
     }
 
     fn draw_triangles_u32(&mut self, first_vertex: i32, index_count: i32) {
