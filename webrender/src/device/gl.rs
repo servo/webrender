@@ -2583,6 +2583,7 @@ impl GpuBackend for GlDevice {
         &mut self,
         program: &mut Program,
         descriptor: &VertexDescriptor,
+        samplers: &[(&'static str, TextureSlot)],
     ) -> Result<(), ShaderError> {
         profile_marker!("compile shader", program.source_info.base_filename);
 
@@ -2743,6 +2744,19 @@ impl GpuBackend for GlDevice {
         program.is_initialized = true;
         program.u_transform = self.gl.get_uniform_location(program.id, "uTransform");
         program.u_texture_size = self.gl.get_uniform_location(program.id, "uTextureSize");
+
+        // Sampler uniforms can only be set on the current program.
+        if self.bound_program != program.id {
+            self.gl.use_program(program.id);
+            self.bound_program = program.id;
+            self.bound_program_name = program.source_info.full_name_cstr.clone();
+        }
+        for (name, slot) in samplers {
+            let u_location = self.gl.get_uniform_location(program.id, name);
+            if u_location != -1 {
+                self.gl.uniform_1i(u_location, slot.0 as gl::GLint);
+            }
+        }
 
         Ok(())
     }
@@ -3182,19 +3196,6 @@ impl GpuBackend for GlDevice {
         });
 
         (vertex, fragment)
-    }
-
-    fn bind_shader_samplers(&mut self, program: &Program, bindings: &[(&'static str, TextureSlot)]) {
-        // The program must be bound before calling bind_shader_samplers
-        assert_eq!(self.bound_program, program.id);
-
-        for binding in bindings {
-            let u_location = self.gl.get_uniform_location(program.id, binding.0);
-            if u_location != -1 {
-                self.gl
-                    .uniform_1i(u_location, (binding.1).0 as gl::GLint);
-            }
-        }
     }
 
     fn set_uniforms(

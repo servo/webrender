@@ -118,14 +118,14 @@ impl DebugRenderer {
             "debug_font",
             &[],
             &DESC_FONT,
+            &[("sColor0", DebugSampler::Font.into())],
         )?;
-        device.bind_program(&font_program);
-        device.bind_shader_samplers(&font_program, &[("sColor0", DebugSampler::Font)]);
 
         let color_program = device.create_program_linked(
             "debug_color",
             &[],
             &DESC_COLOR,
+            &[],
         )?;
 
         let font_vao = device.create_vao(&DESC_FONT, 1);
