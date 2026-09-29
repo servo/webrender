@@ -129,6 +129,9 @@ pub struct WebRenderOptions {
     pub use_optimized_shaders: bool,
     pub enable_aa: bool,
     pub enable_dithering: bool,
+    /// Delay promotion of moving 8-bit YUV images to compositor surfaces until
+    /// their picture-space coverage rect has remained stable for several frames.
+    pub enable_yuv_overlay_stability: bool,
     pub max_recorded_profiles: usize,
     pub precache_flags: ShaderPrecacheFlags,
     /// Enable sub-pixel anti-aliasing if a fast implementation is available.
@@ -250,6 +253,7 @@ impl Default for WebRenderOptions {
             use_optimized_shaders: false,
             enable_aa: true,
             enable_dithering: false,
+            enable_yuv_overlay_stability: false,
             debug_flags: DebugFlags::empty(),
             max_recorded_profiles: 0,
             precache_flags: ShaderPrecacheFlags::empty(),
@@ -592,6 +596,7 @@ pub fn create_webrender_instance(
         low_quality_pinch_zoom: options.low_quality_pinch_zoom,
         max_shared_surface_size: options.max_shared_surface_size,
         enable_dithering: options.enable_dithering,
+        enable_yuv_overlay_stability: options.enable_yuv_overlay_stability,
     };
     info!("WR {:?}", config);
 
