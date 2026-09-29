@@ -1400,9 +1400,7 @@ impl Renderer {
                             let format = item.texture.get_format();
                             let buffer_size = (size.area() * format.bytes_per_pixel()) as usize;
                             let mut data = vec![0u8; buffer_size];
-                            let rect = size.cast_unit().into();
-                            self.device.attach_read_texture(&item.texture);
-                            self.device.read_pixels_into(rect, format, &mut data);
+                            self.device.read_texture(&item.texture, format, &mut data);
 
                             let category_str = match item.category {
                                 TextureCacheCategory::Atlas => "atlas",
@@ -1421,7 +1419,6 @@ impl Renderer {
                             };
                             texture_list.push(texture_msg);
                         }
-                        self.device.reset_read_target();
                         self.device.end_frame();
 
                         query.result.send(serde_json::to_string(&texture_list).unwrap()).ok();
@@ -2533,8 +2530,6 @@ impl Renderer {
                 draw_target,
             );
         }
-
-        self.device.reset_read_target();
     }
 
     fn handle_prims(
@@ -4273,14 +4268,14 @@ impl Renderer {
         self.profiler.set_ui(ui_str);
     }
 
-    /// Pass-through to `Device::read_pixels_into`, used by Gecko's WR bindings.
+    /// Reads back the presented frame; used by Gecko's WR bindings.
     pub fn read_pixels_into(&mut self, rect: FramebufferIntRect, format: ImageFormat, output: &mut [u8]) {
-        self.device.read_pixels_into(rect, format, output);
+        self.device.read_pixels_into(ReadTarget::Default, rect, format, output);
     }
 
     pub fn read_pixels_rgba8(&mut self, rect: FramebufferIntRect) -> Vec<u8> {
         let mut pixels = vec![0; (rect.area() * 4) as usize];
-        self.device.read_pixels_into(rect, ImageFormat::RGBA8, &mut pixels);
+        self.device.read_pixels_into(ReadTarget::Default, rect, ImageFormat::RGBA8, &mut pixels);
         pixels
     }
 
@@ -4576,19 +4571,13 @@ impl Renderer {
         let bytes_per_texture = (rect_size.width * rect_size.height * bytes_per_pixel) as usize;
         let mut data = vec![0; bytes_per_texture];
 
-        //TODO: instead of reading from an FBO with `read_pixels*`, we could
-        // read from textures directly with `get_tex_image*`.
-
-        let rect = device_size_as_framebuffer_size(rect_size).into();
-
-        device.attach_read_texture(texture);
         #[cfg(feature = "png")]
         {
             let mut png_data;
             let (data_ref, format) = match texture.get_format() {
                 ImageFormat::RGBAF32 => {
                     png_data = vec![0; (rect_size.width * rect_size.height * 4) as usize];
-                    device.read_pixels_into(rect, ImageFormat::RGBA8, &mut png_data);
+                    device.read_texture(texture, ImageFormat::RGBA8, &mut png_data);
                     (&png_data, ImageFormat::RGBA8)
                 }
                 fm => (&data, fm),
@@ -4600,7 +4589,7 @@ impl Renderer {
                 data_ref,
             );
         }
-        device.read_pixels_into(rect, read_format, &mut data);
+        device.read_texture(texture, read_format, &mut data);
         file.write_all(&data)
             .unwrap();
 
@@ -4698,8 +4687,7 @@ impl Renderer {
                                     ExternalImageType::Buffer => unreachable!(),
                                 };
                                 info!("\t\tnative texture of target {:?}", target);
-                                self.device.attach_read_texture_external(handle, target);
-                                let data = self.device.read_pixels(&def.descriptor);
+                                let data = self.device.read_external_texture(handle, target, &def.descriptor);
                                 let short_path = format!("externals/t{}.raw", tex_id);
                                 (Some(data), e.insert(short_path).clone())
                             }
@@ -4762,7 +4750,6 @@ impl Renderer {
             config.serialize_for_resource(&plain_self, "renderer");
         }
 
-        self.device.reset_read_target();
         self.device.end_frame();
 
         let mut stats_file = fs::File::create(config.root.join("profiler-stats.txt"))
