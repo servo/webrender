@@ -501,7 +501,6 @@ pub fn update_debug_overlay(
         if state.is_enabled && state.current_size.is_none() {
             compositor.create_surface(
                 NativeSurfaceId::DEBUG_OVERLAY,
-                DeviceIntPoint::zero(),
                 framebuffer_size,
                 false,
             );

@@ -1749,7 +1749,6 @@ impl ResourceCache {
     /// specified tile size.
     pub fn create_compositor_surface(
         &mut self,
-        virtual_offset: DeviceIntPoint,
         tile_size: DeviceIntSize,
         is_opaque: bool,
     ) -> NativeSurfaceId {
@@ -1759,7 +1758,6 @@ impl ResourceCache {
             NativeSurfaceOperation {
                 details: NativeSurfaceOperationDetails::CreateSurface {
                     id,
-                    virtual_offset,
                     tile_size,
                     is_opaque,
                 },

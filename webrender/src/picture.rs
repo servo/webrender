@@ -1896,7 +1896,6 @@ fn prepare_tiled_picture_surface(
                                     let opaque = frame_state
                                         .resource_cache
                                         .create_compositor_surface(
-                                            DeviceIntPoint::zero(),
                                             tile_cache.current_tile_size,
                                             true,
                                         );
@@ -1904,7 +1903,6 @@ fn prepare_tiled_picture_surface(
                                     let alpha = frame_state
                                         .resource_cache
                                         .create_compositor_surface(
-                                            DeviceIntPoint::zero(),
                                             tile_cache.current_tile_size,
                                             false,
                                         );
