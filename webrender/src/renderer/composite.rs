@@ -62,9 +62,28 @@ impl CompositeTileState {
     }
 }
 
+// Only surfaces drawn into a content layer are stored here. Matching a state
+// in the previous frame therefore also verifies that it was not externally
+// composited. Compare the complete draw state, not just the destination rect.
+#[derive(PartialEq)]
+pub(super) struct ExternalContentSurfaceState {
+    rect: DeviceRect,
+    local_rect: PictureRect,
+    local_valid_rect: PictureRect,
+    device_clip_rect: DeviceRect,
+    transform: CompositorSurfaceTransform,
+    clip: Option<(DeviceRect, api::BorderRadius)>,
+    z_id: ZBufferId,
+    kind: TileKind,
+    layer_index: usize,
+    external_image_id: Option<api::ExternalImageId>,
+    image_buffer_kind: ImageBufferKind,
+    color_data: ResolvedExternalSurfaceColorData,
+}
+
 pub(super) struct LayerCompositorFrameState {
     pub tile_states: FastHashMap<TileId, CompositeTileState>,
-    pub rects_without_id: Vec<DeviceRect>,
+    pub external_content_surfaces: Vec<ExternalContentSurfaceState>,
 }
 
 impl Renderer {
@@ -564,7 +583,7 @@ impl Renderer {
         let mut full_render_occlusion = occlusion::FrontToBackBuilder::with_capacity(cap, cap);
         let mut layer_compositor_frame_state = LayerCompositorFrameState{
             tile_states: FastHashMap::default(),
-            rects_without_id: Vec::new(),
+            external_content_surfaces: Vec::new(),
         };
 
         // Calculate layers with full device rect
@@ -685,10 +704,6 @@ impl Renderer {
             if let Some(ref _compositor) = self.compositor_config.layer_compositor() {
                 if let CompositeTileSurface::ExternalSurface { .. } = tile.surface {
                     assert!(tile.tile_id.is_none());
-                    // ExternalSurface is not promoted to external composite.
-                    if let CompositorSurfaceUsage::Content = usage {
-                        layer_compositor_frame_state.rects_without_id.push(rect);
-                    }
                 } else {
                     assert!(tile.tile_id.is_some());
                 }
@@ -798,6 +813,52 @@ impl Renderer {
                 })
             }
             tile_index_to_layer_index[idx] = Some(input_layers.len() - 1);
+
+            if self.compositor_config.layer_compositor().is_some() {
+                if let (CompositeTileSurface::ExternalSurface { external_surface_index },
+                        CompositorSurfaceUsage::Content) = (&tile.surface, usage) {
+                    let surface = &composite_state.external_surfaces[external_surface_index.0];
+                    let mut color_data = surface.color_data.clone();
+                    // External textures get their actual UV rect during lock(),
+                    // so retain the UV rect used to draw this frame as well.
+                    match &mut color_data {
+                        ResolvedExternalSurfaceColorData::Yuv { planes, .. } => {
+                            for plane in planes {
+                                plane.uv_rect = self.texture_resolver.get_uv_rect(
+                                    &plane.texture,
+                                    plane.uv_rect,
+                                );
+                            }
+                        }
+                        ResolvedExternalSurfaceColorData::Rgb { plane, .. } => {
+                            plane.uv_rect = self.texture_resolver.get_uv_rect(
+                                &plane.texture,
+                                plane.uv_rect,
+                            );
+                        }
+                    }
+                    let clip = tile.clip_index.map(|index| {
+                        let clip = composite_state.get_compositor_clip(index);
+                        (clip.rect, clip.radius)
+                    });
+                    layer_compositor_frame_state.external_content_surfaces.push(
+                        ExternalContentSurfaceState {
+                            rect,
+                            local_rect: tile.local_rect,
+                            local_valid_rect: tile.local_valid_rect,
+                            device_clip_rect: tile.device_clip_rect,
+                            transform: composite_state.get_device_transform(tile.transform_index),
+                            clip,
+                            z_id: tile.z_id,
+                            kind: tile.kind,
+                            layer_index: input_layers.len() - 1,
+                            external_image_id: surface.external_image_id,
+                            image_buffer_kind: surface.image_buffer_kind,
+                            color_data,
+                        },
+                    );
+                }
+            }
 
             // Caluclate actual visible tile's rects
 
@@ -990,12 +1051,31 @@ impl Renderer {
                     }
                 }
 
-                // Case that ExternalSurface is not promoted to external composite.
-                for rect in layer_compositor_frame_state
-                    .rects_without_id
-                    .iter()
-                    .chain(self.layer_compositor_frame_state_in_prev_frame.as_ref().unwrap().rects_without_id.iter())  {
-                    combined_dirty_rect = combined_dirty_rect.union(&rect);
+                // Unchanged external surfaces already drawn into a content layer
+                // need no damage of their own. Match each previous occurrence
+                // only once, since an image may be drawn more than once.
+                let prev_surfaces = &self.layer_compositor_frame_state_in_prev_frame
+                    .as_ref()
+                    .unwrap()
+                    .external_content_surfaces;
+                let mut matched = vec![false; prev_surfaces.len()];
+                for surface in &layer_compositor_frame_state.external_content_surfaces {
+                    let previous = prev_surfaces.iter().enumerate().position(|(index, prev)| {
+                        !matched[index] && surface == prev
+                    });
+                    if let Some(index) = previous {
+                        matched[index] = true;
+                    } else {
+                        // New, updated, moved, or previously externally composited.
+                        combined_dirty_rect = combined_dirty_rect.union(&surface.rect);
+                    }
+                }
+                for (index, surface) in prev_surfaces.iter().enumerate() {
+                    if !matched[index] {
+                        // Removed, changed, or now externally composited. Repaint
+                        // the old content-layer pixels as well.
+                        combined_dirty_rect = combined_dirty_rect.union(&surface.rect);
+                    }
                 }
 
                 let device_rect = DeviceRect::from_size(device_size.to_f32());
