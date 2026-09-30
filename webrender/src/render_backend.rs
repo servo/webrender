@@ -32,7 +32,7 @@ use crate::clip::{ClipIntern, PolygonIntern, ClipStoreScratchBuffer};
 use crate::filterdata::FilterDataIntern;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::capture::CaptureConfig;
-use crate::composite::{CompositorKind, CompositeDescriptor};
+use crate::composite::CompositeDescriptor;
 use crate::frame_builder::{FrameBuilder, FrameBuilderConfig, FrameScratchBuffer};
 use glyph_rasterizer::FontInstance;
 use crate::hit_test::{HitTest, HitTester, SharedHitTester};
@@ -929,7 +929,6 @@ pub struct WindowState {
     tile_caches: FastHashMap<SliceId, Box<TileCacheInstance>>,
 
     frame_config: FrameBuilderConfig,
-    default_compositor_kind: CompositorKind,
     debug_flags: DebugFlags,
 
     recycler: Recycler,
@@ -1103,7 +1102,6 @@ impl RenderBackend {
             resource_cache,
             chunk_pool,
             tile_caches: FastHashMap::default(),
-            default_compositor_kind: frame_config.compositor_kind,
             frame_config,
             debug_flags,
             recycler: Recycler::new(),
@@ -1764,38 +1762,6 @@ impl RenderBackend {
                         if let Some(win) = self.windows.get_mut(&backend_id) {
                             win.resource_cache.clear(mask);
                         }
-                        return RenderBackendStatus::Continue;
-                    }
-                    DebugCommand::EnableNativeCompositor(enable) => {
-                        let default_kind = match self.windows.get(&backend_id) {
-                            Some(w) => w.default_compositor_kind,
-                            None => return RenderBackendStatus::Continue,
-                        };
-                        // Default CompositorKind should be Native
-                        if let CompositorKind::Draw { .. } = default_kind {
-                            unreachable!();
-                        }
-
-                        let compositor_kind = if enable {
-                            default_kind
-                        } else {
-                            CompositorKind::default()
-                        };
-
-                        let doc_ids = self.documents_for_window(backend_id);
-                        for doc_id in doc_ids {
-                            if let Some(doc) = self.documents.get_mut(&doc_id) {
-                                doc.scene.config.compositor_kind = compositor_kind;
-                                doc.frame_is_valid = false;
-                            }
-                        }
-
-                        if let Some(win) = self.windows.get_mut(&backend_id) {
-                            win.frame_config.compositor_kind = compositor_kind;
-                        }
-                        self.update_frame_builder_config_for(backend_id);
-
-                        // We don't want to forward this message to the renderer.
                         return RenderBackendStatus::Continue;
                     }
                     DebugCommand::SetBatchingLookback(count) => {

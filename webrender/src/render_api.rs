@@ -991,8 +991,6 @@ pub enum DebugCommand {
     StopCaptureSequence,
     /// Clear cached resources, forcing them to be re-uploaded from templates.
     ClearCaches(ClearCache),
-    /// Enable/disable native compositor usage
-    EnableNativeCompositor(bool),
     /// Sets the maximum amount of existing batches to visit before creating a new one.
     SetBatchingLookback(u32),
     /// Causes the scene builder to pause for a given amount of milliseconds each time it

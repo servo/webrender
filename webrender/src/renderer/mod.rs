@@ -1433,7 +1433,6 @@ impl Renderer {
             }
             DebugCommand::ClearCaches(_)
             | DebugCommand::SimulateLongSceneBuild(_)
-            | DebugCommand::EnableNativeCompositor(_)
             | DebugCommand::SetBatchingLookback(_) => {}
             DebugCommand::SetFlags(flags) => {
                 self.set_debug_flags(flags);
