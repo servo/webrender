@@ -1519,46 +1519,6 @@ impl TileCacheInstance {
             // The background color can only be applied to the first sub-slice.
             ctx.background_color = None;
         }
-
-        // If compositor mode is changed, need to drop all incompatible tiles.
-        match frame_context.config.compositor_kind {
-            CompositorKind::Draw { .. } | CompositorKind::Layer { .. } => {
-                for sub_slice in &mut self.sub_slices {
-                    for tile in sub_slice.tiles.values_mut() {
-                        if let Some(TileSurface::Texture { descriptor: SurfaceTextureDescriptor::Native { ref mut id, .. }, .. }) = tile.surface {
-                            if let Some(id) = id.take() {
-                                frame_state.resource_cache.destroy_compositor_tile(id);
-                            }
-                            tile.surface = None;
-                            // Invalidate the entire tile to force a redraw.
-                            tile.invalidate(None, InvalidationReason::CompositorKindChanged);
-                        }
-                    }
-
-                    if let Some(native_surface) = sub_slice.native_surface.take() {
-                        frame_state.resource_cache.destroy_compositor_surface(native_surface.opaque);
-                        frame_state.resource_cache.destroy_compositor_surface(native_surface.alpha);
-                    }
-                }
-
-                for (_, external_surface) in self.external_native_surface_cache.drain() {
-                    frame_state.resource_cache.destroy_compositor_surface(external_surface.native_surface_id)
-                }
-            }
-            CompositorKind::Native { .. } => {
-                // This could hit even when compositor mode is not changed,
-                // then we need to check if there are incompatible tiles.
-                for sub_slice in &mut self.sub_slices {
-                    for tile in sub_slice.tiles.values_mut() {
-                        if let Some(TileSurface::Texture { descriptor: SurfaceTextureDescriptor::TextureCache { .. }, .. }) = tile.surface {
-                            tile.surface = None;
-                            // Invalidate the entire tile to force a redraw.
-                            tile.invalidate(None, InvalidationReason::CompositorKindChanged);
-                        }
-                    }
-                }
-            }
-        }
     }
 
     fn can_promote_to_surface(
