@@ -1119,31 +1119,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "compositor"
-version = "0.1.0"
-dependencies = [
- "compositor-wayland",
- "compositor-windows",
- "gleam",
- "webrender",
-]
-
-[[package]]
-name = "compositor-wayland"
-version = "0.1.0"
-dependencies = [
- "cc",
- "pkg-config",
-]
-
-[[package]]
-name = "compositor-windows"
-version = "0.1.0"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
