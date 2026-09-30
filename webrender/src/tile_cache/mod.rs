@@ -1801,7 +1801,7 @@ impl TileCacheInstance {
         // If this primitive is an external image, and supports being used
         // directly by a native compositor, then lookup the external image id
         // so we can pass that through.
-        let mut external_image_id = if flags.contains(PrimitiveFlags::SUPPORTS_EXTERNAL_COMPOSITOR_SURFACE)
+        let external_image_id = if flags.contains(PrimitiveFlags::SUPPORTS_EXTERNAL_COMPOSITOR_SURFACE)
             && image_rendering == ImageRendering::Auto {
             resource_cache.get_image_properties(api_keys[0])
                 .and_then(|properties| properties.external_image)
@@ -1809,17 +1809,6 @@ impl TileCacheInstance {
         } else {
             None
         };
-
-        match composite_state.compositor_kind {
-            CompositorKind::Native { capabilities, .. } => {
-                if external_image_id.is_some() &&
-                !capabilities.supports_external_compositor_surface_negative_scaling &&
-                (raster_to_device.scale.x < 0.0 || raster_to_device.scale.y < 0.0) {
-                    external_image_id = None;
-                }
-            }
-            CompositorKind::Layer { .. } | CompositorKind::Draw { .. } => {}
-        }
 
         let compositor_transform_index = composite_state.register_transform(
             local_to_raster,
