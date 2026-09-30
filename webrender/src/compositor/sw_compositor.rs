@@ -2020,14 +2020,6 @@ impl Compositor for SwCompositor {
         self.reset_overlaps();
     }
 
-    fn enable_native_compositor(&mut self, enable: bool) {
-        // TODO: The SwComposite thread is not properly instantiated if this is
-        // ever actually toggled.
-        assert_eq!(self.use_native_compositor, enable);
-        self.compositor.enable_native_compositor(enable);
-        self.use_native_compositor = enable;
-    }
-
     fn get_capabilities(&self) -> CompositorCapabilities {
         self.compositor.get_capabilities()
     }

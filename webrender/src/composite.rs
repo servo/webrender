@@ -1626,9 +1626,6 @@ pub trait Compositor {
     /// that the OS composite transaction should be applied.
     fn end_frame(&mut self);
 
-    /// Enable/disable native compositor usage
-    fn enable_native_compositor(&mut self, enable: bool);
-
     /// Safely deinitialize any remaining resources owned by the compositor.
     fn deinit(&mut self);
 

@@ -1667,36 +1667,6 @@ impl Renderer {
 
         self.staging_texture_pool.begin_frame();
 
-        let compositor_kind = active_doc.frame.composite_state.compositor_kind;
-        // CompositorKind is updated
-        if self.current_compositor_kind != compositor_kind {
-            let enable = match (self.current_compositor_kind, compositor_kind) {
-                (CompositorKind::Native { .. }, CompositorKind::Draw { .. }) => {
-                    if self.debug_overlay_state.current_size.is_some() {
-                        self.compositor_config
-                            .compositor()
-                            .unwrap()
-                            .destroy_surface(NativeSurfaceId::DEBUG_OVERLAY);
-                        self.debug_overlay_state.current_size = None;
-                    }
-                    false
-                }
-                (CompositorKind::Draw { .. }, CompositorKind::Native { .. }) => {
-                    true
-                }
-                (current_compositor_kind, active_doc_compositor_kind) => {
-                    warn!("Compositor mismatch, assuming this is Wrench running. Current {:?}, active {:?}",
-                        current_compositor_kind, active_doc_compositor_kind);
-                    false
-                }
-            };
-
-            if let Some(config) = self.compositor_config.compositor() {
-                config.enable_native_compositor(enable);
-            }
-            self.current_compositor_kind = compositor_kind;
-        }
-
         // The texture resolver scope should be outside of any rendering, including
         // debug rendering. This ensures that when we return render targets to the
         // pool via glInvalidateFramebuffer, we don't do any debug rendering after
