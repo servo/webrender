@@ -2601,7 +2601,10 @@ impl RenderBackend {
             win.send(msg_load);
         }
 
+        // The compositor kind describes the replaying renderer, not the captured one.
+        let compositor_kind = win.frame_config.compositor_kind;
         win.frame_config = backend.frame_config;
+        win.frame_config.compositor_kind = compositor_kind;
 
         let mut scenes_to_build = Vec::new();
 
@@ -2689,7 +2692,10 @@ impl RenderBackend {
             self.document_to_window.insert(id, backend_id);
 
             let frame_name = format!("frame-{}-{}", id.namespace_id.0, id.id);
-            let frame = config.deserialize_for_frame::<Frame, _>(frame_name);
+            // A frame built for a different compositor kind can't be rendered here,
+            // so rebuild it from the scene instead.
+            let frame = config.deserialize_for_frame::<Frame, _>(frame_name)
+                .filter(|frame| frame.composite_state.compositor_kind == compositor_kind);
             let build_frame = match frame {
                 Some(frame) => {
                     info!("\tloaded a built frame with {} passes", frame.passes.len());
