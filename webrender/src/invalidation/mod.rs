@@ -101,8 +101,6 @@ pub enum InvalidationReason {
     PrimCount,
     /// The content of one of the primitives was different
     Content,
-    // The compositor type changed
-    CompositorKindChanged,
     // The valid region of the tile changed
     ValidRectChanged,
     // The overall scale of the picture cache changed

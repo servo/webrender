@@ -588,7 +588,6 @@ impl<'a> SceneBuilder<'a> {
 
         // Construct the picture cache primitive instance(s) from the tile cache builder
         let (tile_cache_config, tile_cache_pictures) = builder.tile_cache_builder.build(
-            &builder.config,
             &mut builder.prim_store,
             &builder.spatial_tree,
             &builder.prim_instances,

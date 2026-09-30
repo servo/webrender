@@ -436,13 +436,6 @@ impl Default for CompositorKind {
 }
 
 impl CompositorKind {
-    pub fn get_virtual_surface_size(&self) -> i32 {
-        match self {
-            CompositorKind::Draw { .. } | CompositorKind::Layer {  .. }=> 0,
-            CompositorKind::Native { capabilities, .. } => capabilities.virtual_surface_size,
-        }
-    }
-
     pub fn should_redraw_on_invalidation(&self) -> bool {
         match self {
             CompositorKind::Draw { max_partial_present_rects, .. } => {
@@ -1420,8 +1413,6 @@ impl Default for WindowProperties {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CompositorCapabilities {
-    /// The virtual surface size used by the underlying platform.
-    pub virtual_surface_size: i32,
     /// Whether the compositor requires redrawing on invalidation.
     pub redraw_on_invalidation: bool,
     /// The maximum number of dirty rects that can be provided per compositor
@@ -1441,7 +1432,6 @@ impl Default for CompositorCapabilities {
         // from the default behavior so that compositors don't have to track
         // which changes to this structure unless necessary.
         CompositorCapabilities {
-            virtual_surface_size: 0,
             redraw_on_invalidation: false,
             // Assume compositors can do at least partial update of surfaces. If not,
             // the native compositor should override this to be 0.

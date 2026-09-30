@@ -5,7 +5,6 @@
 use api::{BorderRadius, ClipId, ClipMode, ColorF, DebugFlags, PrimitiveFlags, QualitySettings, RasterSpace};
 use api::units::*;
 use crate::clip::{clamped_radius, ClipItemKeyKind, ClipNodeId, ClipTreeBuilder, SceneClipStore, intersect_rounded_rects};
-use crate::frame_builder::FrameBuilderConfig;
 use crate::internal_types::FastHashMap;
 use crate::picture::{PrimitiveList, PictureInstance, Picture3DContext, PictureFlags};
 use crate::picture_composite_mode::PictureCompositeMode;
@@ -395,7 +394,6 @@ impl TileCacheBuilder {
     /// Consume this object and build the list of tile cache primitives
     pub fn build(
         mut self,
-        config: &FrameBuilderConfig,
         prim_store: &mut PrimitiveStore,
         spatial_tree: &SceneSpatialTree,
         prim_instances: &[PrimitiveInstance],
@@ -427,7 +425,6 @@ impl TileCacheBuilder {
                             primary_slice.background_color,
                             prim_store,
                             prim_instances,
-                            config,
                             &mut result.tile_caches,
                             &mut tile_cache_pictures,
                             clip_tree_builder,
@@ -447,7 +444,6 @@ impl TileCacheBuilder {
                             primary_slice.background_color,
                             prim_store,
                             prim_instances,
-                            config,
                             &mut result.tile_caches,
                             &mut tile_cache_pictures,
                             clip_tree_builder,
@@ -491,7 +487,6 @@ fn create_tile_cache(
     background_color: Option<ColorF>,
     prim_store: &mut PrimitiveStore,
     prim_instances: &[PrimitiveInstance],
-    frame_builder_config: &FrameBuilderConfig,
     tile_caches: &mut FastHashMap<SliceId, TileCacheParams>,
     tile_cache_pictures: &mut Vec<PictureIndex>,
     clip_tree_builder: &mut ClipTreeBuilder,
@@ -677,7 +672,6 @@ fn create_tile_cache(
         background_color,
         shared_clip_node_id,
         tile_clip_node_id,
-        virtual_surface_size: frame_builder_config.compositor_kind.get_virtual_surface_size(),
         image_surface_count: prim_list.image_surface_count,
         yuv_image_surface_count: prim_list.yuv_image_surface_count,
     });
