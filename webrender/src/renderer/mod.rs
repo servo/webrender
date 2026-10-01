@@ -807,6 +807,8 @@ pub struct Renderer {
     /// The compositing config, affecting how WR composites into the final scene.
     compositor_config: CompositorConfig,
     current_compositor_kind: CompositorKind,
+    /// Limit external compositing to one visible SDR YUV tile per frame.
+    limit_sdr_yuv_external_composites: bool,
 
     /// Maintains a set of allocated native composite surfaces. This allows any
     /// currently allocated surfaces to be cleaned up as soon as deinit() is

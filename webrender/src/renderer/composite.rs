@@ -586,6 +586,64 @@ impl Renderer {
             external_content_surfaces: Vec::new(),
         };
 
+        // Select among surfaces that could otherwise be externally composited.
+        let mut largest_sdr_yuv_tile = None;
+        if self.limit_sdr_yuv_external_composites
+            && self.compositor_config.layer_compositor().is_some()
+            && !enable_screenshot
+        {
+            let frame_rect = DeviceRect::from_size(frame_device_size.to_f32());
+            let mut largest_area = 0.0;
+            for (idx, tile) in composite_state.tiles.iter().enumerate() {
+                let external_surface_index = match tile.surface {
+                    CompositeTileSurface::ExternalSurface { external_surface_index } => {
+                        external_surface_index
+                    }
+                    _ => continue,
+                };
+                let surface = &composite_state.external_surfaces[external_surface_index.0];
+                if surface.external_image_id.is_none()
+                    || !matches!(
+                        surface.color_data,
+                        ResolvedExternalSurfaceColorData::Yuv { channel_bit_depth: 8, .. }
+                    )
+                {
+                    continue;
+                }
+
+                let device_rect = composite_state.get_device_rect(
+                    &tile.local_rect,
+                    tile.transform_index,
+                );
+                // Match the existing external-composite size restriction (too big).
+                if device_rect.try_cast::<i16>().is_none() {
+                    continue;
+                }
+                let valid_rect = composite_state.get_device_rect(
+                    &tile.local_valid_rect,
+                    tile.transform_index,
+                );
+                let mut visible_rect = device_rect
+                    .intersection_unchecked(&tile.device_clip_rect)
+                    .intersection_unchecked(&valid_rect)
+                    .intersection_unchecked(&frame_rect);
+                if let Some(clip_index) = tile.clip_index {
+                    visible_rect = visible_rect.intersection_unchecked(
+                        &composite_state.get_compositor_clip(clip_index).rect,
+                    );
+                }
+                if visible_rect.is_empty() {
+                    continue;
+                }
+                let area = visible_rect.area();
+                // Keep the first tile in front-to-back order on equal areas.
+                if area > largest_area {
+                    largest_area = area;
+                    largest_sdr_yuv_tile = Some(idx);
+                }
+            }
+        }
+
         // Calculate layers with full device rect
 
         // Add a debug overlay request if enabled
@@ -648,7 +706,19 @@ impl Renderer {
             }
 
             let mut disable_external_composite = enable_screenshot;
-            if let CompositeTileSurface::ExternalSurface { .. } = tile.surface {
+            if let CompositeTileSurface::ExternalSurface { external_surface_index } = tile.surface {
+                let surface = &composite_state.external_surfaces[external_surface_index.0];
+                if self.limit_sdr_yuv_external_composites
+                    && matches!(
+                        surface.color_data,
+                        ResolvedExternalSurfaceColorData::Yuv { channel_bit_depth: 8, .. }
+                    )
+                    && largest_sdr_yuv_tile != Some(idx)
+                {
+                    // Fall back to the existing Content path. HDR and RGB
+                    // surfaces are not affected by the SDR YUV limit.
+                    disable_external_composite = true;
+                }
                 let transformed_rect = composite_state.get_device_rect(
                     &tile.local_rect,
                     tile.transform_index

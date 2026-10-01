@@ -132,6 +132,9 @@ pub struct WebRenderOptions {
     /// Delay promotion of moving 8-bit YUV images to compositor surfaces until
     /// their picture-space coverage rect has remained stable for several frames.
     pub enable_yuv_overlay_stability: bool,
+    /// Promote only the largest visible 8-bit YUV image to external compositing.
+    /// Higher bit depths and RGB images retain their existing behavior.
+    pub limit_sdr_yuv_external_composites: bool,
     pub max_recorded_profiles: usize,
     pub precache_flags: ShaderPrecacheFlags,
     /// Enable sub-pixel anti-aliasing if a fast implementation is available.
@@ -248,6 +251,7 @@ impl Default for WebRenderOptions {
             enable_aa: true,
             enable_dithering: false,
             enable_yuv_overlay_stability: false,
+            limit_sdr_yuv_external_composites: false,
             debug_flags: DebugFlags::empty(),
             max_recorded_profiles: 0,
             precache_flags: ShaderPrecacheFlags::empty(),
@@ -802,6 +806,7 @@ pub fn create_webrender_instance(
         force_redraw: true,
         compositor_config: options.compositor_config,
         current_compositor_kind: compositor_kind,
+        limit_sdr_yuv_external_composites: options.limit_sdr_yuv_external_composites,
         allocated_native_surfaces: FastHashSet::default(),
         debug_overlay_state: DebugOverlayState::new(),
         buffer_damage_tracker: BufferDamageTracker::default(),
