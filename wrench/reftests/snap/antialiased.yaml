@@ -1,0 +1,23 @@
+# Draw a few axis-aligned rectangles with anti-aliasing.
+# The blue ones should have fuzzy edges because they have sub-pixel
+# offsets, while the red one should look sharp.
+---
+root:
+  items:
+    - type: "stacking-context"
+      items:
+        - type: rect
+          bounds: [0, 0, 350, 120]
+          color: white
+        - type: rect
+          bounds: [10.5, 10.5, 100, 100]
+          color: blue
+          antialiased: true
+        - type: rect
+          bounds: [120.75, 10.75, 100, 100]
+          color: blue
+          antialiased: true
+        - type: rect
+          bounds: [230, 10, 100, 100]
+          color: red
+          antialiased: true
