@@ -5,7 +5,20 @@
 use api::units::*;
 use api::{ColorF, ExtendMode, GradientStop};
 use crate::pattern::{Pattern, PatternKind, PatternShaderInput, PatternTextureInput};
-use crate::renderer::{BlendMode, GpuBufferBuilder, GpuBufferWriterF};
+use crate::renderer::{BlendMode, GpuBufferBuilder, GpuBufferWriterF, MAX_VERTEX_TEXTURE_WIDTH};
+
+/// Number of blocks of gradient-kind specific parameters written before the
+/// stops.
+const GRADIENT_PARAMS_BLOCKS: usize = 2;
+
+/// The largest number of stops whose gradient data fits in a single GPU buffer
+/// row.
+pub const MAX_GRADIENT_STOPS: usize = 720;
+
+const _: () = assert!(
+    GRADIENT_PARAMS_BLOCKS + gpu_gradient_stops_blocks(MAX_GRADIENT_STOPS) <= MAX_VERTEX_TEXTURE_WIDTH &&
+    GRADIENT_PARAMS_BLOCKS + gpu_gradient_stops_blocks(MAX_GRADIENT_STOPS + 1) > MAX_VERTEX_TEXTURE_WIDTH
+);
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
@@ -22,7 +35,7 @@ pub fn linear_gradient_pattern(
     stops: &[GradientStop],
     gpu_buffer_builder: &mut GpuBufferBuilder
 ) -> Pattern {
-    let num_blocks = 2 + gpu_gradient_stops_blocks(stops.len());
+    let num_blocks = GRADIENT_PARAMS_BLOCKS + gpu_gradient_stops_blocks(stops.len());
     let mut writer = gpu_buffer_builder.f32.write_blocks(num_blocks);
     writer.push_one([
         start.x,
@@ -63,7 +76,7 @@ pub fn radial_gradient_pattern(
     stops: &[GradientStop],
     gpu_buffer_builder: &mut GpuBufferBuilder
 ) -> Pattern {
-    let num_blocks = 2 + gpu_gradient_stops_blocks(stops.len());
+    let num_blocks = GRADIENT_PARAMS_BLOCKS + gpu_gradient_stops_blocks(stops.len());
     let mut writer = gpu_buffer_builder.f32.write_blocks(num_blocks);
     // zw is padding: the gradient parameters need five floats across two blocks.
     writer.push_one([
@@ -105,7 +118,7 @@ pub fn conic_gradient_pattern(
     stops: &[GradientStop],
     gpu_buffer_builder: &mut GpuBufferBuilder
 ) -> Pattern {
-    let num_blocks = 2 + gpu_gradient_stops_blocks(stops.len());
+    let num_blocks = GRADIENT_PARAMS_BLOCKS + gpu_gradient_stops_blocks(stops.len());
     let mut writer = gpu_buffer_builder.f32.write_blocks(num_blocks);
     // zw is padding: the gradient parameters need five floats across two blocks.
     writer.push_one([
@@ -272,7 +285,7 @@ pub fn write_gpu_gradient_stops_tree(
     return is_opaque;
 }
 
-fn gpu_gradient_stops_blocks(num_stops: usize) -> usize {
+const fn gpu_gradient_stops_blocks(num_stops: usize) -> usize {
     let header_blocks = 1;
     let color_blocks = num_stops;
 
@@ -287,7 +300,12 @@ fn gpu_gradient_stops_blocks(num_stops: usize) -> usize {
 
     // Fix the capacity up to account for the fact that we don't
     // store the entirety of the last level;
-    let num_blocks_for_last_level = num_blocks_for_level.min(num_stops / 5 + 1);
+    let partial_last_level = num_stops / 5 + 1;
+    let num_blocks_for_last_level = if partial_last_level < num_blocks_for_level {
+        partial_last_level
+    } else {
+        num_blocks_for_level
+    };
     offset_blocks -= num_blocks_for_level;
     offset_blocks += num_blocks_for_last_level;
 
