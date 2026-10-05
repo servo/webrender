@@ -324,7 +324,7 @@ pub enum ClipSnap {
     Nearest,
     /// Leave clip edges exact. Used by device-space prims (text runs and
     /// surfaces), whose clips must stay at the sub-pixel position matching their
-    /// contents (bug 2050692).
+    /// contents (bug 2050692), and by anti-aliased prims, which snap nothing.
     Exact,
 }
 
@@ -352,6 +352,9 @@ impl PrimitiveInstance {
     /// How this prim rounds to the device pixel grid: its own rect and its
     /// clips (see `SnapPolicy`).
     ///
+    /// An anti-aliased prim snaps nothing at all, which takes precedence over
+    /// everything below.
+    ///
     /// A device-space prim (see `PrimitiveKind::snaps`) stays at exact
     /// sub-pixel positions and only needs a conservative, grid-aligned
     /// footprint. A decoration line snaps its thickness specially so it can't
@@ -363,6 +366,9 @@ impl PrimitiveInstance {
     /// allocation) while its clips stay exact, at the sub-pixel position
     /// matching its contents (bug 2050692).
     pub fn snap_policy(&self, data_stores: &DataStores) -> SnapPolicy {
+        if data_stores.prim_has_anti_aliasing(self) {
+            return SnapPolicy { rect: SnapRounding::Exact, clip: ClipSnap::Exact };
+        }
         if !self.kind.snaps() {
             return SnapPolicy { rect: SnapRounding::RoundOut, clip: ClipSnap::Exact };
         }
