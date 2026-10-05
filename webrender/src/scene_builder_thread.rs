@@ -133,6 +133,14 @@ pub enum SceneBuilderRequest {
     SaveScene(CaptureConfig),
     #[cfg(feature = "replay")]
     LoadScenes(Vec<LoadScene>),
+    /// Restore the display list interning state a capture saved from this
+    /// thread. Sent ahead of the `LoadScenes` it belongs with, so the scenes
+    /// find the namespaces their pipelines had.
+    #[cfg(feature = "replay")]
+    LoadDlStores {
+        dl_builders: DlBuilderMap,
+        scene_stores: SceneDlStores,
+    },
     #[cfg(feature = "capture")]
     StartCaptureSequence(CaptureConfig),
     #[cfg(feature = "capture")]
@@ -245,6 +253,8 @@ macro_rules! declare_scene_dl_stores {
         /// same op stream, but applied the moment a display list's delta is
         /// resolved so that a scene built later in the same transaction sees
         /// the entries it names.
+        #[cfg_attr(feature = "capture", derive(Serialize))]
+        #[cfg_attr(feature = "replay", derive(Deserialize))]
         #[derive(Default)]
         pub struct SceneDlStores {
             $( pub $field: crate::dl_interner::DlStore<$key, $value>, )*
@@ -612,6 +622,11 @@ impl SceneBuilderThread {
                 Ok(SceneBuilderRequest::LoadScenes(msg)) => {
                     self.load_scenes(msg);
                 }
+                #[cfg(feature = "replay")]
+                Ok(SceneBuilderRequest::LoadDlStores { dl_builders, scene_stores }) => {
+                    self.dl_builders = dl_builders;
+                    self.scene_stores = scene_stores;
+                }
                 #[cfg(feature = "capture")]
                 Ok(SceneBuilderRequest::SaveScene(config)) => {
                     self.save_scene(config);
@@ -665,6 +680,9 @@ impl SceneBuilderThread {
 
     #[cfg(feature = "capture")]
     fn save_scene(&mut self, config: CaptureConfig) {
+        config.serialize_for_scene(&self.dl_builders, "dl-builders");
+        config.serialize_for_scene(&self.scene_stores, "scene-dl-stores");
+
         for (id, doc) in &self.documents {
             let interners_name = format!("interners-{}-{}", id.namespace_id.0, id.id);
             config.serialize_for_scene(&doc.interners, interners_name);
@@ -690,9 +708,10 @@ impl SceneBuilderThread {
             let mut spatial_tree_updates = None;
             let mut dl_updates = DlUpdates::default();
 
-            // A capture holds no interning deltas, so give every pipeline it
-            // brings a namespace here instead, as its display lists arriving
-            // would have.
+            // The builder map came with the capture, so this normally finds a
+            // namespace for every pipeline. A capture holds no interning
+            // deltas, though, so a pipeline the map does not know gets one
+            // here instead, as its display list arriving would have given it.
             for pipeline_id in item.scene.pipelines.keys() {
                 let (namespace, allocated) = self.dl_builders.get_or_alloc(*pipeline_id);
                 if allocated {
@@ -767,6 +786,9 @@ impl SceneBuilderThread {
     ) {
         if let Some(ref mut config) = self.capture_config {
             config.prepare_scene();
+            config.serialize_for_scene(&self.dl_builders, "dl-builders");
+            config.serialize_for_scene(&self.scene_stores, "scene-dl-stores");
+
             for (id, doc) in &self.documents {
                 let interners_name = format!("interners-{}-{}", id.namespace_id.0, id.id);
                 config.serialize_for_scene(&doc.interners, interners_name);

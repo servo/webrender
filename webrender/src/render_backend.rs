@@ -18,6 +18,8 @@ use api::channel::{single_msg_channel, Sender, Receiver};
 use crate::bump_allocator::ChunkPool;
 use crate::AsyncPropertySampler;
 use crate::box_shadow::BoxShadow;
+#[cfg(feature = "replay")]
+use crate::dl_interner::DlBuilderMap;
 use crate::prim_store::rectangle::RectanglePrim;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::render_api::CaptureBits;
@@ -169,6 +171,8 @@ macro_rules! declare_dl_stores {
         /// mean either duplicating entries per document or introducing
         /// sharing. It also means "which store does this handle refer to?" is
         /// answered by the handle's type, with no runtime discriminator.
+        #[cfg_attr(feature = "capture", derive(Serialize))]
+        #[cfg_attr(feature = "replay", derive(Deserialize))]
         #[derive(Default)]
         pub struct DlStores {
             $( pub $field: crate::dl_interner::DlStore<$key, $template>, )*
@@ -207,6 +211,12 @@ macro_rules! declare_dl_stores {
 
             fn report_memory(&self, ops: &mut MallocSizeOfOps, r: &mut MemoryReport) {
                 $( r.interning.dl_stores.$report += self.$field.size_of(ops); )*
+            }
+
+            /// See `DlStore::reconcile`.
+            #[cfg(feature = "replay")]
+            fn reconcile(&mut self, builders: &crate::dl_interner::DlBuilderMap) {
+                $( self.$field.reconcile(builders); )*
             }
         }
     }
@@ -2472,6 +2482,8 @@ impl RenderBackend {
             config.serialize_for_frame(&doc.dynamic_properties, properties_name);
         }
 
+        config.serialize_for_frame(&self.dl_stores, "dl-stores");
+
         if config.bits.contains(CaptureBits::FRAME) {
             // TODO: there is no guarantee that we won't hit this case, but we want to
             // report it here if we do. If we don't, it will simply crash in
@@ -2740,6 +2752,19 @@ impl RenderBackend {
                 spatial_tree: scene_spatial_tree,
             });
         }
+
+        let dl_builders = config.deserialize_for_scene::<DlBuilderMap, _>("dl-builders")
+            .expect("Unable to open dl-builders.ron");
+        let scene_stores = config.deserialize_for_scene::<SceneDlStores, _>("scene-dl-stores")
+            .expect("Unable to open scene-dl-stores.ron");
+        self.dl_stores = config.deserialize_for_frame::<DlStores, _>("dl-stores")
+            .expect("Unable to open dl-stores.ron");
+        // The same snapshot skew as `data_stores` above, handled as far as it
+        // can be: the namespaces follow the map, the entries cannot.
+        self.dl_stores.reconcile(&dl_builders);
+        self.send_backend_message(
+            SceneBuilderRequest::LoadDlStores { dl_builders, scene_stores }
+        );
 
         if !scenes_to_build.is_empty() {
             self.send_backend_message(
