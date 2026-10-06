@@ -28,6 +28,13 @@ pub const VERTEX_TEXTURE_EXTRA_ROWS: i32 = 10;
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = webrender_build::MAX_VERTEX_TEXTURE_WIDTH;
 
+/// Upper bound on the size of the CPU-side copy retained to detect unchanged
+/// vertex data. Buffers larger than this are always treated as dirty, which
+/// bounds both the retained memory and the cost of the comparison. One texture
+/// row is ample for the frames this is meant to catch, where nothing is drawn
+/// and only a handful of entries are present.
+const MAX_TRACKED_UPLOAD_BYTES: usize = MAX_VERTEX_TEXTURE_WIDTH * 16;
+
 pub mod desc {
     use crate::device::{VertexAttribute, VertexAttributeKind, VertexDescriptor};
 
@@ -296,7 +303,7 @@ impl VertexDataTextures {
         }
     }
 
-    pub fn update(&mut self, device: &mut Device, pbo_pool: &mut UploadBufferPool, frame: &mut Frame) {
+    fn upload(&mut self, device: &mut Device, pbo_pool: &mut UploadBufferPool, frame: &mut Frame) {
         let mut texture_uploader = device.upload_texture(pbo_pool);
         self.prim_header_f_texture.update(
             device,
@@ -319,25 +326,27 @@ impl VertexDataTextures {
         // Flush and drop the texture uploader now, so that
         // we can borrow the textures to bind them.
         texture_uploader.flush(device);
+    }
 
+    fn bind(&self, device: &mut Device) {
         device.bind_texture(
             super::TextureSampler::PrimitiveHeadersF,
-            &self.prim_header_f_texture.texture(),
+            self.prim_header_f_texture.texture(),
             Swizzle::default(),
         );
         device.bind_texture(
             super::TextureSampler::PrimitiveHeadersI,
-            &self.prim_header_i_texture.texture(),
+            self.prim_header_i_texture.texture(),
             Swizzle::default(),
         );
         device.bind_texture(
             super::TextureSampler::TransformPalette,
-            &self.transforms_texture.texture(),
+            self.transforms_texture.texture(),
             Swizzle::default(),
         );
         device.bind_texture(
             super::TextureSampler::RenderTasks,
-            &self.render_task_texture.texture(),
+            self.render_task_texture.texture(),
             Swizzle::default(),
         );
     }
@@ -354,6 +363,171 @@ impl VertexDataTextures {
         self.prim_header_f_texture.deinit(device);
         self.prim_header_i_texture.deinit(device);
         self.render_task_texture.deinit(device);
+    }
+}
+
+/// A copy of the bytes last uploaded to one vertex data texture, used to detect
+/// frames that produce byte-identical data so that the upload can be skipped.
+#[derive(Default)]
+struct LastUpload {
+    bytes: Vec<u8>,
+    /// False if `bytes` does not describe the texture contents, either because
+    /// nothing has been uploaded yet or because the data exceeded
+    /// `MAX_TRACKED_UPLOAD_BYTES` and was not retained.
+    valid: bool,
+}
+
+impl LastUpload {
+    /// Compares `data` against the previous upload and records it as the new
+    /// contents. Returns true if the data differs and must be re-uploaded.
+    fn record_if_changed<T>(&mut self, data: &[T]) -> bool {
+        // Empty data leaves the existing texture contents alone (see
+        // `VertexDataTexture::update`), so it is neither dirty nor worth
+        // recording: the texture still holds what was uploaded last.
+        if data.is_empty() {
+            return false;
+        }
+
+        // SAFETY: `T` is a `#[repr(C)]` type built only from 4-byte fields, so
+        // it contains no padding and every byte of the slice is initialized.
+        // This mirrors `texels_to_u8_slice` in `device::gl`.
+        let bytes = unsafe {
+            std::slice::from_raw_parts(data.as_ptr() as *const u8, mem::size_of_val(data))
+        };
+
+        // Content this large is being rebuilt every frame anyway, so retaining
+        // and comparing it would cost more than the upload it might save.
+        if bytes.len() > MAX_TRACKED_UPLOAD_BYTES {
+            self.bytes = Vec::new();
+            self.valid = false;
+            return true;
+        }
+
+        if self.valid && self.bytes == bytes {
+            return false;
+        }
+
+        self.bytes.clear();
+        self.bytes.extend_from_slice(bytes);
+        self.valid = true;
+        true
+    }
+
+    fn size_in_bytes(&self) -> usize {
+        self.bytes.capacity()
+    }
+}
+
+/// The contents of the vertex data textures at the time of the last upload.
+#[derive(Default)]
+struct VertexDataContents {
+    prim_header_f: LastUpload,
+    prim_header_i: LastUpload,
+    transforms: LastUpload,
+    render_tasks: LastUpload,
+    /// False until the first upload, so that the initial frame always creates
+    /// the textures even if every buffer is empty.
+    initialized: bool,
+}
+
+impl VertexDataContents {
+    /// Compares the frame's vertex data against the last upload and records it.
+    /// Returns true if anything differs and the textures must be re-uploaded.
+    fn record_if_changed(&mut self, frame: &Frame) -> bool {
+        // Collected into an array rather than chained with `||` so that every
+        // buffer is compared and records its contents, not just those up to
+        // the first one that changed.
+        let changed = [
+            self.prim_header_f.record_if_changed(&frame.prim_headers.headers_float),
+            self.prim_header_i.record_if_changed(&frame.prim_headers.headers_int),
+            self.transforms.record_if_changed(&frame.transform_palette),
+            self.render_tasks.record_if_changed(&frame.render_tasks.task_data),
+        ].contains(&true);
+
+        let dirty = changed || !self.initialized;
+        self.initialized = true;
+        dirty
+    }
+
+    fn size_in_bytes(&self) -> usize {
+        self.prim_header_f.size_in_bytes()
+            + self.prim_header_i.size_in_bytes()
+            + self.transforms.size_in_bytes()
+            + self.render_tasks.size_in_bytes()
+    }
+}
+
+/// A ring of vertex data texture sets, of which one is bound at a time. The
+/// ring rotates on upload so that we avoid writing to a texture the GPU may
+/// still be sampling from an earlier frame (see `VERTEX_DATA_TEXTURE_COUNT`).
+///
+/// A copy of the data last uploaded is retained so that a frame producing
+/// byte-identical vertex data can skip the upload entirely. This matters
+/// because creating a `TextureUploader` probes the upload PBO pool's fences,
+/// which flushes the GPU command stream on some drivers. It happens whenever a
+/// frame draws nothing but is still presented, for instance when a promoted
+/// video surface updates during direct scanout.
+pub struct VertexDataRing {
+    sets: Vec<VertexDataTextures>,
+    /// Index of the set holding the data currently on the GPU.
+    current: usize,
+    last_upload: VertexDataContents,
+}
+
+impl VertexDataRing {
+    pub fn new() -> Self {
+        let count = super::VERTEX_DATA_TEXTURE_COUNT;
+        let mut sets = Vec::with_capacity(count);
+        for _ in 0 .. count {
+            sets.push(VertexDataTextures::new());
+        }
+
+        VertexDataRing {
+            sets,
+            // Start at the end so that the first upload rotates onto set 0.
+            current: count - 1,
+            last_upload: VertexDataContents::default(),
+        }
+    }
+
+    /// Uploads the frame's vertex data if it differs from the last upload, and
+    /// binds the textures holding it. Returns true if an upload was performed.
+    pub fn update(
+        &mut self,
+        device: &mut Device,
+        pbo_pool: &mut UploadBufferPool,
+        frame: &mut Frame,
+    ) -> bool {
+        let uploaded = self.last_upload.record_if_changed(frame);
+
+        if uploaded {
+            // Only rotate when we are actually going to write. The rotation
+            // exists to avoid stalling on a texture the GPU may still be
+            // sampling; if we don't write there is no such hazard, and the set
+            // written last already holds the correct data.
+            self.current = (self.current + 1) % super::VERTEX_DATA_TEXTURE_COUNT;
+            self.sets[self.current].upload(device, pbo_pool, frame);
+        }
+
+        self.sets[self.current].bind(device);
+
+        uploaded
+    }
+
+    /// GPU memory consumed by the textures in the ring.
+    pub fn gpu_size_in_bytes(&self) -> usize {
+        self.sets.iter().map(|set| set.size_in_bytes()).sum()
+    }
+
+    /// CPU memory consumed by the retained copy of the last upload.
+    pub fn cpu_size_in_bytes(&self) -> usize {
+        self.last_upload.size_in_bytes()
+    }
+
+    pub fn deinit(&mut self, device: &mut Device) {
+        for set in self.sets.drain(..) {
+            set.deinit(device);
+        }
     }
 }
 

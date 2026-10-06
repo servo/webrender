@@ -1,2 +1,5 @@
 skip_on(android) fuzzy-if(platform(win),1,88) == color_targets(2) alpha_targets(0) no-clip-mask.yaml no-clip-mask.png  # Too wide for Android
 scale(*) platform(linux,mac) == compositor-surface-opaque-slice.yaml compositor-surface-opaque-slice-ref.yaml
+# Rendered twice: once the tiles have settled the frame produces byte-identical
+# vertex data, which must not be re-uploaded.
+== vertex_data_uploads(0) static-scene-no-vertex-upload.yaml static-scene-no-vertex-upload.yaml static-scene-no-vertex-upload.yaml
