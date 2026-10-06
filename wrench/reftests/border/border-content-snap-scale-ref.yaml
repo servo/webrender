@@ -2,10 +2,10 @@
 root:
   items:
     - type: rect
-      bounds: [10, 10, 101, 101]
+      bounds: [11, 11, 101, 101]
       color: black
     - type: rect
-      bounds: [11, 11, 99, 99]
+      bounds: [12, 12, 99, 99]
       color: [128, 128, 128, 1]
     - type: rect
       bounds: [151, 11, 114, 114]
