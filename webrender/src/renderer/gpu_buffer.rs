@@ -52,7 +52,7 @@ impl Default for GpuBufferBlockI {
 }
 
 /// A single texel in RGBAF32 texture - 16 bytes.
-#[derive(Copy, Clone, Debug, MallocSizeOf)]
+#[derive(Copy, Clone, Debug, MallocSizeOf, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GpuBufferBlockF {
@@ -60,7 +60,7 @@ pub struct GpuBufferBlockF {
 }
 
 /// A single texel in RGBAI32 texture - 16 bytes.
-#[derive(Copy, Clone, Debug, MallocSizeOf)]
+#[derive(Copy, Clone, Debug, MallocSizeOf, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GpuBufferBlockI {

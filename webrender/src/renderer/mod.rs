@@ -131,6 +131,7 @@ pub use vertex::{desc, VertexArrayKind, MAX_VERTEX_TEXTURE_WIDTH};
 pub use gpu_buffer::{GpuBuffer, GpuBufferF, GpuBufferBuilderF, GpuBufferI, GpuBufferBuilderI};
 pub use gpu_buffer::{GpuBufferHandle, GpuBufferAddress, GpuBufferBuilder, GpuBufferWriterF};
 pub use gpu_buffer::{GpuBufferDataF, GpuBufferDataI, GpuBufferWriterI};
+use gpu_buffer::{GpuBufferBlockF, GpuBufferBlockI};
 
 /// The size of the array of each type of vertex data texture that
 /// is round-robin-ed each frame during bind_frame_data. Doing this
@@ -677,6 +678,13 @@ impl BufferDamageTracker {
     }
 }
 
+/// Upper bound on the number of GPU buffer blocks we keep a copy of in order to
+/// detect unchanged uploads. The blocks are 16 bytes and the textures are
+/// `MAX_VERTEX_TEXTURE_WIDTH` wide, so this caps the retained data at one texture
+/// row, or 16kB per buffer. Anything larger is treated as always dirty, which
+/// bounds both the retained copy and the comparison.
+const MAX_RETAINED_GPU_BUFFER_BLOCKS: usize = MAX_VERTEX_TEXTURE_WIDTH;
+
 fn preferred_gpu_buffer_texture_height(required_height: i32) -> i32 {
     ((required_height + 7) & !7).max(8)
 }
@@ -746,8 +754,10 @@ pub struct Renderer {
 
     gpu_buffer_texture_f: Option<Texture>,
     gpu_buffer_texture_f_too_large: i32,
+    gpu_buffer_last_data_f: Vec<GpuBufferBlockF>,
     gpu_buffer_texture_i: Option<Texture>,
     gpu_buffer_texture_i_too_large: i32,
+    gpu_buffer_last_data_i: Vec<GpuBufferBlockI>,
     vertex_data_textures: Vec<vertex::VertexDataTextures>,
     current_vertex_data_textures: usize,
 
@@ -1483,9 +1493,11 @@ impl Renderer {
         if let Some(texture) = self.gpu_buffer_texture_f.take() {
             self.device.delete_texture(texture);
         }
+        self.gpu_buffer_last_data_f = Vec::new();
         if let Some(texture) = self.gpu_buffer_texture_i.take() {
             self.device.delete_texture(texture);
         }
+        self.gpu_buffer_last_data_i = Vec::new();
     }
 
     /// Set a callback for handling external images.
@@ -3873,10 +3885,11 @@ impl Renderer {
         }
     }
 
-    fn update_gpu_buffer_texture<T: Texel>(
+    fn update_gpu_buffer_texture<T: Texel + Copy + PartialEq>(
         device: &mut Device,
         buffer: &GpuBuffer<T>,
         dst_texture: &mut Option<Texture>,
+        last_data: &mut Vec<T>,
         pbo_pool: &mut UploadBufferPool,
     ) {
         if buffer.is_empty() {
@@ -3887,7 +3900,24 @@ impl Renderer {
             assert!(texture.get_dimensions().width == buffer.size.width);
             if texture.get_dimensions().height < buffer.size.height {
                 device.delete_texture(dst_texture.take().unwrap());
+                last_data.clear();
             }
+        }
+
+        // Retaining the data is only worth it for small buffers, so anything larger
+        // is treated as always dirty. Note that comparing floats means a buffer
+        // containing NaN always counts as changed, which errs towards uploading.
+        let retain = buffer.data.len() <= MAX_RETAINED_GPU_BUFFER_BLOCKS;
+
+        if retain && dst_texture.is_some() && last_data.as_slice() == &buffer.data[..] {
+            return;
+        }
+
+        last_data.clear();
+        if retain {
+            last_data.extend_from_slice(&buffer.data[..]);
+        } else {
+            last_data.shrink_to_fit();
         }
 
         if dst_texture.is_none() {
@@ -3923,11 +3953,12 @@ impl Renderer {
         uploader.flush(device);
     }
 
-    fn maybe_evict_gpu_buffer_texture(
+    fn maybe_evict_gpu_buffer_texture<T>(
         device: &mut Device,
         gpu_buffer_height: i32,
         texture: &mut Option<Texture>,
         texture_too_large: &mut i32,
+        last_data: &mut Vec<T>,
     ) {
         if let Some(tex) = texture {
             if tex.get_dimensions().height > gpu_buffer_height * 2
@@ -3944,6 +3975,7 @@ impl Renderer {
         if *texture_too_large > 10 {
             device.delete_texture(texture.take().unwrap());
             *texture_too_large = 0;
+            *last_data = Vec::new();
         }
     }
 
@@ -3972,12 +4004,14 @@ impl Renderer {
                 &mut self.device,
                 &frame.gpu_buffer_f,
                 &mut self.gpu_buffer_texture_f,
+                &mut self.gpu_buffer_last_data_f,
                 &mut self.texture_upload_buffer_pool,
             );
             Self::update_gpu_buffer_texture(
                 &mut self.device,
                 &frame.gpu_buffer_i,
                 &mut self.gpu_buffer_texture_i,
+                &mut self.gpu_buffer_last_data_i,
                 &mut self.texture_upload_buffer_pool,
             );
         }
@@ -4194,6 +4228,7 @@ impl Renderer {
             frame.gpu_buffer_f.size.height,
             &mut self.gpu_buffer_texture_f,
             &mut self.gpu_buffer_texture_f_too_large,
+            &mut self.gpu_buffer_last_data_f,
         );
 
         Self::maybe_evict_gpu_buffer_texture(
@@ -4201,6 +4236,7 @@ impl Renderer {
             frame.gpu_buffer_i.size.height,
             &mut self.gpu_buffer_texture_i,
             &mut self.gpu_buffer_texture_i_too_large,
+            &mut self.gpu_buffer_last_data_i,
         );
     }
 
