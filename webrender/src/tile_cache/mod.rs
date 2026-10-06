@@ -1489,6 +1489,12 @@ impl TileCacheInstance {
                             let clip_node = &data_stores.clip[clip_instance.handle];
 
                             if let ClipItemKind::RoundedRectangle { ref radius, mode: ClipMode::Clip, .. } = clip_node.item.kind {
+                                // Compositor rounded clips only support the default round
+                                // corner shape. Other shapes require a WebRender clip mask.
+                                if !radius.shapes_all_round() {
+                                    return Err(OverlayNeedsMask);
+                                }
+
                                 let size = clip_instance.clip_rect.size();
                                 let radius = clamped_radius(radius, size);
                                 let max_corner_width = radius.top_left.width
