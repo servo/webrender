@@ -319,12 +319,14 @@ pub struct PrimitiveInstance {
 /// rounds its rect out but leaves its clips exact.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ClipSnap {
-    /// Snap every clip edge to the nearest device pixel. Used by prims that
-    /// snap their whole geometry to the grid (`snaps`).
+    /// Snap every clip edge to the nearest device pixel, except for the clips
+    /// marked as anti-aliased (see `ClipTreeNode::anti_aliased`). Used by
+    /// prims that snap their geometry to the grid (`snaps`), and by
+    /// anti-aliased prims.
     Nearest,
     /// Leave clip edges exact. Used by device-space prims (text runs and
     /// surfaces), whose clips must stay at the sub-pixel position matching their
-    /// contents (bug 2050692), and by anti-aliased prims, which snap nothing.
+    /// contents (bug 2050692).
     Exact,
 }
 
@@ -336,6 +338,17 @@ pub enum ClipSnap {
 pub struct SnapPolicy {
     pub rect: SnapRounding,
     pub clip: ClipSnap,
+}
+
+impl SnapPolicy {
+    /// How the prim's own local clip rect rounds. It is part of the prim's
+    /// geometry, so it is left exact when the prim's rect is.
+    pub fn local_clip(&self) -> ClipSnap {
+        match self.rect {
+            SnapRounding::Exact => ClipSnap::Exact,
+            _ => self.clip,
+        }
+    }
 }
 
 impl PrimitiveInstance {
@@ -352,8 +365,9 @@ impl PrimitiveInstance {
     /// How this prim rounds to the device pixel grid: its own rect and its
     /// clips (see `SnapPolicy`).
     ///
-    /// An anti-aliased prim snaps nothing at all, which takes precedence over
-    /// everything below.
+    /// An anti-aliased prim does not snap its rect or its own local clip rect,
+    /// but snaps the clips of its clip chain like other prims, except for the
+    /// anti-aliased ones. This takes precedence over everything below.
     ///
     /// A device-space prim (see `PrimitiveKind::snaps`) stays at exact
     /// sub-pixel positions and only needs a conservative, grid-aligned
@@ -367,7 +381,7 @@ impl PrimitiveInstance {
     /// matching its contents (bug 2050692).
     pub fn snap_policy(&self, data_stores: &DataStores) -> SnapPolicy {
         if data_stores.prim_has_anti_aliasing(self) {
-            return SnapPolicy { rect: SnapRounding::Exact, clip: ClipSnap::Exact };
+            return SnapPolicy { rect: SnapRounding::Exact, clip: ClipSnap::Nearest };
         }
         if !self.kind.snaps() {
             return SnapPolicy { rect: SnapRounding::RoundOut, clip: ClipSnap::Exact };

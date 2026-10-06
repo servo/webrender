@@ -1196,6 +1196,7 @@ impl<'a> SceneBuilder<'a> {
             ClipId::root(iframe_pipeline_id),
             info.space_and_clip.spatial_id,
             &info.clip_rect,
+            false,
         );
 
         self.clip_tree_builder.push_clip_id(ClipId::root(iframe_pipeline_id));
@@ -1662,6 +1663,7 @@ impl<'a> SceneBuilder<'a> {
                     info.spatial_id,
                     &info.clip,
                     info.snap_outset,
+                    info.anti_aliased,
                 );
             }
             DisplayItem::RectClip(ref info) => {
@@ -1671,6 +1673,7 @@ impl<'a> SceneBuilder<'a> {
                     info.id,
                     info.spatial_id,
                     &info.clip_rect,
+                    info.anti_aliased,
                 );
             }
             DisplayItem::ClipChain(ref info) => {
@@ -2605,6 +2608,7 @@ impl<'a> SceneBuilder<'a> {
         new_node_id: ClipId,
         spatial_id: SpatialId,
         clip_rect: &LayoutRect,
+        anti_aliased: bool,
     ) {
         let spatial_node_index = self.get_space(spatial_id);
 
@@ -2627,6 +2631,7 @@ impl<'a> SceneBuilder<'a> {
             handle,
             spatial_node_index,
             clip_rect,
+            anti_aliased,
         );
     }
 
@@ -2636,6 +2641,7 @@ impl<'a> SceneBuilder<'a> {
         spatial_id: SpatialId,
         clip: &ComplexClipRegion,
         snap_outset: f32,
+        anti_aliased: bool,
     ) {
         let spatial_node_index = self.get_space(spatial_id);
 
@@ -2664,6 +2670,7 @@ impl<'a> SceneBuilder<'a> {
             spatial_node_index,
             region_rect,
             snap_outset,
+            anti_aliased,
         );
     }
 

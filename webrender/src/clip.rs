@@ -135,6 +135,9 @@ pub struct ClipTreeNode {
     /// different times as the spread animates, and the ring width breathe as
     /// the element re-snaps under motion (bug 2052033).
     pub snap_outset: f32,
+    /// Keep this clip at its exact position even for primitives that snap
+    /// their clips. See `RectClipDisplayItem::anti_aliased`.
+    pub anti_aliased: bool,
     pub parent: ClipNodeId,
 
     children: FastHashMap<ClipEntry, ClipNodeId>,
@@ -230,6 +233,7 @@ impl ClipTree {
                     spatial_node_index: SpatialNodeIndex::INVALID,
                     unsnapped_clip_rect: LayoutRect::zero(),
                     snap_outset: 0.0,
+                    anti_aliased: false,
                     children: FastHashMap::default(),
                     parent: ClipNodeId::NONE,
                 }
@@ -244,6 +248,7 @@ impl ClipTree {
             spatial_node_index: SpatialNodeIndex::INVALID,
             unsnapped_clip_rect: LayoutRect::zero(),
             snap_outset: 0.0,
+            anti_aliased: false,
             children: FastHashMap::default(),
             parent: ClipNodeId::NONE,
         });
@@ -279,6 +284,7 @@ impl ClipTree {
                         spatial_node_index: key.spatial_node_index,
                         unsnapped_clip_rect: key.clip_rect.into(),
                         snap_outset: key.snap_outset,
+                        anti_aliased: key.anti_aliased,
                         children: FastHashMap::default(),
                         parent: id,
                     });
@@ -410,6 +416,8 @@ pub struct ClipEntry {
     /// clip edge that lands on a device-pixel tie to the opposite pixel, leaving
     /// one side of a fake-border ring a pixel thin (bug 2051177).
     pub snap_outset: f32,
+    /// Propagated to `ClipTreeNode::anti_aliased`.
+    pub anti_aliased: bool,
 }
 
 impl Eq for ClipEntry {}
@@ -420,6 +428,7 @@ impl Hash for ClipEntry {
         self.spatial_node_index.hash(state);
         self.clip_rect.hash(state);
         self.snap_outset.to_bits().hash(state);
+        self.anti_aliased.hash(state);
     }
 }
 
@@ -510,8 +519,9 @@ impl ClipTreeBuilder {
         handle: ClipDataHandle,
         spatial_node_index: SpatialNodeIndex,
         clip_rect: LayoutRect,
+        anti_aliased: bool,
     ) {
-        self.clip_map.insert(id, ClipEntry { handle, spatial_node_index, clip_rect: clip_rect.into(), snap_outset: 0.0 });
+        self.clip_map.insert(id, ClipEntry { handle, spatial_node_index, clip_rect: clip_rect.into(), snap_outset: 0.0, anti_aliased });
     }
 
     /// Define a new rounded rect clip
@@ -522,8 +532,9 @@ impl ClipTreeBuilder {
         spatial_node_index: SpatialNodeIndex,
         clip_rect: LayoutRect,
         snap_outset: f32,
+        anti_aliased: bool,
     ) {
-        self.clip_map.insert(id, ClipEntry { handle, spatial_node_index, clip_rect: clip_rect.into(), snap_outset });
+        self.clip_map.insert(id, ClipEntry { handle, spatial_node_index, clip_rect: clip_rect.into(), snap_outset, anti_aliased });
     }
 
     /// Define a image mask clip
@@ -534,7 +545,7 @@ impl ClipTreeBuilder {
         spatial_node_index: SpatialNodeIndex,
         clip_rect: LayoutRect,
     ) {
-        self.clip_map.insert(id, ClipEntry { handle, spatial_node_index, clip_rect: clip_rect.into(), snap_outset: 0.0 });
+        self.clip_map.insert(id, ClipEntry { handle, spatial_node_index, clip_rect: clip_rect.into(), snap_outset: 0.0, anti_aliased: false });
     }
 
     /// Define a clip-chain
@@ -1501,8 +1512,10 @@ impl ClipStore {
             let node = clip_tree.get_node(current);
 
             let clip_rect = match clip_snap {
+                // An anti-aliased clip stays exact, like an anti-aliased prim.
+                ClipSnap::Nearest if node.anti_aliased => node.unsnapped_clip_rect,
                 ClipSnap::Nearest => node.snapped_clip_rect(snapper, spatial_tree),
-                // Device-space / anti-aliased prim: leave the clip exact. A
+                // Device-space prim: leave the clip exact. A
                 // text run's clips must NOT be rounded out to the grid - an
                 // overflow clip sits flush with its container's painted
                 // border box, and rounding it outward spills a whole device

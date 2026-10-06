@@ -1939,6 +1939,7 @@ impl DisplayListBuilder {
                         mode: ClipMode::ClipOut,
                     },
                     0.0,
+                    false,
                 ));
 
                 (shadow_rect, shadow_radius, shadow_inset)
@@ -1954,6 +1955,7 @@ impl DisplayListBuilder {
                             mode: ClipMode::ClipOut,
                         },
                         spread_radius,
+                        false,
                     ));
                 }
 
@@ -1971,6 +1973,7 @@ impl DisplayListBuilder {
                 mode: ClipMode::Clip,
             },
             0.0,
+            false,
         ));
 
         // Chain the shaping clips on top of the item's own clip chain.
@@ -2609,12 +2612,32 @@ impl DisplayListBuilder {
         spatial_id: di::SpatialId,
         clip_rect: LayoutRect,
     ) -> di::ClipId {
+        self.define_clip_rect_impl(spatial_id, clip_rect, false)
+    }
+
+    /// As `define_clip_rect`, but the clip is not snapped to the device pixel
+    /// grid (see `RectClipDisplayItem::anti_aliased`).
+    pub fn define_anti_aliased_clip_rect(
+        &mut self,
+        spatial_id: di::SpatialId,
+        clip_rect: LayoutRect,
+    ) -> di::ClipId {
+        self.define_clip_rect_impl(spatial_id, clip_rect, true)
+    }
+
+    fn define_clip_rect_impl(
+        &mut self,
+        spatial_id: di::SpatialId,
+        clip_rect: LayoutRect,
+        anti_aliased: bool,
+    ) -> di::ClipId {
         let id = self.generate_clip_index();
 
         let item = di::DisplayItem::RectClip(di::RectClipDisplayItem {
             id,
             spatial_id,
             clip_rect: self.normalize_rect(clip_rect, spatial_id),
+            anti_aliased,
         });
 
         self.push_item(&item);
@@ -2626,7 +2649,17 @@ impl DisplayListBuilder {
         spatial_id: di::SpatialId,
         clip: di::ComplexClipRegion,
     ) -> di::ClipId {
-        self.define_clip_rounded_rect_impl(spatial_id, clip, 0.0)
+        self.define_clip_rounded_rect_impl(spatial_id, clip, 0.0, false)
+    }
+
+    /// As `define_clip_rounded_rect`, but the clip is not snapped to the device
+    /// pixel grid (see `RectClipDisplayItem::anti_aliased`).
+    pub fn define_anti_aliased_clip_rounded_rect(
+        &mut self,
+        spatial_id: di::SpatialId,
+        clip: di::ComplexClipRegion,
+    ) -> di::ClipId {
+        self.define_clip_rounded_rect_impl(spatial_id, clip, 0.0, true)
     }
 
     /// As `define_clip_rounded_rect`, but with a `snap_outset` for the internal
@@ -2636,6 +2669,7 @@ impl DisplayListBuilder {
         spatial_id: di::SpatialId,
         mut clip: di::ComplexClipRegion,
         snap_outset: f32,
+        anti_aliased: bool,
     ) -> di::ClipId {
         let id = self.generate_clip_index();
 
@@ -2646,6 +2680,7 @@ impl DisplayListBuilder {
             spatial_id,
             clip,
             snap_outset,
+            anti_aliased,
         });
 
         self.push_item(&item);

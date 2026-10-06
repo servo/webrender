@@ -236,6 +236,11 @@ pub struct RectClipDisplayItem {
     pub id: ClipId,
     pub spatial_id: SpatialId,
     pub clip_rect: LayoutRect,
+    /// Keep the clip at its exact position instead of snapping it to the
+    /// device pixel grid, like primitives with `PrimitiveFlags::ANTIALIASING`.
+    /// Used for clips defined in the same space as anti-aliased content (e.g.
+    /// SVG user space).
+    pub anti_aliased: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
@@ -248,6 +253,8 @@ pub struct RoundedRectClipDisplayItem {
     /// ClipOut edge must stay a constant distance from the snapped element
     /// (bug 2052033). All public callers leave this 0.
     pub snap_outset: f32,
+    /// See `RectClipDisplayItem::anti_aliased`.
+    pub anti_aliased: bool,
 }
 
 /// The minimum and maximum allowable offset for a sticky frame in a single dimension.

@@ -453,7 +453,7 @@ pub fn update_prim_visibility(
             let snapped_local_clip_rect = snap_local_clip_rect(
                 frame_state.data_stores.local_clip_rect(prim_instance),
                 &snapper,
-                policy.clip,
+                policy.local_clip(),
             );
 
             if let PrimitiveKind::Picture { pic_index, .. } = frame_state.prim_instances[prim_instance_index].kind {
