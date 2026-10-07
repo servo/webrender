@@ -28,7 +28,7 @@ use crate::renderer::{
     debug, vertex,
     debug::DebugOverlayState,
     Renderer, BufferDamageTracker, PipelineInfo, TextureResolver,
-    RendererError, ShaderPrecacheFlags,
+    RendererError, ShaderPrecacheFlags, VERTEX_DATA_TEXTURE_COUNT,
     upload::UploadTexturePool,
     shade::{Shaders, SharedShaders},
 };
@@ -532,6 +532,11 @@ pub fn create_webrender_instance(
     let staging_texture_pool = UploadTexturePool::new();
     let texture_resolver = TextureResolver::new(&mut device);
 
+    let mut vertex_data_textures = Vec::new();
+    for _ in 0 .. VERTEX_DATA_TEXTURE_COUNT {
+        vertex_data_textures.push(vertex::VertexDataTextures::new());
+    }
+
     let is_software = device.get_capabilities().renderer_name.starts_with("Software");
 
     device.end_frame();
@@ -777,7 +782,8 @@ pub fn create_webrender_instance(
         gpu_buffer_texture_i: None,
         gpu_buffer_texture_i_too_large: 0,
         gpu_buffer_last_data_i: Vec::new(),
-        vertex_data: vertex::VertexDataRing::new(),
+        vertex_data_textures,
+        current_vertex_data_textures: 0,
         pipeline_info: PipelineInfo::default(),
         dither_matrix_texture,
         external_image_handler: None,
