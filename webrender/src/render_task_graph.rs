@@ -22,7 +22,6 @@ use crate::texture_pack::GuillotineAllocator;
 use crate::prim_store::DeferredResolve;
 use crate::image_source::{resolve_image, resolve_cached_render_task};
 use smallvec::SmallVec;
-use topological_sort::TopologicalSort;
 
 use crate::render_target::{RenderTargetList, PictureCacheTarget, RenderTarget};
 use crate::util::{Allocation, VecHelper};
@@ -454,42 +453,49 @@ impl RenderTaskGraphBuilder {
 
         let mut pass_count = 0;
         let mut passes = memory.new_vec();
-        let mut task_sorter = TopologicalSort::<RenderTaskId>::new();
 
-        // Iterate the task list, and add all the dependencies to the topo sort
-        for (parent_id, task) in graph.tasks.iter().enumerate() {
-            let parent_id = RenderTaskId::from_index(parent_id);
-
+        // Number of parents of each task. Edges are counted per occurrence in
+        // `children`, so duplicate edges are added and removed the same number of times.
+        let mut parent_count = vec![0u32; graph.tasks.len()];
+        for task in graph.tasks.iter() {
             for child_id in &task.children {
-                task_sorter.add_dependency(
-                    parent_id,
-                    *child_id,
-                );
+                parent_count[child_id.index as usize] += 1;
             }
         }
 
-        // Pop the sorted passes off the topological sort
-        loop {
-            // Get the next set of tasks that can be drawn
-            let tasks = task_sorter.pop_all();
+        // The first pass holds the tasks that no other task depends on, and each
+        // following pass the tasks whose parents are all in earlier passes.
+        let mut tasks: Vec<RenderTaskId> = parent_count
+            .iter()
+            .enumerate()
+            .filter(|(_, count)| **count == 0)
+            .map(|(index, _)| RenderTaskId::from_index(index))
+            .collect();
 
-            // If there are no tasks left, we're done
-            if tasks.is_empty() {
-                // If the task sorter itself isn't empty but we couldn't pop off any
-                // tasks, that implies a circular dependency in the task graph
-                assert!(task_sorter.is_empty());
-                break;
-            } else {
-                // Assign the `render_on` field to the task
-                for task_id in &tasks {
-                    graph.tasks[task_id.index as usize].render_on = PassId(pass_count);
+        while !tasks.is_empty() {
+            let mut next_tasks = Vec::new();
+
+            for task_id in &tasks {
+                let task = &mut graph.tasks[task_id.index as usize];
+                task.render_on = PassId(pass_count);
+
+                for child_id in &task.children {
+                    let count = &mut parent_count[child_id.index as usize];
+                    *count -= 1;
+                    if *count == 0 {
+                        next_tasks.push(RenderTaskId::from_index(child_id.index as usize));
+                    }
                 }
-
-                // Store the task list for this pass, used later for `assign_free_pass`.
-                passes.push(tasks);
-                pass_count += 1;
             }
+
+            // Store the task list for this pass, used later for `assign_free_pass`.
+            passes.push(tasks);
+            pass_count += 1;
+            tasks = next_tasks;
         }
+
+        // Any task that still has a parent count is part of a circular dependency
+        assert!(parent_count.iter().all(|count| *count == 0), "bug: circular dependency in the render task graph");
 
         // Always create at least one pass for root tasks
         pass_count = pass_count.max(1);
@@ -1285,7 +1291,7 @@ impl RenderTaskGraphBuilder {
         pass_count: usize,
         total_surface_count: usize,
         unique_surfaces: &[(i32, i32, ImageFormat)],
-    ) {
+    ) -> RenderTaskGraph {
         use crate::{internal_types::FrameStamp, renderer::{GpuBufferBuilderF, GpuBufferBuilderI}};
         use api::{DocumentId, IdNamespace};
 
@@ -1306,6 +1312,8 @@ impl RenderTaskGraphBuilder {
         assert_eq!(g.surface_counts(), (total_surface_count, unique_surfaces.len()));
 
         rc.validate_surfaces(unique_surfaces);
+
+        g
     }
 }
 
@@ -1471,4 +1479,61 @@ fn fg_test_7() {
         (2048, 2048, ImageFormat::RGBA8),
         (2048, 2048, ImageFormat::RGBA8),
     ]);
+}
+
+#[test]
+fn fg_test_8() {
+    // Test that duplicate edges and tasks without any edges are assigned
+    // the same passes as when each edge is present once.
+
+    let mut gb = RenderTaskGraphBuilder::new();
+
+    let pc_root = gb.add().init(task_location(pc_target(0, 0, 0)));
+
+    let child0 = gb.add().init(task_dynamic(16));
+    let child1 = gb.add().init(task_dynamic(16));
+    let isolated = gb.add().init(task_location(pc_target(0, 1, 0)));
+
+    gb.add_dependency(pc_root, child0);
+    gb.add_dependency(pc_root, child0);
+    gb.add_dependency(pc_root, child0);
+    gb.add_dependency(child0, child1);
+    gb.add_dependency(child0, child1);
+    gb.add_dependency(pc_root, child1);
+
+    let g = gb.test_expect(3, 2, &[
+        (2048, 2048, ImageFormat::RGBA8),
+        (2048, 2048, ImageFormat::RGBA8),
+    ]);
+
+    assert_eq!(g.tasks[pc_root.index()].render_on, PassId(0));
+    assert_eq!(g.tasks[child0.index()].render_on, PassId(1));
+    assert_eq!(g.tasks[child1.index()].render_on, PassId(2));
+    assert_eq!(g.tasks[isolated.index()].render_on, PassId(0));
+}
+
+#[test]
+fn fg_test_9() {
+    // Test that a task used as an input through a sub-rect is ordered
+    // relative to its own inputs.
+
+    let mut gb = RenderTaskGraphBuilder::new();
+
+    let pc_root = gb.add().init(task_location(pc_target(0, 0, 0)));
+
+    let source = gb.add().init(task_dynamic(64));
+    let source_input = gb.add().init(task_dynamic(64));
+    let source_sub_rect = gb.add_sub_rect(source, &DeviceRect::from_size(DeviceSize::new(32.0, 32.0)));
+
+    gb.add_dependency(pc_root, source_sub_rect);
+    gb.add_dependency(source, source_input);
+
+    let g = gb.test_expect(3, 2, &[
+        (2048, 2048, ImageFormat::RGBA8),
+        (2048, 2048, ImageFormat::RGBA8),
+    ]);
+
+    assert_eq!(g.tasks[pc_root.index()].render_on, PassId(0));
+    assert_eq!(g.tasks[source.index()].render_on, PassId(1));
+    assert_eq!(g.tasks[source_input.index()].render_on, PassId(2));
 }
