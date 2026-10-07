@@ -123,6 +123,25 @@ struct ShaderOptimizationError {
     message: String,
 }
 
+/// When set, `WR_SHADER_OVERRIDE_DIR` names a directory of already-optimized
+/// shaders that are used in place of glslopt's output, so that other shader
+/// toolchains can be tried out. Each variant is read from
+/// `<shader>[.<feature>+<feature>...].{vert,frag}`.
+fn shader_override_dir() -> Option<PathBuf> {
+    println!("cargo:rerun-if-env-changed=WR_SHADER_OVERRIDE_DIR");
+    let dir = PathBuf::from(env::var_os("WR_SHADER_OVERRIDE_DIR")?);
+    println!("cargo:rerun-if-changed={}", dir.display());
+    Some(dir)
+}
+
+fn override_file_stem(shader: &ShaderOptimizationInput) -> String {
+    if shader.config.is_empty() {
+        shader.shader_name.to_string()
+    } else {
+        format!("{}.{}", shader.shader_name, shader.config.replace(",", "+"))
+    }
+}
+
 fn write_optimized_shaders(
     shader_dir: &Path,
     shader_file: &mut File,
@@ -173,6 +192,8 @@ fn write_optimized_shaders(
         }
     }
 
+    let override_dir = shader_override_dir();
+
     let outputs = build_parallel::compile_objects::<_, _, ShaderOptimizationError, _>(
         &|shader: &ShaderOptimizationInput| {
             println!("Optimizing shader {:?}", shader);
@@ -211,13 +232,29 @@ fn write_optimized_shaders(
                 (glslopt::ShaderType::Fragment, frag_src, frag_src_map, "frag"),
             ]
             .map(|(shader_type, shader_src, shader_src_map, extension)| {
-                let output = glslopt_ctx.optimize(shader_type, shader_src.clone());
-                if !output.get_status() {
-                    return Err(ShaderOptimizationError {
-                        shader: shader.clone(),
-                        message: shader_src_map.process_log(output.get_log()),
-                    });
-                }
+                let optimized = match override_dir {
+                    Some(ref dir) => {
+                        let path = dir.join(format!(
+                            "{}.{}",
+                            override_file_stem(shader),
+                            extension
+                        ));
+                        std::fs::read_to_string(&path).map_err(|e| ShaderOptimizationError {
+                            shader: shader.clone(),
+                            message: format!("{}: {}", path.display(), e),
+                        })?
+                    }
+                    None => {
+                        let output = glslopt_ctx.optimize(shader_type, shader_src.clone());
+                        if !output.get_status() {
+                            return Err(ShaderOptimizationError {
+                                shader: shader.clone(),
+                                message: shader_src_map.process_log(output.get_log()),
+                            });
+                        }
+                        output.get_output().unwrap().to_string()
+                    }
+                };
 
                 let shader_path = Path::new(out_dir).join(format!(
                     "{}_{:?}.{}",
@@ -225,7 +262,7 @@ fn write_optimized_shaders(
                 ));
                 write_optimized_shader_file(
                     &shader_path,
-                    output.get_output().unwrap(),
+                    &optimized,
                     &shader.shader_name,
                     &features,
                     &mut hasher,
