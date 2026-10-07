@@ -564,15 +564,15 @@ vec3 LinearToSrgb(vec3 color) {
     return if_then_else(lessThanEqual(color, vec3(0.0031308)), c1, c2);
 }
 
-vec4 sampleInUvRect(sampler2D sampler, vec2 uv, vec4 uvRect) {
+vec4 sampleInUvRect(sampler2D tex, vec2 uv, vec4 uvRect) {
     vec2 clamped = clamp(uv.xy, uvRect.xy, uvRect.zw);
-    return texture(sampler, clamped);
+    return texture(tex, clamped);
 }
 
-vec4 sampleInUvRectRepeat(sampler2D sampler, vec2 uv, vec4 uvRect) {
+vec4 sampleInUvRectRepeat(sampler2D tex, vec2 uv, vec4 uvRect) {
     vec2 size = (uvRect.zw - uvRect.xy);
     vec2 tiled = uv.xy - floor((uv.xy - uvRect.xy) / size) * size;
-    return texture(sampler, tiled);
+    return texture(tex, tiled);
 }
 
 void main(void) {
