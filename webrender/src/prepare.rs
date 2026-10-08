@@ -66,8 +66,7 @@ use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureCont
 use crate::gpu_types::UvRectKind;
 
 use crate::internal_types::{FastHashMap, PlaneSplitAnchor};
-use crate::picture::{ClusterFlags, PictureScratch};
-use crate::picture::{PrimitiveList, PrimitiveCluster};
+use crate::picture::PictureScratch;
 use crate::surface::{SubpixelMode, SurfaceIndex};
 use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::prim_store::*;
@@ -107,7 +106,7 @@ pub fn prepare_picture(
     }
 
     let pic = &mut store.pictures[pic_index.0 as usize];
-    let Some((pic_context, mut pic_state, mut prim_list, scratch_handle)) = pic.take_context(
+    let Some((pic_context, mut pic_state, prim_list, scratch_handle)) = pic.take_context(
         pic_index,
         surface_index,
         subpixel_mode,
@@ -125,7 +124,6 @@ pub fn prepare_picture(
 
     prepare_primitives(
         store,
-        &mut prim_list,
         &pic_context,
         &mut pic_state,
         frame_context,
@@ -151,7 +149,6 @@ pub fn prepare_picture(
 
 fn prepare_primitives(
     store: &mut PrimitiveStore,
-    prim_list: &mut PrimitiveList,
     pic_context: &PictureContext,
     pic_state: &mut PictureState,
     frame_context: &FrameBuildingContext,
@@ -167,71 +164,63 @@ fn prepare_primitives(
     let mut quad_transform = QuadTransformState::new();
     let mut quad_clips = QuadClipStack::new();
 
-    for cluster in &mut prim_list.clusters {
-        if !cluster.flags.contains(ClusterFlags::IS_VISIBLE) {
-            continue;
-        }
-        tracy_rs::profile_scope!("cluster");
-        frame_state.num_visited_primitives += cluster.prim_range().len() as u32;
+    let device_pixel_scale = frame_state.surfaces[pic_context.surface_index.0].device_pixel_scale;
+
+    let draw_range = scratch.frame.picture_draw_range(pic_context.pic_index);
+    frame_state.num_visited_primitives += draw_range.len() as u32;
+
+    for position in draw_range {
+        let draw_index = scratch.frame.picture_draw(position);
+        let draw = scratch.frame.draw(draw_index);
+        let prim_instance_index = draw.prim_instance_index.0 as usize;
+        let spatial_node_index = draw.spatial_node_index;
 
         pic_state.map_local_to_pic.set_target_spatial_node(
-            cluster.spatial_node_index,
+            spatial_node_index,
             frame_context.spatial_tree,
         );
 
-        let device_pixel_scale = frame_state.surfaces[pic_context.surface_index.0].device_pixel_scale;
         quad_transform.set(
-            cluster.spatial_node_index,
+            spatial_node_index,
             pic_context.raster_spatial_node_index,
             frame_context.spatial_tree,
             device_pixel_scale,
         );
 
-        for prim_instance_index in cluster.prim_range() {
-            // Primitives the visibility pass culled have no draw at all.
-            let Some(draw_index) = scratch
-                .frame
-                .draw_index_for_instance(PrimitiveInstanceIndex(prim_instance_index as u32))
-            else {
-                continue;
-            };
+        if frame_state.surface_builder.get_cmd_buffer_targets_for_prim(
+            draw,
+            &mut cmd_buffer_targets,
+        ) {
+            let plane_split_anchor = PlaneSplitAnchor::new(
+                spatial_node_index,
+                draw_index,
+            );
 
-            if frame_state.surface_builder.get_cmd_buffer_targets_for_prim(
-                scratch.frame.draw(draw_index),
-                &mut cmd_buffer_targets,
-            ) {
-                let plane_split_anchor = PlaneSplitAnchor::new(
-                    cluster.spatial_node_index,
-                    draw_index,
-                );
+            prepare_prim_for_render(
+                store,
+                prim_instance_index,
+                draw_index,
+                spatial_node_index,
+                &mut quad_transform,
+                &mut quad_clips,
+                pic_context,
+                pic_state,
+                frame_context,
+                frame_state,
+                plane_split_anchor,
+                data_stores,
+                scratch,
+                tile_caches,
+                prim_instances,
+                &cmd_buffer_targets,
+            );
 
-                prepare_prim_for_render(
-                    store,
-                    prim_instance_index,
-                    draw_index,
-                    cluster,
-                    &mut quad_transform,
-                    &mut quad_clips,
-                    pic_context,
-                    pic_state,
-                    frame_context,
-                    frame_state,
-                    plane_split_anchor,
-                    data_stores,
-                    scratch,
-                    tile_caches,
-                    prim_instances,
-                    &cmd_buffer_targets,
-                );
-
-                frame_state.num_visible_primitives += 1;
-                frame_state.num_cmd_targets += cmd_buffer_targets.len() as u32;
-                continue;
-            }
-
-            // A draw that reached no command buffer is simply never referenced
-            // by one, so there is nothing to clear here.
+            frame_state.num_visible_primitives += 1;
+            frame_state.num_cmd_targets += cmd_buffer_targets.len() as u32;
         }
+
+        // A draw that reached no command buffer is simply never referenced
+        // by one, so there is nothing to clear here.
     }
 }
 
@@ -262,7 +251,7 @@ fn prepare_prim_for_render(
     store: &mut PrimitiveStore,
     prim_instance_index: usize,
     draw_index: PrimitiveDrawIndex,
-    cluster: &mut PrimitiveCluster,
+    prim_spatial_node_index: SpatialNodeIndex,
     mut quad_transform: &mut QuadTransformState,
     quad_clips: &mut QuadClipStack,
     pic_context: &PictureContext,
@@ -323,7 +312,7 @@ fn prepare_prim_for_render(
             let local_rect = scratch.frame.draw(draw_index).clip_chain.local_coverage_rect;
             let world_rect = frame_context
                 .spatial_tree
-                .get_world_transform(cluster.spatial_node_index)
+                .get_world_transform(prim_spatial_node_index)
                 .into_transform()
                 .outer_transformed_box2d(&local_rect);
 
@@ -389,7 +378,7 @@ fn prepare_prim_for_render(
             if !update_clip_task(
                 draw_index,
                 prim_rect,
-                cluster.spatial_node_index,
+                prim_spatial_node_index,
                 pic_context.raster_spatial_node_index,
                 pic_context,
                 frame_context,
@@ -402,7 +391,6 @@ fn prepare_prim_for_render(
         }
     }
 
-    let prim_spatial_node_index = cluster.spatial_node_index;
     let device_pixel_scale = frame_state.surfaces[pic_context.surface_index.0].device_pixel_scale;
     // Snapshot of the per-frame draw header for this prim. Copy is fine here
     // because the only field this function writes (clip_task_index, in the

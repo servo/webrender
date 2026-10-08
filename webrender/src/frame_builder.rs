@@ -347,9 +347,9 @@ impl FrameBuilder {
         ));
 
         // Empty the per-frame draw storage. The visibility pass pushes into it
-        // as it finds drawn primitives; the scene's primitive count only sizes
-        // the instance-to-draw side table.
-        scratch.primitive.frame.reset_draws(scene.prim_instances.len());
+        // as it finds drawn primitives; the scene's picture count only sizes
+        // the per-picture draw lists.
+        scratch.primitive.frame.reset_draws(scene.prim_store.pictures.len());
 
         // Cluster, prim, and clip-leaf rects are snapped to the device pixel
         // grid as they are produced by the in-frame picture-graph passes:

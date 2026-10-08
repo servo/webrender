@@ -16,7 +16,9 @@ use api::units::{DevicePixel, DeviceRect, LayoutPixel, LayoutRect};
 use crate::debug_colors;
 use crate::internal_types::FastHashSet;
 #[cfg(feature = "debugger")]
-use crate::prim_store::{PictureIndex, PrimitiveFrameScratch, PrimitiveInstanceIndex, PrimitiveKind};
+use crate::internal_types::FastHashMap;
+#[cfg(feature = "debugger")]
+use crate::prim_store::{PictureIndex, PrimitiveFrameScratch, PrimitiveKind};
 #[cfg(feature = "debugger")]
 use crate::render_backend::DataStores;
 #[cfg(feature = "debugger")]
@@ -137,11 +139,16 @@ pub fn build_debug_tree(
     device_rect: DeviceRect,
     scene_generation: u64,
 ) -> SceneDebugTree {
+    let mut draw_states = FastHashMap::default();
+    for draw in frame_scratch.draws() {
+        draw_states.entry(draw.prim_instance_index.0).or_insert(draw.state);
+    }
+
     let mut walker = TreeWalker {
         scene,
         data_stores,
         spatial_tree,
-        frame_scratch,
+        draw_states,
         scene_properties,
         map_to_device: SpaceMapper::new(
             spatial_tree.root_reference_frame_index(),
@@ -169,7 +176,9 @@ struct TreeWalker<'a> {
     scene: &'a BuiltScene,
     data_stores: &'a DataStores,
     spatial_tree: &'a SpatialTree,
-    frame_scratch: &'a PrimitiveFrameScratch,
+    /// The state of the first draw of each primitive instance drawn by the
+    /// last frame, keyed by instance index.
+    draw_states: FastHashMap<u32, DrawState>,
     scene_properties: &'a SceneProperties,
     map_to_device: SpaceMapper<LayoutPixel, DevicePixel>,
 }
@@ -177,11 +186,8 @@ struct TreeWalker<'a> {
 #[cfg(feature = "debugger")]
 impl<'a> TreeWalker<'a> {
     fn draw_state(&self, prim_index: usize) -> String {
-        if prim_index >= self.frame_scratch.instance_count() {
-            return "NotDrawn".into();
-        }
-        match self.frame_scratch.draw_for_instance(PrimitiveInstanceIndex(prim_index as u32)) {
-            Some(draw) => match draw.state {
+        match self.draw_states.get(&(prim_index as u32)) {
+            Some(state) => match state {
                 DrawState::Unset => "Unset".into(),
                 DrawState::Culled => "Culled".into(),
                 DrawState::PassThrough => "PassThrough".into(),

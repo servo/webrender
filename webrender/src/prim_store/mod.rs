@@ -22,6 +22,7 @@ use crate::resource_cache::ImageProperties;
 use crate::util::Recycler;
 use crate::internal_types::{FastHashSet, LayoutPrimitiveInfo};
 use crate::visibility::{PrimitiveDrawHeader, PrimitiveDrawIndex};
+use std::ops;
 
 pub mod backdrop;
 pub mod borders;
@@ -462,17 +463,24 @@ pub struct PrimitiveFrameScratch {
     /// size, and an entry existing at all means it was written this frame.
     ///
     /// Deliberately private: reach entries through `draw`/`draw_mut`, keyed by
-    /// `PrimitiveDrawIndex`. Use `draw_index_for_instance` to go from a
-    /// primitive instance to its draw, and `PrimitiveDrawHeader`'s
-    /// `prim_instance_index` to go back.
+    /// `PrimitiveDrawIndex`, or through a picture's draws with
+    /// `picture_draw_range`. `PrimitiveDrawHeader`'s `prim_instance_index` goes
+    /// from a draw back to its instance.
     draws: Vec<PrimitiveDrawHeader>,
 
-    /// Maps a primitive instance to the draw pushed for it this frame, or
-    /// `PrimitiveDrawIndex::INVALID` when the instance produced no draw (it was
-    /// culled, or its cluster was not visited). Exists because the visibility
-    /// and prepare passes both walk primitive instances; it becomes redundant
-    /// once they iterate draws directly.
-    instance_to_draw: Vec<PrimitiveDrawIndex>,
+    /// The draws of every visited picture's own primitives, in cluster order.
+    /// Each picture's draws are contiguous; `picture_draw_ranges` locates them.
+    picture_draws: Vec<PrimitiveDrawIndex>,
+
+    /// For each picture, the range of `picture_draws` holding its draws. Empty
+    /// for pictures the visibility pass did not visit.
+    picture_draw_ranges: Vec<ops::Range<u32>>,
+
+    /// Draws of the pictures the visibility pass is currently inside. Child
+    /// pictures are visited in the middle of their parent's primitives, so each
+    /// picture's draws are collected here and moved to `picture_draws` when its
+    /// visit ends.
+    pending_picture_draws: Vec<PrimitiveDrawIndex>,
 
     /// Per-frame scratch for Picture primitives. Holds the picture's
     /// primary/secondary render task ids and any per-composite-mode
@@ -513,7 +521,9 @@ impl Default for PrimitiveFrameScratch {
     fn default() -> Self {
         PrimitiveFrameScratch {
             draws: Vec::new(),
-            instance_to_draw: Vec::new(),
+            picture_draws: Vec::new(),
+            picture_draw_ranges: Vec::new(),
+            pending_picture_draws: Vec::new(),
             pictures: storage::Storage::new(0),
             text_runs: storage::Storage::new(0),
             glyph_keys: GlyphKeyStorage::new(0),
@@ -527,23 +537,50 @@ impl Default for PrimitiveFrameScratch {
 }
 
 impl PrimitiveFrameScratch {
-    /// Prepare the draw storage for a new frame over a scene with `prim_count`
-    /// primitive instances.
-    pub fn reset_draws(&mut self, prim_count: usize) {
+    /// Prepare the draw storage for a new frame over a scene with
+    /// `picture_count` pictures.
+    pub fn reset_draws(&mut self, picture_count: usize) {
         self.draws.clear();
-        self.instance_to_draw.clear();
-        self.instance_to_draw.resize(prim_count, PrimitiveDrawIndex::INVALID);
+        self.picture_draws.clear();
+        self.picture_draw_ranges.clear();
+        self.picture_draw_ranges.resize(picture_count, 0 .. 0);
+        debug_assert!(self.pending_picture_draws.is_empty());
+    }
+
+    /// Start collecting the draws of a picture's own primitives. Returns the
+    /// token to hand back to `end_picture_draws` when the picture's visit ends.
+    pub fn begin_picture_draws(&self) -> usize {
+        self.pending_picture_draws.len()
+    }
+
+    /// Finish collecting a picture's draws, begun by the `begin_picture_draws`
+    /// call that returned `start`.
+    pub fn end_picture_draws(&mut self, pic_index: PictureIndex, start: usize) {
+        let first = self.picture_draws.len() as u32;
+        self.picture_draws.extend(self.pending_picture_draws.drain(start ..));
+        let end = self.picture_draws.len() as u32;
+        self.picture_draw_ranges[pic_index.0 as usize] = first .. end;
+    }
+
+    /// The range of `picture_draw` positions holding a picture's draws.
+    pub fn picture_draw_range(&self, pic_index: PictureIndex) -> ops::Range<u32> {
+        self.picture_draw_ranges[pic_index.0 as usize].clone()
+    }
+
+    /// The draw at a position returned by `picture_draw_range`.
+    pub fn picture_draw(&self, position: u32) -> PrimitiveDrawIndex {
+        self.picture_draws[position as usize]
     }
 
     /// Record a draw for the primitive instance named by the header, and return
-    /// its index. Called once per drawn primitive by the visibility pass.
+    /// its index. An instance may be drawn more than once in a frame.
     pub fn push_draw(&mut self, header: PrimitiveDrawHeader) -> PrimitiveDrawIndex {
         let prim_instance_index = header.prim_instance_index;
         debug_assert!(prim_instance_index.0 != PrimitiveInstanceIndex::INVALID.0);
 
         let draw_index = PrimitiveDrawIndex::from_u32(self.draws.len() as u32);
         self.draws.push(header);
-        self.instance_to_draw[prim_instance_index.0 as usize] = draw_index;
+        self.pending_picture_draws.push(draw_index);
 
         draw_index
     }
@@ -566,23 +603,9 @@ impl PrimitiveFrameScratch {
         }
     }
 
-    /// Number of primitive instances the draw storage was last reset for.
-    pub fn instance_count(&self) -> usize {
-        self.instance_to_draw.len()
-    }
-
-    /// The draw pushed for a primitive instance this frame, if any.
-    pub fn draw_index_for_instance(
-        &self,
-        prim_instance_index: PrimitiveInstanceIndex,
-    ) -> Option<PrimitiveDrawIndex> {
-        let draw_index = self.instance_to_draw[prim_instance_index.0 as usize];
-
-        if draw_index == PrimitiveDrawIndex::INVALID {
-            None
-        } else {
-            Some(draw_index)
-        }
+    /// Every draw pushed this frame.
+    pub fn draws(&self) -> &[PrimitiveDrawHeader] {
+        &self.draws
     }
 
     /// The draw header for a draw index, as carried by the command stream and
@@ -595,21 +618,11 @@ impl PrimitiveFrameScratch {
         &mut self.draws[draw_index.0 as usize]
     }
 
-    /// The draw header for a primitive instance, if it produced a draw this
-    /// frame. Convenience for the passes that still walk primitive instances
-    /// rather than draws; goes away once they iterate draws directly.
-    pub fn draw_for_instance(
-        &self,
-        prim_instance_index: PrimitiveInstanceIndex,
-    ) -> Option<&PrimitiveDrawHeader> {
-        self.draw_index_for_instance(prim_instance_index)
-            .map(|draw_index| self.draw(draw_index))
-    }
-
 
     pub fn recycle(&mut self, recycler: &mut Recycler) {
         recycler.recycle_vec(&mut self.draws);
-        recycler.recycle_vec(&mut self.instance_to_draw);
+        recycler.recycle_vec(&mut self.picture_draws);
+        recycler.recycle_vec(&mut self.picture_draw_ranges);
         self.pictures.recycle(recycler);
         self.text_runs.recycle(recycler);
         self.glyph_keys.recycle(recycler);
