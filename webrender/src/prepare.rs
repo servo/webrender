@@ -236,21 +236,26 @@ fn prepare_primitives(
 }
 
 /// Returns the texture sampler kind used by a YUV image's planes, which selects
-/// the matching ps_quad_yuv shader variant. All planes are expected to share the
-/// same kind. Texture-cache backed images (raw/blob/buffer) are always Texture2D.
+/// the matching ps_quad_yuv shader variant. Texture-cache backed images
+/// (raw/blob/buffer) are always Texture2D. Returns None if the planes do not all
+/// share the same kind: every plane is sampled through the one sampler type of
+/// the selected shader variant, so such an image cannot be drawn.
 fn yuv_planes_sampler_kind(
     yuv_image_data: &crate::prim_store::image::YuvImageData,
     resource_cache: &crate::resource_cache::ResourceCache,
-) -> ImageBufferKind {
+) -> Option<ImageBufferKind> {
     let plane_count = yuv_image_data.format.get_plane_num();
+    let mut sampler_kind = None;
     for key in &yuv_image_data.yuv_key[.. plane_count] {
-        if let Some(ExternalImageData { image_type: ExternalImageType::TextureHandle(kind), .. }) =
-            resource_cache.get_image_properties(*key).and_then(|props| props.external_image)
-        {
-            return kind;
+        let kind = match resource_cache.get_image_properties(*key).and_then(|props| props.external_image) {
+            Some(ExternalImageData { image_type: ExternalImageType::TextureHandle(kind), .. }) => kind,
+            _ => ImageBufferKind::Texture2D,
+        };
+        if *sampler_kind.get_or_insert(kind) != kind {
+            return None;
         }
     }
-    ImageBufferKind::Texture2D
+    sampler_kind
 }
 
 fn prepare_prim_for_render(
@@ -679,6 +684,11 @@ fn prepare_prim_for_render(
                 return;
             }
 
+            let sampler_kind = match yuv_planes_sampler_kind(yuv_image_data, frame_state.resource_cache) {
+                Some(sampler_kind) => sampler_kind,
+                None => return,
+            };
+
             // Non-composited: draw the YUV image directly through the quad path.
             let planes = yuv_image_data.update(
                 prim_info.compositor_surface_kind.is_composited(),
@@ -690,7 +700,7 @@ fn prepare_prim_for_render(
                 format: yuv_image_data.format,
                 color_space: yuv_image_data.color_space.with_range(yuv_image_data.color_range),
                 channel_bit_depth: yuv_image_data.color_depth.bit_depth(),
-                sampler_kind: yuv_planes_sampler_kind(yuv_image_data, frame_state.resource_cache),
+                sampler_kind,
             };
 
             quad::prepare_quad(
