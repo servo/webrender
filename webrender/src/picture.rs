@@ -585,17 +585,6 @@ pub struct PictureInstance {
     /// composited into the parent picture.
     pub spatial_node_index: SpatialNodeIndex,
 
-    /// Store the state of the previous local rect
-    /// for this picture. We need this in order to know when
-    /// to invalidate segments / drop-shadow gpu cache handles.
-    pub prev_local_rect: LayoutRect,
-
-    /// If false, this picture needs to (re)build segments
-    /// if it supports segment rendering. This can occur
-    /// if the local rect of the picture changes due to
-    /// transform animation and/or scrolling.
-    pub segments_are_valid: bool,
-
     /// Requested raster space for this picture
     pub raster_space: RasterSpace,
 
@@ -690,8 +679,6 @@ impl PictureInstance {
             context_3d,
             is_backface_visible: prim_flags.contains(PrimitiveFlags::IS_BACKFACE_VISIBLE),
             spatial_node_index,
-            prev_local_rect: LayoutRect::zero(),
-            segments_are_valid: false,
             raster_space,
             flags,
             clip_root: None,
@@ -768,31 +755,11 @@ impl PictureInstance {
                 );
             }
             Some(ref mut raster_config) => {
-                let (pic_rect, force_scissor_rect) = {
-                    let surface = &frame_state.surfaces[raster_config.surface_index.0];
-                    (surface.clipped_local_rect, surface.force_scissor_rect)
-                };
+                let force_scissor_rect = frame_state
+                    .surfaces[raster_config.surface_index.0]
+                    .force_scissor_rect;
 
                 let parent_surface_index = parent_surface_index.expect("bug: no parent for child surface");
-
-                // Layout space for the picture is picture space from the
-                // perspective of its child primitives.
-                let local_rect = pic_rect * Scale::new(1.0);
-
-                // If the precise rect changed since last frame, we need to invalidate
-                // any segments and gpu cache handles for drop-shadows.
-                // TODO(gw): Requiring storage of the `prev_precise_local_rect` here
-                //           is a total hack. It's required because `prev_precise_local_rect`
-                //           gets written to twice (during initial vis pass and also during
-                //           prepare pass). The proper longer term fix for this is to make
-                //           use of the conservative picture rect for segmenting (which should
-                //           be done during scene building).
-                if local_rect != self.prev_local_rect {
-                    // Invalidate any segments built for this picture, since the local
-                    // rect has changed.
-                    self.segments_are_valid = false;
-                    self.prev_local_rect = local_rect;
-                }
 
                 let max_surface_size = frame_context.max_surface_size() as f32;
 
