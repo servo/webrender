@@ -3072,28 +3072,32 @@ impl TileCacheInstance {
             }
         }
 
-        // Process any deferred dirty checks
-        for sub_slice in &mut self.sub_slices {
-            for dirty_test in self.deferred_dirty_tests.drain(..) {
-                // Calculate the total dirty rect from all tiles that this primitive affects
-                let mut total_dirty_rect = PictureRect::zero();
+        // Process any deferred dirty checks. The primitive being checked
+        // depends on content in every sub-slice, so a change in any of them
+        // invalidates the affected tiles of all of them.
+        for dirty_test in self.deferred_dirty_tests.drain(..) {
+            // Calculate the total dirty rect from all tiles that this primitive affects
+            let mut total_dirty_rect = PictureRect::zero();
 
+            for sub_slice in &self.sub_slices {
                 for y in dirty_test.tile_rect.min.y .. dirty_test.tile_rect.max.y {
                     for x in dirty_test.tile_rect.min.x .. dirty_test.tile_rect.max.x {
                         let key = TileOffset::new(x, y);
-                        let tile = sub_slice.tiles.get_mut(&key).expect("bug: no tile");
+                        let tile = sub_slice.tiles.get(&key).expect("bug: no tile");
                         total_dirty_rect = total_dirty_rect.union(&tile.cached_surface.local_dirty_rect);
                     }
                 }
+            }
 
-                // If that dirty rect intersects with the local rect of the primitive
-                // being checked, invalidate that region in all of the affected tiles.
-                // TODO(gw): This is somewhat conservative, we could be more clever
-                //           here and avoid invalidating every tile when this changes.
-                //           We could also store the dirty rect only when the prim
-                //           is encountered, so that we don't invalidate if something
-                //           *after* the query in the rendering order affects invalidation.
-                if total_dirty_rect.intersects(&dirty_test.prim_rect) {
+            // If that dirty rect intersects with the local rect of the primitive
+            // being checked, invalidate that region in all of the affected tiles.
+            // TODO(gw): This is somewhat conservative, we could be more clever
+            //           here and avoid invalidating every tile when this changes.
+            //           We could also store the dirty rect only when the prim
+            //           is encountered, so that we don't invalidate if something
+            //           *after* the query in the rendering order affects invalidation.
+            if total_dirty_rect.intersects(&dirty_test.prim_rect) {
+                for sub_slice in &mut self.sub_slices {
                     for y in dirty_test.tile_rect.min.y .. dirty_test.tile_rect.max.y {
                         for x in dirty_test.tile_rect.min.x .. dirty_test.tile_rect.max.x {
                             let key = TileOffset::new(x, y);
