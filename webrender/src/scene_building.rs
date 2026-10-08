@@ -3164,6 +3164,7 @@ impl<'a> SceneBuilder<'a> {
                     );
                 }
                 None => {
+                    self.tile_cache_builder.backdrop_placement_node = Some(spatial_node_index);
                     self.tile_cache_builder.add_prim(
                         filtered_instance,
                         info.rect,
@@ -3176,6 +3177,7 @@ impl<'a> SceneBuilder<'a> {
                         &mut self.prim_instances,
                         &self.clip_tree_builder,
                     );
+                    self.tile_cache_builder.backdrop_placement_node = None;
                 }
             }
 

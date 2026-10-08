@@ -119,6 +119,9 @@ pub struct TileCacheBuilder {
     root_spatial_node_index: SpatialNodeIndex,
     /// Debug flags to provide to our TileCacheInstances.
     debug_flags: DebugFlags,
+    /// While a backdrop-filter chain is added to a non-atomic slice: the
+    /// spatial node of the backdrop-filter element, which places the chain.
+    pub backdrop_placement_node: Option<SpatialNodeIndex>,
 }
 
 /// The output of a tile cache builder, containing all details needed to construct the
@@ -152,6 +155,7 @@ impl TileCacheBuilder {
             prev_scroll_root_cache: (SpatialNodeIndex::INVALID, SpatialNodeIndex::INVALID),
             root_spatial_node_index,
             debug_flags,
+            backdrop_placement_node: None,
         }
     }
 
@@ -293,11 +297,18 @@ impl TileCacheBuilder {
                 );
             }
             SliceKind::Default { ref mut secondary_slices } => {
-                assert_ne!(spatial_node_index, SpatialNodeIndex::UNKNOWN);
+                // A backdrop-filter chain is in its backdrop root's space, which
+                // is only known once the slice is built, so it is placed by the
+                // backdrop-filter element's spatial node instead.
+                let placement_node_index = if spatial_node_index == SpatialNodeIndex::UNKNOWN {
+                    self.backdrop_placement_node.expect("bug: unplaced prim in a non-atomic slice")
+                } else {
+                    spatial_node_index
+                };
 
                 // Check if we want to create a new slice based on the current / next scroll root
                 let scroll_root = find_scroll_root(
-                    spatial_node_index,
+                    placement_node_index,
                     &mut self.prev_scroll_root_cache,
                     spatial_tree,
                     // Allow sticky frames as scroll roots, unless our quality settings prefer
