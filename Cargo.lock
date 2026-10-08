@@ -4008,7 +4008,7 @@ dependencies = [
 [[package]]
 name = "osmesa-src"
 version = "0.2.0"
-source = "git+https://github.com/servo/osmesa-src#51679b6a34c2fd98b5a4be1fa225c24ef289d8d7"
+source = "git+https://github.com/glandium/osmesa-src?rev=6bf6cc406646ab6ad37e5f24b51c6ef92ffd9cce#6bf6cc406646ab6ad37e5f24b51c6ef92ffd9cce"
 
 [[package]]
 name = "osmesa-sys"

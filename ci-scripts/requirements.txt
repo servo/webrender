@@ -1,2 +1,3 @@
 mako==1.2.4
 six
+pyyaml==6.0.3
