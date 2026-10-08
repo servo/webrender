@@ -46,7 +46,9 @@ fn order_readers_after(
 
     while !pending.is_empty() {
         for task_id in std::mem::take(&mut pending) {
-            visited.insert(task_id);
+            if !visited.insert(task_id.index) {
+                continue;
+            }
 
             let children = rg_builder.get_task(task_id).children.clone();
 
@@ -54,7 +56,9 @@ fn order_readers_after(
                 rg_builder.add_dependency(task_id, dep_task_id);
             }
             for child_id in children {
-                if child_id != src_task_id && !visited.contains(&child_id) {
+                if child_id != src_task_id &&
+                   child_id.index != dep_task_id.index &&
+                   !visited.contains(&child_id.index) {
                     pending.insert(child_id);
                 }
             }
@@ -1281,4 +1285,52 @@ pub fn calculate_screen_uv(
         0.0,
         1.0,
     )
+}
+
+#[test]
+fn order_readers_after_visits_each_reader_once() {
+    // Each reader of `src` is reached both directly from the root and through
+    // an intermediate task, like an SVG filter that reads SourceGraphic both
+    // directly and through an feOffset. Visiting a reader twice used to make
+    // the traversal enter `dep` and add `dep` as a dependency of itself.
+
+    use crate::render_target::RenderTargetKind;
+
+    fn task(gb: &mut RenderTaskGraphBuilder) -> RenderTaskId {
+        gb.add().init(RenderTask::new_test(
+            RenderTaskLocation::Unallocated { size: DeviceIntSize::new(16, 16) },
+            RenderTargetKind::Color,
+        ))
+    }
+
+    let mut gb = RenderTaskGraphBuilder::new();
+
+    let src = task(&mut gb);
+    let dep = task(&mut gb);
+    gb.add_dependency(dep, src);
+
+    let root = task(&mut gb);
+    let mut readers = Vec::new();
+    let mut offsets = Vec::new();
+    for _ in 0 .. 8 {
+        let reader = task(&mut gb);
+        gb.add_dependency(reader, src);
+        let offset = task(&mut gb);
+        gb.add_dependency(offset, reader);
+        gb.add_dependency(root, offset);
+        gb.add_dependency(root, reader);
+        readers.push(reader);
+        offsets.push(offset);
+    }
+
+    order_readers_after(&mut gb, root, src, dep);
+
+    assert_eq!(gb.get_task(dep).children.as_slice(), &[src]);
+    for reader in readers {
+        let count = gb.get_task(reader).children.iter().filter(|id| **id == dep).count();
+        assert_eq!(count, 1);
+    }
+    for id in offsets.into_iter().chain(std::iter::once(root)) {
+        assert!(!gb.get_task(id).children.contains(&dep));
+    }
 }
