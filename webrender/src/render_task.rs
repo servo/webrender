@@ -741,9 +741,9 @@ impl RenderTaskKind {
                     FilterGraphOp::SVGFEDiffuseLightingDistant{..} => {}
                     FilterGraphOp::SVGFEDiffuseLightingPoint{..} => {}
                     FilterGraphOp::SVGFEDiffuseLightingSpot{..} => {}
-                    FilterGraphOp::SVGFEDisplacementMap{scale, x_channel_selector, y_channel_selector} => {
+                    FilterGraphOp::SVGFEDisplacementMap{scale_x, scale_y, x_channel_selector, y_channel_selector} => {
                         let mut writer = gpu_buffer.f32.write_blocks(1);
-                        writer.push_one([x_channel_selector as f32, y_channel_selector as f32, scale, 0.0]);
+                        writer.push_one([x_channel_selector as f32, y_channel_selector as f32, scale_x, scale_y]);
                         filter_task.extra_gpu_data = Some(writer.finish());
                     }
                     FilterGraphOp::SVGFEDropShadow { color, .. } |
@@ -1294,9 +1294,10 @@ impl RenderTask {
                 },
                 FilterGraphOp::SVGFEFlood{..} => op.clone(),
                 FilterGraphOp::SVGFEDisplacementMap{
-                    scale, x_channel_selector, y_channel_selector} => {
+                    scale_x, scale_y, x_channel_selector, y_channel_selector} => {
                     FilterGraphOp::SVGFEDisplacementMap{
-                        scale: scale * subregion_to_device_scale_x,
+                        scale_x: scale_x * subregion_to_device_scale_x,
+                        scale_y: scale_y * subregion_to_device_scale_y,
                         x_channel_selector: *x_channel_selector,
                         y_channel_selector: *y_channel_selector}
                 },

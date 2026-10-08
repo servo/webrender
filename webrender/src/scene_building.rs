@@ -3465,11 +3465,11 @@ impl<'a> SceneBuilder<'a> {
                                 newnode.inputs = remapped_inputs;
                                 (newnode.clone(), op.clone())
                             },
-                            FilterGraphOp::SVGFEDisplacementMap { scale, .. } => {
+                            FilterGraphOp::SVGFEDisplacementMap { scale_x, scale_y, .. } => {
                                 assert!(remapped_inputs.len() == 2);
                                 let padding = LayoutSize::new(
-                                    scale.ceil(),
-                                    scale.ceil(),
+                                    scale_x.abs().ceil(),
+                                    scale_y.abs().ceil(),
                                 );
                                 // Add padding to both inputs for source and target
                                 // rects, we might be able to skip some of these,

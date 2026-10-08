@@ -779,7 +779,7 @@ impl YamlHelper for Yaml {
                     let scale = self["scale"].as_f32().unwrap();
                     let x_channel_selector = self["x_channel_selector"].as_i64().unwrap() as u32;
                     let y_channel_selector = self["y_channel_selector"].as_i64().unwrap() as u32;
-                    Some(FilterOp::SVGFEDisplacementMap{node, scale, x_channel_selector, y_channel_selector})
+                    Some(FilterOp::SVGFEDisplacementMap{node, scale_x: scale, scale_y: scale, x_channel_selector, y_channel_selector})
                 },
                 "dropshadow" => {
                     let color = self["color"].as_colorf().unwrap();
