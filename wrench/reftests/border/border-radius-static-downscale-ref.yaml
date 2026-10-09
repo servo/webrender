@@ -1,0 +1,10 @@
+---
+root:
+  items:
+    - type: border
+      bounds: [139, -9, 130, 130]
+      width: 78
+      border-type: normal
+      style: solid
+      radius: 65
+      color: blue

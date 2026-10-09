@@ -119,16 +119,27 @@ impl NormalBorderData {
             r.bottom_right.height = snap_radius(r.bottom_right.height, widths.bottom, device_scale_y);
         }
 
-        // Scale factors are normalized to a power of 2 to reduce the number of
-        // resolution changes.
-        // For frames with a changing scale transform round scale factors up to
-        // nearest power-of-2 boundary so that we don't keep having to redraw
-        // the content as it scales up and down. Rounding up to nearest
-        // power-of-2 boundary ensures we never scale up, only down --- avoiding
-        // jaggies. It also ensures we never scale down by more than a factor of
-        // 2, avoiding bad downscaling quality.
-        let scale_width = clamp_to_scale_factor(raster_scale.0, false);
-        let scale_height = clamp_to_scale_factor(raster_scale.1, false);
+        // Under an animated or pinch-zoomed transform, scale factors are
+        // normalized to a power of 2 to reduce the number of resolution changes:
+        // rounding up to the nearest power-of-2 boundary means we don't keep
+        // having to redraw the content as it scales up and down. It ensures we
+        // never scale up, only down --- avoiding jaggies. It also ensures we
+        // never scale down by more than a factor of 2, avoiding bad downscaling
+        // quality.
+        // Under a static transform the exact scale is used, so that the corner
+        // textures composite 1:1 instead of being resampled.
+        let prim_spatial_node = frame_context.spatial_tree
+            .get_spatial_node(quad_transform.prim_spatial_node_index());
+        let scale_may_change = prim_spatial_node.is_ancestor_or_self_animating
+            || prim_spatial_node.is_ancestor_or_self_zooming;
+        let (scale_width, scale_height) = if scale_may_change {
+            (
+                clamp_to_scale_factor(raster_scale.0, false),
+                clamp_to_scale_factor(raster_scale.1, false),
+            )
+        } else {
+            (raster_scale.0.abs(), raster_scale.1.abs())
+        };
         // Pick the maximum dimension as scale
         let mut scale = LayoutToDeviceScale::new(
             scale_width.max(scale_height) * device_pixel_scale.0,

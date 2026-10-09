@@ -53,3 +53,7 @@ fuzzy(1,40) == border-overlap-split.yaml border-overlap-split.png
 # Content meeting a border in layout meets it on screen under a fractional
 # scale, and the border stays one device pixel wide (bug 2074176).
 == border-content-snap-scale.yaml border-content-snap-scale-ref.yaml
+
+# A rounded border under a static downscale that isn't a power of two is
+# rasterized at its exact scale, so it matches the same border drawn at scale 1.
+== border-radius-static-downscale.yaml border-radius-static-downscale-ref.yaml

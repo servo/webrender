@@ -1,0 +1,14 @@
+---
+root:
+  items:
+    - type: reference-frame
+      transform: scale(0.1, 0.1)
+      bounds: [0, 0, 3400, 1400]
+      items:
+        - type: border
+          bounds: [1390, -90, 1300, 1300]
+          width: 780
+          border-type: normal
+          style: solid
+          radius: 650
+          color: blue
