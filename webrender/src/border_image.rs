@@ -253,25 +253,32 @@ pub fn for_each_border_image_segment(
         let mut spacing = LayoutSize::zero();
         let mut offset = LayoutVector2D::zero();
 
+        // Unscaled size of the middle image, in the nine-patch's units rather
+        // than in source texels.
+        let natural_size = DeviceSize::new(
+            center_src.width() as f32 / sx,
+            center_src.height() as f32 / sy,
+        );
+
         // Per spec:
         // The middle image’s width is scaled by the same factor as the top
         // image unless that factor is zero or infinity, in which case the
         // scaling factor of the bottom is substituted, and failing that,
         // the width is not scaled.
         let (src_size, dst_size, repeat) = if let Some((src_rect, dst_rect)) = center_v_rects {
-            (src_rect.size(), dst_rect.size(), nine_patch.repeat_horizontal)
+            (src_rect.size().to_f32(), dst_rect.size(), nine_patch.repeat_horizontal)
         } else {
             // No top/bottom edge to inherit a scale factor from, so the middle
             // image is not scaled (scale factor 1). compute_border_repetition_1d
             // derives the tile size from dst_cross / src_cross, so matching the
             // destination cross-size to the source's yields a unit scale; the
             // repeat mode then tiles the natural-size pattern across the area.
-            let dst = LayoutSize::new(center_dst.width(), center_src.size().height as f32);
-            (center_src.size(), dst, nine_patch.repeat_horizontal)
+            let dst = LayoutSize::new(center_dst.width(), natural_size.height);
+            (natural_size, dst, nine_patch.repeat_horizontal)
         };
         compute_border_repetition_1d(
             dst_size,
-            src_size.to_f32(),
+            src_size,
             repeat,
             &mut stretch_size.width,
             &mut spacing.width,
@@ -284,17 +291,17 @@ pub fn for_each_border_image_segment(
         // case the scaling factor of the right image is substituted, and
         // failing that, the height is not scaled.
         let (src_size, dst_size, repeat) = if let Some((src_rect, dst_rect)) = center_h_rects {
-            (src_rect.size(), dst_rect.size(), nine_patch.repeat_vertical)
+            (src_rect.size().to_f32(), dst_rect.size(), nine_patch.repeat_vertical)
         } else {
             // As above: no left/right edge, so the middle image is not scaled
             // vertically. The height call swaps width/height, so matching the
             // destination width to the source width gives a unit vertical scale.
-            let dst = LayoutSize::new(center_src.size().width as f32, center_dst.height());
-            (center_src.size(), dst, nine_patch.repeat_vertical)
+            let dst = LayoutSize::new(natural_size.width, center_dst.height());
+            (natural_size, dst, nine_patch.repeat_vertical)
         };
         compute_border_repetition_1d(
             LayoutSize::new(dst_size.height, dst_size.width),
-            DeviceIntSize::new(src_size.height, src_size.width).to_f32(),
+            DeviceSize::new(src_size.height, src_size.width),
             repeat,
             &mut stretch_size.height,
             &mut spacing.height,

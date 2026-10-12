@@ -1,0 +1,64 @@
+# Filled border-images where one or both axes have zero border widths. The
+# middle image takes no scale factor from the missing edges (bug 1854737).
+# The last two use a nine-patch size larger than the image, as Gecko does
+# when the device pixel ratio isn't 1.
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 600, 500]
+      items:
+        - type: border
+          bounds: [10, 10, 100, 100]
+          width: 0
+          border-type: image
+          image-source: "border-image-red-with-green-center.png"
+          image-width: 500
+          image-height: 500
+          slice: [ 100 ]
+          repeat-vertical: repeat
+          repeat-horizontal: repeat
+          fill: true
+        - type: border
+          bounds: [130, 10, 200, 100]
+          width: [0, 50, 0, 50]
+          border-type: image
+          image-source: "border-image-red-with-green-center.png"
+          image-width: 500
+          image-height: 500
+          slice: [ 100 ]
+          repeat-vertical: repeat
+          repeat-horizontal: repeat
+          fill: true
+        - type: border
+          bounds: [10, 130, 100, 200]
+          width: [50, 0, 50, 0]
+          border-type: image
+          image-source: "border-image-red-with-green-center.png"
+          image-width: 500
+          image-height: 500
+          slice: [ 100 ]
+          repeat-vertical: repeat
+          repeat-horizontal: repeat
+          fill: true
+        - type: border
+          bounds: [130, 130, 120, 120]
+          width: 0
+          border-type: image
+          image-source: "border-image-red-with-green-center.png"
+          image-width: 750
+          image-height: 750
+          slice: [ 150 ]
+          repeat-vertical: repeat
+          repeat-horizontal: repeat
+          fill: true
+        - type: border
+          bounds: [130, 290, 380, 200]
+          width: [0, 100, 0, 100]
+          border-type: image
+          image-source: "border-image-red-with-green-center.png"
+          image-width: 1000
+          image-height: 1000
+          slice: [ 200 ]
+          repeat-vertical: repeat
+          repeat-horizontal: repeat
+          fill: true
