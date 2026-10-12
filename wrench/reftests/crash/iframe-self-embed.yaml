@@ -1,0 +1,20 @@
+# A pipeline that embeds itself must not be built recursively.
+---
+root:
+  items:
+    -
+      bounds: [0, 0, 200, 200]
+      type: iframe
+      id: [1, 2]
+pipelines:
+  -
+    id: [1, 2]
+    items:
+      -
+        bounds: [0, 0, 100, 100]
+        color: green
+        type: rect
+      -
+        bounds: [10, 10, 180, 180]
+        type: iframe
+        id: [1, 2]

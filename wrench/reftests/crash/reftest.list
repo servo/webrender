@@ -4,3 +4,5 @@ scale(*) != culling-rect-large-offset.yaml blank.yaml
 scale(*) != mix-blend-unmappable-transform.yaml blank.yaml
 scale(*) != mix-blend-rotated.yaml blank.yaml
 scale(*) != gradient-many-stops.yaml blank.yaml
+== iframe-self-embed.yaml iframe-cycle-ref.yaml
+== iframe-embeds-root.yaml iframe-cycle-ref.yaml
