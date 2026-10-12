@@ -56,7 +56,6 @@ use crate::box_shadow::BLUR_SAMPLE_SCALE;
 use crate::clip::{ClipIntern, ClipItemKey, ClipItemKeyKind, ClipStore};
 use crate::clip::{ClipInternData, ClipNodeId};
 use crate::clip::{PolygonDataHandle, ClipTreeBuilder};
-use crate::dl_interner::{DlBuilderMap, DlHandle, DlNamespace, DlStore};
 use crate::gpu_types::BlurEdgeMode;
 use crate::segment::EdgeMask;
 use crate::spatial_tree::{SceneSpatialTree, SpatialNodeContainer, SpatialNodeIndex};
@@ -72,8 +71,9 @@ use crate::surface::SurfaceInfo;
 use crate::picture_graph::PictureGraph;
 use crate::prim_store::{PrimitiveInstance, PrimitiveStoreStats};
 use crate::prim_store::{PrimitiveKind, NinePatchDescriptor, PrimitiveStore};
-use crate::prim_store::{InternablePrimitive, PictureIndex, PrimPlacement};
+use crate::prim_store::{InternablePrimitive, PictureIndex};
 use crate::prim_store::PolygonKey;
+use crate::prim_store::rectangle::RectanglePrim;
 use crate::prim_store::backdrop::{BackdropCapture, BackdropRender};
 use crate::prim_store::borders::ImageBorder;
 use crate::prim_store::gradient::{
@@ -86,7 +86,7 @@ use crate::picture_composite_mode::{PictureCompositeKey, PictureCompositeMode};
 use crate::prim_store::text_run::TextRun;
 use crate::render_backend::SceneView;
 use crate::scene::{BuiltScene, Scene, ScenePipeline, SceneStats, StackingContextHelpers};
-use crate::scene_builder_thread::{Interners, SceneDlStores};
+use crate::scene_builder_thread::Interners;
 use crate::spatial_node::{
     ReferenceFrameInfo, StickyFrameInfo, ScrollFrameKind, SpatialNodeType
 };
@@ -411,19 +411,6 @@ pub struct SceneBuilder<'a> {
     /// The scene that we are currently building.
     scene: &'a Scene,
 
-    /// Namespaces for the items interned by each pipeline's content display
-    /// list builder.
-    dl_builders: &'a DlBuilderMap,
-
-    /// The entries interned by the content builders that scene building
-    /// itself reads.
-    scene_stores: &'a SceneDlStores,
-
-    /// Namespace of the pipeline currently being traversed, and its generation
-    /// (see `DlHandle::generation`), resolved once on entry rather than per
-    /// primitive. Iframe descent swaps it and the pop restores it.
-    dl_namespace: (DlNamespace, u32),
-
     /// The map of all font instances.
     fonts: SharedFontResources,
 
@@ -525,8 +512,6 @@ impl<'a> SceneBuilder<'a> {
     pub fn build(
         scene: &Scene,
         root_pipeline: Option<PipelineId>,
-        dl_builders: &DlBuilderMap,
-        scene_stores: &SceneDlStores,
         fonts: SharedFontResources,
         view: &SceneView,
         frame_builder_config: &FrameBuilderConfig,
@@ -550,9 +535,6 @@ impl<'a> SceneBuilder<'a> {
         let mut builder = SceneBuilder {
             scene,
             spatial_tree,
-            dl_builders,
-            scene_stores,
-            dl_namespace: dl_builders.expect(root_pipeline_id),
             fonts,
             config: *frame_builder_config,
             id_to_index_mapper_stack: mem::take(&mut recycler.id_to_index_mapper_stack),
@@ -895,9 +877,6 @@ impl<'a> SceneBuilder<'a> {
             ReferenceFrame,
             Iframe {
                 parent_traversal: BuiltDisplayListIter<'a>,
-                /// The enclosing pipeline's namespace, to restore on the way
-                /// back out - the iframe's content interns into its own.
-                parent_dl_namespace: (DlNamespace, u32),
             }
         }
         struct BuildContext<'a> {
@@ -1024,16 +1003,11 @@ impl<'a> SceneBuilder<'a> {
                             None => continue,
                         };
 
-                        let iframe_dl_namespace = self.dl_builders.expect(info.pipeline_id);
                         let new_context = BuildContext {
                             pipeline_id: info.pipeline_id,
                             namespace,
                             kind: ContextKind::Iframe {
                                 parent_traversal: mem::replace(&mut traversal, subtraversal),
-                                parent_dl_namespace: mem::replace(
-                                    &mut self.dl_namespace,
-                                    iframe_dl_namespace,
-                                ),
                             },
                         };
                         stack.push(bc);
@@ -1053,8 +1027,7 @@ impl<'a> SceneBuilder<'a> {
                 }
                 ContextKind::ReferenceFrame => {
                 }
-                ContextKind::Iframe { parent_traversal, parent_dl_namespace } => {
-                    self.dl_namespace = parent_dl_namespace;
+                ContextKind::Iframe { parent_traversal } => {
                     self.iframe_size.pop();
                     self.clip_tree_builder.pop_clip();
                     self.clip_tree_builder.pop_clip();
@@ -1454,25 +1427,34 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::Rectangle(ref info) => {
                 tracy_rs::profile_scope!("rect");
 
+                let (mut layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
+                    &info.common,
+                    info.bounds,
+                );
+
+                layout.transformed_aa_edges &= info.transformed_aa_edges;
+
                 // The display list builder drops every other fully transparent
                 // rectangle at record time, but records a checkerboard
-                // background whatever its colour, since the barrier is keyed
-                // off the flag alone. Such a rectangle draws nothing and
-                // carries no handle; nothing else reaches here without one.
-                if info.rect == api::interning::Handle::INVALID {
-                    self.add_tile_cache_barrier_if_needed(SliceFlags::empty());
-                    return;
+                // background whatever its colour, since the barrier below is
+                // keyed off the flag alone. Such a rectangle draws nothing.
+                // Tested on the quantized colour, as the primitive stores it.
+                let visible = match info.color {
+                    PropertyBinding::Value(color) => api::ColorU::from(color).a > 0,
+                    PropertyBinding::Binding(..) => true,
+                };
+                if visible {
+                    self.add_primitive(
+                        spatial_node_index,
+                        clip_node_id,
+                        &layout,
+                        RectanglePrim {
+                            color: info.color.into(),
+                        },
+                    );
                 }
 
-                let stores = self.scene_stores;
-                let flags = self.add_dl_prim(
-                    info.spatial_id,
-                    info.clip_chain_id,
-                    &stores.rectangles,
-                    info.rect,
-                    |handle| PrimitiveKind::Rectangle { handle },
-                );
-                if flags.contains(PrimitiveFlags::CHECKERBOARD_BACKGROUND) {
+                if info.common.flags.contains(PrimitiveFlags::CHECKERBOARD_BACKGROUND) {
                     self.add_tile_cache_barrier_if_needed(SliceFlags::empty());
                 }
             }
@@ -1896,39 +1878,6 @@ impl<'a> SceneBuilder<'a> {
             spatial_node_index,
             info.flags,
         );
-    }
-
-    /// Add the instance of an item that refers to a primitive interned by the
-    /// content builder. The item names the spatial node, the clip chain and the
-    /// handle; where the instance goes comes from the scene store's copy of the
-    /// key. Returns the primitive's flags.
-    fn add_dl_prim<K>(
-        &mut self,
-        spatial_id: SpatialId,
-        clip_chain_id: api::ClipChainId,
-        placements: &DlStore<K, PrimPlacement>,
-        handle: api::interning::Handle<K>,
-        kind: impl FnOnce(DlHandle<K>) -> PrimitiveKind,
-    ) -> PrimitiveFlags {
-        let spatial_node_index = self.get_space(spatial_id);
-        let clip_node_id = self.get_clip_node(clip_chain_id);
-        self.clip_tree_builder.debug_check_clip_stack(clip_node_id);
-
-        let (namespace, generation) = self.dl_namespace;
-        let handle = DlHandle::new(namespace, generation, handle.slot());
-        let placement = &placements[handle];
-        let (rect, clip_rect, flags) = (placement.rect, placement.clip_rect, placement.flags);
-
-        let prim_instance = PrimitiveInstance::new(kind(handle), clip_node_id);
-        self.add_primitive_to_draw_list(
-            prim_instance,
-            rect,
-            clip_rect,
-            spatial_node_index,
-            flags,
-        );
-
-        flags
     }
 
     fn make_current_slice_atomic_if_required(&mut self) {

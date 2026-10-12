@@ -72,7 +72,7 @@ use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::prim_store::*;
 use crate::quad::{self, QuadDescriptor, QuadTransformState};
 use crate::quad_clip::QuadClipStack;
-use crate::render_backend::{DataStores, DlStores};
+use crate::render_backend::DataStores;
 use crate::scene_debug::{HighlightMode, SceneDebugOverride};
 
 
@@ -92,7 +92,6 @@ pub fn prepare_picture(
     frame_context: &FrameBuildingContext,
     frame_state: &mut FrameBuildingState,
     data_stores: &DataStores,
-    dl_stores: &DlStores,
     scratch: &mut PrimitiveScratchBuffer,
     tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
     prim_instances: &mut Vec<PrimitiveInstance>,
@@ -130,7 +129,6 @@ pub fn prepare_picture(
         frame_context,
         frame_state,
         data_stores,
-        dl_stores,
         scratch,
         tile_caches,
         prim_instances,
@@ -154,7 +152,6 @@ fn prepare_primitives(
     frame_context: &FrameBuildingContext,
     frame_state: &mut FrameBuildingState,
     data_stores: &DataStores,
-    dl_stores: &DlStores,
     scratch: &mut PrimitiveScratchBuffer,
     tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
     prim_instances: &mut Vec<PrimitiveInstance>,
@@ -205,7 +202,6 @@ fn prepare_primitives(
                 frame_state,
                 plane_split_anchor,
                 data_stores,
-                dl_stores,
                 scratch,
                 tile_caches,
                 prim_instances,
@@ -257,7 +253,6 @@ fn prepare_prim_for_render(
     frame_state: &mut FrameBuildingState,
     plane_split_anchor: PlaneSplitAnchor,
     data_stores: &DataStores,
-    dl_stores: &DlStores,
     scratch: &mut PrimitiveScratchBuffer,
     tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
     prim_instances: &mut Vec<PrimitiveInstance>,
@@ -341,7 +336,6 @@ fn prepare_prim_for_render(
             frame_context,
             frame_state,
             data_stores,
-            dl_stores,
             scratch,
             tile_caches,
             prim_instances,
@@ -619,10 +613,10 @@ fn prepare_prim_for_render(
 
             return;
         }
-        PrimitiveKind::Rectangle { handle } => {
+        PrimitiveKind::Rectangle { data_handle, .. } => {
             tracy_rs::profile_scope!("Rectangle");
 
-            let prim_data = &dl_stores.rectangles[*handle];
+            let prim_data = &data_stores.prim[*data_handle];
             let prim_rect = prim_info.snapped_pattern_rect;
             let color = prim_data.resolve(frame_context.scene_properties);
 

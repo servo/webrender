@@ -23,9 +23,8 @@ use crate::gradient_builder::GradientBuilder;
 use crate::color::{ColorF, ColorU};
 use crate::font::{FontInstanceKey, GlyphInstance, GlyphOptions};
 use crate::image::{ColorDepth, ImageKey};
-use crate::interned_prims::{RectangleKey, RectanglePrim};
 use crate::interning::{self, DlDelta};
-use crate::key_types::{EdgeMask, GradientStopKey, PrimKeyCommonData, StretchSizeKey};
+use crate::key_types::{EdgeMask, GradientStopKey, StretchSizeKey};
 use crate::prim_geometry::{
     apply_gradient_local_clip, image_stretch_size, optimize_linear_gradient,
     optimize_radial_gradient, resolve_tile_size, simplify_repeated_primitive,
@@ -51,14 +50,6 @@ fn rect_is_visible(color: &PropertyBinding<ColorF>) -> bool {
         PropertyBinding::Value(color) => color_is_visible(color),
         PropertyBinding::Binding(..) => true,
     }
-}
-
-/// The common properties of a shadow copy: clip rect translated by the shadow
-/// offset, clip chain dropped. See `DisplayListBuilder::shadow_copy_of_item`.
-fn shadow_copy_common(mut common: di::CommonItemProperties, offset: LayoutVector2D) -> di::CommonItemProperties {
-    common.clip_rect = common.clip_rect.translate(offset);
-    common.clip_chain_id = di::ClipChainId::INVALID;
-    common
 }
 
 // See ROOT_REFERENCE_FRAME_SPATIAL_ID and ROOT_SCROLL_NODE_SPATIAL_ID
@@ -964,7 +955,6 @@ pub struct SaveState {
     next_spatial_index: usize,
     next_clip_chain_id: u64,
     shadow_capture_len: usize,
-    shadow_capture_keys_len: usize,
     pending_shadows_len: usize,
     raster_space_stack_len: usize,
 }
@@ -1151,10 +1141,6 @@ pub struct DisplayListBuilder {
     /// rather than reallocated. A scope is open exactly when `pending_shadows`
     /// is non-empty.
     shadow_capture: Vec<u8>,
-    /// What each interned primitive in `shadow_capture` was built from, in
-    /// capture order. Its item carries only the handle, so the desugar interns
-    /// each shadow copy from here.
-    shadow_capture_keys: Vec<CapturedPrim>,
     /// The shadows declared by `push_shadow` in the current scope, in order.
     /// Held as typed descriptors (not captured markers) and consumed by
     /// `pop_all_shadows`, which desugars them into blur stacking contexts.
@@ -1178,21 +1164,6 @@ struct PendingShadow {
     should_inflate: bool,
 }
 
-/// A primitive captured in a shadow scope, as its key was built: the item
-/// carries only the handle, so this is what a copy in the shadow's colour is
-/// interned from.
-struct CapturedPrim {
-    common: di::CommonItemProperties,
-    bounds: LayoutRect,
-    key: CapturedKey,
-}
-
-/// The kind-specific part of a captured primitive's key, minus the colour,
-/// which the copy takes from the shadow.
-enum CapturedKey {
-    Rectangle { transformed_aa_edges: EdgeMask },
-}
-
 #[repr(C)]
 struct DisplayListCapacity {
     items_size: usize,
@@ -1205,15 +1176,6 @@ impl DisplayListCapacity {
             items_size: 0,
             spatial_tree_size: 0,
         }
-    }
-}
-
-/// Anti-aliased primitives resolve their axis-aligned edges in the shader too.
-fn aligned_aa_edges(flags: di::PrimitiveFlags) -> EdgeMask {
-    if flags.contains(di::PrimitiveFlags::ANTIALISED) {
-        EdgeMask::all()
-    } else {
-        EdgeMask::empty()
     }
 }
 
@@ -1237,7 +1199,6 @@ impl DisplayListBuilder {
             off_grid_coords: 0,
             glyph_scratch: Vec::new(),
             shadow_capture: Vec::new(),
-            shadow_capture_keys: Vec::new(),
             pending_shadows: Vec::new(),
             raster_space_stack: vec![di::RasterSpace::Screen],
             interners: interning::DlInterners::default(),
@@ -1257,7 +1218,6 @@ impl DisplayListBuilder {
         self.last_scroll_offset = None;
         self.off_grid_coords = 0;
         self.shadow_capture.clear();
-        self.shadow_capture_keys.clear();
         self.pending_shadows.clear();
 
         self.raster_space_stack.clear();
@@ -1282,7 +1242,6 @@ impl DisplayListBuilder {
             next_spatial_index: self.next_spatial_index,
             next_clip_chain_id: self.next_clip_chain_id,
             shadow_capture_len: self.shadow_capture.len(),
-            shadow_capture_keys_len: self.shadow_capture_keys.len(),
             pending_shadows_len: self.pending_shadows.len(),
             raster_space_stack_len: self.raster_space_stack.len(),
         });
@@ -1303,7 +1262,6 @@ impl DisplayListBuilder {
         // machinery kept this state in `items_data`, which the truncate above
         // already handled).
         self.shadow_capture.truncate(state.shadow_capture_len);
-        self.shadow_capture_keys.truncate(state.shadow_capture_keys_len);
         self.pending_shadows.truncate(state.pending_shadows_len);
 
         // Stacking contexts opened since the save go away with their items.
@@ -1495,7 +1453,7 @@ impl DisplayListBuilder {
 
     /// Record a rectangle whose `common` and `bounds` are already normalised.
     /// Every rectangle item goes through here, so this is the one place the
-    /// visibility test lives and the one place a rectangle is interned.
+    /// visibility test lives.
     fn push_rect_prim(
         &mut self,
         common: &di::CommonItemProperties,
@@ -1503,65 +1461,25 @@ impl DisplayListBuilder {
         color: PropertyBinding<ColorF>,
         transformed_aa_edges: EdgeMask,
     ) {
-        // A fully transparent rectangle draws nothing, so it is neither
-        // interned nor recorded. Two exceptions still record it, with no
-        // handle: inside a shadow scope so `pop_all_shadows` can copy it in
-        // the shadow's colour (the original re-emission drops it again by that
-        // missing handle), and a checkerboard background so the scene builder
-        // can mark a tile cache barrier off the flag.
-        let visible = rect_is_visible(&color);
-        if !visible
+        // A fully transparent rectangle draws nothing, so drop it here rather
+        // than have the scene builder discover it. Two exceptions: inside a
+        // shadow scope it is still captured so `pop_all_shadows` can copy it
+        // in the shadow's colour (the original re-emission drops it again), and
+        // a checkerboard background still marks a tile cache barrier whatever
+        // its colour.
+        if !rect_is_visible(&color)
             && self.pending_shadows.is_empty()
             && !common.flags.contains(di::PrimitiveFlags::CHECKERBOARD_BACKGROUND)
         {
             return;
         }
 
-        let rect = if visible {
-            self.intern_rect(color, bounds, common, transformed_aa_edges)
-        } else {
-            interning::Handle::INVALID
-        };
-
-        self.capture_prim(common, bounds, CapturedKey::Rectangle { transformed_aa_edges });
-
         self.push_item(&di::DisplayItem::Rectangle(di::RectangleDisplayItem {
-            spatial_id: common.spatial_id,
-            clip_chain_id: common.clip_chain_id,
-            rect,
+            common: *common,
+            color,
+            bounds,
+            transformed_aa_edges,
         }));
-    }
-
-    /// Inside a shadow scope, record what a primitive's key was built from, so
-    /// `pop_all_shadows` can intern its copies. Call before pushing the item.
-    fn capture_prim(&mut self, common: &di::CommonItemProperties, bounds: LayoutRect, key: CapturedKey) {
-        if !self.pending_shadows.is_empty() {
-            self.shadow_capture_keys.push(CapturedPrim { common: *common, bounds, key });
-        }
-    }
-
-    /// The key holds what the scene builder used to derive from the item:
-    /// the aligned mask comes from the item's flags, and the transformed mask
-    /// is the item's own.
-    fn intern_rect(
-        &mut self,
-        color: PropertyBinding<ColorF>,
-        bounds: LayoutRect,
-        common: &di::CommonItemProperties,
-        transformed_aa_edges: EdgeMask,
-    ) -> interning::Handle<RectangleKey> {
-        let key = RectangleKey::new(
-            PrimKeyCommonData {
-                flags: common.flags,
-                aligned_aa_edges: aligned_aa_edges(common.flags),
-                transformed_aa_edges,
-                prim_rect: bounds.into(),
-                local_clip_rect: common.clip_rect.into(),
-            },
-            RectanglePrim { color: color.into() },
-        );
-
-        self.interners.intern(&key)
     }
 
     pub fn push_hit_test(
@@ -2893,9 +2811,6 @@ impl DisplayListBuilder {
         struct DrawEntry {
             item: di::DisplayItem,
             glyphs: Vec<GlyphInstance>,
-            /// What an interned primitive's key was built from, which its item
-            /// does not carry.
-            key: Option<CapturedPrim>,
         }
         enum Parsed {
             // A clip / clip-chain definition. Re-emitted verbatim (preserving
@@ -2917,7 +2832,6 @@ impl DisplayListBuilder {
         let shadows = mem::take(&mut self.pending_shadows);
         let mut captured = mem::take(&mut self.shadow_capture);
         ensure_red_zone::<di::DisplayItem>(&mut captured);
-        let mut captured_keys = mem::take(&mut self.shadow_capture_keys).into_iter();
 
         let mut parsed: Vec<Parsed> = Vec::new();
         {
@@ -2937,14 +2851,6 @@ impl DisplayListBuilder {
                         glyphs: match draw {
                             di::DisplayItem::Text(..) => item.glyphs().iter().collect(),
                             _ => Vec::new(),
-                        },
-                        // One entry per captured interned primitive, in capture
-                        // order.
-                        key: match draw {
-                            di::DisplayItem::Rectangle(..) => Some(
-                                captured_keys.next().expect("rectangle item without its captured key"),
-                            ),
-                            _ => None,
                         },
                     }),
                 });
@@ -3024,11 +2930,6 @@ impl DisplayListBuilder {
                     {
                         continue;
                     }
-                    if let Some(ref captured) = entry.key {
-                        let copy = self.intern_shadow_copy(captured, s.offset, s.color);
-                        self.push_item(&copy);
-                        continue;
-                    }
                     if let Some(copy) = Self::shadow_copy_of_item(
                         &entry.item,
                         s.offset,
@@ -3047,13 +2948,12 @@ impl DisplayListBuilder {
         }
 
         // 3. The original (unshadowed) content, drawn on top of the shadows.
-        //    An invisible original was captured only so it could cast a shadow;
-        //    a rectangle's says so by carrying no handle.
+        //    An invisible original was captured only so it could cast a shadow.
         for p in &parsed {
             if let Parsed::Draw(entry) = p {
                 let visible = match entry.item {
                     di::DisplayItem::Text(ref info) => color_is_visible(info.color),
-                    di::DisplayItem::Rectangle(ref info) => info.rect != interning::Handle::INVALID,
+                    di::DisplayItem::Rectangle(ref info) => rect_is_visible(&info.color),
                     di::DisplayItem::Line(ref info) => color_is_visible(info.color),
                     _ => true,
                 };
@@ -3068,39 +2968,10 @@ impl DisplayListBuilder {
             }
         }
 
-        debug_assert!(captured_keys.next().is_none(), "captured key without its item");
         captured.clear();
         self.shadow_capture = captured;
         // `pending_shadows` was emptied by the take above and is left empty,
         // which closes the shadow scope.
-    }
-
-    /// Intern the shadow copy of a captured primitive: geometry translated by
-    /// `offset`, clip chain dropped and colour replaced by `color`, as
-    /// `shadow_copy_of_item` does for the items that still carry their fields.
-    fn intern_shadow_copy(
-        &mut self,
-        captured: &CapturedPrim,
-        offset: LayoutVector2D,
-        color: ColorF,
-    ) -> di::DisplayItem {
-        let common = shadow_copy_common(captured.common, offset);
-        let bounds = captured.bounds.translate(offset);
-        match captured.key {
-            CapturedKey::Rectangle { transformed_aa_edges } => {
-                let rect = self.intern_rect(
-                    PropertyBinding::Value(color),
-                    bounds,
-                    &common,
-                    transformed_aa_edges,
-                );
-                di::DisplayItem::Rectangle(di::RectangleDisplayItem {
-                    spatial_id: common.spatial_id,
-                    clip_chain_id: common.clip_chain_id,
-                    rect,
-                })
-            }
-        }
     }
 
     /// Produce the shadow copy of a shadowable display item: geometry
@@ -3124,11 +2995,19 @@ impl DisplayListBuilder {
         // blur picture, so the copy inside must be unclipped, matching the old
         // scene builder (which rasterized the shadowed primitives unclipped and
         // clipped the composited picture).
-        let shift = |common| shadow_copy_common(common, offset);
+        let shift = |mut common: di::CommonItemProperties| -> di::CommonItemProperties {
+            common.clip_rect = common.clip_rect.translate(offset);
+            common.clip_chain_id = di::ClipChainId::INVALID;
+            common
+        };
 
         Some(match item {
-            // Interned from its captured key, see `intern_shadow_copy`.
-            Rectangle(..) => unreachable!("rectangle shadow copies are interned from their captured key"),
+            Rectangle(info) => Rectangle(di::RectangleDisplayItem {
+                common: shift(info.common),
+                bounds: info.bounds.translate(offset),
+                color: PropertyBinding::Value(color),
+                transformed_aa_edges: info.transformed_aa_edges,
+            }),
             Text(info) => Text(di::TextDisplayItem {
                 common: shift(info.common),
                 bounds: info.bounds.translate(offset),
@@ -3234,183 +3113,6 @@ impl DisplayListBuilder {
                 delta,
             },
         )
-    }
-}
-
-#[cfg(test)]
-mod rectangle_interning_tests {
-    use super::*;
-
-    const BOUNDS: LayoutRect = LayoutRect {
-        min: LayoutPoint::new(0.0, 0.0),
-        max: LayoutPoint::new(100.0, 50.0),
-    };
-
-    fn common() -> di::CommonItemProperties {
-        let pipeline_id = PipelineId::dummy();
-        di::CommonItemProperties {
-            clip_rect: LayoutRect::from_size(LayoutSize::new(1000.0, 1000.0)),
-            clip_chain_id: di::ClipChainId::INVALID,
-            spatial_id: di::SpatialId::root_scroll_node(pipeline_id),
-            flags: di::PrimitiveFlags::default(),
-        }
-    }
-
-    fn rect_items(dl: &BuiltDisplayList) -> Vec<di::RectangleDisplayItem> {
-        let mut items = Vec::new();
-        let mut iter = dl.iter();
-        while let Some(item) = iter.next() {
-            if let di::DisplayItem::Rectangle(info) = item.item() {
-                items.push(*info);
-            }
-        }
-        items
-    }
-
-    fn push_shadow(builder: &mut DisplayListBuilder, color: ColorF) {
-        let space_and_clip = di::SpaceAndClipInfo {
-            spatial_id: di::SpatialId::root_scroll_node(PipelineId::dummy()),
-            clip_chain_id: di::ClipChainId::INVALID,
-        };
-        builder.push_shadow(
-            &space_and_clip,
-            di::Shadow {
-                offset: LayoutVector2D::new(4.0, 4.0),
-                color,
-                blur_radius: 0.0,
-            },
-            true,
-        );
-    }
-
-    #[test]
-    fn identical_rects_intern_once() {
-        let mut builder = DisplayListBuilder::new(PipelineId::dummy());
-        builder.begin(60.0);
-
-        builder.push_rect(&common(), BOUNDS, ColorF::BLACK);
-        builder.push_rect(&common(), BOUNDS, ColorF::BLACK);
-        builder.push_rect(&common(), BOUNDS, ColorF::WHITE);
-
-        let (_, dl) = builder.end();
-        assert_eq!(dl.delta().rectangles.adds.len(), 2, "colour is part of the key");
-        let items = rect_items(&dl);
-        assert_eq!(items.len(), 3);
-        assert_eq!(items[0].rect, items[1].rect);
-        assert_ne!(items[0].rect, items[2].rect);
-    }
-
-    #[test]
-    fn a_retained_builder_sends_no_adds_for_unchanged_rects() {
-        let mut builder = DisplayListBuilder::new(PipelineId::dummy());
-        builder.begin(60.0);
-        builder.push_rect(&common(), BOUNDS, ColorF::BLACK);
-        let (_, first) = builder.end();
-
-        builder.begin(60.0);
-        builder.push_rect(&common(), BOUNDS, ColorF::BLACK);
-        let (_, second) = builder.end();
-
-        assert_eq!(first.delta().rectangles.adds.len(), 1);
-        assert!(second.delta().rectangles.is_empty(), "the second build re-sent the entry");
-        assert_eq!(rect_items(&first)[0].rect, rect_items(&second)[0].rect);
-    }
-
-    #[test]
-    fn a_transparent_rect_is_dropped_at_record_time() {
-        let mut builder = DisplayListBuilder::new(PipelineId::dummy());
-        builder.begin(60.0);
-
-        builder.push_rect(&common(), BOUNDS, ColorF::TRANSPARENT);
-
-        let (_, dl) = builder.end();
-        assert!(dl.delta().rectangles.is_empty());
-        assert!(rect_items(&dl).is_empty());
-    }
-
-    #[test]
-    fn a_transparent_checkerboard_is_recorded_without_a_handle() {
-        let mut builder = DisplayListBuilder::new(PipelineId::dummy());
-        builder.begin(60.0);
-
-        let mut c = common();
-        c.flags |= di::PrimitiveFlags::CHECKERBOARD_BACKGROUND;
-        builder.push_rect(&c, BOUNDS, ColorF::TRANSPARENT);
-
-        // The scene builder still needs the item for its tile cache barrier,
-        // but there is nothing to draw and so nothing to intern.
-        let (_, dl) = builder.end();
-        assert!(dl.delta().rectangles.is_empty());
-        let items = rect_items(&dl);
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].rect, interning::Handle::INVALID);
-    }
-
-    #[test]
-    fn an_animated_colour_is_always_visible() {
-        let mut builder = DisplayListBuilder::new(PipelineId::dummy());
-        builder.begin(60.0);
-
-        // Transparent now, but bound to a property that may animate it in.
-        let binding = PropertyBinding::Binding(
-            crate::PropertyBindingKey::new(7),
-            ColorF::TRANSPARENT,
-        );
-        builder.push_rect_with_animation(&common(), BOUNDS, binding);
-
-        let (_, dl) = builder.end();
-        assert_eq!(dl.delta().rectangles.adds.len(), 1);
-        assert_eq!(rect_items(&dl).len(), 1);
-    }
-
-    #[test]
-    fn a_transparent_rect_still_casts_a_shadow() {
-        let mut builder = DisplayListBuilder::new(PipelineId::dummy());
-        builder.begin(60.0);
-
-        let red = ColorF::new(1.0, 0.0, 0.0, 1.0);
-        push_shadow(&mut builder, red);
-        builder.push_rect(&common(), BOUNDS, ColorF::TRANSPARENT);
-        builder.pop_all_shadows();
-
-        // Only the shadow copy survives: the original was captured for the
-        // copy's sake, carries no handle, and is not re-emitted.
-        let (_, dl) = builder.end();
-        let adds = &dl.delta().rectangles.adds;
-        assert_eq!(adds.len(), 1);
-        assert_eq!(adds[0].key.kind.color, PropertyBinding::Value(red.into()));
-        let items = rect_items(&dl);
-        assert_eq!(items.len(), 1);
-        assert_ne!(items[0].rect, interning::Handle::INVALID);
-    }
-
-    #[test]
-    fn a_shadowed_rect_interns_its_copy_separately() {
-        let mut builder = DisplayListBuilder::new(PipelineId::dummy());
-        builder.begin(60.0);
-
-        push_shadow(&mut builder, ColorF::new(1.0, 0.0, 0.0, 1.0));
-        builder.push_rect(&common(), BOUNDS, ColorF::BLACK);
-        builder.pop_all_shadows();
-
-        let (_, dl) = builder.end();
-        assert_eq!(dl.delta().rectangles.adds.len(), 2);
-        let items = rect_items(&dl);
-        assert_eq!(items.len(), 2);
-        assert_ne!(items[0].rect, items[1].rect);
-    }
-
-    #[test]
-    fn the_aa_edge_mask_is_part_of_the_key() {
-        let mut builder = DisplayListBuilder::new(PipelineId::dummy());
-        builder.begin(60.0);
-
-        let c = common();
-        builder.push_rect_prim(&c, BOUNDS, PropertyBinding::Value(ColorF::BLACK), EdgeMask::all());
-        builder.push_rect_prim(&c, BOUNDS, PropertyBinding::Value(ColorF::BLACK), EdgeMask::LEFT);
-
-        let (_, dl) = builder.end();
-        assert_eq!(dl.delta().rectangles.adds.len(), 2);
     }
 }
 
