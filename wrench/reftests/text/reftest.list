@@ -127,3 +127,6 @@ scale(1.0) platform(linux) == 2056856-bitmap-clip.yaml 2056856-bitmap-clip-ref.y
 # at scale 2 the same layout x has a different fraction and rounds the other way.
 # FreeType-only (the bitmap strike selection), so restrict to linux.
 scale(1.0) platform(linux) == 2056856-bitmap-pen.yaml 2056856-bitmap-pen-ref.yaml
+# The pens snap in device space, so the .25 phase only holds at scale 1.
+scale(1.0) skip_on(android) == 2076646-shadow-offset-snap.yaml 2076646-shadow-offset-snap-ref.yaml
+scale(1.0) skip_on(android) == 2076646-shadow-offset-snap-scale.yaml 2076646-shadow-offset-snap-scale-ref.yaml

@@ -946,6 +946,7 @@ impl<'a> SceneBuilder<'a> {
                             info.stacking_context.clip_chain_id,
                             info.stacking_context.raster_space,
                             info.stacking_context.flags,
+                            info.stacking_context.shadow_offset,
                         );
 
                         let new_context = BuildContext {
@@ -1921,6 +1922,7 @@ impl<'a> SceneBuilder<'a> {
         clip_chain_id: Option<api::ClipChainId>,
         raster_space: RasterSpace,
         flags: StackingContextFlags,
+        shadow_offset: LayoutVector2D,
     ) -> StackingContextInfo {
         tracy_rs::profile_scope!("push_stacking_context");
 
@@ -1950,6 +1952,7 @@ impl<'a> SceneBuilder<'a> {
                 clip_chain_id,
                 raster_space,
                 flags,
+                LayoutVector2D::zero(),
             );
             info.pop_stacking_context = true;
             self.extra_stacking_context_stack.push(info);
@@ -2105,6 +2108,13 @@ impl<'a> SceneBuilder<'a> {
             prim_flags,
         );
 
+        // A shadow's contents must be snapped relative to the shadowed content,
+        // which needs a picture to carry the offset; without filters it is a
+        // pass-through picture, so no surface.
+        if shadow_offset != LayoutVector2D::zero() {
+            is_redundant = false;
+        }
+
         // If the stacking context is a blend container, and if we're at the top level
         // of the stacking context tree, we may be able to make this blend container into a tile
         // cache. This means that we get caching and correct scrolling invalidation for
@@ -2164,8 +2174,11 @@ impl<'a> SceneBuilder<'a> {
 
             // Push the SC onto the stack, so we know how to handle things in
             // pop_stacking_context.
+            let mut prim_list = PrimitiveList::empty();
+            prim_list.shadow_offset = shadow_offset;
+
             self.sc_stack.push(FlattenedStackingContext {
-                prim_list: PrimitiveList::empty(),
+                prim_list,
                 prim_flags,
                 spatial_node_index,
                 clip_node_id,

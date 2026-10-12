@@ -2280,6 +2280,35 @@ impl DisplayListBuilder {
         flags: di::StackingContextFlags,
         snapshot: Option<di::SnapshotInfo>
     ) {
+        self.push_stacking_context_impl(
+            spatial_id,
+            prim_flags,
+            clip_chain_id,
+            transform_style,
+            mix_blend_mode,
+            filters,
+            filter_datas,
+            raster_space,
+            flags,
+            snapshot,
+            LayoutVector2D::zero(),
+        );
+    }
+
+    fn push_stacking_context_impl(
+        &mut self,
+        spatial_id: di::SpatialId,
+        prim_flags: di::PrimitiveFlags,
+        clip_chain_id: Option<di::ClipChainId>,
+        transform_style: di::TransformStyle,
+        mix_blend_mode: di::MixBlendMode,
+        filters: &[di::FilterOp],
+        filter_datas: &[di::FilterData],
+        raster_space: di::RasterSpace,
+        flags: di::StackingContextFlags,
+        snapshot: Option<di::SnapshotInfo>,
+        shadow_offset: LayoutVector2D,
+    ) {
         self.push_filters(filters, filter_datas, spatial_id);
 
         // Resolve this context's raster space against its parent: a `Screen`
@@ -2307,6 +2336,7 @@ impl DisplayListBuilder {
                 clip_chain_id,
                 raster_space: resolved_raster_space,
                 flags,
+                shadow_offset,
             },
         });
 
@@ -2867,7 +2897,9 @@ impl DisplayListBuilder {
             let sc_clip = shadow.space_and_clip.clip_chain_id;
             let sc_clip = (sc_clip != di::ClipChainId::INVALID).then_some(sc_clip);
 
-            self.push_stacking_context(
+            // The scene builder snaps the copies relative to the original
+            // content using `shadow_offset` (bug 2076646).
+            self.push_stacking_context_impl(
                 shadow.space_and_clip.spatial_id,
                 di::PrimitiveFlags::default(),
                 sc_clip,
@@ -2878,6 +2910,7 @@ impl DisplayListBuilder {
                 di::RasterSpace::Screen,
                 di::StackingContextFlags::empty(),
                 None,
+                s.offset,
             );
 
             // A transparent shadow colour makes every text, rectangle and

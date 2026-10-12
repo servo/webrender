@@ -1,0 +1,68 @@
+---
+root:
+  items:
+    - type: shadow
+      bounds: [0, 0, 400, 260]
+      blur-radius: 1.25
+      offset: [1.25, 1.25]
+      color: [0, 0, 0, 1]
+    - bounds: [0, 5, 300, 50]
+      text: "Shadow"
+      origin: [10, 40]
+      size: 30
+      color: [255, 255, 255, 1]
+    - type: pop-all-shadows
+    - type: shadow
+      bounds: [0, 0, 400, 260]
+      blur-radius: 0
+      offset: [1.25, 1.25]
+      color: [0, 0, 0, 1]
+    - bounds: [0, 65, 300, 50]
+      text: "Shadow"
+      origin: [10, 100]
+      size: 30
+      color: [255, 255, 255, 1]
+    - type: pop-all-shadows
+    - type: shadow
+      bounds: [0, 0, 400, 260]
+      blur-radius: 0
+      offset: [1.25, 1.25]
+      color: [0, 0, 0, 1]
+    - type: rect
+      bounds: [10, 130, 100, 10]
+      color: [255, 255, 255, 1]
+    - type: pop-all-shadows
+    - type: shadow
+      bounds: [0, 0, 400, 260]
+      blur-radius: 0
+      offset: [1.25, 1.25]
+      color: [0, 0, 0, 1]
+    - image: checkerboard(2, 4, 4)
+      bounds: [10, 150, 40, 12]
+    - type: pop-all-shadows
+    - type: shadow
+      bounds: [0, 0, 400, 260]
+      blur-radius: 0
+      offset: [1.25, 1.25]
+      color: [0, 0, 0, 1]
+    - type: line
+      baseline: 175
+      start: 10
+      end: 110
+      width: 2
+      orientation: horizontal
+      color: white
+      style: solid
+    - type: pop-all-shadows
+    - type: shadow
+      bounds: [0, 0, 400, 260]
+      blur-radius: 0
+      offset: [1.25, 1.25]
+      color: [0, 0, 0, 1]
+    - type: border
+      bounds: [10, 190, 100, 20]
+      width: 2
+      border-type: normal
+      style: solid
+      color: white
+    - type: pop-all-shadows

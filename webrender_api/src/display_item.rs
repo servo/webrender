@@ -971,6 +971,10 @@ pub struct StackingContext {
     /// than two that have to agree.
     pub raster_space: RasterSpace,
     pub flags: StackingContextFlags,
+    /// Non-zero for a shadow emitted by the display list builder's shadow
+    /// desugaring: the offset its contents were translated by relative to the
+    /// shadowed content, so they can be snapped relative to it.
+    pub shadow_offset: LayoutVector2D,
 }
 // IMPLICIT: filters: Vec<FilterOp>, filter_datas: Vec<FilterData>, filter_primitives: Vec<FilterPrimitive>
 

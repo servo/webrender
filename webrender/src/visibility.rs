@@ -396,6 +396,9 @@ pub fn update_prim_visibility(
     // clip chain.
     let mut snapper = SpaceSnapper::new(surface, frame_context.spatial_tree);
     let mut clip_snapper = snapper.clone();
+    // Only the prims' own rects were translated by the shadow offset, not the
+    // clip chain they share with the shadowed content.
+    snapper.set_shadow_offset(pic.prim_list.shadow_offset);
 
     for cluster in &pic.prim_list.clusters {
         tracy_rs::profile_scope!("cluster");

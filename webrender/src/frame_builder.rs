@@ -245,6 +245,8 @@ pub struct PictureContext {
     pub surface_index: SurfaceIndex,
     pub dirty_region_count: usize,
     pub subpixel_mode: SubpixelMode,
+    /// The picture's `PrimitiveList::shadow_offset`.
+    pub shadow_offset: LayoutVector2D,
 }
 
 /// Mutable state of a picture that gets modified when

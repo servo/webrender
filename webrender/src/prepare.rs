@@ -539,6 +539,7 @@ fn prepare_prim_for_render(
                 &transform.to_transform().with_destination::<_>(),
                 surface,
                 prim_spatial_node_index,
+                pic_context.shadow_offset,
                 allow_subpixel,
                 frame_context.fb_config.low_quality_pinch_zoom,
                 frame_state.resource_cache,

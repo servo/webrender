@@ -438,6 +438,7 @@ impl TextRun {
         transform: &LayoutToWorldTransform,
         surface: &SurfaceInfo,
         spatial_node_index: SpatialNodeIndex,
+        shadow_offset: LayoutVector2D,
         allow_subpixel: bool,
         low_quality_pinch_zoom: bool,
         resource_cache: &mut ResourceCache,
@@ -535,12 +536,21 @@ impl TextRun {
                 SubpixelDirection::Mixed => (false, false),
             }
         };
-        let snapped_clip_rect = if snap_clip_x || snap_clip_y {
+        //
+        // A shadow copy's run moves to a whole number of device pixels from the
+        // shadowed run on the axes its pens snap on, so they snap the same way
+        // (see `SpaceSnapper::set_shadow_offset`).
+        let (pattern_rect, snapped_clip_rect) = if snap_clip_x || snap_clip_y {
             let mut snapper = SpaceSnapper::new(surface, spatial_tree);
             snapper.set_target_spatial_node(spatial_node_index, spatial_tree);
-            snapper.snap_rect_axes(&local_clip_rect, snap_clip_x, snap_clip_y)
+            snapper.set_shadow_offset(shadow_offset);
+            let pattern_rect = match snapper.shadow_snap_adjustment(snap_clip_x, snap_clip_y) {
+                Some(adjustment) => pattern_rect.translate(adjustment),
+                None => pattern_rect,
+            };
+            (pattern_rect, snapper.snap_rect_axes(&local_clip_rect, snap_clip_x, snap_clip_y))
         } else {
-            local_clip_rect
+            (pattern_rect, local_clip_rect)
         };
 
         // World-space run anchor (device mode only).
@@ -554,6 +564,15 @@ impl TextRun {
             // `write_vertex` applies the transform.
             let glyph_raster_scale = raster_scale * dps.0;
             glyph_offsets.reserve(self.glyphs.len());
+
+            // As above for a shadow copy, but on the raster grid the pens snap to.
+            let adjust = |v: f32, bias: f32| {
+                if bias == 0.5 { (v * glyph_raster_scale).round() / glyph_raster_scale - v } else { 0.0 }
+            };
+            let pattern_rect = pattern_rect.translate(LayoutVector2D::new(
+                adjust(shadow_offset.x, snap_bias.x),
+                adjust(shadow_offset.y, snap_bias.y),
+            ));
 
             scratch.frame.glyph_keys.extend(self.glyphs.iter().map(|src| {
                 let pos = pattern_rect.min + src.point.to_vector();
