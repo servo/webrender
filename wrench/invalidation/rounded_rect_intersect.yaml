@@ -1,9 +1,8 @@
 # Two rounded-rect clips shared by all primitives in the slice.
 # The outer clip has radius 20 on a 400x400 rect, the inner has
-# radius 15 on a 400x350 rect. Both share the top-left corner at
-# the origin, so the combined compositor clip should have radius 20
-# on top corners (max of both) and radius 15 on bottom corners
-# (only the inner clip contributes).
+# radius 20 on its top corners only on a 400x350 rect. Both share
+# the top-left corner at the origin, so the combined compositor clip
+# should have radius 20 on the top corners and none on the bottom.
 ---
 root:
   items:
@@ -17,7 +16,7 @@ root:
       id: 3
       complex:
         - rect: [0, 0, 400, 350]
-          radius: 15
+          radius: [20, 20, 0, 0]
 
     - type: rect
       bounds: 0 0 400 350

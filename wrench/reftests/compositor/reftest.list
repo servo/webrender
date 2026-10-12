@@ -20,6 +20,7 @@ options(enable-compositor-clips) scale(*) == rounded-rgb-surface.yaml rounded-rg
 options(enable-compositor-clips) == tile-occlusion.yaml tile-occlusion-ref.yaml
 options(enable-compositor-clips) color_targets(1) == rounded-clip.yaml rounded-clip-ref.yaml
 options(enable-compositor-clips) fuzzy(1,50) == per-corner-radius.yaml per-corner-radius-ref.yaml
+options(enable-compositor-clips) fuzzy(1,50) == single-radius-zero-corners.yaml single-radius-zero-corners-ref.yaml
 options(enable-compositor-clips) fuzzy(1,50) == radius-clamped.yaml radius-clamped-ref.yaml
 options(enable-compositor-clips) fuzzy(1,50) == fractional-radius.yaml fractional-radius-ref.yaml
 options(enable-compositor-clips) fuzzy(1,50) == two-clips-combined.yaml two-clips-combined-ref.yaml

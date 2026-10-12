@@ -1,0 +1,30 @@
+# Two rounded-rect clips shared by all primitives in the slice.
+# The outer clip has radius 20 on a 400x400 rect, the inner has
+# radius 15 on a 400x350 rect. Both share the top-left corner at
+# the origin, so combining them would give radius 20 on the top
+# corners and radius 15 on the bottom corners. Native compositors
+# can only apply a single radius, so they must not be combined.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [0, 0, 400, 400]
+          radius: 20
+
+    - type: clip
+      id: 3
+      complex:
+        - rect: [0, 0, 400, 350]
+          radius: 15
+
+    - type: rect
+      bounds: 0 0 400 350
+      color: red
+      clip-chain: [2, 3]
+
+    - type: rect
+      bounds: 0 0 200 175
+      color: blue
+      clip-chain: [2, 3]

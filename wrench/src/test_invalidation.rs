@@ -315,10 +315,10 @@ impl<'a> TestHarness<'a> {
 
         let slice = results.pc_debug.slice(0);
 
-        // The two clips (outer: 400x400 r=20, inner: 400x350 r=15, both at origin)
-        // should be combined into a single compositor clip on the tile cache slice.
-        // The combined clip rect is the intersection (400x350), with the top corners
-        // taking the larger radius (20) and bottom corners the smaller (15).
+        // The two clips (outer: 400x400 r=20, inner: 400x350 r=20 on the top
+        // corners only, both at origin) should be combined into a single compositor
+        // clip on the tile cache slice. The combined clip rect is the intersection
+        // (400x350), with radius 20 on the top corners and none on the bottom.
         let clip = slice.compositor_clip.as_ref().expect(
             "Expected a compositor clip on the tile cache slice after combining two rounded rects"
         );
@@ -332,14 +332,23 @@ impl<'a> TestHarness<'a> {
         let expected_radius = BorderRadius {
             top_left: LayoutSize::new(20.0, 20.0),
             top_right: LayoutSize::new(20.0, 20.0),
-            bottom_left: LayoutSize::new(15.0, 15.0),
-            bottom_right: LayoutSize::new(15.0, 15.0),
+            bottom_left: LayoutSize::zero(),
+            bottom_right: LayoutSize::zero(),
             shape_top_left: 1.0,
             shape_top_right: 1.0,
             shape_bottom_left: 1.0,
             shape_bottom_right: 1.0,
         };
         assert_eq!(clip.radius, expected_radius, "Combined clip radii");
+
+        // Combining these two clips would give radius 20 on the top corners and 15
+        // on the bottom. Native compositors can only apply a single radius
+        // (bug 2079096), so only one of the clips may become the compositor clip.
+        let results = self.render_yaml("rounded_rect_intersect_mixed");
+        let clip = results.pc_debug.slice(0).compositor_clip.as_ref().expect(
+            "Expected one of the rounded rects to be the compositor clip"
+        );
+        assert_eq!(clip.radius, BorderRadius::uniform(clip.radius.top_left.width), "Uniform clip radii");
     }
 
     /// Check which rounded-rect clip shapes are accepted as compositor clips.
@@ -354,7 +363,7 @@ impl<'a> TestHarness<'a> {
         // (reftest yaml, whether the slice should end up with a compositor clip)
         let cases = [
             ("rounded-clip", true),
-            ("per-corner-radius", true),
+            ("single-radius-zero-corners", true),
             ("radius-clamped", true),
             ("two-clips-combined", true),
             ("rect-and-rounded", true),
@@ -364,6 +373,9 @@ impl<'a> TestHarness<'a> {
             // non-round corner shapes are rejected by can_use_fast_path_in.
             ("elliptical-radius", false),
             ("corner-shape", false),
+            // Representable by the compositing shader, but native compositors such
+            // as CoreAnimation can only apply a single radius (bug 2079096).
+            ("per-corner-radius", false),
             // A scroll frame is an axis-aligned translation, so it stays in the
             // root coordinate system and the clip is still promoted.
             ("scrolled-clip", true),

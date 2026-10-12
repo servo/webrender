@@ -1,0 +1,18 @@
+# Reference for the test of the same name: the clip is applied directly to the
+# primitive, and an extra unclipped primitive keeps it out of the slice's shared
+# clips, so this always goes through the per-primitive quad-shader clip path.
+---
+root:
+  items:
+    - type: clip
+      id: 2
+      complex:
+        - rect: [100, 100, 500, 400]
+          radius: [0, 40, 40, 0]
+    - type: rect
+      bounds: [50, 50, 600, 500]
+      color: white
+    - type: rect
+      bounds: [50, 50, 600, 500]
+      color: green
+      clip-chain: [2]

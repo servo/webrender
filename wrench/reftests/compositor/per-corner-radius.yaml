@@ -1,5 +1,6 @@
-# Four different circular corner radii, to check each corner is lowered to the
-# right slot of the compositor clip rather than all taking a single radius.
+# Four different circular corner radii. Native compositors such as CoreAnimation
+# can only apply a single radius, so this must not be promoted to a compositor
+# clip and falls back to the per-primitive clip path (bug 2079096).
 ---
 root:
   items:
