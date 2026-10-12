@@ -30,3 +30,4 @@ scale(*) == extreme-scale-rounded-rect.yaml extreme-scale-rounded-rect.yaml
 scale(*) == different-scale-rounded-rect.yaml different-scale-rounded-rect-ref.yaml
 == clip-radius-exceeds-rect.yaml clip-radius-exceeds-rect.png
 scale(*) == flipped-rounded-rect.yaml flipped-rounded-rect-ref.yaml
+scale(*) == rounded-clip-subpixel-corner.yaml rounded-clip-subpixel-corner.yaml

@@ -1,0 +1,25 @@
+# A rounded-rect clip whose nine-patch corner segments become narrower than
+# one device pixel where they intersect the antialiased bounds of the
+# primitive.
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 300, 300]
+      items:
+        - type: clip
+          id: 2
+          complex:
+            - rect: [ 0, 0, 300, 300 ]
+              radius: [ 10, 10 ]
+        - type: rect
+          bounds: [ 9.5, 0.5, 281, 299 ]
+          color: green
+          clip-chain: [2]
+          antialiased: true
+        # A second rect that grows the picture cache slice so that the green
+        # rect above does not cover it entirely and get folded into the
+        # background color.
+        - type: rect
+          bounds: [ 0, 250, 8, 50 ]
+          color: blue
