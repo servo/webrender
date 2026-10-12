@@ -26,8 +26,9 @@ struct InvalidationTest {
     file1: PathBuf,
     file2: PathBuf,
     /// Build the second display list with a fresh `DisplayListBuilder`, the way
-    /// a replaced content process would, instead of the builder retained from
-    /// the first.
+    /// a replaced content process would. Its interning slot numbering restarts,
+    /// so the receiver has to drop what the first builder interned before
+    /// applying anything (`DeltaAction::Reset`).
     new_builder: bool,
 }
 

@@ -17,10 +17,6 @@
 //! the inner level deliberately has no free list - if a store allocated for
 //! itself the two sides would diverge with nothing able to notice.
 
-// Handles are only minted once a primitive type moves its interning into the
-// display list builder, so until then the store's read side has no caller.
-#![allow(dead_code)]
-
 use crate::intern::ItemUid;
 use crate::internal_types::{FastHashMap, FastHashSet};
 use api::interning::{BuildId, BuilderId};
@@ -41,23 +37,28 @@ use std::{fmt, ops};
 macro_rules! enumerate_dl_stores {
     ($macro_name: ident) => {
         $macro_name! {
+            rectangles: api::interned_prims::RectangleKey => crate::prim_store::rectangle::RectangleTemplate, INTERNED_PRIMITIVES, prim,
         }
     }
 }
 
 /// The follower stores the scene builder itself reads, in the same shape as
-/// `enumerate_dl_stores!` minus the gauge. Most types need none: scene
-/// building only consumes a handle. Clips will, since clip chain building,
-/// slice partitioning and hit testing read the clip's key.
+/// `enumerate_dl_stores!` minus the gauge. Every primitive type has one
+/// holding its `PrimPlacement`, since a primitive's display item carries only
+/// the handle, the spatial id and the clip chain. Clips will need their key,
+/// since clip chain building, slice partitioning and hit testing read it.
 #[macro_export]
 macro_rules! enumerate_scene_dl_stores {
     ($macro_name: ident) => {
         $macro_name! {
+            rectangles: api::interned_prims::RectangleKey => crate::prim_store::PrimPlacement, prim,
         }
     }
 }
 
 /// What a store needs to turn a content key into the value it holds.
+// Rectangles resolve from the key alone; the fields are for fonts and images.
+#[allow(dead_code)]
 pub struct DlResolveContext<'a> {
     /// The id namespace the display list carrying the delta was submitted
     /// with, for validating any resource key the interned item names.

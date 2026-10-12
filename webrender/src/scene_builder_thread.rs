@@ -11,7 +11,6 @@ use api::channel::{unbounded_channel, single_msg_channel, Receiver, Sender};
 use api::units::*;
 use crate::render_api::{ApiMsg, FrameMsg, SceneMsg, ResourceUpdate, TransactionMsg, MemoryReport};
 use crate::box_shadow::BoxShadow;
-use crate::prim_store::rectangle::RectanglePrim;
 #[cfg(feature = "capture")]
 use crate::capture::CaptureConfig;
 use crate::frame_builder::FrameBuilderConfig;
@@ -266,8 +265,6 @@ macro_rules! declare_scene_dl_stores {
             $( $field: Vec<crate::dl_interner::DlOp<$value>>, )*
         }
 
-        // Until the first type is listed nothing in here has anything to do.
-        #[allow(unused_variables)]
         impl SceneDlStores {
             fn report_memory(&self, ops: &mut MallocSizeOfOps, r: &mut MemoryReport) {
                 $( r.interning.dl_stores.$report += self.$field.size_of(ops); )*
@@ -278,7 +275,6 @@ macro_rules! declare_scene_dl_stores {
             }
         }
 
-        #[allow(unused_variables, unused_mut)]
         impl SceneDlUpdates {
             fn open(&mut self, namespace: DlNamespace) {
                 $( self.$field.push(crate::dl_interner::DlOp::Open(namespace)); )*
@@ -331,8 +327,6 @@ macro_rules! declare_dl_updates {
             scene: SceneDlUpdates,
         }
 
-        // Until the first type is listed nothing in here has anything to do.
-        #[allow(unused_variables)]
         impl DlUpdates {
             /// A namespace comes into use: every store must be told before
             /// anything lands in it. Namespace lifetime rides the same op
@@ -724,6 +718,8 @@ impl SceneBuilderThread {
                 built_scene = Some(SceneBuilder::build(
                     &item.scene,
                     None,
+                    &self.dl_builders,
+                    &self.scene_stores,
                     item.fonts,
                     &item.view,
                     &self.config,
@@ -954,6 +950,8 @@ impl SceneBuilderThread {
                     let built = SceneBuilder::build(
                         &scene,
                         Some(pipeline_id),
+                        &self.dl_builders,
+                        &self.scene_stores,
                         self.fonts.clone(),
                         &doc.view,
                         &config,
@@ -999,6 +997,8 @@ impl SceneBuilderThread {
             let built = SceneBuilder::build(
                 &scene,
                 None,
+                &self.dl_builders,
+                &self.scene_stores,
                 self.fonts.clone(),
                 &doc.view,
                 &config,

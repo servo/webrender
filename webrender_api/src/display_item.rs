@@ -330,15 +330,17 @@ pub struct ScrollFrameDescriptor {
 /// A solid or an animating color to draw (may not actually be a rectangle due to complex clips)
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
 pub struct RectangleDisplayItem {
-    pub common: CommonItemProperties,
-    pub bounds: LayoutRect,
-    pub color: PropertyBinding<ColorF>,
-    /// Which edges get anti-aliased under a transform. A rect is the one item
-    /// that says, because the display list builder splits one primitive into
-    /// abutting rects (the solid margins around a clamped radial gradient) and
-    /// the interior edges must not be anti-aliased or they seam. There is no
-    /// aligned equivalent: that mask is `EdgeMask::empty()` for every primitive.
-    pub transformed_aa_edges: EdgeMask,
+    pub spatial_id: SpatialId,
+    pub clip_chain_id: ClipChainId,
+    /// Everything else - bounds, clip rect, flags, colour and the transformed
+    /// AA edge mask - lives in the interned entry. The mask is per rectangle
+    /// because the display list builder splits one primitive into abutting
+    /// rects (the solid margins around a clamped radial gradient) whose
+    /// interior edges must not be anti-aliased or they seam.
+    ///
+    /// `Handle::INVALID` marks a fully transparent checkerboard background,
+    /// recorded only so the scene builder can place its tile cache barrier.
+    pub rect: crate::interning::Handle<crate::interned_prims::RectangleKey>,
 }
 
 /// A minimal hit-testable item for the parent browser's convenience, and is
@@ -794,7 +796,7 @@ pub struct RadialGradientDisplayItem {
     pub tile_spacing: LayoutSize,
     /// Which edges get anti-aliased under a transform. Narrowed by
     /// `optimize_radial_gradient` where the gradient abuts a solid margin it
-    /// split off; see `RectangleDisplayItem::transformed_aa_edges`.
+    /// split off; see `RectangleDisplayItem::rect`.
     pub transformed_aa_edges: EdgeMask,
 }
 

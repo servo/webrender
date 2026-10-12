@@ -27,7 +27,7 @@ use crate::prim_store::{PictureIndex, PrimitiveScratchBuffer};
 use crate::prim_store::{DeferredResolve, PrimitiveInstance};
 use crate::prim_store::storage;
 use crate::profiler::{self, TransactionProfile};
-use crate::render_backend::{DataStores, ScratchBuffer};
+use crate::render_backend::{DataStores, DlStores, ScratchBuffer};
 use crate::renderer::{GpuBufferBuilder, GpuBufferBuilderF, GpuBufferBuilderI, GpuBufferF, GpuBufferI};
 use crate::render_target::{PictureCacheTarget, PictureCacheTargetKind};
 use crate::render_target::{RenderTargetContext, RenderTargetKind, RenderTarget};
@@ -278,6 +278,7 @@ impl FrameBuilder {
         scene_properties: &SceneProperties,
         transform_palette: &mut TransformPalette,
         data_stores: &DataStores,
+        dl_stores: &DlStores,
         scratch: &mut ScratchBuffer,
         debug_flags: DebugFlags,
         debug_override: &SceneDebugOverride,
@@ -398,6 +399,7 @@ impl FrameBuilder {
                     resource_cache,
                     frame_gpu_data,
                     data_stores,
+                    dl_stores,
                     clip_tree: &scene.clip_tree,
                     composite_state,
                     rg_builder,
@@ -457,6 +459,7 @@ impl FrameBuilder {
                             resource_cache,
                             frame_gpu_data,
                             data_stores,
+                            dl_stores,
                             clip_tree: &scene.clip_tree,
                             composite_state,
                             rg_builder,
@@ -589,6 +592,7 @@ impl FrameBuilder {
                 &frame_context,
                 &mut frame_state,
                 data_stores,
+                dl_stores,
                 &mut scratch.primitive,
                 tile_caches,
                 &mut scene.prim_instances
@@ -626,6 +630,7 @@ impl FrameBuilder {
                 &frame_context,
                 &mut frame_state,
                 data_stores,
+                dl_stores,
                 &mut scratch.primitive,
                 tile_caches,
                 &mut scene.prim_instances
@@ -662,6 +667,7 @@ impl FrameBuilder {
         device_origin: DeviceIntPoint,
         scene_properties: &SceneProperties,
         data_stores: &DataStores,
+        dl_stores: &DlStores,
         scratch: &mut ScratchBuffer,
         debug_flags: DebugFlags,
         debug_override: &SceneDebugOverride,
@@ -720,6 +726,7 @@ impl FrameBuilder {
             scene_properties,
             &mut transform_palette,
             data_stores,
+            dl_stores,
             scratch,
             debug_flags,
             debug_override,
@@ -769,6 +776,7 @@ impl FrameBuilder {
                     batch_lookback_count: scene.config.batch_lookback_count,
                     spatial_tree,
                     data_stores,
+                    dl_stores,
                     scratch: &mut scratch.primitive,
                     screen_device_rect,
                     tile_caches,
@@ -804,6 +812,7 @@ impl FrameBuilder {
                     batch_lookback_count: scene.config.batch_lookback_count,
                     spatial_tree,
                     data_stores,
+                    dl_stores,
                     scratch: &mut scratch.primitive,
                     screen_device_rect,
                     tile_caches,
