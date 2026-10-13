@@ -830,8 +830,8 @@ fn prepare_prim_for_render(
                             &QuadDescriptor {
                                 pattern_rect: *seg_rect,
                                 bounds: *seg_rect,
-                                aligned_aa_edges: EdgeMask::empty(),
-                                transformed_aa_edges: edge_aa_mask,
+                                aligned_aa_edges: prim_data.common.aligned_aa_edges & edge_aa_mask,
+                                transformed_aa_edges: prim_data.common.transformed_aa_edges & edge_aa_mask,
                             },
                             &None,
                             quad_clips,

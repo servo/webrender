@@ -1,0 +1,11 @@
+---
+root:
+  items:
+    - type: rect
+      bounds: 10.25 10.25 149.75 300.5
+      color: [255, 0, 255, 1]
+      antialiased: true
+    - type: rect
+      bounds: 160 10.25 150.75 300.5
+      color: [255, 165, 0, 1]
+      antialiased: true

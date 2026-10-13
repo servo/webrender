@@ -1,0 +1,11 @@
+# An anti-aliased axis-aligned gradient keeps its edge anti-aliasing when it
+# is decomposed into two-stop segments.
+---
+root:
+  items:
+    - type: gradient
+      bounds: 10.25 10.25 300.5 300.5
+      start: 0 0
+      end: 300.5 0
+      stops: [0.49833610648918466, [255, 0, 255, 1], 0.49833610648918466, [255, 165, 0, 1]]
+      antialiased: true
