@@ -2506,6 +2506,20 @@ impl DisplayListBuilder {
         offset
     }
 
+    /// The accumulated external scroll offset for `spatial_id`, in this list's
+    /// pixels: what `normalize_rect` adds to an item to move it from the
+    /// pre-scrolled coordinates it was authored in to the scroll-invariant ones
+    /// it is snapped in. Lets an embedder that predicts that snapping use the
+    /// same accumulation rather than re-derive it.
+    pub fn accumulated_scroll_offset_px(
+        &mut self,
+        spatial_id: di::SpatialId,
+    ) -> LayoutVector2D {
+        let offset = self.accumulated_scroll_offset(spatial_id);
+        let grid = self.au_grid;
+        LayoutVector2D::new(grid.from_au(offset.x as f64), grid.from_au(offset.y as f64))
+    }
+
     /// Record the accumulated external scroll offset for a freshly-defined
     /// spatial node.
     fn record_scroll_offset(&mut self, spatial_id: di::SpatialId, offset: AuOffset) {
