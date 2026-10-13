@@ -43,6 +43,7 @@ impl NormalBorderData {
         desc: &QuadDescriptor,
         clips: &QuadClipStack,
         quad_transform: &mut QuadTransformState,
+        snap_thickness: bool,
         frame_context: &FrameBuildingContext,
         targets: &[CommandBufferIndex],
         frame_state: &mut FrameBuildingState,
@@ -79,16 +80,25 @@ impl NormalBorderData {
         // Uses the unclamped device scale factors, since that is the transform
         // the edge is actually composited with, not the power-of-2
         // rasterization scale.
+        //
+        // An anti-aliased border declines the thickness snapping: its thickness
+        // is geometry the caller resolved exactly (an SVG stroke, say) and the
+        // shader resolves its edges at their sub-pixel positions, so moving
+        // them to the grid is what the anti-aliasing is there to avoid. The
+        // corner snapping below still applies, since it is about how the corner
+        // texture is sampled rather than where the border's edges are.
         let mut widths = self.widths;
         let mut border = self.border;
         if let Some((device_scale_x, device_scale_y)) = quad_transform.coplanar_scale_factors() {
             let snap_width = |w: f32, s: f32| {
                 if w >= 1.0 && s > 0.0 { (w * s).round().max(1.0) / s } else { w }
             };
-            widths.left = snap_width(widths.left, device_scale_x);
-            widths.right = snap_width(widths.right, device_scale_x);
-            widths.top = snap_width(widths.top, device_scale_y);
-            widths.bottom = snap_width(widths.bottom, device_scale_y);
+            if snap_thickness {
+                widths.left = snap_width(widths.left, device_scale_x);
+                widths.right = snap_width(widths.right, device_scale_x);
+                widths.top = snap_width(widths.top, device_scale_y);
+                widths.bottom = snap_width(widths.bottom, device_scale_y);
+            }
 
             // A corner's cached texture is rasterized at the whole-pixel size of its
             // corner box and then stretched onto that box, so a box with a fractional
