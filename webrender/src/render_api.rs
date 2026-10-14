@@ -505,6 +505,12 @@ impl Transaction {
         self.resource_updates.push(ResourceUpdate::SetBlobImageVisibleArea(key, area));
     }
 
+    /// See `ResourceUpdate::AddFont`
+    pub fn add_raw_font_arc(&mut self, key: FontKey, bytes: Arc<Vec<u8>>, index: u32) {
+        self.resource_updates
+            .push(ResourceUpdate::AddFont(AddFFont::Raw(key, bytes, index));
+    }
+
     /// See `ResourceUpdate::AddFont`.
     pub fn add_raw_font(&mut self, key: FontKey, bytes: Vec<u8>, index: u32) {
         self.resource_updates
