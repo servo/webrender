@@ -51,7 +51,7 @@ use crate::prim_store::{ClipTaskIndex, PictureIndex, PrimitiveKind};
 use crate::prim_store::{PrimitiveStore, PrimitiveInstance, PrimitiveInstanceIndex};
 use crate::prim_store::storage;
 use crate::prim_store::text_run::TextRunScratch;
-use crate::render_backend::{DataStores, ScratchBuffer};
+use crate::render_backend::{DataStores, DlStores, ScratchBuffer};
 use crate::render_task_graph::RenderTaskGraphBuilder;
 use crate::resource_cache::ResourceCache;
 use crate::util::MaxRect;
@@ -74,6 +74,7 @@ pub struct FrameVisibilityState<'a> {
     pub resource_cache: &'a mut ResourceCache,
     pub frame_gpu_data: &'a mut GpuBufferBuilder,
     pub data_stores: &'a DataStores,
+    pub dl_stores: &'a DlStores,
     pub clip_tree: &'a ClipTree,
     pub composite_state: &'a mut CompositeState,
     pub rg_builder: &'a mut RenderTaskGraphBuilder,
@@ -444,8 +445,8 @@ pub fn update_prim_visibility(
             // `PrimitiveInstance::snap_policy`.
             let prim_instance = &frame_state.prim_instances[prim_instance_index];
 
-            let policy = prim_instance.snap_policy(frame_state.data_stores);
-            let unsnapped_pattern_rect = frame_state.data_stores.prim_rect(prim_instance);
+            let policy = prim_instance.snap_policy(frame_state.data_stores, frame_state.dl_stores);
+            let unsnapped_pattern_rect = frame_state.data_stores.prim_rect(prim_instance, frame_state.dl_stores);
             let snapped_pattern_rect =
                 snapper.snap_rect_rounded(&unsnapped_pattern_rect, policy.rect);
 
@@ -460,7 +461,7 @@ pub fn update_prim_visibility(
             // spatial node, the same target `snapper` used for the prim rect
             // above.
             let snapped_local_clip_rect = snap_local_clip_rect(
-                frame_state.data_stores.local_clip_rect(prim_instance),
+                frame_state.data_stores.local_clip_rect(prim_instance, frame_state.dl_stores),
                 &snapper,
                 policy.local_clip(),
             );
@@ -604,6 +605,7 @@ pub fn update_prim_visibility(
                         local_coverage_rect,
                         frame_context,
                         frame_state.data_stores,
+                        frame_state.dl_stores,
                         frame_state.clip_store,
                         &store.pictures,
                         frame_state.resource_cache,

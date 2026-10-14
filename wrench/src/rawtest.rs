@@ -51,6 +51,8 @@ impl<'a> RawtestHarness<'a> {
         self.test_zero_height_window();
         self.test_trim_transient_resources();
         self.test_clear_cache();
+        self.test_pipeline_readded_after_removal();
+        self.test_removed_pipeline_in_rootless_document();
     }
 
     #[allow(dead_code)]
@@ -1604,6 +1606,119 @@ impl<'a> RawtestHarness<'a> {
         let mut epoch = Epoch(0);
         self.submit_dl(&mut epoch, builder, txn);
 
+        self.rx.recv().unwrap();
+        self.wrench.render();
+    }
+
+    // A document without a root pipeline builds no scene, so the render
+    // backend holds its interning ops back. Removing a pipeline whose namespace
+    // was only opened there must not release that namespace on the render
+    // backend ahead of the open when another document builds a scene.
+    fn test_removed_pipeline_in_rootless_document(&mut self) {
+        println!("\tremoved pipeline in rootless document test...");
+
+        let doc_id = self.wrench.api.add_document(DeviceIntSize::new(100, 100));
+        let pipeline_id = PipelineId(1, 42);
+
+        let mut builder = DisplayListBuilder::new(pipeline_id);
+        builder.begin(AU_PER_DEV_PX);
+        let space_and_clip = SpaceAndClipInfo::root_scroll(pipeline_id);
+        let info = self.make_common_properties_with_clip_and_spatial(
+            LayoutRect::from_size(LayoutSize::new(100.0, 100.0)),
+            space_and_clip.clip_chain_id,
+            space_and_clip.spatial_id,
+        );
+        builder.push_rect(&info, info.clip_rect, ColorF::new(0.0, 1.0, 0.0, 1.0));
+
+        let mut txn = Transaction::new();
+        txn.set_display_list(
+            Epoch(0),
+            self.wrench.api.get_namespace_id(),
+            builder.end(),
+        );
+        self.wrench.api.send_transaction(doc_id, txn);
+
+        let mut txn = Transaction::new();
+        txn.remove_pipeline(pipeline_id);
+        self.wrench.api.send_transaction(doc_id, txn);
+
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id);
+        builder.begin(AU_PER_DEV_PX);
+        let info = self.make_common_properties(
+            LayoutRect::from_size(LayoutSize::new(100.0, 100.0))
+        );
+        builder.push_rect(&info, info.clip_rect, ColorF::new(1.0, 0.0, 0.0, 1.0));
+        let mut epoch = Epoch(0);
+        self.submit_dl(&mut epoch, builder, Transaction::new());
+
+        self.rx.recv().unwrap();
+        self.wrench.render();
+
+        self.wrench.api.delete_document(doc_id);
+    }
+
+    fn rect_display_list(&self, pipeline_id: PipelineId, iframe: Option<PipelineId>) -> (PipelineId, BuiltDisplayList) {
+        let mut builder = DisplayListBuilder::new(pipeline_id);
+        builder.begin(AU_PER_DEV_PX);
+        let space_and_clip = SpaceAndClipInfo::root_scroll(pipeline_id);
+        let rect = LayoutRect::from_size(LayoutSize::new(100.0, 100.0));
+        let info = self.make_common_properties_with_clip_and_spatial(
+            rect,
+            space_and_clip.clip_chain_id,
+            space_and_clip.spatial_id,
+        );
+        builder.push_rect(&info, rect, ColorF::new(0.0, 1.0, 0.0, 1.0));
+        if let Some(iframe) = iframe {
+            builder.push_iframe(rect, rect, &space_and_clip, iframe, true);
+        }
+        builder.end()
+    }
+
+    // Removing a pipeline releases its interned items, so a builder that
+    // outlives the removal cannot go on with its delta stream; a pipeline that
+    // comes back does so with a fresh builder.
+    fn test_pipeline_readded_after_removal(&mut self) {
+        println!("\tpipeline re-added after removal test...");
+
+        let namespace = self.wrench.api.get_namespace_id();
+        let root_pipeline_id = self.wrench.root_pipeline_id;
+        let child_id = PipelineId(1, 45);
+        let rect = LayoutRect::from_size(LayoutSize::new(100.0, 100.0));
+        let child_display_list = || {
+            let mut builder = DisplayListBuilder::new(child_id);
+            builder.begin(AU_PER_DEV_PX);
+            let space_and_clip = SpaceAndClipInfo::root_scroll(child_id);
+            let info = CommonItemProperties {
+                clip_rect: rect,
+                clip_chain_id: space_and_clip.clip_chain_id,
+                spatial_id: space_and_clip.spatial_id,
+                flags: PrimitiveFlags::default(),
+            };
+            builder.push_rect(&info, rect, ColorF::new(0.0, 1.0, 0.0, 1.0));
+            builder.end()
+        };
+
+        let mut txn = Transaction::new();
+        txn.set_display_list(Epoch(0), namespace, self.rect_display_list(root_pipeline_id, Some(child_id)));
+        txn.set_display_list(Epoch(0), namespace, child_display_list());
+        txn.generate_frame(0, true, false, RenderReasons::TESTING);
+        self.wrench.api.send_transaction(self.wrench.document_id, txn);
+        self.rx.recv().unwrap();
+        self.wrench.render();
+
+        let mut txn = Transaction::new();
+        txn.remove_pipeline(child_id);
+        txn.set_display_list(Epoch(1), namespace, self.rect_display_list(root_pipeline_id, Some(child_id)));
+        txn.generate_frame(0, true, false, RenderReasons::TESTING);
+        self.wrench.api.send_transaction(self.wrench.document_id, txn);
+        self.rx.recv().unwrap();
+        self.wrench.render();
+
+        let mut txn = Transaction::new();
+        txn.set_display_list(Epoch(1), namespace, child_display_list());
+        txn.set_display_list(Epoch(2), namespace, self.rect_display_list(root_pipeline_id, Some(child_id)));
+        txn.generate_frame(0, true, false, RenderReasons::TESTING);
+        self.wrench.api.send_transaction(self.wrench.document_id, txn);
         self.rx.recv().unwrap();
         self.wrench.render();
     }
