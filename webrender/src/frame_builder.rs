@@ -27,10 +27,8 @@ use crate::prim_store::{PictureIndex, PrimitiveScratchBuffer};
 use crate::prim_store::{DeferredResolve, PrimitiveInstance};
 use crate::prim_store::storage;
 use crate::profiler::{self, TransactionProfile};
-use crate::render_backend::{DataStores, DlStores, ScratchBuffer};
+use crate::render_backend::{DataStores, ScratchBuffer};
 use crate::renderer::{GpuBufferBuilder, GpuBufferBuilderF, GpuBufferBuilderI, GpuBufferF, GpuBufferI};
-use crate::renderer::{GpuBufferEdges, PathEdgeBufferBuilder};
-use crate::path_tiler::PathTiler;
 use crate::render_target::{PictureCacheTarget, PictureCacheTargetKind};
 use crate::render_target::{RenderTargetContext, RenderTargetKind, RenderTarget};
 use crate::render_task_graph::{Pass, RenderTaskGraph, RenderTaskId, SubPassSurface};
@@ -111,9 +109,6 @@ pub struct FrameBuilder {
     composite_state_prealloc: CompositeStatePreallocator,
     #[cfg_attr(feature = "capture", serde(skip))]
     plane_splitters: Vec<PlaneSplitter>,
-    /// Retained between frames to reuse its allocations.
-    #[cfg_attr(feature = "capture", serde(skip))]
-    path_tiler: PathTiler,
 }
 
 pub struct FrameBuildingContext<'a> {
@@ -125,7 +120,6 @@ pub struct FrameBuildingContext<'a> {
     pub debug_override: &'a SceneDebugOverride,
     pub fb_config: &'a FrameBuilderConfig,
     pub root_spatial_node_index: SpatialNodeIndex,
-    pub dl_stores: &'a DlStores,
 }
 
 impl<'a> FrameBuildingContext<'a> {
@@ -269,7 +263,6 @@ impl FrameBuilder {
             prim_headers_prealloc: Preallocator::new(0),
             composite_state_prealloc: CompositeStatePreallocator::default(),
             plane_splitters: Vec::new(),
-            path_tiler: PathTiler::new(),
         }
     }
 
@@ -285,7 +278,6 @@ impl FrameBuilder {
         scene_properties: &SceneProperties,
         transform_palette: &mut TransformPalette,
         data_stores: &DataStores,
-        dl_stores: &DlStores,
         scratch: &mut ScratchBuffer,
         debug_flags: DebugFlags,
         debug_override: &SceneDebugOverride,
@@ -324,7 +316,6 @@ impl FrameBuilder {
             debug_override,
             fb_config: &scene.config,
             root_spatial_node_index,
-            dl_stores,
         };
 
         scene.picture_graph.build_update_passes(
@@ -671,7 +662,6 @@ impl FrameBuilder {
         device_origin: DeviceIntPoint,
         scene_properties: &SceneProperties,
         data_stores: &DataStores,
-        dl_stores: &DlStores,
         scratch: &mut ScratchBuffer,
         debug_flags: DebugFlags,
         debug_override: &SceneDebugOverride,
@@ -689,7 +679,6 @@ impl FrameBuilder {
         let mut gpu_buffer_builder = GpuBufferBuilder {
             f32: GpuBufferBuilderF::new(&frame_memory, 8 * 1024, stamp.frame_id()),
             i32: GpuBufferBuilderI::new(&frame_memory, 2 * 1024, stamp.frame_id()),
-            edges: PathEdgeBufferBuilder::new(&frame_memory, 0),
         };
 
         profile.set(profiler::PRIMITIVES, scene.prim_instances.len());
@@ -731,7 +720,6 @@ impl FrameBuilder {
             scene_properties,
             &mut transform_palette,
             data_stores,
-            dl_stores,
             scratch,
             debug_flags,
             debug_override,
@@ -799,7 +787,6 @@ impl FrameBuilder {
                     &mut z_generator,
                     &scene.prim_instances,
                     &cmd_buffers,
-                    &mut self.path_tiler,
                 );
 
                 has_texture_cache_tasks |= !pass.texture_cache.is_empty();
@@ -856,7 +843,6 @@ impl FrameBuilder {
 
         let gpu_buffer_f = gpu_buffer_builder.f32.finalize(&render_tasks);
         let gpu_buffer_i = gpu_buffer_builder.i32.finalize(&render_tasks);
-        let gpu_buffer_edges = gpu_buffer_builder.edges.finalize();
 
         Frame {
             device_rect: DeviceIntRect::from_origin_and_size(
@@ -875,7 +861,6 @@ impl FrameBuilder {
             composite_state,
             gpu_buffer_f,
             gpu_buffer_i,
-            gpu_buffer_edges,
             allocator_memory: frame_memory,
         }
     }
@@ -1157,7 +1142,6 @@ pub fn build_render_pass(
     z_generator: &mut ZBufferIdGenerator,
     prim_instances: &[PrimitiveInstance],
     cmd_buffers: &CommandBufferList,
-    path_tiler: &mut PathTiler,
 ) -> RenderPass {
     tracy_rs::profile_scope!("build_render_pass");
 
@@ -1188,7 +1172,6 @@ pub fn build_render_pass(
                                 gpu_buffer_builder,
                                 render_tasks,
                                 transforms,
-                                path_tiler,
                             );
                         }
 
@@ -1211,7 +1194,6 @@ pub fn build_render_pass(
                                 gpu_buffer_builder,
                                 render_tasks,
                                 transforms,
-                                path_tiler,
                             );
                         }
 
@@ -1347,7 +1329,6 @@ pub fn build_render_pass(
                         gpu_buffer_builder,
                         render_tasks,
                         transforms,
-                        path_tiler,
                     );
                 }
             }
@@ -1439,8 +1420,6 @@ pub struct Frame {
     /// pass for primitives that were visible and dirty.
     pub gpu_buffer_f: GpuBufferF,
     pub gpu_buffer_i: GpuBufferI,
-    /// The edges of the path tiles, shared by all of the frame's paths.
-    pub gpu_buffer_edges: GpuBufferEdges,
 
     /// The backing store for the frame's allocator.
     ///

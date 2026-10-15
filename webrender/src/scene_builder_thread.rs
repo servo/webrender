@@ -266,6 +266,8 @@ macro_rules! declare_scene_dl_stores {
             $( $field: Vec<crate::dl_interner::DlOp<$value>>, )*
         }
 
+        // Until the first type is listed nothing in here has anything to do.
+        #[allow(unused_variables)]
         impl SceneDlStores {
             fn report_memory(&self, ops: &mut MallocSizeOfOps, r: &mut MemoryReport) {
                 $( r.interning.dl_stores.$report += self.$field.size_of(ops); )*
@@ -276,6 +278,7 @@ macro_rules! declare_scene_dl_stores {
             }
         }
 
+        #[allow(unused_variables, unused_mut)]
         impl SceneDlUpdates {
             fn open(&mut self, namespace: DlNamespace) {
                 $( self.$field.push(crate::dl_interner::DlOp::Open(namespace)); )*
@@ -328,6 +331,8 @@ macro_rules! declare_dl_updates {
             scene: SceneDlUpdates,
         }
 
+        // Until the first type is listed nothing in here has anything to do.
+        #[allow(unused_variables)]
         impl DlUpdates {
             /// A namespace comes into use: every store must be told before
             /// anything lands in it. Namespace lifetime rides the same op
@@ -723,8 +728,6 @@ impl SceneBuilderThread {
                     &item.view,
                     &self.config,
                     &mut item.interners,
-                    &self.dl_builders,
-                    &self.scene_stores,
                     &mut item.spatial_tree,
                     &mut self.recycler,
                     &SceneStats::empty(),
@@ -955,8 +958,6 @@ impl SceneBuilderThread {
                         &doc.view,
                         &config,
                         &mut doc.interners,
-                        &self.dl_builders,
-                        &self.scene_stores,
                         &mut spatial_tree,
                         &mut self.recycler,
                         &doc.stats,
@@ -1002,8 +1003,6 @@ impl SceneBuilderThread {
                 &doc.view,
                 &config,
                 &mut doc.interners,
-                &self.dl_builders,
-                &self.scene_stores,
                 &mut doc.spatial_tree,
                 &mut self.recycler,
                 &doc.stats,

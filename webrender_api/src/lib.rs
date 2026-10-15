@@ -51,7 +51,6 @@ mod display_list;
 mod font;
 mod gradient_builder;
 mod image;
-pub mod path;
 /// Internal: hashable building blocks for interning keys, shared with the
 /// `webrender` crate. Not part of the public API surface.
 #[doc(hidden)]
@@ -80,7 +79,6 @@ pub use crate::gradient_builder::*;
 pub use crate::image::*;
 pub use crate::tile_pool::*;
 pub use crate::fast_transform::*;
-pub use crate::path::*;
 
 use crate::units::*;
 use crate::channel::Receiver;
@@ -642,10 +640,6 @@ pub enum BoolParameter {
 #[repr(u32)]
 pub enum IntParameter {
     BatchedUploadThreshold = 0,
-    /// The number of samples per pixel used to rasterize path tiles: 0 for
-    /// analytical anti-aliasing, 1 to 4 for 4 samples, 8 otherwise. Software
-    /// WebRender always uses 4 samples.
-    PathAaSamples = 1,
 }
 
 /// Floating point configuration option.

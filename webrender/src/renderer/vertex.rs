@@ -112,13 +112,6 @@ pub mod desc {
         ],
     };
 
-    pub const PATH_TILE: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[VertexAttribute::quad_instance_vertex()],
-        instance_attributes: &[
-            VertexAttribute::i32x4("aData"),
-        ],
-    };
-
     pub const COMPOSITE: VertexDescriptor = VertexDescriptor {
         vertex_attributes: &[VertexAttribute::quad_instance_vertex()],
         instance_attributes: &[
@@ -165,7 +158,6 @@ pub enum VertexArrayKind {
     Clear,
     Copy,
     Mask,
-    PathTile,
 }
 
 pub struct VertexDataTexture<T> {
@@ -592,7 +584,7 @@ impl SharedInstanceBuffer {
 }
 
 /// Every kind, in the order `RendererVAOs::instance_buffers` is indexed.
-const VERTEX_ARRAY_KINDS: [VertexArrayKind; 11] = [
+const VERTEX_ARRAY_KINDS: [VertexArrayKind; 10] = [
     VertexArrayKind::Primitive,
     VertexArrayKind::Blur,
     VertexArrayKind::Border,
@@ -603,7 +595,6 @@ const VERTEX_ARRAY_KINDS: [VertexArrayKind; 11] = [
     VertexArrayKind::Clear,
     VertexArrayKind::Copy,
     VertexArrayKind::Mask,
-    VertexArrayKind::PathTile,
 ];
 
 pub struct RendererVAOs {
@@ -623,7 +614,6 @@ pub struct RendererVAOs {
     clear_vao: VertexArray,
     copy_vao: VertexArray,
     mask_vao: VertexArray,
-    path_tile_vao: VertexArray,
     pub shared_instance_buffer: Option<SharedInstanceBuffer>,
 }
 
@@ -701,7 +691,6 @@ impl RendererVAOs {
         let clear_vao = make_vao(device, &desc::CLEAR, VertexArrayKind::Clear);
         let copy_vao = make_vao(device, &desc::COPY, VertexArrayKind::Copy);
         let mask_vao = make_vao(device, &desc::MASK, VertexArrayKind::Mask);
-        let path_tile_vao = make_vao(device, &desc::PATH_TILE, VertexArrayKind::PathTile);
 
         RendererVAOs {
             quad_indices,
@@ -717,7 +706,6 @@ impl RendererVAOs {
             clear_vao,
             copy_vao,
             mask_vao,
-            path_tile_vao,
             shared_instance_buffer,
         }
     }
@@ -738,7 +726,6 @@ impl RendererVAOs {
         device.delete_vertex_array(self.clear_vao);
         device.delete_vertex_array(self.copy_vao);
         device.delete_vertex_array(self.mask_vao);
-        device.delete_vertex_array(self.path_tile_vao);
         device.delete_buffer(self.quad_indices);
         device.delete_buffer(self.quad_vertices);
         for buffer in self.instance_buffers {
@@ -764,7 +751,6 @@ impl ops::Index<VertexArrayKind> for RendererVAOs {
             VertexArrayKind::Clear => &self.clear_vao,
             VertexArrayKind::Copy => &self.copy_vao,
             VertexArrayKind::Mask => &self.mask_vao,
-            VertexArrayKind::PathTile => &self.path_tile_vao,
         }
     }
 }
