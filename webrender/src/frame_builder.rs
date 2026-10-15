@@ -27,7 +27,7 @@ use crate::prim_store::{PictureIndex, PrimitiveScratchBuffer};
 use crate::prim_store::{DeferredResolve, PrimitiveInstance};
 use crate::prim_store::storage;
 use crate::profiler::{self, TransactionProfile};
-use crate::render_backend::{DataStores, ScratchBuffer};
+use crate::render_backend::{DataStores, DlStores, ScratchBuffer};
 use crate::renderer::{GpuBufferBuilder, GpuBufferBuilderF, GpuBufferBuilderI, GpuBufferF, GpuBufferI};
 use crate::render_target::{PictureCacheTarget, PictureCacheTargetKind};
 use crate::render_target::{RenderTargetContext, RenderTargetKind, RenderTarget};
@@ -120,6 +120,7 @@ pub struct FrameBuildingContext<'a> {
     pub debug_override: &'a SceneDebugOverride,
     pub fb_config: &'a FrameBuilderConfig,
     pub root_spatial_node_index: SpatialNodeIndex,
+    pub dl_stores: &'a DlStores,
 }
 
 impl<'a> FrameBuildingContext<'a> {
@@ -278,6 +279,7 @@ impl FrameBuilder {
         scene_properties: &SceneProperties,
         transform_palette: &mut TransformPalette,
         data_stores: &DataStores,
+        dl_stores: &DlStores,
         scratch: &mut ScratchBuffer,
         debug_flags: DebugFlags,
         debug_override: &SceneDebugOverride,
@@ -316,6 +318,7 @@ impl FrameBuilder {
             debug_override,
             fb_config: &scene.config,
             root_spatial_node_index,
+            dl_stores,
         };
 
         scene.picture_graph.build_update_passes(
@@ -662,6 +665,7 @@ impl FrameBuilder {
         device_origin: DeviceIntPoint,
         scene_properties: &SceneProperties,
         data_stores: &DataStores,
+        dl_stores: &DlStores,
         scratch: &mut ScratchBuffer,
         debug_flags: DebugFlags,
         debug_override: &SceneDebugOverride,
@@ -720,6 +724,7 @@ impl FrameBuilder {
             scene_properties,
             &mut transform_palette,
             data_stores,
+            dl_stores,
             scratch,
             debug_flags,
             debug_override,

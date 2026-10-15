@@ -1266,6 +1266,15 @@ fn prepare_tiles(
                     }
                 }
             }
+            QuadClipShape::Path { ref path, origin, .. } => {
+                // Nothing is visible outside of the path's bounds, and
+                // anything inside of them may need a mask.
+                let path_rect = path.aabb().translate(origin.to_vector());
+                let rect = clip.rect.intersection(&path_rect).unwrap_or(clip.rect);
+                let device_rect = transform.map_rect(&rect);
+                scratch.retained.quad_tile_classifier.add_clip_rect(device_rect, ClipMode::Clip, false);
+                scratch.retained.quad_tile_classifier.add_mask_region(device_rect);
+            }
             QuadClipShape::Mask { .. } => {
                 panic!("bug: image clips unexpected in this path");
             }
@@ -1904,6 +1913,9 @@ fn prepare_clip_task(
             //           we can better merge the logic together?
             // TODO(gw): How to efficiently handle if the image-mask rect doesn't cover local prim rect?
             return;
+        }
+        QuadClipShape::Path { .. } => {
+            unimplemented!() // TODO(nical)
         }
     };
 

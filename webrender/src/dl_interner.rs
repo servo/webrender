@@ -17,9 +17,6 @@
 //! the inner level deliberately has no free list - if a store allocated for
 //! itself the two sides would diverge with nothing able to notice.
 
-// Nothing reads the stores until the path clip item resolves its handles.
-#![allow(dead_code)]
-
 use crate::intern::ItemUid;
 use crate::internal_types::{FastHashMap, FastHashSet};
 use api::interning::{BuildId, BuilderId};
@@ -59,6 +56,8 @@ macro_rules! enumerate_scene_dl_stores {
 }
 
 /// What a store needs to turn a content key into the value it holds.
+// Paths, the only interned type, resolve without any of it.
+#[allow(dead_code)]
 pub struct DlResolveContext<'a> {
     /// The id namespace the display list carrying the delta was submitted
     /// with, for validating any resource key the interned item names.

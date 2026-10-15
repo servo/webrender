@@ -622,6 +622,7 @@ impl Document {
         present: bool,
         render_reasons: RenderReasons,
         chunk_pool: Arc<ChunkPool>,
+        dl_stores: &DlStores,
     ) -> RenderedDocument {
         let frame_build_start_time = zeitstempel::now();
 
@@ -641,6 +642,7 @@ impl Document {
                 self.view.scene.device_rect.min,
                 &self.dynamic_properties,
                 &mut self.data_stores,
+                dl_stores,
                 &mut self.scratch,
                 debug_flags,
                 &self.debug_override,
@@ -692,6 +694,7 @@ impl Document {
         resource_cache: &mut ResourceCache,
         chunk_pool: Arc<ChunkPool>,
         debug_flags: DebugFlags,
+        dl_stores: &DlStores,
     ) -> RenderedDocument {
         let mut profile = TransactionProfile::new();
         self.stamp.advance();
@@ -724,6 +727,7 @@ impl Document {
             self.view.scene.device_rect.min,
             &self.dynamic_properties,
             &self.data_stores,
+            dl_stores,
             &mut self.scratch,
             debug_flags,
             &SceneDebugOverride::empty(),
@@ -1409,6 +1413,7 @@ impl RenderBackend {
                         &mut win.resource_cache,
                         win.chunk_pool.clone(),
                         win.debug_flags,
+                        &self.dl_stores,
                     );
 
                     let pending_update = win.resource_cache.pending_updates();
@@ -2194,6 +2199,7 @@ impl RenderBackend {
                     present,
                     render_reasons,
                     win.chunk_pool.clone(),
+                    &self.dl_stores,
                 );
 
                 debug!("generated frame for document {:?} with {} passes",
@@ -2424,6 +2430,7 @@ impl RenderBackend {
                     true,
                     RenderReasons::empty(),
                     win.chunk_pool.clone(),
+                    &self.dl_stores,
                 );
 
                 doc.scene.config.force_invalidation = force_invalidation;

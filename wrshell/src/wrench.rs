@@ -557,6 +557,15 @@ impl YamlWriter {
                         self.write_rect("bounds", info.image_mask.rect);
                         self.pop_level();
                     }
+                    DisplayItem::PathClip(info) => {
+                        let clip_id = self.add_clip_id(info.id);
+                        self.write_line("- type: clip");
+                        self.push_level();
+                        self.write_line(&format!("id: {}", clip_id));
+                        self.write_spatial_id(info.spatial_id);
+                        self.write_rect("bounds", info.rect);
+                        self.pop_level();
+                    }
                     DisplayItem::RoundedRectClip(info) => {
                         let clip_id = self.add_clip_id(info.id);
                         self.write_line("- type: clip");

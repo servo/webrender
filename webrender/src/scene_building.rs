@@ -46,6 +46,7 @@ use api::{APZScrollGeneration, HasScrollLinkedEffect, SpatialId, StickyFrameDesc
 use api::{ClipMode, TransformStyle, YuvColorSpace, ColorRange, YuvData, TempFilterData};
 use api::{ReferenceTransformBinding, Rotation, FillRule, SpatialTreeItem, ReferenceFrameDescriptor};
 use api::{FilterOpGraphPictureBufferId, SVGFE_GRAPH_MAX};
+use api::Path;
 use api::channel::{unbounded_channel, Receiver, Sender};
 use api::units::*;
 use api::prim_geometry::{
@@ -86,7 +87,8 @@ use crate::picture_composite_mode::{PictureCompositeKey, PictureCompositeMode};
 use crate::prim_store::text_run::TextRun;
 use crate::render_backend::SceneView;
 use crate::scene::{BuiltScene, Scene, ScenePipeline, SceneStats, StackingContextHelpers};
-use crate::scene_builder_thread::Interners;
+use crate::scene_builder_thread::{Interners, SceneDlStores};
+use crate::dl_interner::{DlBuilderMap, DlHandle};
 use crate::spatial_node::{
     ReferenceFrameInfo, StickyFrameInfo, ScrollFrameKind, SpatialNodeType
 };
@@ -451,6 +453,13 @@ pub struct SceneBuilder<'a> {
     /// Reference to the set of data that is interned across display lists.
     pub interners: &'a mut Interners,
 
+    /// Namespaces qualifying the handles interned by each pipeline's display
+    /// list builder.
+    dl_builders: &'a DlBuilderMap,
+
+    /// The items interned by the display list builders.
+    dl_stores: &'a SceneDlStores,
+
     /// The current recursion depth of iframes encountered. Used to restrict picture
     /// caching slices to only the top-level content frame.
     iframe_size: Vec<LayoutSize>,
@@ -516,6 +525,8 @@ impl<'a> SceneBuilder<'a> {
         view: &SceneView,
         frame_builder_config: &FrameBuilderConfig,
         interners: &mut Interners,
+        dl_builders: &DlBuilderMap,
+        dl_stores: &SceneDlStores,
         spatial_tree: &mut SceneSpatialTree,
         recycler: &mut SceneRecycler,
         stats: &SceneStats,
@@ -545,6 +556,8 @@ impl<'a> SceneBuilder<'a> {
             prim_store: mem::take(&mut recycler.prim_store),
             clip_store: mem::take(&mut recycler.clip_store),
             interners,
+            dl_builders,
+            dl_stores,
             iframe_size: mem::take(&mut recycler.iframe_size),
             root_iframe_clip: None,
             quality_settings: view.quality_settings,
@@ -1015,7 +1028,7 @@ impl<'a> SceneBuilder<'a> {
                         continue 'outer;
                     }
                     _ => {
-                        self.build_item(item, bc.namespace);
+                        self.build_item(item, bc.pipeline_id, bc.namespace);
                     }
                 };
             }
@@ -1345,6 +1358,7 @@ impl<'a> SceneBuilder<'a> {
     fn build_item<'b>(
         &'b mut self,
         item: DisplayItemRef,
+        pipeline_id: PipelineId,
         namespace: IdNamespace,
     ) {
         match *item.item() {
@@ -1666,6 +1680,29 @@ impl<'a> SceneBuilder<'a> {
                     info.fill_rule,
                     item.points(),
                 );
+            }
+            DisplayItem::PathClip(ref info) => {
+                tracy_rs::profile_scope!("path_clip");
+
+                let (dl_namespace, generation) = self.dl_builders.expect(pipeline_id);
+                let path = DlHandle::new(dl_namespace, generation, info.path.slot());
+
+                if self.dl_stores.path.get(path).is_some() {
+                    self.add_path_clip_node(
+                        info.id,
+                        info.spatial_id,
+                        path,
+                        info.rect,
+                        info.fill_rule,
+                    );
+                } else {
+                    // As with image masks, a handle naming no path is neutralized
+                    // into an empty clip rather than dropped, so that later clip
+                    // chain items referring to this id still resolve and the
+                    // content stays clipped.
+                    warn!("path clip refers to an unknown path {:?}", path);
+                    self.add_rect_clip_node(info.id, info.spatial_id, &LayoutRect::zero(), false);
+                }
             }
             DisplayItem::RoundedRectClip(ref info) => {
                 tracy_rs::profile_scope!("rounded_clip");
@@ -2624,6 +2661,37 @@ impl<'a> SceneBuilder<'a> {
             handle,
             spatial_node_index,
             mask_rect,
+        );
+    }
+
+    fn add_path_clip_node(
+        &mut self,
+        new_node_id: ClipId,
+        spatial_id: SpatialId,
+        path: DlHandle<Path>,
+        rect: LayoutRect,
+        fill_rule: FillRule,
+    ) {
+        let spatial_node_index = self.get_space(spatial_id);
+
+        let item = ClipItemKey {
+            kind: ClipItemKeyKind::Path(path, self.dl_stores.path.uid(path), fill_rule, rect.min.to_au()),
+        };
+
+        let handle = self
+            .interners
+            .clip
+            .intern(&item, || {
+                ClipInternData {
+                    key: item,
+                }
+            });
+
+        self.clip_tree_builder.define_path_clip(
+            new_node_id,
+            handle,
+            spatial_node_index,
+            rect,
         );
     }
 
