@@ -34,7 +34,7 @@ use crate::picture::{get_relative_scale_offset, PictureInstance};
 use crate::picture::MAX_COMPOSITOR_SURFACES_SIZE;
 use crate::prim_store::{ClipSnap, PrimitiveInstance, PrimitiveKind, PrimitiveScratchBuffer, PictureIndex};
 use crate::print_tree::{PrintTreePrinter, PrintTree};
-use crate::{profiler, render_backend::{DataStores, DlStores}};
+use crate::{profiler, render_backend::DataStores};
 use crate::profiler::TransactionProfile;
 use crate::renderer::GpuBufferBuilderF;
 use crate::resource_cache::{ResourceCache, ImageRequest};
@@ -2103,7 +2103,6 @@ impl TileCacheInstance {
         local_prim_rect: LayoutRect,
         frame_context: &FrameVisibilityContext,
         data_stores: &DataStores,
-        dl_stores: &DlStores,
         clip_store: &ClipStore,
         pictures: &[PictureInstance],
         resource_cache: &mut ResourceCache,
@@ -2188,7 +2187,7 @@ impl TileCacheInstance {
         }
 
         // Build the list of resources that this primitive has dependencies on.
-        let mut prim_info = PrimitiveDependencyInfo::new(prim_instance.uid(dl_stores), pic_coverage_rect);
+        let mut prim_info = PrimitiveDependencyInfo::new(prim_instance.uid(), pic_coverage_rect);
         // Compute once here so it's available for both prim_info and the tile loop.
         let prim_clamp_to_tile = matches!(
             prim_instance.kind,
@@ -2249,11 +2248,11 @@ impl TileCacheInstance {
                     prim_info.opacity_bindings.push(binding.into());
                 }
             }
-            PrimitiveKind::Rectangle { handle } => {
+            PrimitiveKind::Rectangle { data_handle, .. } => {
                 // Rectangles can only form a backdrop candidate if they are known opaque.
                 // TODO(gw): We could resolve the opacity binding here, but the common
                 //           case for background rects is that they don't have animated opacity.
-                let prim_color = dl_stores.rectangles[handle].kind.color;
+                let prim_color = data_stores.prim[data_handle].kind.color;
                 let resolved = frame_context.scene_properties.resolve_color(&prim_color);
                 if resolved.a >= 1.0 {
                     backdrop_candidate = Some(BackdropInfo {
@@ -2379,7 +2378,7 @@ impl TileCacheInstance {
                 });
             }
             PrimitiveKind::YuvImage { data_handle, .. } => {
-                let prim_uid = prim_instance.uid(dl_stores);
+                let prim_uid = prim_instance.uid();
                 let prim_data = &data_stores.yuv_image[data_handle];
 
                 let mut promotion_result: Result<CompositorSurfaceKind, SurfacePromotionFailure> = Ok(CompositorSurfaceKind::Blit);

@@ -444,8 +444,7 @@ macro_rules! enumerate_interners {
     ($macro_name: ident) => {
         $macro_name! {
             clip: ClipIntern,
-            // Rectangles are interned by the content display list builder, so
-            // they have no slot here. See doc/dl-builder-interning.md.
+            prim: RectanglePrim,
             normal_border: NormalBorderPrim,
             image_border: ImageBorder,
             image: Image,

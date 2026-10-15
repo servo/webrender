@@ -3,14 +3,50 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{PropertyBinding, ColorF};
-use crate::dl_interner::{DlResolve, DlResolveContext};
-use crate::prim_store::{PrimTemplate, PrimTemplateCommonData};
+use crate::intern;
+use crate::internal_types::LayoutPrimitiveInfo;
+use crate::prim_store::{
+    InternablePrimitive, PrimitiveStore, PrimitiveKind,
+    PrimTemplate, PrimTemplateCommonData,
+};
 use crate::scene::SceneProperties;
 use std::ops;
 
-// `RectanglePrim` and its key live in `webrender_api::interned_prims`, since
-// the content display list builder interns them.
-pub use api::interned_prims::RectangleKey;
+// `RectanglePrim` and its key live in `webrender_api::interned_prims` so
+// content-process interning can hold them. Re-exported to keep existing
+// references working.
+pub use api::interned_prims::{RectangleKey, RectanglePrim};
+
+pub type RectangleDataHandle = intern::Handle<RectanglePrim>;
+
+
+impl intern::InternDebug for RectangleKey {}
+
+impl intern::Internable for RectanglePrim {
+    type Key = RectangleKey;
+    type StoreData = RectangleTemplate;
+    type InternData = ();
+    const PROFILE_COUNTER: usize = crate::profiler::INTERNED_PRIMITIVES;
+}
+
+impl InternablePrimitive for RectanglePrim {
+    fn into_key(
+        self,
+        info: &LayoutPrimitiveInfo,
+    ) -> RectangleKey {
+        RectangleKey::new(info.into(), self)
+    }
+
+    fn make_instance_kind(
+        _key: RectangleKey,
+        data_handle: RectangleDataHandle,
+        _prim_store: &mut PrimitiveStore,
+    ) -> PrimitiveKind {
+        PrimitiveKind::Rectangle {
+            data_handle,
+        }
+    }
+}
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -40,12 +76,11 @@ impl ops::DerefMut for RectangleTemplate {
     }
 }
 
-/// Nothing to validate: a colour binding names a property, not a resource.
-impl DlResolve<RectangleKey> for RectangleTemplate {
-    fn resolve(key: &RectangleKey, _ctx: &DlResolveContext) -> Self {
+impl From<RectangleKey> for RectangleTemplate {
+    fn from(item: RectangleKey) -> Self {
         RectangleTemplate {
-            common: PrimTemplateCommonData::with_key_common(key.common),
-            kind: RectangleData { color: key.kind.color.into() },
+            common: PrimTemplateCommonData::with_key_common(item.common),
+            kind: RectangleData { color: item.kind.color.into() },
         }
     }
 }
@@ -54,6 +89,7 @@ impl DlResolve<RectangleKey> for RectangleTemplate {
 #[cfg(target_pointer_width = "64")]
 fn test_struct_sizes() {
     use std::mem;
-    assert_eq!(mem::size_of::<api::interned_prims::RectanglePrim>(), 16, "RectanglePrim size changed");
+    assert_eq!(mem::size_of::<RectanglePrim>(), 16, "RectanglePrim size changed");
     assert_eq!(mem::size_of::<RectangleTemplate>(), 64, "RectangleTemplate size changed");
+    assert_eq!(mem::size_of::<RectangleKey>(), 52, "RectangleKey size changed");
 }

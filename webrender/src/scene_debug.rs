@@ -20,7 +20,7 @@ use crate::internal_types::FastHashMap;
 #[cfg(feature = "debugger")]
 use crate::prim_store::{PictureIndex, PrimitiveFrameScratch, PrimitiveKind};
 #[cfg(feature = "debugger")]
-use crate::render_backend::{DataStores, DlStores};
+use crate::render_backend::DataStores;
 #[cfg(feature = "debugger")]
 use crate::scene::{BuiltScene, SceneProperties};
 #[cfg(feature = "debugger")]
@@ -133,7 +133,6 @@ impl SceneDebugOverride {
 pub fn build_debug_tree(
     scene: &BuiltScene,
     data_stores: &DataStores,
-    dl_stores: &DlStores,
     spatial_tree: &SpatialTree,
     frame_scratch: &PrimitiveFrameScratch,
     scene_properties: &SceneProperties,
@@ -148,7 +147,6 @@ pub fn build_debug_tree(
     let mut walker = TreeWalker {
         scene,
         data_stores,
-        dl_stores,
         spatial_tree,
         draw_states,
         scene_properties,
@@ -177,7 +175,6 @@ pub fn build_debug_tree(
 struct TreeWalker<'a> {
     scene: &'a BuiltScene,
     data_stores: &'a DataStores,
-    dl_stores: &'a DlStores,
     spatial_tree: &'a SpatialTree,
     /// The state of the first draw of each primitive instance drawn by the
     /// last frame, keyed by instance index.
@@ -244,7 +241,6 @@ impl<'a> TreeWalker<'a> {
         spatial_node_index: SpatialNodeIndex,
     ) -> SceneDebugNode {
         let data_stores = self.data_stores;
-        let dl_stores = self.dl_stores;
         let prim = &self.scene.prim_instances[prim_index];
 
         let mut color = None;
@@ -260,8 +256,8 @@ impl<'a> TreeWalker<'a> {
                 color = Some(data.font.color.into());
                 ("TextRun", format!("{} glyphs", data.glyphs.len()), None, Vec::new())
             }
-            PrimitiveKind::Rectangle { handle } => {
-                let data = &dl_stores.rectangles[handle];
+            PrimitiveKind::Rectangle { data_handle } => {
+                let data = &data_stores.prim[data_handle];
                 color = Some(data.resolve(self.scene_properties));
                 ("Rectangle", String::new(), None, Vec::new())
             }
@@ -293,7 +289,7 @@ impl<'a> TreeWalker<'a> {
             }
         };
 
-        let local_rect = data_stores.prim_rect(prim, dl_stores);
+        let local_rect = data_stores.prim_rect(prim);
         let device_rect = self.device_rect(&local_rect, spatial_node_index);
 
         SceneDebugNode {

@@ -11,6 +11,7 @@ use api::channel::{unbounded_channel, single_msg_channel, Receiver, Sender};
 use api::units::*;
 use crate::render_api::{ApiMsg, FrameMsg, SceneMsg, ResourceUpdate, TransactionMsg, MemoryReport};
 use crate::box_shadow::BoxShadow;
+use crate::prim_store::rectangle::RectanglePrim;
 #[cfg(feature = "capture")]
 use crate::capture::CaptureConfig;
 use crate::frame_builder::FrameBuilderConfig;
@@ -265,6 +266,8 @@ macro_rules! declare_scene_dl_stores {
             $( $field: Vec<crate::dl_interner::DlOp<$value>>, )*
         }
 
+        // Until the first type is listed nothing in here has anything to do.
+        #[allow(unused_variables)]
         impl SceneDlStores {
             fn report_memory(&self, ops: &mut MallocSizeOfOps, r: &mut MemoryReport) {
                 $( r.interning.dl_stores.$report += self.$field.size_of(ops); )*
@@ -275,6 +278,7 @@ macro_rules! declare_scene_dl_stores {
             }
         }
 
+        #[allow(unused_variables, unused_mut)]
         impl SceneDlUpdates {
             fn open(&mut self, namespace: DlNamespace) {
                 $( self.$field.push(crate::dl_interner::DlOp::Open(namespace)); )*
@@ -327,6 +331,8 @@ macro_rules! declare_dl_updates {
             scene: SceneDlUpdates,
         }
 
+        // Until the first type is listed nothing in here has anything to do.
+        #[allow(unused_variables)]
         impl DlUpdates {
             /// A namespace comes into use: every store must be told before
             /// anything lands in it. Namespace lifetime rides the same op
@@ -665,10 +671,9 @@ impl SceneBuilderThread {
     /// render backend has dropped the document too.
     fn remove_document(&mut self, document_id: DocumentId) {
         if let Some(doc) = self.documents.remove(&document_id) {
-            self.dl_builders.remove_document(
-                document_id,
-                doc.scene.pipelines.keys().copied(),
-            );
+            for pipeline_id in doc.scene.pipelines.keys() {
+                self.dl_builders.remove_pipeline(*pipeline_id);
+            }
         }
         self.doc_to_window.remove(&document_id);
     }
@@ -719,8 +724,6 @@ impl SceneBuilderThread {
                 built_scene = Some(SceneBuilder::build(
                     &item.scene,
                     None,
-                    &self.dl_builders,
-                    &self.scene_stores,
                     item.fonts,
                     &item.view,
                     &self.config,
@@ -951,8 +954,6 @@ impl SceneBuilderThread {
                     let built = SceneBuilder::build(
                         &scene,
                         Some(pipeline_id),
-                        &self.dl_builders,
-                        &self.scene_stores,
                         self.fonts.clone(),
                         &doc.view,
                         &config,
@@ -982,7 +983,7 @@ impl SceneBuilderThread {
                     // Not released here: removing a pipeline does not rebuild
                     // the scene, and the render backend goes on building frames
                     // from one that still references it.
-                    self.dl_builders.remove_pipeline(pipeline_id, txn.document_id);
+                    self.dl_builders.remove_pipeline(pipeline_id);
                 }
             }
         }
@@ -998,8 +999,6 @@ impl SceneBuilderThread {
             let built = SceneBuilder::build(
                 &scene,
                 None,
-                &self.dl_builders,
-                &self.scene_stores,
                 self.fonts.clone(),
                 &doc.view,
                 &config,
@@ -1029,7 +1028,7 @@ impl SceneBuilderThread {
             // in and frame-built this transaction's offscreen scenes, so the
             // release cannot land while a scene that still references the
             // namespace is the one being drawn.
-            for namespace in self.dl_builders.take_removals(txn.document_id) {
+            for namespace in self.dl_builders.take_removals() {
                 dl_updates.close(namespace);
             }
             dl_updates.apply_to_scene(&mut self.scene_stores);
