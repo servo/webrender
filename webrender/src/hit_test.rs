@@ -3,16 +3,17 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadius, ClipMode, HitTestResultItem, HitTestResult, ItemTag, PrimitiveFlags};
-use api::{PipelineId, ApiHitTester, FillRule};
+use api::{PipelineId, ApiHitTester, FillRule, Path, PathEvent};
 use api::units::*;
+use crate::bezier;
 use crate::clip::{rounded_rectangle_contains_point, ClipNodeId, ClipTreeBuilder};
 use crate::clip::{ClipItemKey, ClipItemKeyKind};
 use crate::prim_store::PolygonKey;
-use crate::scene_builder_thread::Interners;
+use crate::scene_builder_thread::{Interners, SceneDlStores};
 use crate::spatial_tree::{SpatialNodeIndex, SpatialTree};
 use crate::internal_types::{FastHashMap, LayoutPrimitiveInfo};
 use std::sync::{Arc, Mutex};
-use crate::util::LayoutToWorldFastTransform;
+use crate::util::{FastTransform, LayoutToWorldFastTransform};
 
 pub struct SharedHitTester {
     // We don't really need a mutex here. We could do with some sort of
@@ -76,6 +77,7 @@ impl HitTestClipNode {
         item: &ClipItemKey,
         clip_rect: LayoutRect,
         interners: &Interners,
+        dl_stores: &SceneDlStores,
         parent: ClipNodeId,
         spatial_node_index: SpatialNodeIndex,
     ) -> Self {
@@ -96,8 +98,8 @@ impl HitTestClipNode {
                     HitTestRegion::Rectangle(clip_rect, ClipMode::Clip)
                 }
             }
-            ClipItemKeyKind::Path(..) => {
-                unimplemented!(); // TODO(nical)
+            ClipItemKeyKind::Path(path, _, fill_rule, _) => {
+                HitTestRegion::Path(clip_rect, dl_stores.path[path].clone(), fill_rule)
             }
         };
 
@@ -196,6 +198,7 @@ impl HitTestingScene {
         clip_node_id: ClipNodeId,
         clip_tree_builder: &ClipTreeBuilder,
         interners: &Interners,
+        dl_stores: &SceneDlStores,
     ) {
         if clip_node_id == ClipNodeId::NONE {
             return;
@@ -214,6 +217,7 @@ impl HitTestingScene {
                 &clip_item.key,
                 src_clip_node.unsnapped_clip_rect,
                 interners,
+                dl_stores,
                 src_clip_node.parent,
                 src_clip_node.spatial_node_index,
             );
@@ -224,6 +228,7 @@ impl HitTestingScene {
                 src_clip_node.parent,
                 clip_tree_builder,
                 interners,
+                dl_stores,
             );
         }
     }
@@ -238,11 +243,13 @@ impl HitTestingScene {
         clip_node_id: ClipNodeId,
         clip_tree_builder: &ClipTreeBuilder,
         interners: &Interners,
+        dl_stores: &SceneDlStores,
     ) {
         self.add_clip_node(
             clip_node_id,
             clip_tree_builder,
             interners,
+            dl_stores,
         );
 
         let item = HitTestingItem::new(
@@ -262,10 +269,12 @@ enum HitTestRegion {
     Rectangle(LayoutRect, ClipMode),
     RoundedRectangle(LayoutRect, BorderRadius, ClipMode),
     Polygon(LayoutRect, PolygonKey),
+    Path(LayoutRect, Path, FillRule),
 }
 
 impl HitTestRegion {
-    fn contains(&self, point: &LayoutPoint) -> bool {
+    /// `transform` maps the region's space to world space.
+    fn contains(&self, point: &LayoutPoint, transform: &LayoutToWorldFastTransform) -> bool {
         match *self {
             HitTestRegion::Rectangle(ref rectangle, ClipMode::Clip) =>
                 rectangle.contains(*point),
@@ -277,6 +286,10 @@ impl HitTestRegion {
                 !rounded_rectangle_contains_point(point, &rect, &radii),
             HitTestRegion::Polygon(rect, polygon) =>
                 polygon_contains_point(point, &rect, &polygon),
+            HitTestRegion::Path(ref rect, ref path, fill_rule) => {
+                let tolerance = flattening_tolerance_for_transform(transform);
+                path_contains_point(*point, rect, path, fill_rule, tolerance)
+            }
         }
     }
 }
@@ -376,7 +389,7 @@ impl HitTester {
                     .inverse()
                     .and_then(|inverted| inverted.project_point2d(test.point))
                 {
-                    if !clip_node.region.contains(&transformed_point) {
+                    if !clip_node.region.contains(&transformed_point, &transform) {
                         is_valid = false;
                         break;
                     }
@@ -478,6 +491,132 @@ fn is_left_of_line(
 ) -> f32 {
     (p1_x - p0_x) * (p_y - p0_y) - (p_x - p0_x) * (p1_y - p0_y)
 }
+
+fn flattening_tolerance_for_transform(transform: &LayoutToWorldFastTransform) -> f32 {
+    let m = match *transform {
+        FastTransform::Offset(..) => return 1.0,
+        FastTransform::Transform { ref transform, .. } => transform,
+    };
+
+    let scales = crate::util::scale_factors(m);
+    let mut scale = scales.0.max(scales.1).abs();
+
+    if !scale.is_finite() || scale == 0.0 {
+        scale = 1.0;
+    }
+
+    // Keep the approximations within roughly half a pixel of the real curves.
+    const DEVICE_SPACE_TOLERANCE: f32 = 0.5;
+
+    DEVICE_SPACE_TOLERANCE / scale
+}
+
+/// `tolerance` is in the path's space.
+fn path_contains_point(
+    point: LayoutPoint,
+    rect: &LayoutRect,
+    path: &Path,
+    fill_rule: FillRule,
+    tolerance: f32,
+) -> bool {
+    if !rect.contains(point) {
+        return false;
+    }
+
+    // Path coordinates are relative to the clip rect's origin.
+    let winding = path_winding_number_at_position(point - rect.min.to_vector(), path, tolerance);
+
+    match fill_rule {
+        FillRule::Nonzero => winding != 0,
+        FillRule::Evenodd => winding.abs() % 2 == 1,
+    }
+}
+
+fn path_winding_number_at_position(
+    point: LayoutPoint,
+    path: &Path,
+    tolerance: f32,
+) -> i32 {
+    let mut winding = 0;
+    for evt in path.iter() {
+        match evt {
+            PathEvent::Begin { .. } => {}
+            PathEvent::Line { from, to } => {
+                test_segment(point, from, to, &mut winding);
+            }
+            PathEvent::End { last, first, .. } => {
+                test_segment(point, last, first, &mut winding);
+            }
+            PathEvent::Quadratic { from, ctrl, to } => {
+                let min_y = from.y.min(ctrl.y).min(to.y);
+                let max_y = from.y.max(ctrl.y).max(to.y);
+
+                if min_y > point.y || max_y < point.y {
+                    continue;
+                }
+
+                let mut current = from;
+                bezier::flatten_quadratic(from, ctrl, to, tolerance, &mut |next| {
+                    test_segment(point, current, next, &mut winding);
+                    current = next;
+                });
+            }
+            PathEvent::Cubic { from, ctrl1, ctrl2, to } => {
+                let min_y = from.y.min(ctrl1.y).min(ctrl2.y).min(to.y);
+                let max_y = from.y.max(ctrl1.y).max(ctrl2.y).max(to.y);
+
+                if min_y > point.y || max_y < point.y {
+                    continue;
+                }
+
+                let mut current = from;
+                bezier::flatten_cubic(from, ctrl1, ctrl2, to, tolerance, &mut |next| {
+                    test_segment(point, current, next, &mut winding);
+                    current = next;
+                });
+            }
+        }
+    }
+
+    winding
+}
+
+fn test_segment(
+    point: LayoutPoint,
+    from: LayoutPoint,
+    to: LayoutPoint,
+    winding: &mut i32,
+) {
+    let y0 = from.y;
+    let y1 = to.y;
+    let min_y = f32::min(y0, y1);
+    let max_y = f32::max(y0, y1);
+
+    if min_y > point.y
+        || max_y <= point.y
+        || f32::min(from.x, to.x) > point.x
+        || y0 == y1
+    {
+        return;
+    }
+
+    let side = is_left_of_line(point.x, point.y, from.x, from.y, to.x, to.y);
+
+    let positive_winding = y1 - y0 >= 0.0;
+
+    let is_before = if positive_winding {
+        side > 0.0
+    } else {
+        side < 0.0
+    };
+
+    if is_before {
+        return;
+    }
+
+    *winding += if positive_winding { 1 } else { -1 };
+}
+
 
 #[test]
 fn polygon_clip_is_left_of_point() {

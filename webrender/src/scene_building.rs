@@ -1823,6 +1823,7 @@ impl<'a> SceneBuilder<'a> {
             clip_node_id,
             &self.clip_tree_builder,
             self.interners,
+            self.dl_stores,
         );
     }
 
