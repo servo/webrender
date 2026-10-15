@@ -74,6 +74,7 @@ const SAMPLER_BINDINGS: &[(&'static str, TextureSampler)] = &[
     ("sClipMask", TextureSampler::ClipMask),
     ("sGpuBufferF", TextureSampler::GpuBufferF),
     ("sGpuBufferI", TextureSampler::GpuBufferI),
+    ("sPathEdges", TextureSampler::PathEdges),
 ];
 
 const DITHERING_FEATURE: &str = "DITHERING";

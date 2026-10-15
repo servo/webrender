@@ -20,6 +20,7 @@ use crate::render_task_graph::{RenderTaskGraph, RenderTaskId};
 pub struct GpuBufferBuilder {
     pub i32: GpuBufferBuilderI,
     pub f32: GpuBufferBuilderF,
+    pub edges: PathEdgeBufferBuilder,
 }
 
 pub type GpuBufferF = GpuBuffer<GpuBufferBlockF>;
@@ -757,7 +758,6 @@ unsafe impl Texel for GpuBufferBlockEdge {
     fn image_format() -> ImageFormat { ImageFormat::RGBA8 }
 }
 
-#[allow(dead_code)]
 pub type GpuBufferEdges = GpuBuffer<GpuBufferBlockEdge>;
 
 /// The frame's path edges, shared by all of the path tiles in the frame.
@@ -765,12 +765,10 @@ pub type GpuBufferEdges = GpuBuffer<GpuBufferBlockEdge>;
 /// Unlike `GpuBufferBuilderImpl`, pushes are not aligned to rows: the shader
 /// computes the uv of each edge from its linear index, so the edges of a tile
 /// can straddle rows.
-#[allow(dead_code)]
 pub struct PathEdgeBufferBuilder {
     data: FrameVec<GpuBufferBlockEdge>,
 }
 
-#[allow(dead_code)]
 impl PathEdgeBufferBuilder {
     pub fn new(memory: &FrameMemory, capacity: usize) -> Self {
         PathEdgeBufferBuilder {
