@@ -743,6 +743,65 @@ impl<T> GpuBuffer<T> {
     }
 }
 
+/// One edge of a path tile, in an RGBA8 texel: the endpoints `[x0, y0, x1, y1]`
+/// in tile-local coordinates with 15 steps per pixel, where 0..240 spans the
+/// tile.
+#[repr(transparent)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, MallocSizeOf)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[allow(dead_code)]
+pub struct GpuBufferBlockEdge(pub [u8; 4]);
+
+unsafe impl Texel for GpuBufferBlockEdge {
+    fn image_format() -> ImageFormat { ImageFormat::RGBA8 }
+}
+
+#[allow(dead_code)]
+pub type GpuBufferEdges = GpuBuffer<GpuBufferBlockEdge>;
+
+/// The frame's path edges, shared by all of the path tiles in the frame.
+///
+/// Unlike `GpuBufferBuilderImpl`, pushes are not aligned to rows: the shader
+/// computes the uv of each edge from its linear index, so the edges of a tile
+/// can straddle rows.
+#[allow(dead_code)]
+pub struct PathEdgeBufferBuilder {
+    data: FrameVec<GpuBufferBlockEdge>,
+}
+
+#[allow(dead_code)]
+impl PathEdgeBufferBuilder {
+    pub fn new(memory: &FrameMemory, capacity: usize) -> Self {
+        PathEdgeBufferBuilder {
+            data: memory.new_vec_with_capacity(capacity),
+        }
+    }
+
+    /// Returns the index of the first pushed edge.
+    pub fn push_slice(&mut self, edges: &[GpuBufferBlockEdge]) -> u32 {
+        let index = self.data.len() as u32;
+        self.data.extend_from_slice(edges);
+
+        index
+    }
+
+    pub fn finalize(mut self) -> GpuBufferEdges {
+        finish_row(&mut self.data);
+
+        let len = self.data.len();
+        assert!(len % MAX_VERTEX_TEXTURE_WIDTH == 0);
+
+        GpuBuffer {
+            data: self.data,
+            size: DeviceIntSize::new(MAX_VERTEX_TEXTURE_WIDTH as i32, (len / MAX_VERTEX_TEXTURE_WIDTH) as i32),
+            format: GpuBufferBlockEdge::image_format(),
+            deferred_uv_copies: Vec::new(),
+            epoch: 0,
+        }
+    }
+}
+
 #[test]
 fn test_gpu_buffer_sizing_push() {
     let frame_memory = FrameMemory::fallback();
