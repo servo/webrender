@@ -51,6 +51,7 @@ mod display_list;
 mod font;
 mod gradient_builder;
 mod image;
+pub mod path;
 /// Internal: hashable building blocks for interning keys, shared with the
 /// `webrender` crate. Not part of the public API surface.
 #[doc(hidden)]
@@ -79,6 +80,7 @@ pub use crate::gradient_builder::*;
 pub use crate::image::*;
 pub use crate::tile_pool::*;
 pub use crate::fast_transform::*;
+pub use crate::path::*;
 
 use crate::units::*;
 use crate::channel::Receiver;
