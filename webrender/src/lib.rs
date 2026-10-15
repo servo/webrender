@@ -129,6 +129,7 @@ mod profiler;
 mod telemetry;
 
 mod batch;
+mod bezier;
 mod border;
 mod border_image;
 mod box_shadow;
