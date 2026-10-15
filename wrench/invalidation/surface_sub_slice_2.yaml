@@ -1,0 +1,23 @@
+# A drop-shadow next to a compositor surface, with a nested drop-shadow that
+# widens the outer picture's inflated coverage into the surface's area while
+# none of the picture's children reach it.
+---
+root:
+  items:
+    - image: checkerboard(2,16,16)
+      bounds: [0, 0, 100, 100]
+      prefer-compositor-surface: true
+    - type: stacking-context
+      bounds: [0, 0, 400, 300]
+      filters: drop-shadow([0, 0], 5, [0, 0, 0, 0.5])
+      items:
+        - type: rect
+          bounds: [125, 10, 100, 50]
+          color: blue
+        - type: stacking-context
+          bounds: [0, 0, 400, 300]
+          filters: drop-shadow([0, 0], 5, [0, 0, 0, 0.5])
+          items:
+            - type: rect
+              bounds: [125, 150, 100, 20]
+              color: red

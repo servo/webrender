@@ -136,6 +136,7 @@ impl<'a> TestHarness<'a> {
         self.test_redundant_scroll_root();
         self.test_rounded_rect_intersection();
         self.test_promotion_shapes();
+        self.test_surface_sub_slice();
 
         // Run manifest-based tests
         let manifest_path = PathBuf::from("invalidation/invalidation.list");
@@ -148,9 +149,11 @@ impl<'a> TestHarness<'a> {
 
     fn has_any_dirty_tile(pc_debug: &PictureCacheDebugInfo) -> bool {
         for slice_info in pc_debug.slices.values() {
-            for tile_info in slice_info.tiles.values() {
-                if matches!(tile_info, TileDebugInfo::Dirty(..)) {
-                    return true;
+            for tiles in &slice_info.sub_slices {
+                for tile_info in tiles.values() {
+                    if matches!(tile_info, TileDebugInfo::Dirty(..)) {
+                        return true;
+                    }
                 }
             }
         }
@@ -406,6 +409,39 @@ impl<'a> TestHarness<'a> {
                 name, expect_clip, has_clip,
             );
         }
+    }
+
+    /// Ensure a change inside an off-screen surface invalidates the tiles the
+    /// surface's picture is drawn into, when a compositor surface splits the
+    /// slice into sub-slices. The nested drop-shadow inflates the outer
+    /// picture's coverage into the compositor surface's area, which none of
+    /// its children reach on their own (bug 2077958).
+    fn test_surface_sub_slice(&mut self) {
+        self.render_yaml("surface_sub_slice_1");
+        let results = self.render_yaml("surface_sub_slice_2");
+        let slice = results.pc_debug.slice(0);
+
+        assert!(
+            slice.sub_slices.len() > 1,
+            "Expected the compositor surface to split the slice into sub-slices",
+        );
+
+        let offset = webrender::TileOffset::new(0, 0);
+        let states: Vec<_> = slice.sub_slices
+            .iter()
+            .filter_map(|tiles| tiles.get(&offset))
+            .collect();
+
+        assert!(
+            states.iter().any(|state| matches!(state, TileDebugInfo::Dirty(..))),
+            "Expected the changed content to dirty a tile: {:?}",
+            states,
+        );
+        assert!(
+            !states.iter().any(|state| state.is_valid()),
+            "A sub-slice tile drawing the picture stayed valid: {:?}",
+            states,
+        );
     }
 
     /// Render a YAML file by name (relative to invalidation/), and return the picture cache debug info

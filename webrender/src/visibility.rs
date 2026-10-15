@@ -326,9 +326,14 @@ pub fn update_prim_visibility(
                 );
             }
 
-            let surface_local_rect = frame_state.surfaces[raster_config.surface_index.0]
-                .unclipped_local_rect
-                .cast_unit();
+            // Include the inflation of the composite mode (e.g. drop-shadow), so the
+            // sub-slice chosen for the surface's content matches the one the picture
+            // itself is later assigned to, based on its inflated coverage.
+            let surface = &frame_state.surfaces[raster_config.surface_index.0];
+            let surface_local_rect = raster_config.composite_mode.get_coverage(
+                surface,
+                Some(surface.unclipped_local_rect.cast_unit()),
+            );
 
             // Let the picture cache know that we are pushing an off-screen
             // surface, so it can treat dependencies of surface atomically.

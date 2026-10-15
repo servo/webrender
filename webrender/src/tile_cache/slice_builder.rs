@@ -743,7 +743,7 @@ impl Default for PictureCacheDebugInfo {
 }
 
 /// Debug information about the compositor clip applied to a picture cache slice
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CompositorClipDebugInfo {
@@ -756,22 +756,30 @@ pub struct CompositorClipDebugInfo {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SliceDebugInfo {
-    pub tiles: FastHashMap<TileOffset, TileDebugInfo>,
+    /// Tile state by offset, for each sub-slice.
+    pub sub_slices: Vec<FastHashMap<TileOffset, TileDebugInfo>>,
     pub compositor_clip: Option<CompositorClipDebugInfo>,
 }
 
 impl SliceDebugInfo {
     pub fn new() -> Self {
         SliceDebugInfo {
-            tiles: FastHashMap::default(),
+            sub_slices: Vec::new(),
             compositor_clip: None,
         }
     }
 
-    /// Convenience method to retrieve a given tile. Deliberately panics
-    /// if the tile isn't present.
+    pub fn add_tile(&mut self, sub_slice_index: usize, offset: TileOffset, info: TileDebugInfo) {
+        if self.sub_slices.len() <= sub_slice_index {
+            self.sub_slices.resize_with(sub_slice_index + 1, FastHashMap::default);
+        }
+        self.sub_slices[sub_slice_index].insert(offset, info);
+    }
+
+    /// Convenience method to retrieve a given tile of the primary sub-slice.
+    /// Deliberately panics if the tile isn't present.
     pub fn tile(&self, x: i32, y: i32) -> &TileDebugInfo {
-        &self.tiles[&TileOffset::new(x, y)]
+        &self.sub_slices[0][&TileOffset::new(x, y)]
     }
 }
 

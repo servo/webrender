@@ -1702,7 +1702,8 @@ fn prepare_tiled_picture_surface(
                             tile.is_visible = false;
 
                             if frame_context.fb_config.testing {
-                                debug_info.tiles.insert(
+                                debug_info.add_tile(
+                                    sub_slice_index,
                                     tile.tile_offset,
                                     TileDebugInfo::Occluded,
                                 );
@@ -1742,7 +1743,8 @@ fn prepare_tiled_picture_surface(
             // If the tile has been found to be off-screen / clipped, skip any further processing.
             if !tile.is_visible {
                 if frame_context.fb_config.testing {
-                    debug_info.tiles.insert(
+                    debug_info.add_tile(
+                        sub_slice_index,
                         tile.tile_offset,
                         TileDebugInfo::Culled,
                     );
@@ -1811,7 +1813,8 @@ fn prepare_tiled_picture_surface(
 
             if tile.cached_surface.is_valid {
                 if frame_context.fb_config.testing {
-                    debug_info.tiles.insert(
+                    debug_info.add_tile(
+                        sub_slice_index,
                         tile.tile_offset,
                         TileDebugInfo::Valid,
                     );
@@ -2073,7 +2076,8 @@ fn prepare_tiled_picture_surface(
                 }
 
                 if frame_context.fb_config.testing {
-                    debug_info.tiles.insert(
+                    debug_info.add_tile(
+                        sub_slice_index,
                         tile.tile_offset,
                         TileDebugInfo::Dirty(DirtyTileDebugInfo {
                             local_valid_rect: tile.cached_surface.current_descriptor.local_valid_rect,
