@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::units::*;
-use api::{ColorF, ExtendMode, GradientStop};
+use api::{AlphaMode, ColorF, ExtendMode, GradientStop};
 use crate::pattern::{Pattern, PatternKind, PatternShaderInput, PatternTextureInput};
 use crate::renderer::{BlendMode, GpuBufferBuilder, GpuBufferWriterF, MAX_VERTEX_TEXTURE_WIDTH};
 
@@ -32,6 +32,7 @@ pub fn linear_gradient_pattern(
     start: LayoutPoint,
     end: LayoutPoint,
     extend_mode: ExtendMode,
+    alpha_mode: AlphaMode,
     stops: &[GradientStop],
     gpu_buffer_builder: &mut GpuBufferBuilder
 ) -> Pattern {
@@ -50,7 +51,7 @@ pub fn linear_gradient_pattern(
         0.0,
     ]);
 
-    let is_opaque = write_gpu_gradient_stops_tree(stops, GradientKind::Linear, extend_mode, &mut writer);
+    let is_opaque = write_gpu_gradient_stops_tree(stops, GradientKind::Linear, extend_mode, alpha_mode, &mut writer);
 
     let gradient_address = writer.finish();
 
@@ -73,6 +74,7 @@ pub fn radial_gradient_pattern(
     end_radius: f32,
     ratio_xy: f32,
     extend_mode: ExtendMode,
+    alpha_mode: AlphaMode,
     stops: &[GradientStop],
     gpu_buffer_builder: &mut GpuBufferBuilder
 ) -> Pattern {
@@ -92,7 +94,7 @@ pub fn radial_gradient_pattern(
         0.0,
     ]);
 
-    let is_opaque = write_gpu_gradient_stops_tree(stops, GradientKind::Radial, extend_mode, &mut writer);
+    let is_opaque = write_gpu_gradient_stops_tree(stops, GradientKind::Radial, extend_mode, alpha_mode, &mut writer);
 
     let gradient_address = writer.finish();
 
@@ -115,6 +117,7 @@ pub fn conic_gradient_pattern(
     start_offset: f32,
     end_offset: f32,
     extend_mode: ExtendMode,
+    alpha_mode: AlphaMode,
     stops: &[GradientStop],
     gpu_buffer_builder: &mut GpuBufferBuilder
 ) -> Pattern {
@@ -133,7 +136,7 @@ pub fn conic_gradient_pattern(
         angle,
         0.0,
     ]);
-    let is_opaque = write_gpu_gradient_stops_tree(stops, GradientKind::Conic, extend_mode, &mut writer);
+    let is_opaque = write_gpu_gradient_stops_tree(stops, GradientKind::Conic, extend_mode, alpha_mode, &mut writer);
     let gradient_address = writer.finish();
 
     Pattern {
@@ -154,20 +157,31 @@ fn write_gpu_gradient_stops_header_and_colors(
     stops: &[GradientStop],
     kind: GradientKind,
     extend_mode: ExtendMode,
+    alpha_mode: AlphaMode,
     writer: &mut GpuBufferWriterF,
 ) -> bool {
+    // When all stops have the same alpha, both alpha modes produce the
+    // same result, and the premultiplied one is cheaper to render with SWGL.
+    let unpremultiplied = alpha_mode == AlphaMode::Unpremultiplied
+        && stops.iter().any(|stop| stop.color.a != stops[0].color.a);
+
     // Write the header.
     writer.push_one([
         (kind as u8) as f32,
         stops.len() as f32,
         if extend_mode == ExtendMode::Repeat { 1.0 } else { 0.0 },
-        0.0
+        if unpremultiplied { 1.0 } else { 0.0 },
     ]);
 
-    // Write the stop colors.
+    // Write the stop colors. With unpremultiplied interpolation, the shader
+    // premultiplies after interpolating.
     let mut is_opaque = true;
     for stop in stops {
-        writer.push_one(stop.color.premultiplied());
+        if unpremultiplied {
+            writer.push_one(stop.color.to_array());
+        } else {
+            writer.push_one(stop.color.premultiplied());
+        }
         is_opaque &= stop.color.a == 1.0;
     }
 
@@ -215,12 +229,14 @@ pub fn write_gpu_gradient_stops_tree(
     stops: &[GradientStop],
     kind: GradientKind,
     extend_mode: ExtendMode,
+    alpha_mode: AlphaMode,
     writer: &mut GpuBufferWriterF,
 ) -> bool {
     let is_opaque = write_gpu_gradient_stops_header_and_colors(
         stops,
         kind,
         extend_mode,
+        alpha_mode,
         writer
     );
 

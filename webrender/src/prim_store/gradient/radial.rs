@@ -8,7 +8,7 @@
 //!
 //! Radial gradients are rendered as quads with the gradient pattern (ps_quad_gradient).
 
-use api::{ExtendMode, GradientStop};
+use api::{AlphaMode, ExtendMode, GradientStop};
 use api::units::*;
 use crate::pattern::gradient::{radial_gradient_pattern};
 use crate::pattern::{Pattern, PatternBuilder, PatternBuilderState};
@@ -41,6 +41,7 @@ impl InternDebug for RadialGradientKey {}
 pub struct RadialGradientTemplate {
     pub common: PrimTemplateCommonData,
     pub extend_mode: ExtendMode,
+    pub alpha_mode: AlphaMode,
     pub params: RadialGradientParams,
     pub center: LayoutVector2D,
     /// Per-axis fraction of `common.prim_size` covered by one tile of the
@@ -65,6 +66,7 @@ impl PatternBuilder for RadialGradientTemplate {
             self.params.end_radius,
             self.params.ratio_xy,
             self.extend_mode,
+            self.alpha_mode,
             &self.stops,
             state.frame_gpu_data,
         )
@@ -99,6 +101,7 @@ impl From<RadialGradientKey> for RadialGradientTemplate {
             common,
             center: item.center.into(),
             extend_mode: item.extend_mode,
+            alpha_mode: item.alpha_mode,
             params: item.params,
             stretch_ratio: item.stretch_ratio.into(),
             tile_spacing: item.tile_spacing.into(),

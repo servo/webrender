@@ -35,7 +35,7 @@
 //! - Push potentially multiple commands to command buffers.
 //!
 
-use api::{ColorF, DebugFlags, ExtendMode, ExternalImageData, ExternalImageType, GradientStop, ImageBufferKind, PrimitiveFlags};
+use api::{AlphaMode, ColorF, DebugFlags, ExtendMode, ExternalImageData, ExternalImageType, GradientStop, ImageBufferKind, PrimitiveFlags};
 use crate::border_image::prepare_border_image_nine_patch;
 use crate::pattern::cutout::Cutout;
 use crate::render_task_graph::RenderTaskId;
@@ -823,6 +823,7 @@ fn prepare_prim_for_render(
                         let pattern = LinearGradientSegmentPattern {
                             start: seg_start,
                             end: seg_end,
+                            alpha_mode: prim_data.alpha_mode,
                             stops: seg_stops,
                         };
                         quad::prepare_quad(
@@ -1344,6 +1345,7 @@ fn adjust_mask_scale_for_max_size(device_rect: DeviceIntRect, device_pixel_scale
 struct LinearGradientSegmentPattern {
     start: LayoutVector2D,
     end: LayoutVector2D,
+    alpha_mode: AlphaMode,
     stops: [GradientStop; 2],
 }
 
@@ -1357,6 +1359,7 @@ impl PatternBuilder for LinearGradientSegmentPattern {
             pattern_rect.min + self.start,
             pattern_rect.min + self.end,
             ExtendMode::Clamp,
+            self.alpha_mode,
             &self.stops,
             state.frame_gpu_data,
         )

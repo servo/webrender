@@ -8,6 +8,8 @@ platform(linux,mac) == premultiplied-angle-2.yaml premultiplied-angle-2.png
 platform(linux,mac) == premultiplied-radial-2.yaml premultiplied-radial-2.png
 platform(linux,mac) fuzzy(1,100) == premultiplied-conic-2.yaml premultiplied-conic-2.png
 
+fuzzy(5,40000) == unpremultiplied.yaml unpremultiplied-ref.yaml
+
 == linear.yaml linear-ref.png
 == linear-reverse.yaml linear-ref.png
 scale(*) fuzzy(255,1200) == linear-reverse-2.yaml linear-reverse-2-ref.yaml

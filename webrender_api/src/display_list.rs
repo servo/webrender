@@ -1700,9 +1700,10 @@ impl DisplayListBuilder {
         end_point: LayoutVector2D,
         stops: Vec<di::GradientStop>,
         extend_mode: di::ExtendMode,
+        alpha_mode: di::AlphaMode,
     ) -> (di::Gradient, Vec<di::GradientStop>) {
         let mut builder = GradientBuilder::with_stops(stops);
-        let gradient = builder.gradient(start_point, end_point, extend_mode);
+        let gradient = builder.gradient(start_point, end_point, extend_mode, alpha_mode);
         (gradient, builder.into_stops())
     }
 
@@ -1713,9 +1714,10 @@ impl DisplayListBuilder {
         radius: LayoutSize,
         stops: Vec<di::GradientStop>,
         extend_mode: di::ExtendMode,
+        alpha_mode: di::AlphaMode,
     ) -> (di::RadialGradient, Vec<di::GradientStop>) {
         let mut builder = GradientBuilder::with_stops(stops);
-        let gradient = builder.radial_gradient(center, radius, extend_mode);
+        let gradient = builder.radial_gradient(center, radius, extend_mode, alpha_mode);
         (gradient, builder.into_stops())
     }
 
@@ -1726,9 +1728,10 @@ impl DisplayListBuilder {
         angle: f32,
         stops: Vec<di::GradientStop>,
         extend_mode: di::ExtendMode,
+        alpha_mode: di::AlphaMode,
     ) -> (di::ConicGradient, Vec<di::GradientStop>) {
         let mut builder = GradientBuilder::with_stops(stops);
-        let gradient = builder.conic_gradient(center, angle, extend_mode);
+        let gradient = builder.conic_gradient(center, angle, extend_mode, alpha_mode);
         (gradient, builder.into_stops())
     }
 

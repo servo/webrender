@@ -210,6 +210,14 @@ fn make_skew(
     LayoutTransform::skew(alpha, beta)
 }
 
+fn gradient_alpha_mode(yaml: &Yaml) -> AlphaMode {
+    if yaml["unpremultiplied"].as_bool().unwrap_or(false) {
+        AlphaMode::Unpremultiplied
+    } else {
+        AlphaMode::Premultiplied
+    }
+}
+
 impl YamlHelper for Yaml {
     fn as_f32(&self) -> Option<f32> {
         match *self {
@@ -1094,7 +1102,7 @@ impl YamlHelper for Yaml {
             ExtendMode::Clamp
         };
 
-        dl.create_gradient(start.to_vector(), end.to_vector(), stops, extend_mode)
+        dl.create_gradient(start.to_vector(), end.to_vector(), stops, extend_mode, gradient_alpha_mode(self))
     }
 
     fn as_radial_gradient(&self, dl: &mut DisplayListBuilder) -> (RadialGradient, Vec<GradientStop>) {
@@ -1121,7 +1129,7 @@ impl YamlHelper for Yaml {
             ExtendMode::Clamp
         };
 
-        dl.create_radial_gradient(center.to_vector(), radius, stops, extend_mode)
+        dl.create_radial_gradient(center.to_vector(), radius, stops, extend_mode, gradient_alpha_mode(self))
     }
 
     fn as_conic_gradient(&self, dl: &mut DisplayListBuilder) -> (ConicGradient, Vec<GradientStop>) {
@@ -1148,7 +1156,7 @@ impl YamlHelper for Yaml {
             ExtendMode::Clamp
         };
 
-        dl.create_conic_gradient(center.to_vector(), angle, stops, extend_mode)
+        dl.create_conic_gradient(center.to_vector(), angle, stops, extend_mode, gradient_alpha_mode(self))
     }
 
     fn as_complex_clip_regions(&self) -> Vec<ComplexClipRegion> {

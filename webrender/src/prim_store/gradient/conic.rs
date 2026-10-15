@@ -8,7 +8,7 @@
 //!
 //! Conic gradients are rendered as quads with the gradient pattern (ps_quad_gradient).
 
-use api::{ExtendMode, GradientStop};
+use api::{AlphaMode, ExtendMode, GradientStop};
 use api::units::*;
 use crate::pattern::gradient::{conic_gradient_pattern};
 use crate::pattern::{Pattern, PatternBuilder, PatternBuilderState};
@@ -39,6 +39,7 @@ impl InternDebug for ConicGradientKey {}
 pub struct ConicGradientTemplate {
     pub common: PrimTemplateCommonData,
     pub extend_mode: ExtendMode,
+    pub alpha_mode: AlphaMode,
     pub center: LayoutVector2D,
     pub params: ConicGradientParams,
     /// Per-axis fraction of `common.prim_size` covered by one tile of the
@@ -63,6 +64,7 @@ impl PatternBuilder for ConicGradientTemplate {
             self.params.start_offset,
             self.params.end_offset,
             self.extend_mode,
+            self.alpha_mode,
             &self.stops,
             state.frame_gpu_data,
         )
@@ -97,6 +99,7 @@ impl From<ConicGradientKey> for ConicGradientTemplate {
             common,
             center: item.center.into(),
             extend_mode: item.extend_mode,
+            alpha_mode: item.alpha_mode,
             params: item.params,
             stretch_ratio: item.stretch_ratio.into(),
             tile_spacing: item.tile_spacing.into(),

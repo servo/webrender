@@ -12,7 +12,7 @@
 //! former homes. Not part of the public API surface.
 
 use crate::units::{LayoutRect, LayoutSize, LayoutVector2D, RectExt};
-use crate::{ColorU, ExtendMode};
+use crate::{AlphaMode, ColorU, ExtendMode};
 use crate::interned_prims::{ConicGradient, LinearGradient, RadialGradient};
 use crate::key_types::{
     ConicGradientParams, EdgeMask, GradientStopKey, NinePatchDescriptor,
@@ -419,6 +419,7 @@ pub fn linear_gradient_prim(
     end_point: LayoutVector2D,
     stops: Vec<GradientStopKey>,
     extend_mode: ExtendMode,
+    alpha_mode: AlphaMode,
     stretch_size: LayoutSize,
     mut tile_spacing: LayoutSize,
     nine_patch: Option<Box<NinePatchDescriptor>>,
@@ -461,6 +462,7 @@ pub fn linear_gradient_prim(
 
     Some(LinearGradient {
         extend_mode,
+        alpha_mode,
         start_point: sp.into(),
         end_point: ep.into(),
         stretch_ratio: stretch_ratio.into(),
@@ -482,6 +484,7 @@ pub fn conic_gradient_prim(
     end_offset: f32,
     stops: Vec<GradientStopKey>,
     extend_mode: ExtendMode,
+    alpha_mode: AlphaMode,
     stretch_size: LayoutSize,
     mut tile_spacing: LayoutSize,
     nine_patch: Option<Box<NinePatchDescriptor>>,
@@ -493,6 +496,7 @@ pub fn conic_gradient_prim(
 
     ConicGradient {
         extend_mode,
+        alpha_mode,
         center: center.into(),
         params: ConicGradientParams { angle, start_offset, end_offset },
         stretch_ratio: stretch_ratio.into(),
@@ -513,6 +517,7 @@ pub fn radial_gradient_prim(
     ratio_xy: f32,
     stops: Vec<GradientStopKey>,
     extend_mode: ExtendMode,
+    alpha_mode: AlphaMode,
     stretch_size: LayoutSize,
     mut tile_spacing: LayoutSize,
     nine_patch: Option<Box<NinePatchDescriptor>>,
@@ -530,6 +535,7 @@ pub fn radial_gradient_prim(
 
     RadialGradient {
         extend_mode,
+        alpha_mode,
         center: center.into(),
         params,
         stretch_ratio: stretch_ratio.into(),

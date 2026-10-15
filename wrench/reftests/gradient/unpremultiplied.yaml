@@ -1,0 +1,27 @@
+---
+root:
+  items:
+    - type: gradient
+      bounds: 20 20 300 60
+      start: 0 30
+      end: 300 30
+      unpremultiplied: true
+      stops: [0, [255, 0, 0, 1], 1, [0, 0, 255, 0]]
+    - type: gradient
+      bounds: 20 100 300 120
+      start: 0 0
+      end: 300 120
+      unpremultiplied: true
+      stops: [0, [255, 0, 0, 1], 0.5, [0, 0, 255, 0], 1, [0, 128, 0, 1]]
+    - type: radial-gradient
+      bounds: 20 240 140 140
+      center: 70 70
+      radius: 70 70
+      unpremultiplied: true
+      stops: [0, [0, 128, 0, 1], 1, [255, 255, 255, 0]]
+    - type: conic-gradient
+      bounds: 180 240 140 140
+      center: 70 70
+      angle: 0.0
+      unpremultiplied: true
+      stops: [0, [255, 0, 0, 1], 1, [0, 0, 255, 0]]
