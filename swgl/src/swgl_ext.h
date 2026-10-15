@@ -1590,8 +1590,19 @@ static int32_t findGradientStopPair(float offset, float* stops,
     return index - 1;
 }
 
+// Premultiplies the color components of 8-bit BGRA pixels by their alpha.
+// Gradient stops with unpremultiplied colors are interpolated first and
+// premultiplied afterwards.
+template <bool PREMULTIPLY>
+static ALWAYS_INLINE WideRGBA8 premultiplyGradientPixels(WideRGBA8 pixels) {
+  if (!PREMULTIPLY) {
+    return pixels;
+  }
+  return set_alphas(muldiv255(pixels, alphas(pixels)), pixels);
+}
+
 // Samples an entire span of a linear gradient.
-template <bool BLEND, bool DITHER>
+template <bool BLEND, bool DITHER, bool PREMULTIPLY>
 static bool commitLinearGradientFromStops(sampler2D sampler, int offsetsAddress,
                                           int colorsAddress, float stopCount,
                                           bool gradientRepeat, vec2 pos,
@@ -1717,11 +1728,14 @@ static bool commitLinearGradientFromStops(sampler2D sampler, int offsetsAddress,
         for (auto* end = buf + segment * 4; buf < end; buf += 4) {
           if (DITHER) {
             commit_blend_span<BLEND>(
-                buf,
-                dither(color, currentFragCoordX, ditherNoiseYIndexed) >> 8);
+                buf, premultiplyGradientPixels<PREMULTIPLY>(
+                         dither(color, currentFragCoordX, ditherNoiseYIndexed) >>
+                         8));
             currentFragCoordX += 4;
           } else {
-            commit_blend_span<BLEND>(buf, bit_cast<WideRGBA8>(color >> 8));
+            commit_blend_span<BLEND>(buf,
+                                     premultiplyGradientPixels<PREMULTIPLY>(
+                                         bit_cast<WideRGBA8>(color >> 8)));
           }
           color += deltaColor;
         }
@@ -1750,7 +1764,10 @@ static bool commitLinearGradientFromStops(sampler2D sampler, int offsetsAddress,
         color = dither(color, currentFragCoordX, ditherNoiseYIndexed),
         currentFragCoordX += remainder;
       }
-      commit_blend_span<BLEND>(buf, bit_cast<WideRGBA8>(color >> 8), remainder);
+      commit_blend_span<BLEND>(buf,
+                               premultiplyGradientPixels<PREMULTIPLY>(
+                                   bit_cast<WideRGBA8>(color >> 8)),
+                               remainder);
 
       buf += remainder;
       span -= remainder;
@@ -1760,20 +1777,32 @@ static bool commitLinearGradientFromStops(sampler2D sampler, int offsetsAddress,
   return true;
 }
 
-#define swgl_commitLinearGradientFromStopsRGBA8(                             \
-    sampler, offsetsAddress, colorsAddress, size, gradientRepeat, pos,       \
-    scaleDir, startOffset)                                                   \
-  do {                                                                       \
-    bool drawn = false;                                                      \
-    if (blend_key) {                                                         \
-      drawn = commitLinearGradientFromStops<true, false>(                    \
-          sampler, offsetsAddress, colorsAddress, size, gradientRepeat, pos, \
-          scaleDir, startOffset, swgl_OutRGBA8, swgl_SpanLength);            \
-    } else {                                                                 \
-      drawn = commitLinearGradientFromStops<false, false>(                   \
-          sampler, offsetsAddress, colorsAddress, size, gradientRepeat, pos, \
-          scaleDir, startOffset, swgl_OutRGBA8, swgl_SpanLength);            \
-    }                                                                        \
+#define swgl_commitLinearGradientFromStopsRGBA8(                              \
+    sampler, offsetsAddress, colorsAddress, size, gradientRepeat, pos,        \
+    scaleDir, startOffset, premultiply)                                       \
+  do {                                                                        \
+    bool drawn = false;                                                       \
+    if (blend_key) {                                                          \
+      drawn = premultiply                                                     \
+                  ? commitLinearGradientFromStops<true, false, true>(         \
+                        sampler, offsetsAddress, colorsAddress, size,         \
+                        gradientRepeat, pos, scaleDir, startOffset,           \
+                        swgl_OutRGBA8, swgl_SpanLength)                       \
+                  : commitLinearGradientFromStops<true, false, false>(        \
+                        sampler, offsetsAddress, colorsAddress, size,         \
+                        gradientRepeat, pos, scaleDir, startOffset,           \
+                        swgl_OutRGBA8, swgl_SpanLength);                      \
+    } else {                                                                  \
+      drawn = premultiply                                                     \
+                  ? commitLinearGradientFromStops<false, false, true>(        \
+                        sampler, offsetsAddress, colorsAddress, size,         \
+                        gradientRepeat, pos, scaleDir, startOffset,           \
+                        swgl_OutRGBA8, swgl_SpanLength)                       \
+                  : commitLinearGradientFromStops<false, false, false>(       \
+                        sampler, offsetsAddress, colorsAddress, size,         \
+                        gradientRepeat, pos, scaleDir, startOffset,           \
+                        swgl_OutRGBA8, swgl_SpanLength);                      \
+    }                                                                         \
     if (drawn) {                                                             \
       swgl_OutRGBA8 += swgl_SpanLength;                                      \
       swgl_SpanLength = 0;                                                   \
@@ -1782,17 +1811,29 @@ static bool commitLinearGradientFromStops(sampler2D sampler, int offsetsAddress,
 
 #define swgl_commitDitheredLinearGradientFromStopsRGBA8(                      \
     sampler, offsetsAddress, colorsAddress, size, tileRepeat, gradientRepeat, \
-    pos, scaleDir, startOffset)                                               \
+    pos, scaleDir, startOffset, premultiply)                                  \
   do {                                                                        \
     bool drawn = false;                                                       \
     if (blend_key) {                                                          \
-      drawn = commitLinearGradientFromStops<true, true>(                      \
-          sampler, offsetsAddress, colorsAddress, size, gradientRepeat, pos,  \
-          scaleDir, startOffset, swgl_OutRGBA8, swgl_SpanLength, fragCoord);  \
+      drawn = premultiply                                                     \
+                  ? commitLinearGradientFromStops<true, true, true>(          \
+                        sampler, offsetsAddress, colorsAddress, size,         \
+                        gradientRepeat, pos, scaleDir, startOffset,           \
+                        swgl_OutRGBA8, swgl_SpanLength, fragCoord)            \
+                  : commitLinearGradientFromStops<true, true, false>(         \
+                        sampler, offsetsAddress, colorsAddress, size,         \
+                        gradientRepeat, pos, scaleDir, startOffset,           \
+                        swgl_OutRGBA8, swgl_SpanLength, fragCoord);           \
     } else {                                                                  \
-      drawn = commitLinearGradientFromStops<false, true>(                     \
-          sampler, offsetsAddress, colorsAddress, size, gradientRepeat, pos,  \
-          scaleDir, startOffset, swgl_OutRGBA8, swgl_SpanLength, fragCoord);  \
+      drawn = premultiply                                                     \
+                  ? commitLinearGradientFromStops<false, true, true>(         \
+                        sampler, offsetsAddress, colorsAddress, size,         \
+                        gradientRepeat, pos, scaleDir, startOffset,           \
+                        swgl_OutRGBA8, swgl_SpanLength, fragCoord)            \
+                  : commitLinearGradientFromStops<false, true, false>(        \
+                        sampler, offsetsAddress, colorsAddress, size,         \
+                        gradientRepeat, pos, scaleDir, startOffset,           \
+                        swgl_OutRGBA8, swgl_SpanLength, fragCoord);           \
     }                                                                         \
     if (drawn) {                                                              \
       swgl_OutRGBA8 += swgl_SpanLength;                                       \
@@ -1815,7 +1856,7 @@ static ALWAYS_INLINE V fastSqrt(V v) {
 }
 
 // Samples an entire span of a radial gradient.
-template <bool BLEND, bool DITHER>
+template <bool BLEND, bool DITHER, bool PREMULTIPLY>
 static bool commitRadialGradientFromStops(sampler2D sampler, int offsetsAddress,
                                           int colorsAddress, float stopCount,
                                           bool repeat, vec2 pos,
@@ -1993,7 +2034,8 @@ static bool commitRadialGradientFromStops(sampler2D sampler, int offsetsAddress,
             CONVERT(round_pixel(colorF + deltaColorF * offsetG.z, 1), U16),
             CONVERT(round_pixel(colorF + deltaColorF * offsetG.w, 1), U16));
         commit_blend_span<BLEND>(
-            buf, dither(color, currentFragCoordX, ditherNoiseYIndexed) >> 8);
+            buf, premultiplyGradientPixels<PREMULTIPLY>(
+                     dither(color, currentFragCoordX, ditherNoiseYIndexed) >> 8));
         currentFragCoordX += 4;
       } else {
         auto color = combine(
@@ -2001,7 +2043,8 @@ static bool commitRadialGradientFromStops(sampler2D sampler, int offsetsAddress,
                       round_pixel(colorF + deltaColorF * offsetG.y, 1)),
             packRGBA8(round_pixel(colorF + deltaColorF * offsetG.z, 1),
                       round_pixel(colorF + deltaColorF * offsetG.w, 1)));
-        commit_blend_span<BLEND>(buf, color);
+        commit_blend_span<BLEND>(buf,
+                                 premultiplyGradientPixels<PREMULTIPLY>(color));
       }
       dotPos += dotPosDelta;
       dotPosDelta += deltaDelta2;
@@ -2028,7 +2071,9 @@ static bool commitRadialGradientFromStops(sampler2D sampler, int offsetsAddress,
             CONVERT(round_pixel(colorF + deltaColorF * offsetG.z, 1), U16),
             CONVERT(round_pixel(colorF + deltaColorF * offsetG.w, 1), U16));
         commit_blend_span<BLEND>(
-            buf, dither(color, currentFragCoordX, ditherNoiseYIndexed) >> 8,
+            buf,
+            premultiplyGradientPixels<PREMULTIPLY>(
+                dither(color, currentFragCoordX, ditherNoiseYIndexed) >> 8),
             remainder);
         currentFragCoordX += 4;
       } else {
@@ -2037,7 +2082,8 @@ static bool commitRadialGradientFromStops(sampler2D sampler, int offsetsAddress,
                       round_pixel(colorF + deltaColorF * offsetG.y, 1)),
             packRGBA8(round_pixel(colorF + deltaColorF * offsetG.z, 1),
                       round_pixel(colorF + deltaColorF * offsetG.w, 1)));
-        commit_blend_span<BLEND>(buf, color, remainder);
+        commit_blend_span<BLEND>(
+            buf, premultiplyGradientPixels<PREMULTIPLY>(color), remainder);
       }
       buf += remainder;
       t += remainder;
@@ -2078,42 +2124,60 @@ static bool commitRadialGradientFromStops(sampler2D sampler, int offsetsAddress,
 // swgl_commitLinearGradientFromStopsRGBA8, but given a varying 2D position
 // scaled to gradient-space and a radius at which the distance from the origin
 // maps to the start of the gradient.
-#define swgl_commitRadialGradientFromStopsRGBA8(                            \
-    sampler, offsetsAddress, colorsAddress, size, repeat, pos, startRadius) \
-  do {                                                                      \
-    bool drawn = false;                                                     \
-    if (blend_key) {                                                        \
-      drawn = commitRadialGradientFromStops<true, false>(                   \
-          sampler, offsetsAddress, colorsAddress, size, repeat, pos,        \
-          startRadius, swgl_OutRGBA8, swgl_SpanLength);                     \
-    } else {                                                                \
-      drawn = commitRadialGradientFromStops<false, false>(                  \
-          sampler, offsetsAddress, colorsAddress, size, repeat, pos,        \
-          startRadius, swgl_OutRGBA8, swgl_SpanLength);                     \
-    }                                                                       \
-    if (drawn) {                                                            \
-      swgl_OutRGBA8 += swgl_SpanLength;                                     \
-      swgl_SpanLength = 0;                                                  \
-    }                                                                       \
+#define swgl_commitRadialGradientFromStopsRGBA8(                              \
+    sampler, offsetsAddress, colorsAddress, size, repeat, pos, startRadius,   \
+    premultiply)                                                              \
+  do {                                                                        \
+    bool drawn = false;                                                       \
+    if (blend_key) {                                                          \
+      drawn = premultiply                                                     \
+                  ? commitRadialGradientFromStops<true, false, true>(         \
+                        sampler, offsetsAddress, colorsAddress, size, repeat, \
+                        pos, startRadius, swgl_OutRGBA8, swgl_SpanLength)     \
+                  : commitRadialGradientFromStops<true, false, false>(        \
+                        sampler, offsetsAddress, colorsAddress, size, repeat, \
+                        pos, startRadius, swgl_OutRGBA8, swgl_SpanLength);    \
+    } else {                                                                  \
+      drawn = premultiply                                                     \
+                  ? commitRadialGradientFromStops<false, false, true>(        \
+                        sampler, offsetsAddress, colorsAddress, size, repeat, \
+                        pos, startRadius, swgl_OutRGBA8, swgl_SpanLength)     \
+                  : commitRadialGradientFromStops<false, false, false>(       \
+                        sampler, offsetsAddress, colorsAddress, size, repeat, \
+                        pos, startRadius, swgl_OutRGBA8, swgl_SpanLength);    \
+    }                                                                         \
+    if (drawn) {                                                              \
+      swgl_OutRGBA8 += swgl_SpanLength;                                       \
+      swgl_SpanLength = 0;                                                    \
+    }                                                                         \
   } while (0)
 
-#define swgl_commitDitheredRadialGradientFromStopsRGBA8(                    \
-    sampler, offsetsAddress, colorsAddress, size, repeat, pos, startRadius) \
-  do {                                                                      \
-    bool drawn = false;                                                     \
-    if (blend_key) {                                                        \
-      drawn = commitRadialGradientFromStops<true, true>(                    \
-          sampler, offsetsAddress, colorsAddress, size, repeat, pos,        \
-          startRadius, swgl_OutRGBA8, swgl_SpanLength, gl_FragCoord);       \
-    } else {                                                                \
-      drawn = commitRadialGradientFromStops<false, true>(                   \
-          sampler, offsetsAddress, colorsAddress, size, repeat, pos,        \
-          startRadius, swgl_OutRGBA8, swgl_SpanLength, gl_FragCoord);       \
-    }                                                                       \
-    if (drawn) {                                                            \
-      swgl_OutRGBA8 += swgl_SpanLength;                                     \
-      swgl_SpanLength = 0;                                                  \
-    }                                                                       \
+#define swgl_commitDitheredRadialGradientFromStopsRGBA8(                      \
+    sampler, offsetsAddress, colorsAddress, size, repeat, pos, startRadius,   \
+    premultiply)                                                              \
+  do {                                                                        \
+    bool drawn = false;                                                       \
+    if (blend_key) {                                                          \
+      drawn = premultiply                                                     \
+                  ? commitRadialGradientFromStops<true, true, true>(          \
+                        sampler, offsetsAddress, colorsAddress, size, repeat, \
+                        pos, startRadius, swgl_OutRGBA8, swgl_SpanLength, gl_FragCoord)\
+                  : commitRadialGradientFromStops<true, true, false>(         \
+                        sampler, offsetsAddress, colorsAddress, size, repeat, \
+                        pos, startRadius, swgl_OutRGBA8, swgl_SpanLength, gl_FragCoord);\
+    } else {                                                                  \
+      drawn = premultiply                                                     \
+                  ? commitRadialGradientFromStops<false, true, true>(         \
+                        sampler, offsetsAddress, colorsAddress, size, repeat, \
+                        pos, startRadius, swgl_OutRGBA8, swgl_SpanLength, gl_FragCoord)\
+                  : commitRadialGradientFromStops<false, true, false>(        \
+                        sampler, offsetsAddress, colorsAddress, size, repeat, \
+                        pos, startRadius, swgl_OutRGBA8, swgl_SpanLength, gl_FragCoord);\
+    }                                                                         \
+    if (drawn) {                                                              \
+      swgl_OutRGBA8 += swgl_SpanLength;                                       \
+      swgl_SpanLength = 0;                                                    \
+    }                                                                         \
   } while (0)
 
 // Extension to set a clip mask image to be sampled during blending. The offset

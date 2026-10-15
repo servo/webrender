@@ -3956,7 +3956,7 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
         None,
         Type::new(Void),
         vec![Type::new(Sampler2D), Type::new(Int), Type::new(Int), Type::new(Float), Type::new(Bool),
-             Type::new(Vec2), Type::new(Vec2), Type::new(Float)],
+             Type::new(Vec2), Type::new(Vec2), Type::new(Float), Type::new(Bool)],
     );
     declare_function(
         state,
@@ -3964,7 +3964,7 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
         None,
         Type::new(Void),
         vec![Type::new(Sampler2D), Type::new(Int), Type::new(Int), Type::new(Float), Type::new(Bool),
-             Type::new(Vec2), Type::new(Vec2), Type::new(Float), Type::new(Vec4)],
+             Type::new(Vec2), Type::new(Vec2), Type::new(Float), Type::new(Vec4), Type::new(Bool)],
     );
     declare_function(
         state,
@@ -3972,7 +3972,7 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
         None,
         Type::new(Void),
         vec![Type::new(Sampler2D), Type::new(Int), Type::new(Int), Type::new(Float), Type::new(Bool), Type::new(Vec2),
-             Type::new(Float)],
+             Type::new(Float), Type::new(Bool)],
     );
     declare_function(
         state,
@@ -3980,7 +3980,7 @@ pub fn ast_to_hir(state: &mut State, tu: &syntax::TranslationUnit) -> Translatio
         None,
         Type::new(Void),
         vec![Type::new(Sampler2D), Type::new(Int), Type::new(Int), Type::new(Float), Type::new(Bool), Type::new(Vec2),
-             Type::new(Float)],
+             Type::new(Float), Type::new(Bool)],
     );
     for s in &[Sampler2D, Sampler2DRect] {
         declare_function_ext(
