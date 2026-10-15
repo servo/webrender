@@ -178,8 +178,6 @@ macro_rules! declare_dl_stores {
             $( pub $field: crate::dl_interner::DlStore<$key, $template>, )*
         }
 
-        // Until the first type is listed nothing in here has anything to do.
-        #[allow(unused_variables, unused_mut)]
         impl DlStores {
             /// Apply a transaction's ops and report what they did. The counts
             /// join the interners' in `INTERN_INSERTIONS` / `INTERN_REMOVALS`,

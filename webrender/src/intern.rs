@@ -493,6 +493,7 @@ macro_rules! enumerate_interning_report_fields {
             backdrop_render,
             polygon,
             box_shadow,
+            path,
         }
     }
 }

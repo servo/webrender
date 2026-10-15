@@ -17,8 +17,7 @@
 //! the inner level deliberately has no free list - if a store allocated for
 //! itself the two sides would diverge with nothing able to notice.
 
-// Handles are only minted once a primitive type moves its interning into the
-// display list builder, so until then the store's read side has no caller.
+// Nothing reads the stores until the path clip item resolves its handles.
 #![allow(dead_code)]
 
 use crate::intern::ItemUid;
@@ -41,6 +40,7 @@ use std::{fmt, ops};
 macro_rules! enumerate_dl_stores {
     ($macro_name: ident) => {
         $macro_name! {
+            path: api::Path => api::Path, INTERNED_PATHS, path,
         }
     }
 }
@@ -53,6 +53,7 @@ macro_rules! enumerate_dl_stores {
 macro_rules! enumerate_scene_dl_stores {
     ($macro_name: ident) => {
         $macro_name! {
+            path: api::Path => api::Path, path,
         }
     }
 }
@@ -70,6 +71,12 @@ pub struct DlResolveContext<'a> {
 /// is applied, once per interned entry rather than once per scene build.
 pub trait DlResolve<K>: Sized {
     fn resolve(key: &K, ctx: &DlResolveContext) -> Self;
+}
+
+impl DlResolve<api::Path> for api::Path {
+    fn resolve(key: &api::Path, _ctx: &DlResolveContext) -> Self {
+        key.clone()
+    }
 }
 
 /// Dense index identifying one content display list builder's slot space.
