@@ -9,7 +9,8 @@ use crate::ItemUid;
 use crate::border::NinePatchDescriptorExt;
 use crate::gpu_types::ClipSpace;
 use crate::pattern::repeat::RepeatedPattern;
-use crate::render_task::{ImageClipSubTask, RectangleClipSubTask, SubTask};
+use crate::path_tiler::PathTransform;
+use crate::render_task::{ImageClipSubTask, PathClipSubTask, RectangleClipSubTask, SubTask};
 use crate::transform::TransformPalette;
 use crate::batch::{BatchKey, BatchKind, BatchTextures};
 use crate::clip::clamped_radius;
@@ -1914,8 +1915,49 @@ fn prepare_clip_task(
             // TODO(gw): How to efficiently handle if the image-mask rect doesn't cover local prim rect?
             return;
         }
-        QuadClipShape::Path { .. } => {
-            unimplemented!() // TODO(nical)
+        QuadClipShape::Path { ref path, fill_rule, origin } => {
+            let path_rect = path.aabb().translate(origin.to_vector());
+            let transform = path_clip_transform(
+                clip,
+                origin,
+                task_rect,
+                raster_spatial_node_index,
+                device_pixel_scale,
+                spatial_tree,
+            );
+
+            let rect = match transform {
+                Some(transform) => {
+                    rg_builder.push_sub_task(
+                        sub_tasks,
+                        SubTask::PathClip(PathClipSubTask {
+                            path: path.clone(),
+                            fill_rule,
+                            transform,
+                        }),
+                    );
+
+                    if clip.rect.contains_box(&path_rect) {
+                        return;
+                    }
+
+                    // The path is also clipped by its rect.
+                    clip.rect
+                }
+                None => {
+                    // There is no transform to rasterize the path with, so
+                    // only clip to its bounds.
+                    clip.rect.intersection(&path_rect).unwrap_or(LayoutRect::zero())
+                }
+            };
+
+            let mut writer = gpu_buffer.write_blocks(3);
+            writer.push_one(rect);
+            writer.push_one([0.0, 0.0, 0.0, 0.0]);
+            writer.push_one([ClipMode::Clip as i32 as f32, 0.0, 0.0, 0.0]);
+            let clip_address = writer.finish();
+
+            (clip_address, true, false)
         }
     };
 
@@ -2021,6 +2063,38 @@ fn prepare_clip_task(
             rounded_rect_superellipse: superellipse,
         }),
     );
+}
+
+/// The transform from the space of a path clip's path to the local device
+/// pixels of the render task it is applied to, if any.
+fn path_clip_transform(
+    clip: &QuadClip,
+    origin: LayoutPoint,
+    task_rect: &DeviceRect,
+    raster_spatial_node_index: SpatialNodeIndex,
+    device_pixel_scale: DevicePixelScale,
+    spatial_tree: &SpatialTree,
+) -> Option<PathTransform> {
+    let clip_to_raster = if spatial_tree.can_get_relative_transform(clip.spatial_node, raster_spatial_node_index) {
+        spatial_tree
+            .get_relative_transform(clip.spatial_node, raster_spatial_node_index)
+            .into_transform()
+    } else if spatial_tree.can_get_relative_transform(raster_spatial_node_index, clip.spatial_node) {
+        spatial_tree
+            .get_relative_transform(raster_spatial_node_index, clip.spatial_node)
+            .into_transform()
+            .inverse()?
+    } else {
+        return None;
+    };
+
+    let transform = LayoutTransform::translation(origin.x, origin.y, 0.0)
+        .then(&clip_to_raster)
+        .then_scale(device_pixel_scale.0, device_pixel_scale.0, 1.0)
+        .then_translate(euclid::vec3(-task_rect.min.x, -task_rect.min.y, 0.0))
+        .with_destination::<DevicePixel>();
+
+    Some(PathTransform::new(&transform))
 }
 
 fn create_quad_primitive(

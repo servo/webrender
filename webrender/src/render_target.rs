@@ -7,7 +7,8 @@ use api::units::*;
 use api::{ColorF, LineOrientation, BorderStyle};
 use crate::batch::{AlphaBatchBuilder, AlphaBatchContainer, BatchTextures, TextureSet};
 use crate::batch::{BatchBuilder, INVALID_SEGMENT_INDEX, ClipMaskInstanceList};
-use crate::render_task::{SubTask, RectangleClipSubTask, ImageClipSubTask};
+use crate::render_task::{SubTask, RectangleClipSubTask, ImageClipSubTask, PathClipSubTask};
+use crate::path_tiler::{PathInfo, PathTiler, PathTilerOutput};
 use crate::command_buffer::{CommandBufferList, QuadFlags};
 use crate::pattern::{Pattern, PatternKind, PatternShaderInput};
 use crate::segment::EdgeMask;
@@ -338,6 +339,7 @@ impl RenderTarget {
         gpu_buffer_builder: &mut GpuBufferBuilder,
         render_tasks: &RenderTaskGraph,
         transforms: &mut TransformPalette,
+        path_tiler: &mut PathTiler,
     ) {
         tracy_rs::profile_scope!("add_task");
         let task = &render_tasks[task_id];
@@ -604,6 +606,16 @@ impl RenderTarget {
                         &ctx.frame_memory,
                         render_tasks,
                         gpu_buffer_builder,
+                        &mut self.clip_masks
+                    );
+                }
+                SubTask::PathClip(clip_task) => {
+                    add_path_clip_task_to_batch(
+                        clip_task,
+                        &target_rect,
+                        task_address,
+                        gpu_buffer_builder,
+                        path_tiler,
                         &mut self.clip_masks
                     );
                 }
@@ -965,6 +977,39 @@ fn add_rect_clip_task_to_batch(
                 }
             }
         }
+    );
+}
+
+fn add_path_clip_task_to_batch(
+    task: &PathClipSubTask,
+    target_rect: &DeviceIntRect,
+    masked_task_address: RenderTaskAddress,
+    gpu_buffers: &mut GpuBufferBuilder,
+    tiler: &mut PathTiler,
+    results: &mut ClipMaskInstanceList,
+) {
+    let path_info = PathInfo {
+        render_task_address: masked_task_address.0 as u32,
+        fill_rule: task.fill_rule,
+        // The tiles cover the outside of the path, which dest-out removes.
+        inverted: true,
+        opacity: 1.0,
+    };
+    let mut writer = gpu_buffers.i32.write_blocks(1);
+    writer.push_one(path_info.encode());
+    let path_address = writer.finish();
+
+    tiler.begin_target(DeviceIntRect::from_size(target_rect.size()));
+    tiler.fill_path(
+        &task.path,
+        &task.transform,
+        task.fill_rule,
+        path_info.inverted,
+        path_address.as_u32(),
+        &mut PathTilerOutput {
+            edges: &mut gpu_buffers.edges,
+            tiles: &mut results.path_tiles,
+        },
     );
 }
 
