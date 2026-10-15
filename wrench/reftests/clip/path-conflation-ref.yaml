@@ -1,0 +1,169 @@
+---
+root:
+  items:
+    # Shared vertical edge (same winding)
+    - type: clip
+      id: 10
+      path:
+        rect: [0, 0, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 110
+      clips: [10]
+    - type: rect
+      bounds: [0, 0, 120, 120]
+      color: blue
+      clip-chain: 110
+    # Shared vertical edge (inverse winding)
+    - type: clip
+      id: 11
+      path:
+        rect: [100, 0, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 111
+      clips: [11]
+    - type: rect
+      bounds: [100, 0, 120, 120]
+      color: blue
+      clip-chain: 111
+    # Shared vertical edge (same winding, with sub-px offset)
+    - type: clip
+      id: 10
+      path:
+        rect: [200.25, 0.25, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 110
+      clips: [10]
+    - type: rect
+      bounds: [200, 0, 220, 120]
+      color: blue
+      clip-chain: 110
+    # Shared vertical edge (inverse winding, with sub-px offset)
+    - type: clip
+      id: 11
+      path:
+        rect: [300.25, 0.25, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 111
+      clips: [11]
+    - type: rect
+      bounds: [300, 0, 120, 120]
+      color: blue
+      clip-chain: 111
+
+    # Shared diagonal edge (same winding)
+    - type: clip
+      id: 20
+      path:
+        rect: [0, 100, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 120
+      clips: [20]
+    - type: rect
+      bounds: [0, 100, 200, 200]
+      color: red
+      clip-chain: 120
+    # Shared diagonal edge (inverse winding)
+    - type: clip
+      id: 21
+      path:
+        rect: [100, 100, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 121
+      clips: [21]
+    - type: rect
+      bounds: [100, 90, 220, 120]
+      color: red
+      clip-chain: 121
+    # Shared diagonal edge (same winding, width sub-px offset)
+    - type: clip
+      id: 22
+      path:
+        rect: [200.25, 100.25, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 122
+      clips: [22]
+    - type: rect
+      bounds: [200, 100, 200, 200]
+      color: red
+      clip-chain: 122
+    # Shared diagonal edge (inverse winding, width sub-px offset)
+    - type: clip
+      id: 23
+      path:
+        rect: [300.25, 100.25, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 123
+      clips: [23]
+    - type: rect
+      bounds: [300, 90, 220, 120]
+      color: red
+      clip-chain: 123
+
+
+    # Overlap (same winding)
+    - type: clip
+      id: 31
+      path:
+        rect: [0, 200, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 331
+      clips: [31]
+    - type: rect
+      bounds: [0, 200, 120, 120]
+      color: green
+      clip-chain: 331
+    # Overlap (inverse winding)
+    # For this one the two sub-paths cancel each-other (skipped in the reference).
+
+    # Overlap (same winding with sub-px offset)
+    - type: clip
+      id: 31
+      path:
+        rect: [200.25, 200.25, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 331
+      clips: [31]
+    - type: rect
+      bounds: [200, 200, 120, 120]
+      color: green
+      clip-chain: 331
+    # Overlap (inverse winding with sub-px offset)
+    # For this one the two sub-paths cancel each-other (skipped in the reference).
+
+
+    # Single sub-path
+    - type: clip
+      id: 41
+      path:
+        rect: [0, 300, 310, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 441
+      clips: [41]
+    - type: rect
+      bounds: [0, 300, 320, 120]
+      color: blue
+      clip-chain: 441
+    # Single sub-path with sub-px offset
+    - type: clip
+      id: 42
+      path:
+        rect: [200.25, 300.25, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 442
+      clips: [42]
+    - type: rect
+      bounds: [200, 300, 120, 120]
+      color: blue
+      clip-chain: 442

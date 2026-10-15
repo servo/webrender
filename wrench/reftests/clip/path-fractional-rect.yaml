@@ -1,0 +1,19 @@
+# The rect of a path clip is snapped to the device pixel grid like other clip
+# rects, but the path is not moved by it: the rect's origin is fractional here,
+# and the path's edges land on integer positions.
+---
+root:
+  items:
+    - type: clip
+      id: 1
+      path:
+        rect: [10.4, 10.3, 120, 120]
+        data: "M 9.6 9.7 L 109.6 9.7 L 109.6 109.7 L 9.6 109.7 Z M 34.6 34.7 L 84.6 34.7 L 84.6 84.7 L 34.6 84.7 Z"
+        fill-rule: evenodd
+    - type: clip-chain
+      id: 101
+      clips: [1]
+    - type: rect
+      bounds: [0, 0, 200, 200]
+      color: green
+      clip-chain: 101

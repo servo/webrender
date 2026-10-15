@@ -1,0 +1,48 @@
+---
+root:
+  items:
+    - type: rect
+      bounds: [20, 20, 100, 25]
+      color: green
+    - type: rect
+      bounds: [20, 95, 100, 25]
+      color: green
+    - type: rect
+      bounds: [20, 45, 25, 50]
+      color: green
+    - type: rect
+      bounds: [95, 45, 25, 50]
+      color: green
+    - type: rect
+      bounds: [140, 20, 100, 100]
+      color: green
+    - type: rect
+      bounds: [260, 20, 100, 25]
+      color: green
+    - type: rect
+      bounds: [260, 95, 100, 25]
+      color: green
+    - type: rect
+      bounds: [260, 45, 25, 50]
+      color: green
+    - type: rect
+      bounds: [335, 45, 25, 50]
+      color: green
+    - type: rect
+      bounds: [380, 20, 100, 100]
+      color: green
+    - type: rect
+      bounds: [20, 140, 100, 100]
+      color: green
+    - type: rect
+      bounds: [140, 140, 60, 40]
+      color: green
+    - type: rect
+      bounds: [140, 180, 40, 20]
+      color: green
+    - type: rect
+      bounds: [200, 180, 40, 20]
+      color: green
+    - type: rect
+      bounds: [180, 200, 60, 40]
+      color: green
