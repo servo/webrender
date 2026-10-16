@@ -1,0 +1,6 @@
+== allowed.yaml both-ref.yaml
+== denied.yaml outer-ref.yaml
+== no-policy.yaml outer-ref.yaml
+== root-no-policy.yaml blank.yaml
+== not-enforced.yaml both-ref.yaml
+== embeds-ancestor.yaml outer-ref.yaml

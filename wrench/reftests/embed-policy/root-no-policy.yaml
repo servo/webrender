@@ -1,0 +1,29 @@
+# With enforcement, the root pipeline also needs an embed policy.
+---
+enforce-embed-policy: true
+root:
+  items:
+    -
+      bounds: [0, 0, 200, 200]
+      type: iframe
+      id: [1, 2]
+pipelines:
+  -
+    id: [1, 2]
+    embed-policy: [3]
+    items:
+      -
+        bounds: [0, 0, 50, 50]
+        color: green
+        type: rect
+      -
+        bounds: [100, 0, 100, 100]
+        type: iframe
+        id: [3, 7]
+  -
+    id: [3, 7]
+    items:
+      -
+        bounds: [0, 0, 50, 50]
+        color: blue
+        type: rect

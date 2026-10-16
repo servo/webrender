@@ -975,6 +975,18 @@ impl SceneBuilderThread {
                         scene.set_root_pipeline_id(pipeline_id);
                     }
                 }
+                SceneMsg::SetEmbedPolicy { pipeline_id, policy } => {
+                    if scene.embed_policies.get(&pipeline_id) != Some(&policy) {
+                        scene.embed_policies.insert(pipeline_id, policy);
+                        rebuild_scene = true;
+                    }
+                }
+                SceneMsg::SetEmbedPolicyEnforcement(enabled) => {
+                    if scene.enforce_embed_policy != enabled {
+                        scene.enforce_embed_policy = enabled;
+                        rebuild_scene = true;
+                    }
+                }
                 SceneMsg::RemovePipeline(pipeline_id) => {
                     scene.remove_pipeline(pipeline_id);
                     self.removed_pipelines.insert(pipeline_id);

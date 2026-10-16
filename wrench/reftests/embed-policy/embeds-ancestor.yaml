@@ -1,0 +1,28 @@
+# An embed policy that doesn't include the root's or its own namespace keeps a
+# pipeline from embedding them.
+---
+enforce-embed-policy: true
+root:
+  embed-policy: unrestricted
+  items:
+    -
+      bounds: [0, 0, 200, 200]
+      type: iframe
+      id: [1, 2]
+pipelines:
+  -
+    id: [1, 2]
+    embed-policy: [3]
+    items:
+      -
+        bounds: [0, 0, 50, 50]
+        color: green
+        type: rect
+      -
+        bounds: [100, 0, 100, 100]
+        type: iframe
+        id: [0, 0]
+      -
+        bounds: [0, 100, 100, 100]
+        type: iframe
+        id: [1, 2]

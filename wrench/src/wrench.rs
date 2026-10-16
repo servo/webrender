@@ -38,6 +38,8 @@ pub struct DisplayList {
     /// If set to true, the pipeline will be rendered off-screen. Only snapshotted
     /// stacking contexts will be kept.
     pub render_offscreen: bool,
+    /// The pipelines this display list may embed.
+    pub embed_policy: Option<EmbedPolicy>,
 }
 
 // TODO(gw): This descriptor matches what we currently support for fonts
@@ -740,11 +742,19 @@ impl Wrench {
         display_lists: Vec<DisplayList>,
         scroll_offsets: &HashMap<ExternalScrollId, Vec<SampledScrollOffset>>,
         transform_properties: &[PropertyValue<LayoutTransform>],
+        enforce_embed_policy: bool,
     ) {
         let mut txn = Transaction::new();
+        // The document outlives the yaml file, so this and the policies are
+        // set for every display list to not inherit a previous file's state.
+        txn.set_embed_policy_enforcement(enforce_embed_policy);
         let mut present = false;
         for display_list in display_lists {
             present |= display_list.present;
+
+            let embed_policy = display_list.embed_policy
+                .unwrap_or_else(|| EmbedPolicy::Restricted(Vec::new()));
+            txn.set_embed_policy(display_list.pipeline, embed_policy);
 
             txn.set_display_list(
                 Epoch(*frame_number),

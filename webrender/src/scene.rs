@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BuiltDisplayList, ColorF, DynamicProperties, Epoch, FontRenderMode, IdNamespace};
+use api::{BuiltDisplayList, ColorF, DynamicProperties, EmbedPolicy, Epoch, FontRenderMode, IdNamespace};
 use api::{PipelineId, PropertyBinding, PropertyBindingId, PropertyValue, MixBlendMode, StackingContext};
 use api::units::*;
 use api::channel::Sender;
@@ -220,6 +220,10 @@ pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
     pub pipelines: FastHashMap<PipelineId, ScenePipeline>,
     pub pipeline_epochs: FastHashMap<PipelineId, Epoch>,
+    #[cfg_attr(feature = "replay", serde(default))]
+    pub embed_policies: FastHashMap<PipelineId, EmbedPolicy>,
+    #[cfg_attr(feature = "replay", serde(default))]
+    pub enforce_embed_policy: bool,
 }
 
 impl Scene {
@@ -228,6 +232,8 @@ impl Scene {
             root_pipeline_id: None,
             pipelines: FastHashMap::default(),
             pipeline_epochs: FastHashMap::default(),
+            embed_policies: FastHashMap::default(),
+            enforce_embed_policy: false,
         }
     }
 
@@ -257,6 +263,18 @@ impl Scene {
         }
         self.pipelines.remove(&pipeline_id);
         self.pipeline_epochs.remove(&pipeline_id);
+        self.embed_policies.remove(&pipeline_id);
+    }
+
+    /// Whether an iframe item in `embedder`'s display list may embed `child`.
+    pub fn may_embed(&self, embedder: PipelineId, child: PipelineId) -> bool {
+        if !self.enforce_embed_policy {
+            return true;
+        }
+        match self.embed_policies.get(&embedder) {
+            Some(policy) => policy.allows(child),
+            None => false,
+        }
     }
 
     pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {

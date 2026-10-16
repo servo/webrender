@@ -7,6 +7,7 @@ include clip/reftest.list
 include compositor/reftest.list
 include compositor-surface/reftest.list
 include crash/reftest.list
+include embed-policy/reftest.list
 include filters/reftest.list
 include gradient/reftest.list
 include image/reftest.list

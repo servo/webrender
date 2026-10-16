@@ -205,6 +205,28 @@ impl PipelineId {
     pub const INVALID: Self = PipelineId(!0, !0);
 }
 
+/// The pipelines that a pipeline's display list may embed with iframe items.
+///
+/// Only enforced in documents where enforcement is enabled, see
+/// `Transaction::set_embed_policy_enforcement`. There, a pipeline without a
+/// policy may not embed anything.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum EmbedPolicy {
+    /// Any pipeline may be embedded.
+    Unrestricted,
+    /// Only the pipelines whose `PipelineSourceId` is in the list may be embedded.
+    Restricted(Vec<PipelineSourceId>),
+}
+
+impl EmbedPolicy {
+    pub fn allows(&self, pipeline_id: PipelineId) -> bool {
+        match *self {
+            EmbedPolicy::Unrestricted => true,
+            EmbedPolicy::Restricted(ref namespaces) => namespaces.contains(&pipeline_id.0),
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct FramePublishId(pub u64);

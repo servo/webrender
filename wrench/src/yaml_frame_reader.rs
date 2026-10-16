@@ -354,6 +354,7 @@ pub struct YamlFrameReader {
     frame_count: u32,
 
     display_lists: Vec<DisplayList>,
+    enforce_embed_policy: bool,
 
     watch_source: bool,
     list_resources: bool,
@@ -413,6 +414,7 @@ impl YamlFrameReader {
             aux_dir: yaml_path.parent().unwrap().to_owned(),
             frame_count: 0,
             display_lists: Vec::new(),
+            enforce_embed_policy: false,
             scroll_offsets: HashMap::new(),
             transform_properties: Vec::new(),
             font_render_mode: None,
@@ -508,6 +510,7 @@ impl YamlFrameReader {
         self.reset();
 
         self.parse_transform_properties(&yaml);
+        self.enforce_embed_policy = yaml["enforce-embed-policy"].as_bool().unwrap_or(false);
 
         // Pipelines to remove before this frame's display lists are set. Sent
         // as its own transaction, with no display list and so no scene rebuild,
@@ -641,6 +644,7 @@ impl YamlFrameReader {
             present,
             send_transaction,
             render_offscreen: offscreen,
+            embed_policy: yaml["embed-policy"].as_embed_policy(),
         });
 
         assert_eq!(self.spatial_id_stack.len(), 1);
@@ -2385,6 +2389,7 @@ impl WrenchThing for YamlFrameReader {
                 self.display_lists.clone(),
                 &self.scroll_offsets,
                 &self.transform_properties,
+                self.enforce_embed_policy,
             );
         } else {
             wrench.refresh();

@@ -991,13 +991,11 @@ impl<'a> SceneBuilder<'a> {
                             continue;
                         }
 
+                        if !self.scene.may_embed(bc.pipeline_id, info.pipeline_id) {
+                            continue;
+                        }
+
                         let space = self.get_space(info.space_and_clip.spatial_id);
-                        // Note: the referenced pipeline is not checked against the
-                        // parent pipeline's namespace. Nesting pipelines across
-                        // namespaces is legitimate (a content process embeds the
-                        // pipelines of its out-of-process iframes and of its async
-                        // image pipelines), so validating iframe references needs
-                        // ownership information webrender doesn't have.
                         let (namespace, subtraversal) = match self.push_iframe(info, space) {
                             Some(pair) => pair,
                             None => continue,

@@ -15,7 +15,7 @@ use crate::api::{BuiltDisplayList, IdNamespace, ExternalScrollId, Parameter, Boo
 use crate::api::{FontKey, FontInstanceKey, NativeFontHandle};
 use crate::api::{BlobImageData, BlobImageKey, ImageData, ImageDescriptor, ImageKey, Epoch, QualitySettings};
 use crate::api::{BlobImageParams, BlobImageRequest, BlobImageResult, AsyncBlobImageRasterizer, BlobImageHandler};
-use crate::api::{DocumentId, PipelineId, PropertyBindingId, PropertyBindingKey, ExternalEvent};
+use crate::api::{DocumentId, EmbedPolicy, PipelineId, PropertyBindingId, PropertyBindingKey, ExternalEvent};
 use crate::api::{HitTestResult, HitTesterRequest, ApiHitTester, PropertyValue, DynamicProperties};
 use crate::api::{SampledScrollOffset, TileSize, NotificationRequest, DebugFlags};
 use crate::api::{GlyphDimensionRequest, GlyphIndexRequest, GlyphIndex, GlyphDimensions};
@@ -302,6 +302,21 @@ impl Transaction {
     /// is reset back to `None`.
     pub fn remove_pipeline(&mut self, pipeline_id: PipelineId) {
         self.scene_ops.push(SceneMsg::RemovePipeline(pipeline_id));
+    }
+
+    /// Sets the pipelines that `pipeline_id` may embed with iframe items.
+    ///
+    /// The policy must come from trusted code, not from the producer of the
+    /// pipeline's display list. It is kept until the pipeline is removed or
+    /// the policy is replaced, and it applies to the next scene build.
+    pub fn set_embed_policy(&mut self, pipeline_id: PipelineId, policy: EmbedPolicy) {
+        self.scene_ops.push(SceneMsg::SetEmbedPolicy { pipeline_id, policy });
+    }
+
+    /// Enables or disables the enforcement of embed policies in the document.
+    /// While enabled, a pipeline without an embed policy may not embed anything.
+    pub fn set_embed_policy_enforcement(&mut self, enabled: bool) {
+        self.scene_ops.push(SceneMsg::SetEmbedPolicyEnforcement(enabled));
     }
 
     /// Supplies a new frame to WebRender.
@@ -859,6 +874,15 @@ pub enum SceneMsg {
         /// The id namespace owning the resources this display list may reference.
         namespace: IdNamespace,
     },
+    ///
+    SetEmbedPolicy {
+        ///
+        pipeline_id: PipelineId,
+        ///
+        policy: EmbedPolicy,
+    },
+    ///
+    SetEmbedPolicyEnforcement(bool),
     /// Build a scene without affecting any retained state.
     ///
     /// Useful to render an offscreen scene in the background without affecting
@@ -906,6 +930,8 @@ impl fmt::Debug for SceneMsg {
             SceneMsg::RemovePipeline(..) => "SceneMsg::RemovePipeline",
             SceneMsg::SetDocumentView { .. } => "SceneMsg::SetDocumentView",
             SceneMsg::SetRootPipeline(..) => "SceneMsg::SetRootPipeline",
+            SceneMsg::SetEmbedPolicy { .. } => "SceneMsg::SetEmbedPolicy",
+            SceneMsg::SetEmbedPolicyEnforcement(..) => "SceneMsg::SetEmbedPolicyEnforcement",
             SceneMsg::SetQualitySettings { .. } => "SceneMsg::SetQualitySettings",
             SceneMsg::RenderOffscreen(..) => "SceneMsg::BuildOffscreen",
         })
