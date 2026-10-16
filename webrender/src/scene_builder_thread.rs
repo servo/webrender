@@ -408,6 +408,8 @@ struct Document {
     stats: SceneStats,
     view: SceneView,
     spatial_tree: SceneSpatialTree,
+    /// The embed policy violations already reported, to report each one once.
+    reported_embed_policy_violations: FastHashSet<(PipelineId, PipelineId)>,
 }
 
 impl Document {
@@ -417,6 +419,7 @@ impl Document {
             interners: Interners::default(),
             stats: SceneStats::empty(),
             spatial_tree: SceneSpatialTree::new(),
+            reported_embed_policy_violations: FastHashSet::default(),
             view: SceneView {
                 device_rect,
                 quality_settings: QualitySettings::default(),
@@ -751,6 +754,7 @@ impl SceneBuilderThread {
                     stats: SceneStats::empty(),
                     view: item.view.clone(),
                     spatial_tree: item.spatial_tree,
+                    reported_embed_policy_violations: FastHashSet::default(),
                 },
             );
 
@@ -843,6 +847,7 @@ impl SceneBuilderThread {
         let mut rebuild_scene = false;
         let mut frame_stats = FullFrameStats::default();
         let mut offscreen_scenes = Vec::new();
+        let mut embed_policy_violations = Vec::new();
         let mut dl_updates = DlUpdates::default();
 
         for message in txn.scene_ops.drain(..) {
@@ -964,6 +969,7 @@ impl SceneBuilderThread {
                         self.debug_flags,
                     );
                     let spatial_tree_updates = spatial_tree.end_frame_and_get_pending_updates();
+                    embed_policy_violations.extend_from_slice(&built.embed_policy_violations);
                     offscreen_scenes.push(OffscreenBuiltScene {
                         scene: built,
                         spatial_tree_updates,
@@ -989,6 +995,9 @@ impl SceneBuilderThread {
                 }
                 SceneMsg::RemovePipeline(pipeline_id) => {
                     scene.remove_pipeline(pipeline_id);
+                    doc.reported_embed_policy_violations.retain(|&(embedder, child)| {
+                        embedder != pipeline_id && child != pipeline_id
+                    });
                     self.removed_pipelines.insert(pipeline_id);
                     removed_pipelines.push((pipeline_id, txn.document_id));
 
@@ -1027,6 +1036,7 @@ impl SceneBuilderThread {
 
             // Update the allocation stats for next scene
             doc.stats = built.get_stats();
+            embed_policy_violations.extend_from_slice(&built.embed_policy_violations);
 
             // Retrieve the list of updates from the clip interner.
             interner_updates = Some(
@@ -1056,6 +1066,19 @@ impl SceneBuilderThread {
         // interner frame, so that no GC step runs and the epoch doesn't advance.
         if !offscreen_scenes.is_empty() && interner_updates.is_none() {
             interner_updates = Some(doc.interners.take_pending_updates());
+        }
+
+        let hooks = match win_id_opt {
+            Some(win_id) => self.hooks.get(&win_id),
+            None => None,
+        };
+        for violation in embed_policy_violations {
+            if !doc.reported_embed_policy_violations.insert(violation) {
+                continue;
+            }
+            if let Some(hooks) = hooks {
+                hooks.embed_policy_violation(txn.document_id, violation.0, violation.1);
+            }
         }
 
         let scene_build_time_ms =

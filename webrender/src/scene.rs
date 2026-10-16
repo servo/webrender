@@ -331,6 +331,9 @@ pub struct BuiltScene {
     pub prim_instances: Vec<PrimitiveInstance>,
     pub surfaces: Vec<SurfaceInfo>,
     pub clip_tree: ClipTree,
+    /// The (embedder, child) pairs of the iframe items that the embedder's
+    /// embed policy rejected.
+    pub embed_policy_violations: Vec<(PipelineId, PipelineId)>,
 
     /// Deallocating memory outside of the thread that allocated it causes lock
     /// contention in jemalloc. To avoid this we send the built scene back to
@@ -356,6 +359,7 @@ impl BuiltScene {
             prim_instances: Vec::new(),
             surfaces: Vec::new(),
             clip_tree: ClipTree::new(),
+            embed_policy_violations: Vec::new(),
             recycler_tx: None,
             config: FrameBuilderConfig {
                 default_font_render_mode: FontRenderMode::Mono,
