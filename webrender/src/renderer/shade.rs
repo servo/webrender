@@ -208,6 +208,7 @@ impl LazilyCompiledShader {
             VertexArrayKind::Clear => &desc::CLEAR,
             VertexArrayKind::Copy => &desc::COPY,
             VertexArrayKind::Mask => &desc::MASK,
+            VertexArrayKind::PathTile => &desc::PATH_TILE,
         }
     }
 
@@ -587,6 +588,7 @@ pub struct Shaders {
     cs_scale: Vec<Option<ShaderHandle>>,
     cs_line_decoration: ShaderHandle,
     cs_svg_filter_node: ShaderHandle,
+    cs_path_tile: ShaderHandle,
 
     // The are "primitive shaders". These shaders draw and blend
     // final results on screen. They are aware of tile boundaries.
@@ -929,6 +931,13 @@ impl Shaders {
             &shader_list,
         )?;
 
+        let cs_path_tile = loader.create_shader(
+            ShaderKind::Cache(VertexArrayKind::PathTile),
+            "cs_path_tile",
+            &[],
+            &shader_list,
+        )?;
+
 
         let cs_border_segment = loader.create_shader(
             ShaderKind::Cache(VertexArrayKind::Border),
@@ -971,6 +980,7 @@ impl Shaders {
             cs_line_decoration,
             cs_scale,
             cs_svg_filter_node,
+            cs_path_tile,
             ps_text_run,
             ps_text_run_dual_source,
             ps_quad_textured,
@@ -1169,6 +1179,7 @@ impl Shaders {
     pub fn cs_border_solid_superellipse(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_border_solid_superellipse) }
     pub fn cs_line_decoration(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_line_decoration) }
     pub fn cs_svg_filter_node(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_svg_filter_node) }
+    pub fn cs_path_tile(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_path_tile) }
     pub fn ps_quad_textured(&mut self) -> &mut LazilyCompiledShader {
         self.loader.get(self.ps_quad_textured)
     }

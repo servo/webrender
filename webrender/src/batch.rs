@@ -19,6 +19,7 @@ use crate::internal_types::{FastHashMap, FrameAllocator, FrameMemory, FrameVec, 
 use crate::prim_store::PrimitiveKind;
 use crate::prim_store::PrimitiveInstance;
 use crate::prim_store::{ClipMaskKind, ClipTaskIndex};
+use crate::path_tiler::PathTileInstance;
 use crate::quad;
 use crate::render_target::RenderTargetContext;
 use crate::render_task_graph::{RenderTaskId, RenderTaskGraph};
@@ -1279,6 +1280,10 @@ pub struct ClipMaskInstanceList {
 
     pub image_mask_instances: FastHashMap<TextureSource, FrameVec<PrimitiveInstanceData>>,
     pub image_mask_instances_with_scissor: FastHashMap<(DeviceIntRect, TextureSource), FrameVec<PrimitiveInstanceData>>,
+
+    /// Drawn with the premultiplied dest-out blend mode. Positioned relative
+    /// to their render task by the shader, so they never need a scissor rect.
+    pub path_tiles: FrameVec<PathTileInstance>,
 }
 
 impl ClipMaskInstanceList {
@@ -1292,6 +1297,7 @@ impl ClipMaskInstanceList {
             mask_instances_slow_with_scissor: FastHashMap::default(),
             image_mask_instances: FastHashMap::default(),
             image_mask_instances_with_scissor: FastHashMap::default(),
+            path_tiles: memory.new_vec(),
         }
     }
 
@@ -1307,6 +1313,7 @@ impl ClipMaskInstanceList {
             mask_instances_slow_with_scissor,
             image_mask_instances,
             image_mask_instances_with_scissor,
+            path_tiles,
         } = self;
 
         mask_instances_fast.is_empty()
@@ -1317,6 +1324,7 @@ impl ClipMaskInstanceList {
             && mask_instances_slow_with_scissor.is_empty()
             && image_mask_instances.is_empty()
             && image_mask_instances_with_scissor.is_empty()
+            && path_tiles.is_empty()
     }
 }
 
