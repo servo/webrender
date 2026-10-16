@@ -132,6 +132,7 @@ pub use gpu_buffer::{GpuBuffer, GpuBufferF, GpuBufferBuilderF, GpuBufferI, GpuBu
 pub use gpu_buffer::{GpuBufferHandle, GpuBufferAddress, GpuBufferBuilder, GpuBufferWriterF};
 pub use gpu_buffer::{GpuBufferDataF, GpuBufferDataI, GpuBufferWriterI};
 use gpu_buffer::{GpuBufferBlockF, GpuBufferBlockI};
+pub use gpu_buffer::{GpuBufferBlockEdge, PathEdgeBufferBuilder};
 
 /// The size of the array of each type of vertex data texture that
 /// is round-robin-ed each frame during bind_frame_data. Doing this

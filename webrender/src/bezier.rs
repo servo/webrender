@@ -2,9 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// Nothing calls into this module until the path rasterizer is added.
-#![allow(dead_code)]
-
 pub type Point<U> = crate::euclid::Point2D<f32, U>;
 type Vector<U> = crate::euclid::Vector2D<f32, U>;
 
