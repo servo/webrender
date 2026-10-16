@@ -980,9 +980,13 @@ impl SceneBuilderThread {
                     self.removed_pipelines.insert(pipeline_id);
                     removed_pipelines.push((pipeline_id, txn.document_id));
 
-                    // Not released here: removing a pipeline does not rebuild
-                    // the scene, and the render backend goes on building frames
-                    // from one that still references it.
+                    // A pipeline reported as removed has its external images
+                    // released, so the scene must be rebuilt without it.
+                    rebuild_scene = true;
+
+                    // Not released here: the render backend goes on building
+                    // frames from a scene that still references it until the
+                    // rebuilt one is swapped in.
                     self.dl_builders.remove_pipeline(pipeline_id);
                 }
             }
