@@ -1292,7 +1292,7 @@ impl RenderTaskGraphBuilder {
         total_surface_count: usize,
         unique_surfaces: &[(i32, i32, ImageFormat)],
     ) -> RenderTaskGraph {
-        use crate::{internal_types::FrameStamp, renderer::{GpuBufferBuilderF, GpuBufferBuilderI}};
+        use crate::{internal_types::FrameStamp, renderer::{GpuBufferBuilderF, GpuBufferBuilderI, PathEdgeBufferBuilder}};
         use api::{DocumentId, IdNamespace};
 
         let mut rc = ResourceCache::new_for_testing();
@@ -1304,6 +1304,7 @@ impl RenderTaskGraphBuilder {
         let mut gpu_buffers = GpuBufferBuilder {
             f32: GpuBufferBuilderF::new(&frame_memory, 0, FrameId::first()),
             i32: GpuBufferBuilderI::new(&frame_memory, 0, FrameId::first()),
+            edges: PathEdgeBufferBuilder::new(&frame_memory, 0),
         };
         let g = self.end_frame(&mut rc, &mut gpu_buffers, &mut frame_memory.new_vec(), 2048, &frame_memory);
         g.print();

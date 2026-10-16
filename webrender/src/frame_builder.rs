@@ -29,6 +29,7 @@ use crate::prim_store::storage;
 use crate::profiler::{self, TransactionProfile};
 use crate::render_backend::{DataStores, ScratchBuffer};
 use crate::renderer::{GpuBufferBuilder, GpuBufferBuilderF, GpuBufferBuilderI, GpuBufferF, GpuBufferI};
+use crate::renderer::{GpuBufferEdges, PathEdgeBufferBuilder};
 use crate::render_target::{PictureCacheTarget, PictureCacheTargetKind};
 use crate::render_target::{RenderTargetContext, RenderTargetKind, RenderTarget};
 use crate::render_task_graph::{Pass, RenderTaskGraph, RenderTaskId, SubPassSurface};
@@ -679,6 +680,7 @@ impl FrameBuilder {
         let mut gpu_buffer_builder = GpuBufferBuilder {
             f32: GpuBufferBuilderF::new(&frame_memory, 8 * 1024, stamp.frame_id()),
             i32: GpuBufferBuilderI::new(&frame_memory, 2 * 1024, stamp.frame_id()),
+            edges: PathEdgeBufferBuilder::new(&frame_memory, 0),
         };
 
         profile.set(profiler::PRIMITIVES, scene.prim_instances.len());
@@ -843,6 +845,7 @@ impl FrameBuilder {
 
         let gpu_buffer_f = gpu_buffer_builder.f32.finalize(&render_tasks);
         let gpu_buffer_i = gpu_buffer_builder.i32.finalize(&render_tasks);
+        let gpu_buffer_edges = gpu_buffer_builder.edges.finalize();
 
         Frame {
             device_rect: DeviceIntRect::from_origin_and_size(
@@ -861,6 +864,7 @@ impl FrameBuilder {
             composite_state,
             gpu_buffer_f,
             gpu_buffer_i,
+            gpu_buffer_edges,
             allocator_memory: frame_memory,
         }
     }
@@ -1420,6 +1424,8 @@ pub struct Frame {
     /// pass for primitives that were visible and dirty.
     pub gpu_buffer_f: GpuBufferF,
     pub gpu_buffer_i: GpuBufferI,
+    /// The edges of the path tiles, shared by all of the frame's paths.
+    pub gpu_buffer_edges: GpuBufferEdges,
 
     /// The backing store for the frame's allocator.
     ///
