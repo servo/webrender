@@ -99,7 +99,6 @@ use api::{DebugFlags, ColorF, PrimitiveFlags, SnapshotInfo};
 use api::units::*;
 use crate::command_buffer::{CommandBufferIndex, PrimitiveCommand};
 use crate::renderer::GpuBufferBuilderF;
-use crate::box_shadow::BLUR_SAMPLE_SCALE;
 use crate::pattern::PatternBuilder;
 use crate::pattern::image::{ImagePattern, ShadowPattern};
 use crate::pattern::mix_blend::{MixBlendPattern, FixedFunctionMixBlendPattern};
@@ -146,10 +145,6 @@ use crate::tile_cache::{TileKey, SubSliceIndex};
 use crate::invalidation::InvalidationReason;
 
 use crate::picture_composite_mode::{PictureCompositeMode, prepare_composite_mode};
-
-// Maximum blur radius for blur filter (different than box-shadow blur).
-// Taken from FilterNodeSoftware.cpp in Gecko.
-pub(crate) const MAX_BLUR_RADIUS: f32 = 100.;
 
 /// Maximum size of a compositor surface.
 pub const MAX_COMPOSITOR_SURFACES_SIZE: f32 = 8192.0;
@@ -2007,137 +2002,39 @@ fn prepare_tiled_picture_surface(
 
                     let cmd_buffer_index = frame_state.cmd_buffers.create_cmd_buffer();
 
-                    // TODO(gw): As a performance optimization, we could skip the resolve picture
-                    //           if the dirty rect is the same as the resolve rect (probably quite
-                    //           common for effects that scroll underneath a backdrop-filter, for example).
-                    let use_tile_composite = !tile.cached_surface.sub_graphs.is_empty();
-
-                    if use_tile_composite {
-                        let mut local_content_rect = tile.cached_surface.local_dirty_rect;
-
-                        for (sub_graph_rect, surface_stack) in &tile.cached_surface.sub_graphs {
-                            if let Some(dirty_sub_graph_rect) = sub_graph_rect.intersection(&tile.cached_surface.local_dirty_rect) {
-                                for (composite_mode, surface_index) in surface_stack {
-                                    let surface = &frame_state.surfaces[surface_index.0];
-
-                                    let rect = composite_mode.get_coverage(
-                                        surface,
-                                        Some(dirty_sub_graph_rect.cast_unit()),
-                                    ).cast_unit();
-
-                                    local_content_rect = local_content_rect.union(&rect);
-                                }
-                            }
-                        }
-
-                        // We know that we'll never need to sample > 300 device pixels outside the tile
-                        // for blurring, so clamp the content rect here so that we don't try to allocate
-                        // a really large surface in the case of a drop-shadow with large offset.
-                        let max_content_rect = (tile.cached_surface.local_dirty_rect.cast_unit() * device_pixel_scale)
-                            .inflate(
-                                MAX_BLUR_RADIUS * BLUR_SAMPLE_SCALE,
-                                MAX_BLUR_RADIUS * BLUR_SAMPLE_SCALE,
+                    let render_task_id = frame_state.rg_builder.add().init(
+                        RenderTask::new(
+                            RenderTaskLocation::Static {
+                                surface: StaticRenderTaskSurface::PictureCache {
+                                    surface,
+                                },
+                                rect: composite_task_size.into(),
+                            },
+                            RenderTaskKind::new_picture(
+                                composite_task_size,
+                                true,
+                                content_origin,
+                                surface_spatial_node_index,
+                                // raster == surface implicitly for picture cache tiles
+                                surface_spatial_node_index,
+                                device_pixel_scale,
+                                Some(scissor_rect),
+                                Some(valid_rect),
+                                Some(clear_color),
+                                cmd_buffer_index,
+                                false,
+                                None,
                             )
-                            .round_out()
-                            .to_i32();
+                        ),
+                    );
 
-                        let content_device_rect = (local_content_rect.cast_unit() * device_pixel_scale)
-                            .round_out()
-                            .to_i32();
-
-                        let content_device_rect = content_device_rect
-                            .intersection(&max_content_rect)
-                            .expect("bug: no intersection with tile dirty rect: {content_device_rect:?} / {max_content_rect:?}");
-
-                        let content_task_size = content_device_rect.size();
-                        let normalized_content_rect = content_task_size.into();
-
-                        let inner_offset = content_origin + scissor_rect.min.to_vector().to_f32();
-                        let outer_offset = content_device_rect.min.to_f32();
-                        let sub_rect_offset = (inner_offset - outer_offset).round().to_i32();
-
-                        let render_task_id = frame_state.rg_builder.add().init(
-                            RenderTask::new_dynamic(
-                                content_task_size,
-                                RenderTaskKind::new_picture(
-                                    content_task_size,
-                                    true,
-                                    content_device_rect.min.to_f32(),
-                                    surface_spatial_node_index,
-                                    // raster == surface implicitly for picture cache tiles
-                                    surface_spatial_node_index,
-                                    device_pixel_scale,
-                                    Some(normalized_content_rect),
-                                    None,
-                                    Some(clear_color),
-                                    cmd_buffer_index,
-                                    false,
-                                    None,
-                                )
-                            ),
-                        );
-
-                        let composite_task_id = frame_state.rg_builder.add().init(
-                            RenderTask::new(
-                                RenderTaskLocation::Static {
-                                    surface: StaticRenderTaskSurface::PictureCache {
-                                        surface,
-                                    },
-                                    rect: composite_task_size.into(),
-                                },
-                                RenderTaskKind::new_tile_composite(
-                                    sub_rect_offset,
-                                    scissor_rect,
-                                    valid_rect,
-                                    clear_color,
-                                ),
-                            ),
-                        );
-
-                        surface_render_tasks.insert(
-                            tile_key,
-                            SurfaceTileDescriptor {
-                                current_task_id: render_task_id,
-                                composite_task_id: Some(composite_task_id),
-                                dirty_rect: tile.cached_surface.local_dirty_rect,
-                            },
-                        );
-                    } else {
-                        let render_task_id = frame_state.rg_builder.add().init(
-                            RenderTask::new(
-                                RenderTaskLocation::Static {
-                                    surface: StaticRenderTaskSurface::PictureCache {
-                                        surface,
-                                    },
-                                    rect: composite_task_size.into(),
-                                },
-                                RenderTaskKind::new_picture(
-                                    composite_task_size,
-                                    true,
-                                    content_origin,
-                                    surface_spatial_node_index,
-                                    // raster == surface implicitly for picture cache tiles
-                                    surface_spatial_node_index,
-                                    device_pixel_scale,
-                                    Some(scissor_rect),
-                                    Some(valid_rect),
-                                    Some(clear_color),
-                                    cmd_buffer_index,
-                                    false,
-                                    None,
-                                )
-                            ),
-                        );
-
-                        surface_render_tasks.insert(
-                            tile_key,
-                            SurfaceTileDescriptor {
-                                current_task_id: render_task_id,
-                                composite_task_id: None,
-                                dirty_rect: tile.cached_surface.local_dirty_rect,
-                            },
-                        );
-                    }
+                    surface_render_tasks.insert(
+                        tile_key,
+                        SurfaceTileDescriptor {
+                            current_task_id: render_task_id,
+                            dirty_rect: tile.cached_surface.local_dirty_rect,
+                        },
+                    );
                 }
 
                 if frame_context.fb_config.testing {

@@ -191,16 +191,6 @@ pub struct PrimTask {
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct TileCompositeTask {
-    pub clear_color: ColorF,
-    pub scissor_rect: DeviceIntRect,
-    pub valid_rect: DeviceIntRect,
-    pub task_id: Option<RenderTaskId>,
-    pub sub_rect_offset: DeviceIntVector2D,
-}
-
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PictureTask {
     pub can_merge: bool,
     pub content_origin: DevicePoint,
@@ -344,7 +334,6 @@ pub enum RenderTaskKind {
     Border(BorderTask),
     LineDecoration(LineDecorationTask),
     SVGFENode(SVGFEFilterTask),
-    TileComposite(TileCompositeTask),
     Prim(PrimTask),
     Empty(EmptyTask),
     #[cfg(test)]
@@ -390,7 +379,6 @@ impl RenderTaskKind {
             RenderTaskKind::Border(..) => "Border",
             RenderTaskKind::LineDecoration(..) => "LineDecoration",
             RenderTaskKind::SVGFENode(..) => "SVGFENode",
-            RenderTaskKind::TileComposite(..) => "TileComposite",
             RenderTaskKind::Prim(..) => "Prim",
             RenderTaskKind::Empty(..) => "Empty",
             #[cfg(test)]
@@ -406,7 +394,6 @@ impl RenderTaskKind {
             RenderTaskKind::Border(..) |
             RenderTaskKind::Picture(..) |
             RenderTaskKind::Blit(..) |
-            RenderTaskKind::TileComposite(..) |
             RenderTaskKind::Prim(..)  => {
                 RenderTargetKind::Color
             }
@@ -435,21 +422,6 @@ impl RenderTaskKind {
             #[cfg(test)]
             RenderTaskKind::Test(kind) => kind,
         }
-    }
-
-    pub fn new_tile_composite(
-        sub_rect_offset: DeviceIntVector2D,
-        scissor_rect: DeviceIntRect,
-        valid_rect: DeviceIntRect,
-        clear_color: ColorF,
-    ) -> Self {
-        RenderTaskKind::TileComposite(TileCompositeTask {
-            task_id: None,
-            sub_rect_offset,
-            scissor_rect,
-            valid_rect,
-            clear_color,
-        })
     }
 
     pub fn new_picture(
@@ -624,7 +596,6 @@ impl RenderTaskKind {
             RenderTaskKind::Scaling(..) |
             RenderTaskKind::Border(..) |
             RenderTaskKind::LineDecoration(..) |
-            RenderTaskKind::TileComposite(..) |
             RenderTaskKind::Blit(..) => {
                 [0.0; 4]
             }

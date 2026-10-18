@@ -3045,34 +3045,6 @@ impl Renderer {
                     stats,
                 );
             }
-            PictureCacheTargetKind::Blit { task_id, sub_rect_offset } => {
-                let src_task = &render_tasks[task_id];
-                let (texture, _swizzle) = self.texture_resolver
-                    .resolve(&src_task.get_texture_source())
-                    .expect("BUG: invalid source texture");
-
-                let src_task_rect = src_task.get_target_rect();
-
-                let p0 = src_task_rect.min + sub_rect_offset;
-                let p1 = p0 + target.dirty_rect.size();
-                let src_rect = DeviceIntRect::new(p0, p1);
-
-                // TODO(gw): In future, it'd be tidier to have the draw target offset
-                //           for DC surfaces handled by `blit_render_target`. However,
-                //           for now they are only ever written to here.
-                let target_rect = target
-                    .dirty_rect
-                    .translate(draw_target.offset().to_vector())
-                    .cast_unit();
-
-                self.device.blit_render_target(
-                    ReadTarget::from_texture(texture),
-                    src_rect.cast_unit(),
-                    draw_target,
-                    target_rect,
-                    TextureFilter::Nearest,
-                );
-            }
         }
 
         self.device.end_render_pass(StoreOp::Discard);

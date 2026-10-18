@@ -1294,31 +1294,6 @@ pub fn build_render_pass(
 
                         pass.picture_cache.push(target);
                     }
-                    RenderTaskKind::TileComposite(ref tile_task) => {
-                        let mut dirty_rect = tile_task.scissor_rect;
-                        let mut valid_rect = tile_task.valid_rect;
-                        // If we have a surface size, clip the dirty and vaild rects
-                        // to that size. This ensures that native compositors will
-                        // pass sanity checks (Bug 1971296).
-                        if let ResolvedSurfaceTexture::Native { size, .. } = surface {
-                            let surface_size_rect = <DeviceIntRect>::from_size(*size);
-                            dirty_rect = dirty_rect.intersection(&surface_size_rect).unwrap_or_default();
-                            valid_rect = valid_rect.intersection(&surface_size_rect).unwrap_or_default();
-                        }
-
-                        let target = PictureCacheTarget {
-                            surface: surface.clone(),
-                            clear_color: Some(tile_task.clear_color),
-                            kind: PictureCacheTargetKind::Blit {
-                                task_id: tile_task.task_id.expect("bug: no source task_id set"),
-                                sub_rect_offset: tile_task.sub_rect_offset,
-                            },
-                            dirty_rect,
-                            valid_rect,
-                        };
-
-                        pass.picture_cache.push(target);
-                    }
                     _ => {
                         unreachable!();
                     }
