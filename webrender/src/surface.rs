@@ -11,7 +11,6 @@ use crate::command_buffer::{CommandBufferBuilderKind, CommandBufferBuilder, Comm
 use crate::internal_types::FastHashMap;
 use crate::picture_composite_mode::PictureCompositeMode;
 use crate::tile_cache::{TileKey, SubSliceIndex, MAX_COMPOSITOR_SURFACES};
-use crate::prim_store::PictureIndex;
 use crate::render_task_graph::{RenderTaskId, RenderTaskGraphBuilder};
 use crate::render_task::RenderTaskKind;
 use crate::space::SpaceMapper;
@@ -695,16 +694,12 @@ impl CommandBufferTargets {
     }
 }
 
-// Main helper interface to build a graph of surfaces. In future patches this
-// will support building sub-graphs.
+// Main helper interface to build a graph of surfaces.
 pub struct SurfaceBuilder {
     // The currently set cmd buffer targets (updated during push/pop)
     current_cmd_buffers: CommandBufferTargets,
     // Stack of surfaces that are parents to the current targets
     builder_stack: Vec<CommandBufferBuilder>,
-    // A map of the output render tasks from any sub-graphs that haven't
-    // been consumed by BackdropRender prims yet
-    pub sub_graph_output_map: FastHashMap<PictureIndex, RenderTaskId>,
 }
 
 impl SurfaceBuilder {
@@ -712,7 +707,6 @@ impl SurfaceBuilder {
         SurfaceBuilder {
             current_cmd_buffers: CommandBufferTargets::new(),
             builder_stack: Vec::new(),
-            sub_graph_output_map: FastHashMap::default(),
         }
     }
 
@@ -744,24 +738,9 @@ impl SurfaceBuilder {
         }
     }
 
-    /// Mark the task sub-graph currently on the surface builder stack as having
-    /// its backdrop drawn into the current surface, so that no resolve is set up
-    /// for it.
-    pub fn register_collected_backdrop(&mut self) {
-        for builder in self.builder_stack.iter_mut().rev() {
-            if builder.establishes_sub_graph {
-                builder.collected_backdrop = true;
-                return;
-            }
-        }
-
-        unreachable!("bug: collected backdrop with no sub-graph");
-    }
-
     pub fn push_surface(
         &mut self,
         surface_index: SurfaceIndex,
-        is_sub_graph: bool,
         clipping_rect: DeviceRect,
         descriptor: Option<SurfaceDescriptor>,
         surfaces: &mut [SurfaceInfo],
@@ -780,7 +759,6 @@ impl SurfaceBuilder {
                 SurfaceDescriptorKind::Simple { render_task_id, dirty_rect, .. } => {
                     CommandBufferBuilder::new_simple(
                         render_task_id,
-                        is_sub_graph,
                         None,
                         dirty_rect,
                     )
@@ -788,7 +766,6 @@ impl SurfaceBuilder {
                 SurfaceDescriptorKind::Chained { render_task_id, root_task_id, dirty_rect, .. } => {
                     CommandBufferBuilder::new_simple(
                         render_task_id,
-                        is_sub_graph,
                         Some(root_task_id),
                         dirty_rect,
                     )
@@ -832,9 +809,9 @@ impl SurfaceBuilder {
         }
     }
 
-    // Add a picture render task as a dependency of the parent surface. This is a
-    // special case with extra complexity as the root of the surface may change
-    // when inside a sub-graph. It's currently only needed for drop-shadow effects.
+    // Add a picture render task as a dependency of the task this surface's
+    // primitives are drawn into, once the surface is popped. It's currently only
+    // needed for drop-shadow effects.
     pub fn add_picture_render_task(
         &mut self,
         child_task_id: RenderTaskId,
@@ -893,89 +870,42 @@ impl SurfaceBuilder {
     }
 
     pub fn pop_empty_surface(&mut self) {
-        let builder = self.builder_stack.pop().unwrap();
-        assert!(!builder.establishes_sub_graph);
+        self.builder_stack.pop().unwrap();
     }
 
     // Finish adding primitives and child tasks to a surface and pop it off the stack
     pub fn pop_surface(
         &mut self,
-        pic_index: PictureIndex,
         rg_builder: &mut RenderTaskGraphBuilder,
     ) {
         let builder = self.builder_stack.pop().unwrap();
 
-        if builder.establishes_sub_graph {
-            match builder.kind {
-                CommandBufferBuilderKind::Tiled { .. } | CommandBufferBuilderKind::Invalid => {
-                    unreachable!("bug: sub-graphs can only be simple surfaces");
-                }
-                CommandBufferBuilderKind::Simple { render_task_id: child_render_task_id, root_task_id: child_root_task_id, .. } => {
-                    // The output of a backdrop-filter sub-graph is drawn by its
-                    // `BackdropRender`, which looks it up here. There is none if
-                    // its capture wasn't drawn.
-                    if builder.collected_backdrop {
-                        let _old = self.sub_graph_output_map.insert(
-                            pic_index,
-                            child_root_task_id.unwrap_or(child_render_task_id),
-                        );
-                        debug_assert!(_old.is_none());
-                    }
+        match builder.kind {
+            CommandBufferBuilderKind::Tiled { .. } => {}
+            CommandBufferBuilderKind::Simple { render_task_id: child_task_id, root_task_id: child_root_task_id, .. } => {
+                self.add_backdrop_capture_dependency(child_root_task_id.unwrap_or(child_task_id));
 
-                    // Make the sub-graph a dependency of the parent surface even
-                    // if its `BackdropRender` doesn't pick it up (for example if the
-                    // capture is found not visible even though the filter chain
-                    // was), so that it is scheduled and freed as early as possible.
-                    match self.builder_stack.last().unwrap().kind {
-                        CommandBufferBuilderKind::Tiled { ref tiles } => {
-                            // For a tiled render task, add as a dependency to every tile.
-                            for (_, descriptor) in tiles {
-                                rg_builder.add_dependency(
-                                    descriptor.current_task_id,
-                                    child_root_task_id.unwrap_or(child_render_task_id),
-                                );
-                            }
-                        }
-                        CommandBufferBuilderKind::Simple { render_task_id: parent_task_id, .. } => {
+                match self.builder_stack.last().unwrap().kind {
+                    CommandBufferBuilderKind::Tiled { ref tiles } => {
+                        // For a tiled render task, add as a dependency to every tile.
+                        for (_, descriptor) in tiles {
                             rg_builder.add_dependency(
-                                parent_task_id,
-                                child_root_task_id.unwrap_or(child_render_task_id),
-                            );
-                        }
-                        CommandBufferBuilderKind::Invalid => {
-                            unreachable!();
-                        }
-                    }
-                }
-            }
-        } else {
-            match builder.kind {
-                CommandBufferBuilderKind::Tiled { .. } => {}
-                CommandBufferBuilderKind::Simple { render_task_id: child_task_id, root_task_id: child_root_task_id, .. } => {
-                    self.add_backdrop_capture_dependency(child_root_task_id.unwrap_or(child_task_id));
-
-                    match self.builder_stack.last().unwrap().kind {
-                        CommandBufferBuilderKind::Tiled { ref tiles } => {
-                            // For a tiled render task, add as a dependency to every tile.
-                            for (_, descriptor) in tiles {
-                                rg_builder.add_dependency(
-                                    descriptor.current_task_id,
-                                    child_root_task_id.unwrap_or(child_task_id),
-                                );
-                            }
-                        }
-                        CommandBufferBuilderKind::Simple { render_task_id: parent_task_id, .. } => {
-                            rg_builder.add_dependency(
-                                parent_task_id,
+                                descriptor.current_task_id,
                                 child_root_task_id.unwrap_or(child_task_id),
                             );
                         }
-                        CommandBufferBuilderKind::Invalid => {
-                        }
+                    }
+                    CommandBufferBuilderKind::Simple { render_task_id: parent_task_id, .. } => {
+                        rg_builder.add_dependency(
+                            parent_task_id,
+                            child_root_task_id.unwrap_or(child_task_id),
+                        );
+                    }
+                    CommandBufferBuilderKind::Invalid => {
                     }
                 }
-                CommandBufferBuilderKind::Invalid => {
-                }
+            }
+            CommandBufferBuilderKind::Invalid => {
             }
         }
 

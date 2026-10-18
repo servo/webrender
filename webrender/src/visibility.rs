@@ -535,8 +535,8 @@ pub fn build_backdrop_capture_regions(
                 .get_required_source_rect(surface, region.cast_unit())
                 .cast_unit();
 
-            // The resolve never gives an SVG filter graph more than the
-            // surface's own rect (see `get_surface_rects`).
+            // An SVG filter graph never samples more than the surface's own
+            // rect (see `get_surface_rects`).
             if let PictureCompositeMode::SVGFEGraph(..) = raster_config.composite_mode {
                 region = region
                     .intersection(&surface.unclipped_local_rect)

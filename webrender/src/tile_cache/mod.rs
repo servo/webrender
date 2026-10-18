@@ -2585,14 +2585,14 @@ impl TileCacheInstance {
             PrimitiveKind::BackdropCapture { .. } => {}
             PrimitiveKind::BackdropRender { pic_index, .. } => {
                 // If the area that the backdrop covers in the space of the surface it draws on
-                // is empty, skip any sub-graph processing. This is not just a performance win,
+                // is empty, skip any backdrop-filter chain processing. This is not just a performance win,
                 // it also ensures that we don't do a deferred dirty test that invalidates a tile
                 // even if the tile isn't actually dirty, which can cause panics later in the
                 // WR pipeline.
                 if !pic_coverage_rect.is_empty() {
-                    // Mark that we need the sub-graph this render depends on so that
-                    // we don't skip it during the prepare pass
-                    scratch.frame.required_sub_graphs.insert(pic_index);
+                    // Mark that we need the backdrop-filter chain this render depends on so
+                    // that we don't skip it during the prepare pass
+                    scratch.frame.required_backdrop_chains.insert(pic_index);
 
                     // A backdrop drawn by its own primitives depends on everything
                     // in the region its filters sample, not just what's under the

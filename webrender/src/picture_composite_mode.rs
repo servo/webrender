@@ -331,7 +331,6 @@ pub fn prepare_composite_mode(
     parent_surface_index: SurfaceIndex,
     surface_rects: &SurfaceAllocInfo,
     snapshot: &Option<SnapshotInfo>,
-    can_use_shared_surface: bool,
     frame_context: &FrameBuildingContext,
     frame_state: &mut FrameBuildingState,
     data_stores: &DataStores,
@@ -394,7 +393,7 @@ pub fn prepare_composite_mode(
                         None,
                         clear_color,
                         cmd_buffer_index,
-                        can_use_shared_surface,
+                        true,
                         Some(original_size.round().to_i32()),
                     )
                 ).with_uv_rect_kind(uv_rect_kind)
@@ -487,7 +486,7 @@ pub fn prepare_composite_mode(
                         None,
                         clear_color,
                         cmd_buffer_index,
-                        can_use_shared_surface,
+                        true,
                         content_size,
                     ),
                 ).with_uv_rect_kind(uv_rect_kind)
@@ -600,7 +599,7 @@ pub fn prepare_composite_mode(
                                 None,
                                 None,
                                 cmd_buffer_index,
-                                can_use_shared_surface,
+                                true,
                                 None,
                             )
                         ).with_uv_rect_kind(surface_rects.uv_rect_kind)
@@ -639,7 +638,7 @@ pub fn prepare_composite_mode(
                                 None,
                                 None,
                                 cmd_buffer_index,
-                                can_use_shared_surface,
+                                true,
                                 None,
                             )
                         ).with_uv_rect_kind(surface_rects.uv_rect_kind)
@@ -678,7 +677,7 @@ pub fn prepare_composite_mode(
                                 None,
                                 None,
                                 cmd_buffer_index,
-                                can_use_shared_surface,
+                                true,
                                 None,
                             )
                         ).with_uv_rect_kind(surface_rects.uv_rect_kind)
@@ -718,7 +717,7 @@ pub fn prepare_composite_mode(
                                 None,
                                 None,
                                 cmd_buffer_index,
-                                can_use_shared_surface,
+                                true,
                                 None,
                             )
                         ).with_uv_rect_kind(surface_rects.uv_rect_kind)
@@ -757,7 +756,7 @@ pub fn prepare_composite_mode(
                                 None,
                                 None,
                                 cmd_buffer_index,
-                                can_use_shared_surface,
+                                true,
                                 None,
                             )
                         ).with_uv_rect_kind(surface_rects.uv_rect_kind)
@@ -804,7 +803,7 @@ pub fn prepare_composite_mode(
                         None,
                         None,
                         cmd_buffer_index,
-                        can_use_shared_surface,
+                        true,
                         None,
                     )
                 )

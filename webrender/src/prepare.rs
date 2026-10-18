@@ -135,7 +135,6 @@ pub fn prepare_picture(
     );
 
     store.pictures[pic_context.pic_index.0 as usize].restore_context(
-        pic_context.pic_index,
         pic_context,
         frame_context,
         frame_state,
@@ -1059,8 +1058,6 @@ fn prepare_prim_for_render(
         PrimitiveKind::BackdropCapture { .. } => {
             // The primitives behind the backdrop-filter were drawn into this
             // surface already.
-            frame_state.surface_builder.register_collected_backdrop();
-
             if frame_context.debug_flags.contains(DebugFlags::HIGHLIGHT_BACKDROP_FILTERS) {
                 if let Some(device_rect) = pic_state.map_pic_to_device.map(&prim_info.clip_chain.pic_coverage_rect) {
                     scratch.push_debug_rect(
@@ -1086,20 +1083,30 @@ fn prepare_prim_for_render(
             }
         }
         PrimitiveKind::BackdropRender { pic_index, data_handle, .. } => {
-            match frame_state.surface_builder.sub_graph_output_map.get(pic_index).cloned() {
-                Some(sub_graph_output_id) => {
+            // The filter chain's output is its outermost picture's task, if
+            // its capture was drawn.
+            let is_drawn = scratch.frame.backdrop_captures.for_chain(*pic_index)
+                .is_some_and(|capture| {
+                    frame_state.picture_scratch_handles[capture.capture_pic_index.0 as usize].is_some()
+                });
+            let chain_output_id = frame_state.picture_scratch_handles[pic_index.0 as usize]
+                .filter(|_| is_drawn)
+                .and_then(|handle| scratch.frame.pictures[handle].primary_render_task_id);
+
+            match chain_output_id {
+                Some(chain_output_id) => {
                     frame_state.surface_builder.add_child_render_task(
-                        sub_graph_output_id,
+                        chain_output_id,
                         frame_state.rg_builder,
                     );
 
                     // Compute the four homogeneous screen-space uv corners that map
                     // the primitive rect into the captured backdrop. This mirrors the
                     // legacy brush path in batch.rs.
-                    let pic_task = frame_state.rg_builder.get_task(sub_graph_output_id);
+                    let pic_task = frame_state.rg_builder.get_task(chain_output_id);
                     let uv_rect_kind = pic_task.uv_rect_kind();
                     let RenderTaskKind::Picture(info) = &pic_task.kind else {
-                        unreachable!("bug: backdrop sub-graph output is not a picture");
+                        unreachable!("bug: backdrop-filter chain output is not a picture");
                     };
                     // The shader maps the bilinearly-interpolated screen uv into the
                     // backdrop's texture-cache rect (the segment uv rect), which is
@@ -1170,7 +1177,7 @@ fn prepare_prim_for_render(
                     let transformed_aa_edges = prim_data.common.transformed_aa_edges;
 
                     let pattern = BackdropPattern {
-                        src_task_id: sub_graph_output_id,
+                        src_task_id: chain_output_id,
                         uvs,
                     };
 
@@ -1194,8 +1201,8 @@ fn prepare_prim_for_render(
                     return;
                 }
                 None => {
-                    // Backdrop capture was found not visible, didn't produce a sub-graph
-                    // so we can just skip drawing
+                    // The backdrop capture was found not visible, so there is no
+                    // output to draw
                     scratch.frame.draw_mut(draw_index).mark_culled();
                 }
             }

@@ -204,10 +204,8 @@ struct PictureChainBuilder {
     flags: PrimitiveFlags,
     /// Requested raster space for enclosing stacking context
     raster_space: RasterSpace,
-    /// If true, set first picture as a resolve target
-    set_resolve_target: bool,
-    /// If true, mark the last picture as a sub-graph
-    establishes_sub_graph: bool,
+    /// If true, mark the last picture as the outermost of a backdrop-filter chain
+    is_backdrop_chain: bool,
 }
 
 impl PictureChainBuilder {
@@ -217,7 +215,7 @@ impl PictureChainBuilder {
         flags: PrimitiveFlags,
         spatial_node_index: SpatialNodeIndex,
         raster_space: RasterSpace,
-        is_sub_graph: bool,
+        is_backdrop_chain: bool,
     ) -> Self {
         PictureChainBuilder {
             current: PictureSource::PrimitiveList {
@@ -226,8 +224,7 @@ impl PictureChainBuilder {
             spatial_node_index,
             flags,
             raster_space,
-            establishes_sub_graph: is_sub_graph,
-            set_resolve_target: is_sub_graph,
+            is_backdrop_chain,
         }
     }
 
@@ -245,8 +242,7 @@ impl PictureChainBuilder {
             flags,
             spatial_node_index,
             raster_space,
-            establishes_sub_graph: false,
-            set_resolve_target: false,
+            is_backdrop_chain: false,
         }
     }
 
@@ -282,12 +278,6 @@ impl PictureChainBuilder {
             }
         };
 
-        let flags = if self.set_resolve_target {
-            PictureFlags::IS_RESOLVE_TARGET
-        } else {
-            PictureFlags::empty()
-        };
-
         let pic_index = PictureIndex(prim_store.pictures
             .alloc()
             .init(PictureInstance::new_image(
@@ -297,7 +287,7 @@ impl PictureChainBuilder {
                 prim_list,
                 self.spatial_node_index,
                 self.raster_space,
-                flags,
+                PictureFlags::empty(),
                 None,
             )) as u32
         );
@@ -317,9 +307,7 @@ impl PictureChainBuilder {
             spatial_node_index: self.spatial_node_index,
             flags: self.flags,
             raster_space: self.raster_space,
-            // We are now on a subsequent picture, so set_resolve_target has been handled
-            set_resolve_target: false,
-            establishes_sub_graph: self.establishes_sub_graph,
+            is_backdrop_chain: self.is_backdrop_chain,
         }
     }
 
@@ -332,8 +320,8 @@ impl PictureChainBuilder {
         snapshot: Option<SnapshotInfo>,
     ) -> PrimitiveInstance {
         let mut flags = PictureFlags::empty();
-        if self.establishes_sub_graph {
-            flags |= PictureFlags::IS_SUB_GRAPH;
+        if self.is_backdrop_chain {
+            flags |= PictureFlags::IS_BACKDROP_CHAIN;
         }
 
         match self.current {
@@ -346,10 +334,6 @@ impl PictureChainBuilder {
                 instance
             }
             PictureSource::PrimitiveList { prim_list } => {
-                if self.set_resolve_target {
-                    flags |= PictureFlags::IS_RESOLVE_TARGET;
-                }
-
                 // If no picture was created for this stacking context, create a
                 // pass-through wrapper now. This is only needed in 1-2 edge cases
                 // now, and will be removed as a follow up.
@@ -3115,8 +3099,8 @@ impl<'a> SceneBuilder<'a> {
         // is considered visible.
         self.clip_tree_builder.debug_check_clip_stack(clip_node_id);
 
-        // Create the backdrop prim - this is a placeholder which sets the size of resolve
-        // picture that reads from the backdrop root
+        // Create the backdrop prim - this is a placeholder which sets the size of the
+        // capture surface that the primitives behind the element are drawn into
         let backdrop_capture_instance = self.create_primitive(
             info,
             clip_node_id,

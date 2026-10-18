@@ -521,12 +521,10 @@ bitflags! {
     /// Flags describing properties for a given PictureInstance
     #[derive(Debug, Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
     pub struct PictureFlags : u8 {
-        /// This picture is a resolve target (doesn't actually render content itself,
-        /// will have content copied in to it)
-        const IS_RESOLVE_TARGET = 1 << 0;
-        /// This picture establishes a sub-graph, which affects how SurfaceBuilder will
-        /// set up dependencies in the render task graph
-        const IS_SUB_GRAPH = 1 << 1;
+        /// This picture is the outermost picture of a backdrop-filter chain. Its
+        /// output is drawn by the chain's `BackdropRender` rather than into its
+        /// parent.
+        const IS_BACKDROP_CHAIN = 1 << 0;
     }
 }
 
@@ -762,19 +760,17 @@ impl PictureInstance {
                 };
 
                 if let PictureCompositeMode::IntermediateSurface = raster_config.composite_mode {
-                    if !scratch.frame.required_sub_graphs.contains(&pic_index) {
+                    if !scratch.frame.required_backdrop_chains.contains(&pic_index) {
                         return None;
                     }
                 }
 
-                let can_use_shared_surface = !self.flags.contains(PictureFlags::IS_RESOLVE_TARGET);
                 let (surface_descriptor, render_tasks) = prepare_composite_mode(
                     &raster_config.composite_mode,
                     surface_index,
                     parent_surface_index,
                     &surface_rects,
                     &self.snapshot,
-                    can_use_shared_surface,
                     frame_context,
                     frame_state,
                     data_stores,
@@ -786,8 +782,8 @@ impl PictureInstance {
 
                 // The task a backdrop is captured into may be padded out for its
                 // filter (a blur rounds its size up to its downscale factor),
-                // and the padding must stay clear. A copied backdrop only fills
-                // the content area, but primitives drawn into it extend past it.
+                // and the padding must stay clear, but primitives drawn into it
+                // extend past the content area.
                 if let Some(index) = scratch.frame.backdrop_captures.index_for_picture(pic_index) {
                     let task_id = surface_descriptor.content_task_id();
                     // The primitives behind the element were drawn into the
@@ -799,13 +795,6 @@ impl PictureInstance {
                     let task = frame_state.rg_builder.get_task_mut(task_id);
                     if let RenderTaskKind::Picture(ref mut info) = task.kind {
                         info.capture_clear_color = Some(scratch.frame.backdrop_captures[index].root_background_color.unwrap_or(ColorF::TRANSPARENT));
-                        // A filter's task isn't always cleared. A capture with a
-                        // render target of its own then has the whole target cleared
-                        // to transparent, after which the renderer skips the
-                        // transparent padding clears.
-                        if info.clear_color.is_none() {
-                            info.clear_color = Some(ColorF::TRANSPARENT);
-                        }
                         if let Some(open) = &open {
                             info.cmd_buffer_index = open.cmd_buffer_index;
                         }
@@ -815,11 +804,8 @@ impl PictureInstance {
                     }
                 }
 
-                let is_sub_graph = self.flags.contains(PictureFlags::IS_SUB_GRAPH);
-
                 frame_state.surface_builder.push_surface(
                     raster_config.surface_index,
-                    is_sub_graph,
                     surface_rects.clipped_notsnapped,
                     Some(surface_descriptor),
                     frame_state.surfaces,
@@ -833,7 +819,7 @@ impl PictureInstance {
         // is drawn on its surface before them.
         for index in scratch.frame.backdrop_captures.rooted_at(pic_index) {
             let chain_pic_index = scratch.frame.backdrop_captures[index].chain_pic_index;
-            if scratch.frame.required_sub_graphs.contains(&chain_pic_index) {
+            if scratch.frame.required_backdrop_chains.contains(&chain_pic_index) {
                 let open = scratch.frame.backdrop_captures.open(index, frame_state.cmd_buffers);
                 frame_state.surface_builder.open_backdrop_capture(open);
             }
@@ -876,7 +862,6 @@ impl PictureInstance {
 
     pub fn restore_context(
         &mut self,
-        pic_index: PictureIndex,
         context: PictureContext,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
@@ -889,7 +874,6 @@ impl PictureInstance {
 
         if self.raster_config.is_some() {
             frame_state.surface_builder.pop_surface(
-                pic_index,
                 frame_state.rg_builder,
             );
         }
@@ -1335,7 +1319,7 @@ impl PictureInstance {
                 let parent_surface = parent_surface_index.map(|index| &surfaces[index.0]);
                 let in_backdrop_chain = parent_surface.map_or(false, |parent_surface| {
                         parent_surface.surface_spatial_node_index == surface_spatial_node_index && (
-                            self.flags.contains(PictureFlags::IS_SUB_GRAPH) ||
+                            self.flags.contains(PictureFlags::IS_BACKDROP_CHAIN) ||
                             parent_surface.in_backdrop_chain
                         )
                     });
@@ -2202,7 +2186,6 @@ fn prepare_tiled_picture_surface(
 
     frame_state.surface_builder.push_surface(
         surface_index,
-        false,
         surface_device_dirty_rect,
         Some(descriptor),
         frame_state.surfaces,
