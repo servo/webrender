@@ -221,6 +221,10 @@ pub struct PictureTask {
     pub resolve_op: Option<ResolveOp>,
     pub content_size: DeviceIntSize,
     pub can_use_shared_surface: bool,
+    /// For the task a backdrop is captured into: the color to clear its content
+    /// area to. Drawing is scissored to the content area, and any padding added
+    /// for a filter is cleared to transparent.
+    pub capture_clear_color: Option<ColorF>,
 }
 
 impl PictureTask {
@@ -496,6 +500,7 @@ impl RenderTaskKind {
         RenderTaskKind::Picture(PictureTask {
             content_origin,
             can_merge: !needs_scissor_rect,
+            capture_clear_color: None,
             surface_spatial_node_index,
             raster_spatial_node_index,
             device_pixel_scale,

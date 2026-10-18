@@ -1057,9 +1057,9 @@ fn prepare_prim_for_render(
             return;
         }
         PrimitiveKind::BackdropCapture { .. } => {
-            // Register the owner picture of this backdrop primitive as the
-            // target for resolve of the sub-graph
-            frame_state.surface_builder.register_resolve_source();
+            // The primitives behind the backdrop-filter were drawn into this
+            // surface already.
+            frame_state.surface_builder.register_collected_backdrop();
 
             if frame_context.debug_flags.contains(DebugFlags::HIGHLIGHT_BACKDROP_FILTERS) {
                 if let Some(device_rect) = pic_state.map_pic_to_device.map(&prim_info.clip_chain.pic_coverage_rect) {

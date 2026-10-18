@@ -1,0 +1,15 @@
+# The drop shadow of the backdrop-filter in tile row 1 samples the rect in tile
+# row 0 (offset 560 down). Paired with backdrop_sampled_margin_1.yaml, from
+# which only the rect's color changes.
+---
+root:
+  items:
+    - type: rect
+      bounds: 0 40 400 100
+      color: red
+    - type: rect
+      bounds: 0 560 400 200
+      color: blue
+    - type: backdrop-filter
+      bounds: 0 600 400 100
+      filters: drop-shadow([0, 560], 0, [0, 0, 0, 1])

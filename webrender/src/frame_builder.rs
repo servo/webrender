@@ -371,6 +371,7 @@ impl FrameBuilder {
             &scene.picture_graph,
             &scene.surfaces,
             &scene.prim_instances,
+            tile_caches,
             &frame_context,
             &mut scratch.primitive.frame.backdrop_captures,
         );

@@ -257,7 +257,13 @@ impl RenderTarget {
                 RenderTaskKind::Picture(ref pic_task) => {
                     let target_rect = task.get_target_rect();
 
-                    let scissor_rect = if pic_task.can_merge {
+                    let content_rect = DeviceIntRect::from_origin_and_size(
+                        target_rect.min,
+                        pic_task.content_size,
+                    );
+                    let scissor_rect = if pic_task.capture_clear_color.is_some() {
+                        Some(content_rect)
+                    } else if pic_task.can_merge {
                         None
                     } else {
                         Some(target_rect)
@@ -266,7 +272,25 @@ impl RenderTarget {
                     if !pic_task.can_use_shared_surface {
                         self.clear_color = pic_task.clear_color;
                     }
-                    if let Some(clear_color) = pic_task.clear_color {
+                    if let Some(content_clear_color) = pic_task.capture_clear_color {
+                        // The renderer may skip a clear whose color matches the
+                        // target's, so the content and padding clears must not
+                        // overlap.
+                        self.clears.push((content_rect, content_clear_color));
+                        let right = DeviceIntRect::new(
+                            DeviceIntPoint::new(content_rect.max.x, target_rect.min.y),
+                            target_rect.max,
+                        );
+                        let bottom = DeviceIntRect::new(
+                            DeviceIntPoint::new(target_rect.min.x, content_rect.max.y),
+                            DeviceIntPoint::new(content_rect.max.x, target_rect.max.y),
+                        );
+                        for rect in [right, bottom] {
+                            if !rect.is_empty() {
+                                self.clears.push((rect, ColorF::TRANSPARENT));
+                            }
+                        }
+                    } else if let Some(clear_color) = pic_task.clear_color {
                         self.clears.push((target_rect, clear_color));
                     } else if self.cached {
                         self.clears.push((target_rect, ColorF::TRANSPARENT));

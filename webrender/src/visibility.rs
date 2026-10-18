@@ -29,7 +29,7 @@
 //! main reason visibility is a separate pass.
 //!
 
-use api::DebugFlags;
+use api::{ColorF, DebugFlags};
 use api::units::*;
 use crate::clip::ClipStore;
 use crate::composite::CompositeState;
@@ -43,7 +43,8 @@ use crate::frame_builder::{FrameBuilderConfig, FrameBuildingContext};
 use crate::picture::ClusterFlags;
 use crate::picture_composite_mode::PictureCompositeMode;
 use crate::surface::SurfaceInfo;
-use crate::tile_cache::TileCacheInstance;
+use crate::tile_cache::{SliceId, TileCacheInstance};
+use crate::internal_types::FastHashMap;
 use crate::picture::{PictureInstance, PictureScratch, RasterConfig};
 use crate::picture_graph::PictureGraph;
 use smallvec::SmallVec;
@@ -55,6 +56,7 @@ use crate::prim_store::{PrimitiveStore, PrimitiveInstance, PrimitiveInstanceInde
 use crate::prim_store::storage;
 use crate::prim_store::text_run::TextRunScratch;
 use crate::render_backend::{DataStores, ScratchBuffer};
+use crate::command_buffer::{CommandBufferList, OpenBackdropCapture};
 use crate::render_task_graph::RenderTaskGraphBuilder;
 use crate::resource_cache::ResourceCache;
 use crate::util::{MaxRect, Recycler};
@@ -292,6 +294,9 @@ impl PrimitiveDrawHeader {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct BackdropCaptureRegion {
+    /// The outermost picture of the backdrop-filter chain, which
+    /// `BackdropRender` refers to.
+    pub chain_pic_index: PictureIndex,
     /// The picture holding the `BackdropCapture` primitive. Its surface is the
     /// one the backdrop is captured into.
     pub capture_pic_index: PictureIndex,
@@ -307,19 +312,43 @@ pub struct BackdropCaptureRegion {
     /// output: the capture's rect, grown by whatever the chain's filters sample
     /// outside of their output (drop shadow offsets and blur).
     pub region: PictureRect,
+    /// The color a picture cache slice clears its tiles to, if the backdrop
+    /// root is the slice itself. Part of what is painted behind the element,
+    /// but not drawn by any primitive.
+    pub root_background_color: Option<ColorF>,
 }
 
 /// The index of a backdrop-filter capture in `BackdropCaptures`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BackdropCaptureIndex(pub u32);
+
+/// A range of captures in `BackdropCaptures`.
+#[derive(Debug, Copy, Clone, Default)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+pub struct BackdropCaptureRange {
+    start: u32,
+    end: u32,
+}
+
+impl BackdropCaptureRange {
+    pub fn is_empty(&self) -> bool {
+        self.start == self.end
+    }
+}
 
 /// The backdrop captures a picture takes part in.
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 struct PictureBackdropCaptures {
+    /// The capture whose backdrop-filter chain this picture is the outermost
+    /// picture of.
+    chain: Option<BackdropCaptureIndex>,
     /// The capture whose surface this picture is.
     capture: Option<BackdropCaptureIndex>,
+    /// The captures this picture is the backdrop root of.
+    rooted: BackdropCaptureRange,
 }
 
 /// The capture region of every backdrop-filter chain reachable this frame,
@@ -327,6 +356,7 @@ struct PictureBackdropCaptures {
 #[derive(Default)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct BackdropCaptures {
+    /// Grouped by backdrop root.
     regions: Vec<BackdropCaptureRegion>,
     /// Indexed by `PictureIndex`. Empty when there are no captures this frame.
     pictures: Vec<PictureBackdropCaptures>,
@@ -341,25 +371,67 @@ impl ops::Index<BackdropCaptureIndex> for BackdropCaptures {
 }
 
 impl BackdropCaptures {
-    /// Index the captures by picture, for a scene with `picture_count`
-    /// pictures.
+    /// Group the captures by backdrop root and index them by picture, for a
+    /// scene with `picture_count` pictures.
     fn index_pictures(&mut self, picture_count: usize) {
         self.pictures.clear();
         if self.regions.is_empty() {
             return;
         }
+        self.regions.sort_by_key(|capture| capture.root_pic_index.0);
         self.pictures.resize(picture_count, PictureBackdropCaptures::default());
 
         for (position, capture) in self.regions.iter().enumerate() {
             let index = BackdropCaptureIndex(position as u32);
+
+            let chain = &mut self.pictures[capture.chain_pic_index.0 as usize].chain;
+            // Captures are looked up by their chain.
+            assert!(chain.is_none(), "bug: backdrop-filter chain with more than one capture");
+            *chain = Some(index);
+
             self.pictures[capture.capture_pic_index.0 as usize].capture = Some(index);
+
+            let rooted = &mut self.pictures[capture.root_pic_index.0 as usize].rooted;
+            if rooted.is_empty() {
+                *rooted = BackdropCaptureRange { start: index.0, end: index.0 };
+            }
+            rooted.end += 1;
         }
+    }
+
+    /// The capture whose backdrop-filter chain is `pic_index`.
+    pub fn for_chain(&self, pic_index: PictureIndex) -> Option<&BackdropCaptureRegion> {
+        let index = self.pictures.get(pic_index.0 as usize)?.chain?;
+        Some(&self[index])
+    }
+
+    /// The capture whose surface is `pic_index`.
+    pub fn index_for_picture(&self, pic_index: PictureIndex) -> Option<BackdropCaptureIndex> {
+        self.pictures.get(pic_index.0 as usize)?.capture
     }
 
     /// The capture whose surface is `pic_index`.
     pub fn for_picture(&self, pic_index: PictureIndex) -> Option<&BackdropCaptureRegion> {
-        let index = self.pictures.get(pic_index.0 as usize)?.capture?;
-        Some(&self[index])
+        self.index_for_picture(pic_index).map(|index| &self[index])
+    }
+
+    /// The captures `pic_index` is the backdrop root of, in increasing order.
+    pub fn rooted_at(&self, pic_index: PictureIndex) -> impl Iterator<Item = BackdropCaptureIndex> {
+        let rooted = self.pictures.get(pic_index.0 as usize).map_or(BackdropCaptureRange::default(), |captures| captures.rooted);
+        (rooted.start .. rooted.end).map(BackdropCaptureIndex)
+    }
+
+    /// Start drawing into the capture at `index`.
+    pub fn open(&self, index: BackdropCaptureIndex, cmd_buffers: &mut CommandBufferList) -> OpenBackdropCapture {
+        let capture = &self[index];
+        OpenBackdropCapture {
+            index,
+            region: capture.region,
+            capture_instance_index: capture.capture_instance_index,
+            cmd_buffer_index: cmd_buffers.create_cmd_buffer(),
+            dependencies: Vec::new(),
+            drawn_into: false,
+        }
     }
 
     pub fn recycle(&mut self, recycler: &mut Recycler) {
@@ -375,6 +447,7 @@ pub fn build_backdrop_capture_regions(
     picture_graph: &PictureGraph,
     surfaces: &[SurfaceInfo],
     prim_instances: &[PrimitiveInstance],
+    tile_caches: &FastHashMap<SliceId, Box<TileCacheInstance>>,
     frame_context: &FrameBuildingContext,
     captures: &mut BackdropCaptures,
 ) {
@@ -420,16 +493,21 @@ pub fn build_backdrop_capture_regions(
             .surface_index
             .0];
         let root_surface = &surfaces[root_surface_index.0];
-        debug_assert_eq!(
-            capture_surface.surface_spatial_node_index,
-            root_surface.surface_spatial_node_index,
-            "bug: backdrop chain is not in its root's space",
+
+        // The draws of the primitives behind the element are reused for the
+        // capture surface, which `assign_surface` makes rasterize like the
+        // root's for that.
+        assert!(
+            capture_surface.surface_spatial_node_index == root_surface.surface_spatial_node_index &&
+                capture_surface.raster_spatial_node_index == root_surface.raster_spatial_node_index &&
+                capture_surface.device_pixel_scale == root_surface.device_pixel_scale,
+            "bug: backdrop capture doesn't rasterize like its root",
         );
 
-        let root_is_tile_cache = matches!(
-            pictures[root_pic_index.0 as usize].raster_config,
-            Some(RasterConfig { composite_mode: PictureCompositeMode::TileCache { .. }, .. })
-        );
+        let root_slice = match pictures[root_pic_index.0 as usize].raster_config {
+            Some(RasterConfig { composite_mode: PictureCompositeMode::TileCache { slice_id }, .. }) => Some(slice_id),
+            _ => None,
+        };
 
         // Walk from the chain's output inwards: each picture's filter has to
         // be given the source it samples to produce what the picture outside
@@ -438,7 +516,7 @@ pub fn build_backdrop_capture_regions(
         // slice only renders what is on screen, so for a backdrop root that is
         // one, only the on-screen part of the output is needed.
         let mut region = capture_surface.unclipped_local_rect;
-        if root_is_tile_cache {
+        if root_slice.is_some() {
             let map_pic_to_device: SpaceMapper<PicturePixel, DevicePixel> = SpaceMapper::new_with_target(
                 frame_context.spatial_tree.root_reference_frame_index(),
                 root_surface.surface_spatial_node_index,
@@ -467,11 +545,13 @@ pub fn build_backdrop_capture_regions(
         }
 
         captures.regions.push(BackdropCaptureRegion {
+            chain_pic_index,
             capture_pic_index,
             root_pic_index,
             root_surface_index,
             capture_instance_index,
             region,
+            root_background_color: root_slice.and_then(|slice_id| tile_caches[&slice_id].background_color),
         });
     }
 

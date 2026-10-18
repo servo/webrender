@@ -11,7 +11,8 @@ use crate::gpu_types::QuadSegment;
 use crate::prim_store::storage;
 use crate::segment::EdgeMask;
 use crate::transform::GpuTransformId;
-use crate::visibility::PrimitiveDrawHeader;
+use crate::prim_store::PrimitiveInstanceIndex;
+use crate::visibility::{BackdropCaptureIndex, PrimitiveDrawHeader};
 
 /// A tightly packed command stored in a command buffer
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -492,6 +493,29 @@ pub enum CommandBufferBuilderKind {
     Invalid,
 }
 
+/// A backdrop-filter capture open on a surface: each primitive prepared on the
+/// surface that is behind the element is drawn into the capture too.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct OpenBackdropCapture {
+    pub index: BackdropCaptureIndex,
+    /// The area of the surface the capture's filters sample.
+    pub region: PictureRect,
+    /// The `BackdropCapture` primitive. Primitives painted before the element
+    /// have lower instance indices.
+    pub capture_instance_index: PrimitiveInstanceIndex,
+    /// The command buffer the capture's task draws from.
+    pub cmd_buffer_index: CommandBufferIndex,
+    /// The render tasks the primitives drawn into the capture depend on, which
+    /// its task has to depend on too.
+    pub dependencies: Vec<RenderTaskId>,
+    /// Whether the primitive being prepared on the surface is drawn into the
+    /// capture, so that the render tasks it makes the surface depend on are
+    /// added to its dependencies too.
+    pub drawn_into: bool,
+}
+
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CommandBufferBuilder {
@@ -507,8 +531,19 @@ pub struct CommandBufferBuilder {
     /// as a resolve source for the input from the parent surface.
     pub resolve_source: Option<RenderTaskId>,
 
+    /// If this surface builds a sub-graph whose backdrop is drawn into its
+    /// capture surface rather than copied in by a resolve. With no resolve to
+    /// publish it, the sub-graph's output is published for the `BackdropRender`
+    /// when this is set, which is only once the `BackdropCapture` is prepared.
+    /// Removed along with the resolve and the sub-graph bookkeeping in a
+    /// follow-up commit.
+    pub collected_backdrop: bool,
+
     /// List of render tasks that depend on the task that will be created for this builder.
     pub extra_dependencies: Vec<RenderTaskId>,
+
+    /// The backdrop-filter captures open on this surface.
+    pub backdrop_captures: Vec<OpenBackdropCapture>,
 }
 
 impl CommandBufferBuilder {
@@ -517,7 +552,9 @@ impl CommandBufferBuilder {
             kind: CommandBufferBuilderKind::Invalid,
             establishes_sub_graph: false,
             resolve_source: None,
+            collected_backdrop: false,
             extra_dependencies: Vec::new(),
+            backdrop_captures: Vec::new(),
         }
     }
 
@@ -531,7 +568,9 @@ impl CommandBufferBuilder {
             },
             establishes_sub_graph: false,
             resolve_source: None,
+            collected_backdrop: false,
             extra_dependencies: Vec::new(),
+            backdrop_captures: Vec::new(),
         }
     }
 
@@ -550,7 +589,9 @@ impl CommandBufferBuilder {
             },
             establishes_sub_graph,
             resolve_source: None,
+            collected_backdrop: false,
             extra_dependencies: Vec::new(),
+            backdrop_captures: Vec::new(),
         }
     }
 }
