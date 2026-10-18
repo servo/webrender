@@ -16,7 +16,7 @@ use crate::hit_test::{HitTester, HitTestingScene, HitTestingSceneStats};
 use crate::internal_types::{FastHashMap, FastHashSet};
 use crate::surface::SurfaceInfo;
 use crate::picture_graph::PictureGraph;
-use crate::prim_store::{PrimitiveStore, PrimitiveStoreStats, PictureIndex, PrimitiveInstance};
+use crate::prim_store::{PrimitiveStore, PrimitiveStoreStats, PictureIndex, PrimitiveInstance, PrimitiveInstanceIndex};
 use crate::tile_cache::TileCacheConfig;
 use std::sync::Arc;
 
@@ -313,6 +313,14 @@ impl StackingContextHelpers for StackingContext {
     }
 }
 
+/// A backdrop-filter chain in the scene.
+#[derive(Copy, Clone, Debug)]
+pub struct BackdropChain {
+    /// The outermost picture (`IntermediateSurface`) of the chain.
+    pub output_pic_index: PictureIndex,
+    /// The `BackdropCapture` primitive in the innermost picture of the chain.
+    pub capture_instance_index: PrimitiveInstanceIndex,
+}
 
 /// WebRender's internal representation of the scene.
 pub struct BuiltScene {
@@ -325,6 +333,7 @@ pub struct BuiltScene {
     pub hit_testing_scene: Arc<HitTestingScene>,
     pub tile_cache_config: TileCacheConfig,
     pub snapshot_pictures: Vec<PictureIndex>,
+    pub backdrop_chains: Vec<BackdropChain>,
     pub tile_cache_pictures: Vec<PictureIndex>,
     pub picture_graph: PictureGraph,
     pub num_plane_splitters: usize,
@@ -353,6 +362,7 @@ impl BuiltScene {
             hit_testing_scene: Arc::new(HitTestingScene::new(&HitTestingSceneStats::empty())),
             tile_cache_config: TileCacheConfig::new(0),
             snapshot_pictures: Vec::new(),
+            backdrop_chains: Vec::new(),
             tile_cache_pictures: Vec::new(),
             picture_graph: PictureGraph::new(),
             num_plane_splitters: 0,

@@ -69,7 +69,7 @@ use crate::picture::{Picture3DContext, PictureInstance};
 use crate::picture::{BlitReason, OrderedPictureChild, PrimitiveList, PictureFlags};
 use crate::surface::SurfaceInfo;
 use crate::picture_graph::PictureGraph;
-use crate::prim_store::{PrimitiveInstance, PrimitiveStoreStats};
+use crate::prim_store::{PrimitiveInstance, PrimitiveInstanceIndex, PrimitiveStoreStats};
 use crate::prim_store::{PrimitiveKind, NinePatchDescriptor, PrimitiveStore};
 use crate::prim_store::{InternablePrimitive, PictureIndex};
 use crate::prim_store::PolygonKey;
@@ -85,7 +85,7 @@ use crate::prim_store::picture::{Picture, PictureKey};
 use crate::picture_composite_mode::{PictureCompositeKey, PictureCompositeMode};
 use crate::prim_store::text_run::TextRun;
 use crate::render_backend::SceneView;
-use crate::scene::{BuiltScene, Scene, ScenePipeline, SceneStats, StackingContextHelpers};
+use crate::scene::{BackdropChain, BuiltScene, Scene, ScenePipeline, SceneStats, StackingContextHelpers};
 use crate::scene_builder_thread::Interners;
 use crate::spatial_node::{
     ReferenceFrameInfo, StickyFrameInfo, ScrollFrameKind, SpatialNodeType
@@ -473,6 +473,7 @@ pub struct SceneBuilder<'a> {
     /// Keep track of snapshot pictures to ensure that they are rendered even if they
     /// are off-screen and the visibility traversal does not reach them.
     snapshot_pictures: Vec<PictureIndex>,
+    backdrop_chains: Vec<BackdropChain>,
 
     /// Keep track of allocated plane splitters for this scene. A plane
     /// splitter is allocated whenever we encounter a new 3d rendering context.
@@ -560,6 +561,7 @@ impl<'a> SceneBuilder<'a> {
             picture_graph: mem::take(&mut recycler.picture_graph),
             // This vector is empty most of the time, don't bother with recycling it for now.
             snapshot_pictures: Vec::new(),
+            backdrop_chains: Vec::new(),
             next_plane_splitter_index: 0,
             prim_instances: mem::take(&mut recycler.prim_instances),
             surfaces: mem::take(&mut recycler.surfaces),
@@ -641,6 +643,7 @@ impl<'a> SceneBuilder<'a> {
             config: builder.config,
             tile_cache_config,
             snapshot_pictures: builder.snapshot_pictures,
+            backdrop_chains: builder.backdrop_chains,
             tile_cache_pictures,
             picture_graph: builder.picture_graph,
             num_plane_splitters: builder.next_plane_splitter_index,
@@ -3123,6 +3126,7 @@ impl<'a> SceneBuilder<'a> {
 
         // Create a prim_list for this backdrop prim and add to a picture chain builder, which
         // is needed for the call to `wrap_prim_with_filters` below
+        let capture_instance_index = PrimitiveInstanceIndex(self.prim_instances.len() as u32);
         let mut prim_list = PrimitiveList::empty();
         prim_list.add_prim(
             backdrop_capture_instance,
@@ -3180,6 +3184,10 @@ impl<'a> SceneBuilder<'a> {
                 PrimitiveKind::Picture { pic_index, .. } => pic_index,
                 _ => panic!("bug: not a picture"),
             };
+            self.backdrop_chains.push(BackdropChain {
+                output_pic_index,
+                capture_instance_index,
+            });
 
             // Find which stacking context (or root tile cache) to add the
             // backdrop-filter chain to

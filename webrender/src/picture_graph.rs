@@ -37,6 +37,19 @@ impl PictureGraph {
         self.update_passes.clear();
     }
 
+    /// The picture that contains `pic_index` this frame, if it is reachable and
+    /// not a root.
+    pub fn parent(&self, pic_index: PictureIndex) -> Option<PictureIndex> {
+        self.pic_info[pic_index.0 as usize].parent
+    }
+
+    /// The surface that `pic_index`'s content is drawn into this frame: its own
+    /// surface, or its parent's for a pass-through picture. `None` if the
+    /// picture is not reachable this frame.
+    pub fn surface_index(&self, pic_index: PictureIndex) -> Option<SurfaceIndex> {
+        self.pic_info[pic_index.0 as usize].surface_index
+    }
+
     /// Add a root picture to the graph
     pub fn add_root(
         &mut self,

@@ -44,7 +44,7 @@ use crate::transform::{TransformPalette, TransformData};
 use std::sync::Arc;
 use std::{f32, mem};
 use crate::util::{MaxRect, VecHelper, Preallocator};
-use crate::visibility::{new_clip_root_stack, update_prim_visibility, FrameVisibilityState, FrameVisibilityContext};
+use crate::visibility::{build_backdrop_capture_regions, new_clip_root_stack, update_prim_visibility, FrameVisibilityState, FrameVisibilityContext};
 use crate::internal_types::{FrameVec, FrameMemory};
 
 #[derive(Clone, Copy, Debug)]
@@ -363,6 +363,16 @@ impl FrameBuilder {
             &mut scene.prim_store.pictures,
             &mut scene.surfaces,
             &frame_context,
+        );
+
+        build_backdrop_capture_regions(
+            &scene.backdrop_chains,
+            &scene.prim_store.pictures,
+            &scene.picture_graph,
+            &scene.surfaces,
+            &scene.prim_instances,
+            &frame_context,
+            &mut scratch.primitive.frame.backdrop_captures,
         );
 
         // In order to handle picture snapshots consistently we need
