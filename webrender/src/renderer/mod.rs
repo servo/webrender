@@ -81,7 +81,6 @@ use crate::picture::ResolvedSurfaceTexture;
 use crate::profiler::{self, RenderCommandLog, GpuProfileTag, TransactionProfile};
 use crate::profiler::{Profiler, ProfileCounterValue, add_event_marker, add_text_marker, thread_is_being_profiled};
 use crate::device::query::GpuProfiler;
-use crate::render_target::ResolveOp;
 use crate::render_task_graph::RenderTaskGraph;
 use crate::render_task::{RenderTask, RenderTaskKind, ReadbackTask};
 use crate::screen_capture::AsyncScreenshotGrabber;
@@ -2504,27 +2503,6 @@ impl Renderer {
         self.device.set_scissor(scissor_rect);
     }
 
-    fn handle_resolves(
-        &mut self,
-        resolve_ops: &[ResolveOp],
-        render_tasks: &RenderTaskGraph,
-        draw_target: DrawTarget,
-    ) {
-        if resolve_ops.is_empty() {
-            return;
-        }
-
-        let _timer = self.gpu_profiler.start_timer(GPU_TAG_BLIT);
-
-        for resolve_op in resolve_ops {
-            self.handle_resolve(
-                resolve_op,
-                render_tasks,
-                draw_target,
-            );
-        }
-    }
-
     fn handle_prims(
         &mut self,
         draw_target: &DrawTarget,
@@ -2958,120 +2936,6 @@ impl Renderer {
             textures,
             stats,
         );
-    }
-
-    fn handle_resolve(
-        &mut self,
-        resolve_op: &ResolveOp,
-        render_tasks: &RenderTaskGraph,
-        draw_target: DrawTarget,
-    ) {
-        for src_task_id in &resolve_op.src_task_ids {
-            let src_task = &render_tasks[*src_task_id];
-            let src_info = match src_task.kind {
-                RenderTaskKind::Picture(ref info) => info,
-                _ => panic!("bug: not a picture"),
-            };
-            let src_task_rect = src_task.get_target_rect().to_f32();
-
-            let dest_task = &render_tasks[resolve_op.dest_task_id];
-            let dest_info = match dest_task.kind {
-                RenderTaskKind::Picture(ref info) => info,
-                _ => panic!("bug: not a picture"),
-            };
-            let dest_task_rect = dest_task.get_target_rect().to_f32();
-
-            // If the dest picture is going to a blur target, it may have been
-            // expanded in size so that the downsampling passes don't introduce
-            // sampling error. In this case, we need to ensure we use the
-            // content size rather than the render task size to work out
-            // the intersecting rect to use for the resolve copy.
-            let dest_task_rect = DeviceRect::from_origin_and_size(
-                dest_task_rect.min,
-                dest_info.content_size.to_f32(),
-            );
-
-            // The rect we want to read, in the dest (resolve target) surface's
-            // raster space, normalized to a scale-independent space by dividing
-            // out the dest device pixel scale.
-            let wanted_rect_dest: WorldRect = DeviceRect::from_origin_and_size(
-                dest_info.content_origin,
-                dest_task_rect.size().to_f32(),
-            ).cast_unit() * dest_info.device_pixel_scale.inverse();
-
-            // Map it into the src (parent) surface's raster space. This is the
-            // identity unless the resolve target established a different raster
-            // root than the parent it reads back from (e.g. a backdrop-filter
-            // promoted to a root-snapping raster root inside a scrolled subtree),
-            // in which case it corrects for the offset between the two raster
-            // roots so we read back the region the backdrop actually covers.
-            let wanted_rect: WorldRect =
-                resolve_op.dest_to_src_raster.map_rect(&wanted_rect_dest);
-
-            // Get the rect that is available on the parent surface. It may be smaller
-            // than desired because this is a picture cache tile covering only part of
-            // the wanted rect and/or because the parent surface was clipped.
-            let avail_rect: WorldRect = DeviceRect::from_origin_and_size(
-                src_info.content_origin,
-                src_task_rect.size().to_f32(),
-            ).cast_unit() * src_info.device_pixel_scale.inverse();
-
-            // Both rects are now in the src surface's raster space, so the
-            // intersection is too.
-            if let Some(src_isect_rect) = wanted_rect.intersection(&avail_rect) {
-                let src_int_rect: DeviceRect =
-                    (src_isect_rect * src_info.device_pixel_scale).cast_unit();
-
-                // Map the intersection back into the dest surface's raster space
-                // to work out the region to write on the resolve target.
-                let dest_isect_rect: WorldRect =
-                    resolve_op.dest_to_src_raster.unmap_rect(&src_isect_rect);
-                let dest_int_rect: DeviceRect =
-                    (dest_isect_rect * dest_info.device_pixel_scale).cast_unit();
-
-                // If there is a valid intersection, work out the correct origins and
-                // sizes of the copy rects, and do the blit.
-
-                let src_origin = src_task_rect.min.to_f32() +
-                    src_int_rect.min.to_vector() -
-                    src_info.content_origin.to_vector();
-
-                let src = DeviceIntRect::from_origin_and_size(
-                    src_origin.to_i32(),
-                    src_int_rect.size().round().to_i32(),
-                );
-
-                let dest_origin = dest_task_rect.min.to_f32() +
-                    dest_int_rect.min.to_vector() -
-                    dest_info.content_origin.to_vector();
-
-                let dest = DeviceIntRect::from_origin_and_size(
-                    dest_origin.to_i32(),
-                    dest_int_rect.size().round().to_i32(),
-                );
-
-                let texture_source = TextureSource::TextureCache(
-                    src_task.get_target_texture(),
-                    Swizzle::default(),
-                );
-                let (cache_texture, _) = self.texture_resolver
-                    .resolve(&texture_source).expect("bug: no source texture");
-
-                let read_target = ReadTarget::from_texture(cache_texture);
-
-                // Should always be drawing to picture cache tiles or off-screen surface!
-                debug_assert!(!draw_target.is_default());
-                let device_to_framebuffer = Scale::new(1i32);
-
-                self.device.blit_render_target(
-                    read_target,
-                    src * device_to_framebuffer,
-                    draw_target,
-                    dest * device_to_framebuffer,
-                    TextureFilter::Linear,
-                );
-            }
-        }
     }
 
     fn draw_picture_cache_target(
@@ -3609,13 +3473,6 @@ impl Renderer {
                 self.device.set_depth_write(false);
             }
         }
-
-        // Handle any resolves from parent pictures to this target
-        self.handle_resolves(
-            &target.resolve_ops,
-            render_tasks,
-            draw_target,
-        );
 
         // Handle any blits from the texture cache to this target.
         self.handle_blits(

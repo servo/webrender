@@ -896,8 +896,6 @@ impl PictureInstance {
             frame_state.surface_builder.pop_surface(
                 pic_index,
                 frame_state.rg_builder,
-                frame_state.cmd_buffers,
-                frame_context.spatial_tree,
             );
         }
 

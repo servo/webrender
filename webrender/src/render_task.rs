@@ -21,7 +21,7 @@ use crate::transform::GpuTransformId;
 use crate::resource_cache::ImageRequest;
 use crate::renderer::{GpuBufferAddress, GpuBufferBuilder, GpuBufferBuilderF};
 use crate::render_backend::DataStores;
-use crate::render_target::{ResolveOp, RenderTargetKind};
+use crate::render_target::RenderTargetKind;
 use crate::render_task_graph::{PassId, RenderTaskId, RenderTaskGraphBuilder};
 use crate::render_task_cache::RenderTaskCacheEntryHandle;
 use crate::segment::EdgeMask;
@@ -101,12 +101,6 @@ pub enum RenderTaskLocation {
     CacheRequest {
         size: DeviceIntSize,
     },
-    /// Same allocation as an existing task deeper in the dependency graph
-    Existing {
-        parent_task_id: RenderTaskId,
-        /// Requested size of this render task
-        size: DeviceIntSize,
-    },
 
     // Before batching begins, we expect that locations have been resolved to
     // one of the following variants:
@@ -143,7 +137,6 @@ impl RenderTaskLocation {
             RenderTaskLocation::Dynamic { rect, .. } => rect.size(),
             RenderTaskLocation::Static { rect, .. } => rect.size(),
             RenderTaskLocation::CacheRequest { size } => *size,
-            RenderTaskLocation::Existing { size, .. } => *size,
         }
     }
 }
@@ -218,34 +211,12 @@ pub struct PictureTask {
     pub scissor_rect: Option<DeviceIntRect>,
     pub valid_rect: Option<DeviceIntRect>,
     pub cmd_buffer_index: CommandBufferIndex,
-    pub resolve_op: Option<ResolveOp>,
     pub content_size: DeviceIntSize,
     pub can_use_shared_surface: bool,
     /// For the task a backdrop is captured into: the color to clear its content
     /// area to. Drawing is scissored to the content area, and any padding added
     /// for a filter is cleared to transparent.
     pub capture_clear_color: Option<ColorF>,
-}
-
-impl PictureTask {
-    /// Copy an existing picture task, but set a new command buffer for it to build in to.
-    /// Used for pictures that are split between render tasks (e.g. pre/post a backdrop
-    /// filter). Subsequent picture tasks never have a clear color as they are by definition
-    /// going to write to an existing target
-    pub fn duplicate(
-        &self,
-        cmd_buffer_index: CommandBufferIndex,
-    ) -> Self {
-        assert_eq!(self.resolve_op, None);
-
-        PictureTask {
-            clear_color: None,
-            cmd_buffer_index,
-            resolve_op: None,
-            can_use_shared_surface: false,
-            ..*self
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -508,7 +479,6 @@ impl RenderTaskKind {
             valid_rect,
             clear_color,
             cmd_buffer_index,
-            resolve_op: None,
             can_use_shared_surface,
             content_size: content_size.unwrap_or(size),
         })
@@ -2170,7 +2140,6 @@ impl RenderTask {
             RenderTaskLocation::Static { surface: StaticRenderTaskSurface::TextureCache { texture, .. }, .. } => {
                 TextureSource::TextureCache(texture, Swizzle::default())
             }
-            RenderTaskLocation::Existing { .. } |
             RenderTaskLocation::Static { .. } |
             RenderTaskLocation::CacheRequest { .. } |
             RenderTaskLocation::Unallocated { .. } => {
@@ -2197,7 +2166,6 @@ impl RenderTask {
             //           would allow us to restore this debug check.
             RenderTaskLocation::Dynamic { rect, .. } => rect,
             RenderTaskLocation::Static { rect, .. } => rect,
-            RenderTaskLocation::Existing { .. } |
             RenderTaskLocation::CacheRequest { .. } |
             RenderTaskLocation::Unallocated { .. } => {
                 panic!("bug: get_target_rect called before allocating");
@@ -2209,7 +2177,6 @@ impl RenderTask {
         match self.location {
             RenderTaskLocation::Dynamic { rect, .. } => rect.size(),
             RenderTaskLocation::Static { rect, .. } => rect.size(),
-            RenderTaskLocation::Existing { size, .. } => size,
             RenderTaskLocation::CacheRequest { size } => size,
             RenderTaskLocation::Unallocated { size } => size,
         }
