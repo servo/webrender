@@ -884,7 +884,7 @@ fn prepare_indirect_pattern(
         clipped_surface_rect = quad.bounds.cast_unit();
     }
 
-    let task_size = clipped_surface_rect.size().to_i32();
+    let task_size = clipped_surface_rect.size().try_cast::<i32>()?;
     if task_size.is_empty() {
         return None;
     }
@@ -1044,7 +1044,9 @@ fn prepare_nine_patch(
                 // The segment rect can have a sub-pixel size where it meets the antialiased
                 // bounds of the primitive; round up so the task is never empty
                 // and covers the area that gets drawn.
-                let task_size = segment_device_rect.size().ceil().to_i32();
+                let Some(task_size) = segment_device_rect.size().ceil().try_cast::<i32>() else {
+                    continue;
+                };
                 let task_id = add_render_task_with_mask(
                     pattern,
                     &local_bounds,
@@ -1302,7 +1304,9 @@ fn prepare_tiles(
         // f32 precision, causing a panic in new_dynamic, so just
         // skip segments that would produce zero size tasks.
         // https://bugzilla.mozilla.org/show_bug.cgi?id=1941838#c13
-        let tile_size = tile.rect.size().to_i32();
+        let Some(tile_size) = tile.rect.size().try_cast::<i32>() else {
+            continue;
+        };
         if tile_size.is_empty() {
             continue;
         }
