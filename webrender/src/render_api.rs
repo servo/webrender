@@ -72,6 +72,10 @@ pub enum ResourceUpdate {
     AddSnapshotImage(AddSnapshotImage),
     /// See `AddSnapshotImage`.
     DeleteSnapshotImage(SnapshotImageKey),
+    /// Move a snapshot image, and the pixels already rendered into it, from the
+    /// first key to the second. The keys can belong to different id namespaces.
+    /// After this, only the second key names the image.
+    AdoptSnapshotImage(SnapshotImageKey, SnapshotImageKey),
     /// See `AddFont`.
     AddFont(AddFont),
     /// Deletes an already existing font resource.
@@ -114,6 +118,7 @@ impl fmt::Debug for ResourceUpdate {
             ResourceUpdate::SetBlobImageVisibleArea(..) => f.write_str("ResourceUpdate::SetBlobImageVisibleArea"),
             ResourceUpdate::AddSnapshotImage(..) => f.write_str("ResourceUpdate::AddSnapshotImage"),
             ResourceUpdate::DeleteSnapshotImage(..) => f.write_str("ResourceUpdate::DeleteSnapshotImage"),
+            ResourceUpdate::AdoptSnapshotImage(..) => f.write_str("ResourceUpdate::AdoptSnapshotImage"),
             ResourceUpdate::AddFont(..) => f.write_str("ResourceUpdate::AddFont"),
             ResourceUpdate::DeleteFont(..) => f.write_str("ResourceUpdate::DeleteFont"),
             ResourceUpdate::AddFontInstance(..) => f.write_str("ResourceUpdate::AddFontInstance"),
@@ -582,6 +587,11 @@ impl Transaction {
     /// See `ResourceUpdate::DeleteSnapshotImage`.
     pub fn delete_snapshot_image(&mut self, key: SnapshotImageKey) {
         self.resource_updates.push(ResourceUpdate::DeleteSnapshotImage(key));
+    }
+
+    /// See `ResourceUpdate::AdoptSnapshotImage`.
+    pub fn adopt_snapshot_image(&mut self, from: SnapshotImageKey, to: SnapshotImageKey) {
+        self.resource_updates.push(ResourceUpdate::AdoptSnapshotImage(from, to));
     }
 
     /// See `ResourceUpdate::AddFont`.
