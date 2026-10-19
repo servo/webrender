@@ -422,7 +422,8 @@ pub trait GpuBackend {
 
     /// Writes `data` into `buffer` at the given byte offset using an unsynchronized mapping, i.e.
     /// without waiting for in-flight draws to complete. The caller must guarantee the written range
-    /// does not overlap data still being read by those draws.
+    /// does not overlap data still being read by those draws. Falls back to a synchronized write if
+    /// the driver refuses the mapping.
     fn write_buffer_unsynchronized(&mut self, buffer: &Buffer, offset: usize, data: &[u8]);
 
     /// Pairs `layout` with the buffers its attributes are read from.

@@ -3629,7 +3629,15 @@ impl GpuBackend for GlDevice {
             size as _,
             gl::MAP_WRITE_BIT | gl::MAP_UNSYNCHRONIZED_BIT,
         );
-        assert!(!ptr.is_null());
+        if ptr.is_null() {
+            self.gl.buffer_sub_data_untyped(
+                target,
+                offset as _,
+                size as _,
+                data.as_ptr() as *const _,
+            );
+            return;
+        }
 
         unsafe {
             ptr::copy_nonoverlapping(data.as_ptr(), ptr as *mut u8, size);
