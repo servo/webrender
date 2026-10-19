@@ -439,13 +439,14 @@ pub trait DlInterned: Clone + Eq + Hash + MallocSizeOf + Sized {
 /// name, which [`DlInterners`], [`DlDelta`] and the receiver's stores all
 /// share, and the key type.
 ///
-/// This is the one place a type is added. Nothing is interned yet: the
-/// machinery lands first, with the delta stream live but empty, and the
-/// primitive types move over one at a time.
+/// This is the one place a type is added on the content side; the receiver's
+/// lists live in `webrender/src/dl_interner.rs`. The primitive types move
+/// over one at a time, see `webrender/doc/dl-builder-interning.md`.
 #[macro_export]
 macro_rules! enumerate_dl_interned_types {
     ($macro_name: ident) => {
         $macro_name! {
+            rectangles: $crate::interned_prims::RectangleKey,
         }
     }
 }

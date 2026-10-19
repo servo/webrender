@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use webrender::scene::Scene;
 use webrender_api::{units::LayoutRect, BorderDetails, BorderStyle, BuiltDisplayList};
-use webrender_api::{ColorF, DisplayItem, PipelineId, PropertyBinding, SpatialId};
+use webrender_api::{ColorF, DisplayItem, PipelineId, SpatialId};
 use webrender_api::{ClipId, SpatialTreeItem, ClipChainId};
 
 fn color_to_string(
@@ -394,22 +394,14 @@ impl YamlWriter {
                     DisplayItem::Rectangle(info) => {
                         self.write_line("- type: rect");
                         self.push_level();
-                        self.write_spatial_id(info.common.spatial_id);
-                        self.write_clip_chain_id(info.common.clip_chain_id);
-                        self.write_bounds(info.bounds);
-                        self.maybe_write_clip_rect(info.bounds, info.common.clip_rect);
-                        let color = match info.color {
-                            PropertyBinding::Binding(..) => {
-                                println!("WARN: Property color bindings are unsupported");
-                                ColorF::new(1.0, 0.0, 1.0, 0.5)
-                            }
-                            PropertyBinding::Value(color) => {
-                                color
-                            }
-                        };
-                        if color.a > 0.0 {
-                            self.write_color(color);
-                        }
+                        self.write_spatial_id(info.spatial_id);
+                        self.write_clip_chain_id(info.clip_chain_id);
+                        // The bounds, clip rect and colour live in the content
+                        // builder's interner, which a scene capture does not
+                        // hold, so write placeholders. See
+                        // webrender/doc/dl-builder-interning.md.
+                        self.write_bounds(LayoutRect::zero());
+                        self.write_color(ColorF::new(0.0, 0.0, 1.0, 0.5));
                         self.pop_level();
                     }
                     DisplayItem::Text(info) => {

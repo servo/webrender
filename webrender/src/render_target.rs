@@ -25,7 +25,7 @@ use crate::transform::TransformPalette;
 use crate::quad;
 use crate::prim_store::{PrimitiveInstance, PrimitiveStore, PrimitiveScratchBuffer};
 use crate::renderer::{BlendMode, GpuBufferAddress, GpuBufferBuilder};
-use crate::render_backend::DataStores;
+use crate::render_backend::{DataStores, DlStores};
 use crate::render_task::{RenderTaskKind, RenderTaskAddress};
 use crate::render_task::{RenderTask, ScalingTask, SVGFEFilterTask};
 use crate::render_task_graph::{RenderTaskGraph, RenderTaskId};
@@ -54,6 +54,7 @@ pub struct RenderTargetContext<'a, 'rc> {
     pub batch_lookback_count: usize,
     pub spatial_tree: &'a SpatialTree,
     pub data_stores: &'a DataStores,
+    pub dl_stores: &'a DlStores,
     pub scratch: &'a PrimitiveScratchBuffer,
     pub screen_device_rect: DeviceRect,
     pub tile_caches: &'a FastHashMap<SliceId, Box<TileCacheInstance>>,

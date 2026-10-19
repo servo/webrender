@@ -37,16 +37,30 @@
 # the tile (the AnimatedRasterSpace dependency is stable frame-to-frame).
 == anim_text_b.yaml anim_text_b.yaml
 
-# The same again, but the second list comes from a fresh display list builder,
-# as it would from a replaced content process. Identical content from a
-# different builder must not invalidate either.
-== anim_text_b.yaml anim_text_b.yaml new-builder
-
 # b -> c: the animation ends (binding removed) at the same position, so only the
 # raster space flips local -> device with the transform value unchanged. The
 # tile must still invalidate so the text returns to the device path (bug
 # 2056306).
 != anim_text_b.yaml anim_text_c.yaml
+
+# The same again, but the second list comes from a fresh display list builder,
+# as it would from a replaced content process. Text is still interned on the
+# scene builder, which sees identical content, so this must not invalidate.
+# (It will once text moves into the builder; see the rectangle case below.)
+== anim_text_b.yaml anim_text_b.yaml new-builder
+
+# Re-rendering an unchanged rectangle from the same builder does not churn the
+# tile: the builder keeps its interned entry and the uid with it.
+== composite_nop_1.yaml composite_nop_1.yaml
+
+# A display list built by a different builder for the same pipeline restarts
+# interning slot numbering, so the receiver drops what the previous builder
+# interned and re-applies the new list from scratch (DeltaAction::Reset). The
+# content is byte-for-byte the same as the line above, so this asserts the
+# takeover itself: the re-interned rectangle gets a fresh uid and the tile
+# invalidates. Conservative rather than ideal, and the price of an
+# exactly-unique uid - see doc/dl-builder-interning.md.
+!= composite_nop_1.yaml composite_nop_1.yaml new-builder
 
 # Same, but with a coordinate off the app-unit grid the display list declares, on
 # the axis the scroll offset does *not* move. Normalization must leave that axis

@@ -11,7 +11,6 @@ use api::channel::{unbounded_channel, single_msg_channel, Receiver, Sender};
 use api::units::*;
 use crate::render_api::{ApiMsg, FrameMsg, SceneMsg, ResourceUpdate, TransactionMsg, MemoryReport};
 use crate::box_shadow::BoxShadow;
-use crate::prim_store::rectangle::RectanglePrim;
 #[cfg(feature = "capture")]
 use crate::capture::CaptureConfig;
 use crate::frame_builder::FrameBuilderConfig;
@@ -266,8 +265,6 @@ macro_rules! declare_scene_dl_stores {
             $( $field: Vec<crate::dl_interner::DlOp<$value>>, )*
         }
 
-        // Until the first type is listed nothing in here has anything to do.
-        #[allow(unused_variables)]
         impl SceneDlStores {
             fn report_memory(&self, ops: &mut MallocSizeOfOps, r: &mut MemoryReport) {
                 $( r.interning.dl_stores.$report += self.$field.size_of(ops); )*
@@ -278,7 +275,6 @@ macro_rules! declare_scene_dl_stores {
             }
         }
 
-        #[allow(unused_variables, unused_mut)]
         impl SceneDlUpdates {
             fn open(&mut self, namespace: DlNamespace) {
                 $( self.$field.push(crate::dl_interner::DlOp::Open(namespace)); )*
@@ -331,8 +327,6 @@ macro_rules! declare_dl_updates {
             scene: SceneDlUpdates,
         }
 
-        // Until the first type is listed nothing in here has anything to do.
-        #[allow(unused_variables)]
         impl DlUpdates {
             /// A namespace comes into use: every store must be told before
             /// anything lands in it. Namespace lifetime rides the same op
@@ -673,11 +667,8 @@ impl SceneBuilderThread {
     /// namespaces are released at the next scene build, by which point the
     /// render backend has dropped the document too.
     fn remove_document(&mut self, document_id: DocumentId) {
-        if let Some(doc) = self.documents.remove(&document_id) {
-            for pipeline_id in doc.scene.pipelines.keys() {
-                self.dl_builders.remove_pipeline(*pipeline_id);
-            }
-        }
+        self.documents.remove(&document_id);
+        self.dl_builders.remove_document(document_id);
         self.doc_to_window.remove(&document_id);
     }
 
@@ -716,7 +707,7 @@ impl SceneBuilderThread {
             // deltas, though, so a pipeline the map does not know gets one
             // here instead, as its display list arriving would have given it.
             for pipeline_id in item.scene.pipelines.keys() {
-                let (namespace, allocated) = self.dl_builders.get_or_alloc(*pipeline_id);
+                let (namespace, allocated) = self.dl_builders.get_or_alloc(item.document_id, *pipeline_id);
                 if allocated {
                     dl_updates.open(namespace);
                 }
@@ -727,6 +718,8 @@ impl SceneBuilderThread {
                 built_scene = Some(SceneBuilder::build(
                     &item.scene,
                     None,
+                    self.dl_builders.document(item.document_id),
+                    &self.scene_stores,
                     item.fonts,
                     &item.view,
                     &self.config,
@@ -890,13 +883,14 @@ impl SceneBuilderThread {
                     // namespace to qualify the slots it mints, and open it on
                     // every store before anything lands in it.
                     let (dl_namespace, allocated) =
-                        self.dl_builders.get_or_alloc(pipeline_id);
+                        self.dl_builders.get_or_alloc(txn.document_id, pipeline_id);
                     if allocated {
                         dl_updates.open(dl_namespace);
                     }
 
                     let delta = display_list.delta();
                     let action = self.dl_builders.check_delta(
+                        txn.document_id,
                         pipeline_id,
                         delta.builder,
                         delta.build,
@@ -959,6 +953,8 @@ impl SceneBuilderThread {
                     let built = SceneBuilder::build(
                         &scene,
                         Some(pipeline_id),
+                        self.dl_builders.document(txn.document_id),
+                        &self.scene_stores,
                         self.fonts.clone(),
                         &doc.view,
                         &config,
@@ -1008,7 +1004,7 @@ impl SceneBuilderThread {
                     // Not released here: the render backend goes on building
                     // frames from a scene that still references it until the
                     // rebuilt one is swapped in.
-                    self.dl_builders.remove_pipeline(pipeline_id);
+                    self.dl_builders.remove_pipeline(txn.document_id, pipeline_id);
                 }
             }
         }
@@ -1024,6 +1020,8 @@ impl SceneBuilderThread {
             let built = SceneBuilder::build(
                 &scene,
                 None,
+                self.dl_builders.document(txn.document_id),
+                &self.scene_stores,
                 self.fonts.clone(),
                 &doc.view,
                 &config,
@@ -1054,7 +1052,7 @@ impl SceneBuilderThread {
             // in and frame-built this transaction's offscreen scenes, so the
             // release cannot land while a scene that still references the
             // namespace is the one being drawn.
-            for namespace in self.dl_builders.take_removals() {
+            for namespace in self.dl_builders.take_removals(txn.document_id) {
                 dl_updates.close(namespace);
             }
             dl_updates.apply_to_scene(&mut self.scene_stores);
