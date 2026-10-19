@@ -112,7 +112,14 @@ impl NodeIdToIndexMapper {
     }
 
     fn get_spatial_node_index(&self, id: SpatialId) -> SpatialNodeIndex {
-        self.spatial_node_map[&id]
+        match self.spatial_node_map.get(&id) {
+            Some(index) => *index,
+            None => panic!(
+                "webrender: missing spatial node {:?} (defined_spatial_nodes={})",
+                id,
+                self.spatial_node_map.len(),
+            ),
+        }
     }
 }
 

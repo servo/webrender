@@ -555,10 +555,23 @@ impl ClipTreeBuilder {
         parent: Option<ClipChainId>,
         clips: I,
     ) {
-        let parent = parent.map(|ref id| self.clip_chain_map[id]);
+        let parent = parent.map(|ref parent_id| match self.clip_chain_map.get(parent_id) {
+            Some(index) => *index,
+            None => panic!(
+                "webrender: missing clip-chain {:?} in define_clip_chain parent of {:?} (defined_chains={})",
+                parent_id,
+                id,
+                self.clip_chain_map.len(),
+            ),
+        });
         let index = self.clip_chains.len();
-        let clips = clips.map(|clip_id| {
-            self.clip_map[&clip_id]
+        let clips = clips.map(|clip_id| match self.clip_map.get(&clip_id) {
+            Some(entry) => *entry,
+            None => panic!(
+                "webrender: missing clip {:?} in define_clip_chain (defined_clips={})",
+                clip_id,
+                self.clip_map.len(),
+            ),
         }).collect();
         self.clip_chains.push(ClipChain {
             parent,
@@ -588,7 +601,14 @@ impl ClipTreeBuilder {
             if clip_chain_id != ClipChainId::INVALID {
                 self.clip_handles_buffer.clear();
 
-                let clip_chain_index = self.clip_chain_map[&clip_chain_id];
+                let clip_chain_index = match self.clip_chain_map.get(&clip_chain_id) {
+                    Some(index) => *index,
+                    None => panic!(
+                        "webrender: missing clip-chain {:?} in push_clip_chain (defined_chains={})",
+                        clip_chain_id,
+                        self.clip_chain_map.len(),
+                    ),
+                };
                 ClipTreeBuilder::add_clips(
                     clip_chain_index,
                     &mut seen_clips,
@@ -625,7 +645,14 @@ impl ClipTreeBuilder {
         };
 
         self.clip_handles_buffer.clear();
-        let clip_entry = self.clip_map[&clip_id];
+        let clip_entry = match self.clip_map.get(&clip_id) {
+            Some(entry) => *entry,
+            None => panic!(
+                "webrender: missing clip {:?} in push_clip_id (defined_clips={})",
+                clip_id,
+                self.clip_map.len(),
+            ),
+        };
 
         if seen_clips.insert(clip_entry) {
             self.clip_handles_buffer.push(clip_entry);
@@ -883,7 +910,14 @@ impl ClipTreeBuilder {
         self.clip_handles_buffer.clear();
 
         for clip_id in extra_clips {
-            let entry = self.clip_map[clip_id];
+            let entry = match self.clip_map.get(clip_id) {
+                Some(entry) => *entry,
+                None => panic!(
+                    "webrender: missing clip {:?} in build_for_tile_cache (defined_clips={})",
+                    clip_id,
+                    self.clip_map.len(),
+                ),
+            };
             self.clip_handles_buffer.push(entry);
         }
 
