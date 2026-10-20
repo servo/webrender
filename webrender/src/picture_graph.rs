@@ -38,7 +38,8 @@ impl PictureGraph {
     }
 
     /// The picture that contains `pic_index` this frame, if it is reachable and
-    /// not a root.
+    /// not a root. Also set for a picture culled as invisible, which has no
+    /// surface this frame.
     pub fn parent(&self, pic_index: PictureIndex) -> Option<PictureIndex> {
         self.pic_info[pic_index.0 as usize].parent
     }

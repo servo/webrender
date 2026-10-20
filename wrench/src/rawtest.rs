@@ -54,6 +54,7 @@ impl<'a> RawtestHarness<'a> {
         self.test_pipeline_readded_after_removal();
         self.test_removed_pipeline_in_rootless_document();
         self.test_pipeline_moved_to_rootless_document();
+        self.test_backdrop_filter_hidden_after_visible();
     }
 
     #[allow(dead_code)]
@@ -1760,6 +1761,52 @@ impl<'a> RawtestHarness<'a> {
         let mut txn = Transaction::new();
         txn.set_display_list(Epoch(1), namespace, child_display_list());
         txn.set_display_list(Epoch(2), namespace, self.rect_display_list(root_pipeline_id, Some(child_id)));
+        txn.generate_frame(0, true, false, RenderReasons::TESTING);
+        self.wrench.api.send_transaction(self.wrench.document_id, txn);
+        self.rx.recv().unwrap();
+        self.wrench.render();
+    }
+
+    // A backdrop-filter chain picture that becomes invisible keeps the
+    // `raster_config` of the last frame it was drawn in.
+    fn test_backdrop_filter_hidden_after_visible(&mut self) {
+        println!("\tbackdrop-filter hidden after visible test...");
+
+        let opacity_key = PropertyBindingKey::new(0xbacd);
+        let rect = LayoutRect::from_size(LayoutSize::new(256.0, 256.0));
+        let root_pipeline_id = self.wrench.root_pipeline_id;
+
+        let mut builder = DisplayListBuilder::new(root_pipeline_id);
+        builder.begin(AU_PER_DEV_PX);
+        let info = self.make_common_properties(rect);
+        builder.push_rect(&info, rect, ColorF::new(1.0, 0.0, 0.0, 1.0));
+        builder.push_backdrop_filter(
+            &info,
+            &[
+                FilterOp::Sepia(0.5),
+                FilterOp::Opacity(PropertyBinding::Binding(opacity_key, 1.0), 1.0),
+            ],
+            &[],
+        );
+
+        let mut epoch = Epoch(0);
+        let mut txn = Transaction::new();
+        txn.append_dynamic_properties(DynamicProperties {
+            transforms: vec![],
+            floats: vec![PropertyValue { key: opacity_key, value: 1.0 }],
+            colors: vec![],
+        });
+        self.submit_dl(&mut epoch, builder, txn);
+        self.rx.recv().unwrap();
+        self.wrench.render();
+
+        let mut txn = Transaction::new();
+        txn.reset_dynamic_properties();
+        txn.append_dynamic_properties(DynamicProperties {
+            transforms: vec![],
+            floats: vec![PropertyValue { key: opacity_key, value: 0.0 }],
+            colors: vec![],
+        });
         txn.generate_frame(0, true, false, RenderReasons::TESTING);
         self.wrench.api.send_transaction(self.wrench.document_id, txn);
         self.rx.recv().unwrap();
