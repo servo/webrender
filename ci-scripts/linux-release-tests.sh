@@ -24,6 +24,7 @@ python3 script/headless.py --precache --use-unoptimized-shaders test_init
 python3 script/headless.py test_shaders
 
 python3 script/headless.py reftest
+python3 script/headless.py --compositor reftest reftests/compositor-layer
 python3 script/headless.py rawtest
 python3 script/headless.py test_invalidation
 CXX=clang++ cargo run ${CARGOFLAGS} --release --features=software -- \

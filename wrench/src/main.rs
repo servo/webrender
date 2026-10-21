@@ -24,6 +24,8 @@ mod blob;
 #[cfg(target_os = "windows")]
 mod composite;
 mod egl;
+#[cfg(not(target_os = "windows"))]
+mod null_compositor;
 mod parse_function;
 mod perf;
 mod png;
@@ -39,6 +41,8 @@ mod yaml_helper;
 
 #[cfg(target_os = "windows")]
 use composite::WrCompositor;
+#[cfg(not(target_os = "windows"))]
+use null_compositor::NullLayerCompositor;
 use gleam::gl;
 #[cfg(feature = "software")]
 use gleam::gl::Gl;
@@ -356,7 +360,7 @@ impl WindowWrapper {
 
     #[cfg(not(target_os = "windows"))]
     pub fn create_compositor(&self) -> Option<Box<dyn LayerCompositor>> {
-        None
+        Some(Box::new(NullLayerCompositor) as Box<dyn LayerCompositor>)
     }
 }
 
@@ -1442,6 +1446,12 @@ fn run_headless(args: clap::ArgMatches) -> i32 {
         (None, None)
     };
 
+    let layer_compositor = if app.using_compositor {
+        window.create_compositor()
+    } else {
+        None
+    };
+
     let dim = window.get_inner_size();
     let mut wrench = Wrench::new(
         &mut window,
@@ -1458,7 +1468,7 @@ fn run_headless(args: clap::ArgMatches) -> i32 {
         app.precache,
         app.dump_shader_source.clone(),
         notifier,
-        None,
+        layer_compositor,
         app.compositor_clips,
     );
 

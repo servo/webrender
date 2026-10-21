@@ -38,7 +38,7 @@ args:
       help: Enable ANGLE rendering (on Windows only)
   - compositor:
       long: compositor
-      help: Enable native OS compositor integration
+      help: Enable native OS compositor integration (on other platforms than Windows, layers are drawn to the window without OS compositing)
   - software:
       long: software
       help: Enable software rendering

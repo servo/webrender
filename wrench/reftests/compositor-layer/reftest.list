@@ -1,0 +1,5 @@
+# These tests target the layer compositor, so CI also runs them with
+# `--compositor`. Compositor surfaces are not drawn on platforms without an OS
+# compositor integration, so these tests only cover cases where promotion is
+# refused.
+fuzzy(1,100) overlays(0) == overlay-clip-coord-system.yaml overlay-clip-coord-system-ref.yaml

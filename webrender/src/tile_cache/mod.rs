@@ -1495,6 +1495,19 @@ impl TileCacheInstance {
                                     return Err(OverlayNeedsMask);
                                 }
 
+                                // The compositor clip is mapped to device space with a 2d
+                                // scale and offset, which isn't possible if the clip is in
+                                // a different coordinate system than the root.
+                                let map = ClipSpaceConversion::new(
+                                    frame_context.root_spatial_node_index,
+                                    clip_instance.spatial_node_index,
+                                    frame_context.root_spatial_node_index,
+                                    frame_context.spatial_tree,
+                                );
+                                if !matches!(map, ClipSpaceConversion::Local | ClipSpaceConversion::ScaleOffset(..)) {
+                                    return Err(OverlayNeedsMask);
+                                }
+
                                 let size = clip_instance.clip_rect.size();
                                 let radius = clamped_radius(radius, size);
                                 let max_corner_width = radius.top_left.width
@@ -1841,10 +1854,10 @@ impl TileCacheInstance {
             if let ClipItemKind::RoundedRectangle { radius, mode: ClipMode::Clip, .. } = clip_node.item.kind {
                 let radius = clamped_radius(&radius, clip_instance.clip_rect.size());
 
-                // Map the clip in to device space. We know from the shared
-                // clip creation logic it's in root coord system, so only a
-                // 2d axis-aligned transform can apply. For example, in the
-                // case of a pinch-zoom effect.
+                // Map the clip in to device space. can_promote_to_surface only
+                // accepts clips in the root coord system, so only a 2d
+                // axis-aligned transform can apply. For example, in the case
+                // of a pinch-zoom effect.
                 let map = ClipSpaceConversion::new(
                     frame_context.root_spatial_node_index,
                     clip_instance.spatial_node_index,

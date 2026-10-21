@@ -1,0 +1,19 @@
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [50, 50, 262, 262]
+      transform: rotate(45)
+      items:
+        - type: stacking-context
+          bounds: [0, 0, 262, 262]
+          transform: rotate(-45)
+          items:
+            - type: clip
+              id: 2
+              complex:
+                - rect: [10, 10, 200, 200]
+                  radius: 16
+            - image: checkerboard(2,16,16)
+              bounds: [0, 0, 262, 262]
+              clip-chain: [2]

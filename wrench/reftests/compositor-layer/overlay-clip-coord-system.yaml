@@ -1,0 +1,23 @@
+# Regression test - a promoted image whose rounded clip is in a different
+# coordinate system than the root (even though the final transform is
+# 2d-axis-aligned) can't use a compositor clip, so it must not be promoted.
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [50, 50, 262, 262]
+      transform: rotate(45)
+      items:
+        - type: stacking-context
+          bounds: [0, 0, 262, 262]
+          transform: rotate(-45)
+          items:
+            - type: clip
+              id: 2
+              complex:
+                - rect: [10, 10, 200, 200]
+                  radius: 16
+            - image: checkerboard(2,16,16)
+              bounds: [0, 0, 262, 262]
+              prefer-compositor-surface: true
+              clip-chain: [2]
