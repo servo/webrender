@@ -198,6 +198,17 @@ macro_rules! declare_dl_stores {
                 totals
             }
 
+            /// A copy of these stores with `updates` applied, closes aside,
+            /// for frame building against ops that are held back from the
+            /// stores themselves.
+            fn with_pending(&self, updates: &DlUpdates) -> DlStores {
+                let mut stores = DlStores {
+                    $( $field: self.$field.clone(), )*
+                };
+                $( stores.$field.apply(updates.$field.clone()); )*
+                stores
+            }
+
             /// Release the namespaces a transaction's `DlUpdates::closes`
             /// held back from `apply`.
             fn close(&mut self, namespaces: &[crate::dl_interner::DlNamespace]) {
@@ -1304,10 +1315,16 @@ impl RenderBackend {
                 .remove(&txn.document_id)
                 .unwrap_or_default();
             dl_updates.append(mem::take(&mut txn.dl_updates));
+            let mut offscreen_dl_stores = None;
             let dl_counts = if has_built_scene || !self.documents.contains_key(&txn.document_id) {
                 dl_closes = mem::take(&mut dl_updates.closes);
                 self.dl_stores.apply(dl_updates, &mut txn.profile)
             } else {
+                // The offscreen scenes were built against these ops, so they
+                // are frame-built against a copy of the stores that has them.
+                if !txn.offscreen_scenes.is_empty() {
+                    offscreen_dl_stores = Some(self.dl_stores.with_pending(&dl_updates));
+                }
                 if !dl_updates.is_empty() {
                     self.held_dl_updates.insert(txn.document_id, dl_updates);
                 }
@@ -1417,7 +1434,7 @@ impl RenderBackend {
                     let rendered_document = doc.process_offscreen_scene(
                         offscreen_scene,
                         &mut win.resource_cache,
-                        &self.dl_stores,
+                        offscreen_dl_stores.as_ref().unwrap_or(&self.dl_stores),
                         win.chunk_pool.clone(),
                         win.debug_flags,
                     );

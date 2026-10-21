@@ -14,7 +14,7 @@ pub use api::interned_prims::RectangleKey;
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+#[derive(MallocSizeOf, Clone)]
 pub struct RectangleData {
     pub color: PropertyBinding<ColorF>,
 }

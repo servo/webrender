@@ -480,6 +480,7 @@ impl<'a> DlDocumentBuilders<'a> {
 /// allocated namespace, `Close` at the point the scene stops referencing the
 /// pipeline. `T` is the store's own view of an interned item, derived from the
 /// content key by whoever built the list.
+#[derive(Clone)]
 pub enum DlOp<T> {
     Open(DlNamespace),
     Insert {
@@ -560,12 +561,26 @@ pub struct DlStore<K, T> {
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+#[derive(MallocSizeOf, Clone)]
 struct Entry<T> {
     /// See `DlStore::uid`. Assigned when the entry is inserted and fixed for as
     /// long as it lives.
     uid: ItemUid,
     value: T,
+}
+
+// Hand-written rather than derived, which would demand `K: Clone` for the
+// marker.
+impl<K, T: Clone> Clone for DlStore<K, T> {
+    fn clone(&self) -> Self {
+        DlStore {
+            namespaces: self.namespaces.clone(),
+            #[cfg(debug_assertions)]
+            generations: self.generations.clone(),
+            next_uid: self.next_uid,
+            _marker: PhantomData,
+        }
+    }
 }
 
 impl<K, T> Default for DlStore<K, T> {

@@ -143,7 +143,7 @@ pub use api::interned_prims::PrimKey;
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(MallocSizeOf)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PrimTemplateCommonData {
     pub flags: PrimitiveFlags,
     pub aligned_aa_edges: EdgeMask,
@@ -192,7 +192,7 @@ impl<T: malloc_size_of::MallocSizeOf> crate::dl_interner::DlResolve<PrimKey<T>> 
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(MallocSizeOf)]
+#[derive(MallocSizeOf, Clone)]
 pub struct PrimTemplate<T> {
     pub common: PrimTemplateCommonData,
     pub kind: T,
