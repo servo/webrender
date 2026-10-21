@@ -947,7 +947,7 @@ impl PathTiler {
         events.sort_unstable();
         // Push a dummy backdrop out of view that will cause the current tile to be flushed
         // at the last iteration without having to replicate the logic out of the loop.
-        events.push(Event::backdrop(0, std::u16::MAX, false));
+        events.push(Event::backdrop(0, u16::MAX, false));
 
         let mut current = TilePoint::new(0, 0);
         let mut backdrop: i16 = 0;
@@ -1007,7 +1007,7 @@ impl PathTiler {
         events.sort_unstable();
         // Push a dummy backdrop out of view that will cause the current tile to be flushed
         // at the last iteration without having to replicate the logic out of the loop.
-        events.push(Event::backdrop(0, std::u16::MAX, false));
+        events.push(Event::backdrop(0, u16::MAX, false));
 
         let mut current = TilePoint::new(min_x, self.scissor_tiles.min.y as u16);
         let mut backdrop: i16 = 0;
