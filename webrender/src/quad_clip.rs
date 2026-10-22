@@ -17,7 +17,6 @@
 
 use api::{BorderRadius, ClipMode, units::*};
 
-use crate::clip::BorderClipKey;
 use crate::render_task_graph::RenderTaskId;
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::util::MaxRect;
@@ -25,7 +24,6 @@ use crate::util::MaxRect;
 /// The shape of a clip applied to a quad primitive.
 #[derive(Copy, Clone, Debug)]
 pub enum QuadClipShape {
-    Border { key: BorderClipKey },
     Rectangle {
         mode: ClipMode,
     },
@@ -193,15 +191,6 @@ impl QuadClipStack {
             rect,
             spatial_node,
             uid,
-        });
-    }
-
-    pub fn push_border(
-        &mut self, rect: LayoutRect, key: BorderClipKey,
-        spatial_node: SpatialNodeIndex, uid: u64,
-    ) {
-        self.clips.push(QuadClip {
-            shape: QuadClipShape::Border { key }, rect, spatial_node, uid,
         });
     }
 

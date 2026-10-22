@@ -161,7 +161,6 @@ pub enum DisplayItem {
     // Clips
     RectClip(RectClipDisplayItem),
     RoundedRectClip(RoundedRectClipDisplayItem),
-    BorderClip(BorderClipDisplayItem),
     ImageMaskClip(ImageMaskClipDisplayItem),
     ClipChain(ClipChainItem),
 
@@ -206,7 +205,6 @@ pub enum DebugDisplayItem {
 
     ImageMaskClip(ImageMaskClipDisplayItem),
     RoundedRectClip(RoundedRectClipDisplayItem),
-    BorderClip(BorderClipDisplayItem),
     RectClip(RectClipDisplayItem),
     ClipChain(ClipChainItem, Vec<ClipId>),
 
@@ -257,15 +255,6 @@ pub struct RoundedRectClipDisplayItem {
     pub snap_outset: f32,
     /// See `RectClipDisplayItem::anti_aliased`.
     pub anti_aliased: bool,
-}
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
-pub struct BorderClipDisplayItem {
-    pub id: ClipId,
-    pub spatial_id: SpatialId,
-    pub clip_rect: LayoutRect,
-    pub border: NormalBorder,
-    pub widths: LayoutSideOffsets,
 }
 
 /// The minimum and maximum allowable offset for a sticky frame in a single dimension.
@@ -2454,7 +2443,6 @@ impl DisplayItem {
             DisplayItem::HitTest(..) => "hit_test",
             DisplayItem::RectClip(..) => "rect_clip",
             DisplayItem::RoundedRectClip(..) => "rounded_rect_clip",
-            DisplayItem::BorderClip(..) => "border_clip",
             DisplayItem::ImageMaskClip(..) => "image_mask_clip",
             DisplayItem::ClipChain(..) => "clip_chain",
             DisplayItem::ConicGradient(..) => "conic_gradient",
