@@ -2364,6 +2364,7 @@ pub fn prepare_picture_clips(
             frame_state.rg_builder,
             &mut frame_state.frame_gpu_data.f32,
             frame_state.transforms,
+            frame_state.cmd_buffers,
         );
     }
 
@@ -2433,6 +2434,7 @@ pub fn prepare_picture_clips(
                 frame_state.rg_builder,
                 &mut frame_state.frame_gpu_data.f32,
                 frame_state.transforms,
+                frame_state.cmd_buffers,
             );
 
             let clip_task_index = ClipTaskIndex(clip_mask_instances.len() as _);
