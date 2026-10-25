@@ -6,7 +6,7 @@ use api::euclid::{point2, Box2D};
 use api::{MixBlendMode, units::{DeviceRect, LayoutRect, PictureRect}};
 use crate::pattern::{PatternKind, PatternShaderInput};
 use crate::renderer::BlendMode;
-use crate::{spatial_tree::SpatialNodeIndex, render_task_graph::RenderTaskId, surface::SurfaceTileDescriptor, tile_cache::TileKey, renderer::GpuBufferAddress, FastHashMap};
+use crate::{spatial_tree::SpatialNodeIndex, render_task_graph::RenderTaskId, surface::{SurfaceExtraTarget, SurfaceTileDescriptor}, tile_cache::TileKey, renderer::GpuBufferAddress, FastHashMap};
 use crate::gpu_types::QuadSegment;
 use crate::prim_store::storage;
 use crate::segment::EdgeMask;
@@ -484,6 +484,10 @@ pub enum CommandBufferBuilderKind {
         //           slightly complicated by the sub_slice_index in the
         //           TileKey structure - could have a 2 level array?
         tiles: FastHashMap<TileKey, SurfaceTileDescriptor>,
+        /// Tasks besides the tiles that this surface's primitives are drawn
+        /// into. Primitives of every sub-slice in a target's rect are drawn
+        /// into it.
+        extra_targets: Vec<SurfaceExtraTarget>,
     },
     Simple {
         render_task_id: RenderTaskId,
@@ -491,6 +495,24 @@ pub enum CommandBufferBuilderKind {
         dirty_rect: PictureRect,
     },
     Invalid,
+}
+
+impl CommandBufferBuilderKind {
+    /// Call `f` with each task the surface's primitives are drawn into.
+    pub fn for_each_task(&self, mut f: impl FnMut(RenderTaskId)) {
+        match self {
+            CommandBufferBuilderKind::Tiled { tiles, extra_targets } => {
+                for descriptor in tiles.values() {
+                    f(descriptor.current_task_id);
+                }
+                for target in extra_targets {
+                    f(target.task_id);
+                }
+            }
+            CommandBufferBuilderKind::Simple { render_task_id, .. } => f(*render_task_id),
+            CommandBufferBuilderKind::Invalid => {}
+        }
+    }
 }
 
 /// A backdrop-filter capture open on a surface: each primitive prepared on the
@@ -540,10 +562,12 @@ impl CommandBufferBuilder {
     /// Construct a tiled command buffer builder.
     pub fn new_tiled(
         tiles: FastHashMap<TileKey, SurfaceTileDescriptor>,
+        extra_targets: Vec<SurfaceExtraTarget>,
     ) -> Self {
         CommandBufferBuilder {
             kind: CommandBufferBuilderKind::Tiled {
                 tiles,
+                extra_targets,
             },
             extra_dependencies: Vec::new(),
             backdrop_captures: Vec::new(),
