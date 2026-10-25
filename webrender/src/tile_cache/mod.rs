@@ -3102,7 +3102,12 @@ impl TileCacheInstance {
                     for x in dirty_test.tile_rect.min.x .. dirty_test.tile_rect.max.x {
                         let key = TileOffset::new(x, y);
                         let tile = sub_slice.tiles.get(&key).expect("bug: no tile");
-                        total_dirty_rect = total_dirty_rect.union(&tile.cached_surface.local_dirty_rect);
+                        // A tile that isn't drawn, such as one outside the clip,
+                        // keeps its dirty rect from an earlier frame, which was
+                        // already tested then. Only changes this frame count.
+                        if tile.cached_surface.invalidation_reason.is_some() {
+                            total_dirty_rect = total_dirty_rect.union(&tile.cached_surface.local_dirty_rect);
+                        }
                     }
                 }
             }

@@ -139,6 +139,7 @@ impl<'a> TestHarness<'a> {
         self.test_promotion_shapes();
         self.test_surface_sub_slice();
         self.test_backdrop_sampled_margin();
+        self.test_backdrop_scroll_under_clip();
 
         // Run manifest-based tests
         let manifest_path = PathBuf::from("invalidation/invalidation.list");
@@ -455,6 +456,20 @@ impl<'a> TestHarness<'a> {
         assert!(
             matches!(results.pc_debug.slice(0).tile(0, 1), TileDebugInfo::Dirty(..)),
             "Ensure the backdrop's tile is invalidated by a change to content its filter samples",
+        );
+    }
+
+    fn test_backdrop_scroll_under_clip(&mut self) {
+        // Scrolling a backdrop-filter in a clipped scroll frame redraws it, which
+        // dirties tiles that the slice's clip then keeps from being drawn. A
+        // later frame with no change must not redraw anything because of them.
+        self.render_yaml("basic");
+        self.render_yaml("backdrop_scroll_under_clip_1");
+        self.render_yaml("backdrop_scroll_under_clip_2");
+        let results = self.render_yaml("backdrop_scroll_under_clip_2");
+        assert!(
+            !Self::has_any_dirty_tile(&results.pc_debug),
+            "Ensure an unchanged frame after scrolling a backdrop redraws no tiles",
         );
     }
 
