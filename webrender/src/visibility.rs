@@ -306,6 +306,8 @@ pub struct BackdropCaptureRegion {
     /// The surface the backdrop root's content is drawn into. `region` is in
     /// its picture space.
     pub root_surface_index: SurfaceIndex,
+    /// The picture cache slice the backdrop root is, if it is one.
+    pub root_slice: Option<SliceId>,
     /// The `BackdropCapture` primitive. Primitives painted before the
     /// backdrop-filter element have lower instance indices.
     pub capture_instance_index: PrimitiveInstanceIndex,
@@ -372,6 +374,18 @@ impl ops::Index<BackdropCaptureIndex> for BackdropCaptures {
 }
 
 impl BackdropCaptures {
+    pub fn is_empty(&self) -> bool {
+        self.regions.is_empty()
+    }
+
+    /// Every capture, in increasing index order.
+    pub fn iter(&self) -> impl Iterator<Item = (BackdropCaptureIndex, &BackdropCaptureRegion)> {
+        self.regions
+            .iter()
+            .enumerate()
+            .map(|(index, capture)| (BackdropCaptureIndex(index as u32), capture))
+    }
+
     /// Group the captures by backdrop root and index them by picture, for a
     /// scene with `picture_count` pictures.
     fn index_pictures(&mut self, picture_count: usize) {
@@ -552,6 +566,7 @@ pub fn build_backdrop_capture_regions(
             capture_pic_index,
             root_pic_index,
             root_surface_index,
+            root_slice,
             capture_instance_index,
             region,
             root_background_color: root_slice.and_then(|slice_id| tile_caches[&slice_id].background_color),
