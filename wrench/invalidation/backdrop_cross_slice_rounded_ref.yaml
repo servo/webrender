@@ -1,0 +1,53 @@
+root:
+  items:
+    - type: rect
+      color: white
+      bounds: [0, 0, 400, 400]
+    - type: clip
+      id: 2
+      complex:
+        - rect: [40, 0, 320, 400]
+          radius: 40
+    - type: clip-chain
+      id: 3
+      clips: [2]
+    - type: stacking-context
+      bounds: [0, 0, 400, 400]
+      clip-chain: 3
+      items:
+        - type: rect
+          color: red
+          bounds: [40, 0, 320, 40]
+        - type: rect
+          color: green
+          bounds: [40, 40, 320, 40]
+        - type: rect
+          color: blue
+          bounds: [40, 80, 320, 40]
+        - type: rect
+          color: yellow
+          bounds: [40, 120, 320, 40]
+        - type: rect
+          color: magenta
+          bounds: [40, 160, 320, 40]
+        - type: rect
+          color: cyan
+          bounds: [40, 200, 320, 40]
+        - type: rect
+          color: black
+          bounds: [40, 240, 320, 40]
+        - type: rect
+          color: 255 128 0
+          bounds: [40, 280, 320, 40]
+        - type: rect
+          color: red
+          bounds: [40, 320, 320, 40]
+        - type: rect
+          color: green
+          bounds: [40, 360, 320, 40]
+    - type: backdrop-filter
+      bounds: [0, 0, 400, 80]
+      filters: blur(8,8)
+    - type: rect
+      color: 255 255 255 0.4
+      bounds: [0, 0, 400, 80]

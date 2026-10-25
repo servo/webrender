@@ -798,6 +798,10 @@ pub struct TileCacheInstance {
     pub local_clip_rect: PictureRect,
     /// Registered clip in CompositeState for this picture cache
     pub compositor_clip: Option<CompositorClipIndex>,
+    /// The rounded-rect clips `compositor_clip` was built from, in their own
+    /// spatial node's space, for drawing this slice's content elsewhere with
+    /// the clip it is composited with.
+    pub compositor_clip_shapes: Vec<CompositorClipShape>,
     /// The screen rect, transformed to local picture space.
     pub screen_rect_in_pic_space: PictureRect,
     /// The surface index that this tile cache will be drawn into.
@@ -872,6 +876,15 @@ pub struct TileCacheInstance {
     pub backdrop_samples: Vec<BackdropSample>,
 }
 
+/// A rounded-rect clip a slice is composited with.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompositorClipShape {
+    pub rect: LayoutRect,
+    pub radius: BorderRadius,
+    pub spatial_node_index: SpatialNodeIndex,
+    pub uid: u64,
+}
+
 /// What a backdrop-filter capture reads from the slices below its own. When it
 /// changes, so does the backdrop, even if none of those slices' tiles do.
 #[derive(Debug, Default, PartialEq)]
@@ -888,6 +901,7 @@ struct BackdropSourceKey {
     slice_to_capture: ScaleOffset,
     /// The sampled part of the slice, in its picture space.
     rect: PictureRect,
+    compositor_clip_shapes: Vec<CompositorClipShape>,
     background_color: Option<ColorF>,
 }
 
@@ -942,6 +956,7 @@ impl TileCacheInstance {
             local_rect: PictureRect::zero(),
             local_clip_rect: PictureRect::zero(),
             compositor_clip: None,
+            compositor_clip_shapes: Vec::new(),
             screen_rect_in_pic_space: PictureRect::zero(),
             surface_index: SurfaceIndex(0),
             background_color: params.background_color,
@@ -1269,6 +1284,7 @@ impl TileCacheInstance {
             // that are actually off-screen.
             self.local_clip_rect = PictureRect::zero();
             self.compositor_clip = None;
+            self.compositor_clip_shapes.clear();
 
             if let Some(clip_chain) = clip_chain_instance {
                 self.local_clip_rect = clip_chain.pic_coverage_rect;
@@ -1317,17 +1333,27 @@ impl TileCacheInstance {
                                 ClipSpaceConversion::Indeterminate => unreachable!(),
                             };
 
-                            combined = Some(match combined {
-                                None => (device_rect, device_radius),
+                            // A clip that can't be intersected with the previous ones
+                            // is left out of the compositor clip, and of its shapes.
+                            let next = match combined {
+                                None => Some((device_rect, device_radius)),
                                 Some((prev_rect, prev_radius)) => {
                                     intersect_rounded_rects(
                                         prev_rect.cast_unit(), prev_radius,
                                         device_rect.cast_unit(), device_radius,
                                     )
                                     .map(|(r, rad)| (r.cast_unit(), rad))
-                                    .unwrap_or((prev_rect, prev_radius))
                                 }
-                            });
+                            };
+                            if let Some(next) = next {
+                                combined = Some(next);
+                                self.compositor_clip_shapes.push(CompositorClipShape {
+                                    rect: clip_instance.clip_rect,
+                                    radius,
+                                    spatial_node_index: clip_instance.spatial_node_index,
+                                    uid: clip_instance.handle.uid().get_uid(),
+                                });
+                            }
                         }
                     }
 
@@ -3623,6 +3649,7 @@ pub fn update_cross_slice_backdrops(
                 slice_id: slice_ids[lower],
                 slice_to_capture: pic_to_root[lower].then(&root_to_capture),
                 rect,
+                compositor_clip_shapes: tile_cache.compositor_clip_shapes.clone(),
                 background_color: tile_cache.background_color,
             });
             sources.push((lower, position, rect));

@@ -1,0 +1,61 @@
+root:
+  items:
+    - type: rect
+      color: white
+      bounds: [0, 0, 400, 400]
+    - type: clip
+      id: 2
+      complex:
+        - rect: [40, 0, 320, 400]
+          radius: 40
+    - type: clip-chain
+      id: 3
+      clips: [2]
+    - type: stacking-context
+      bounds: [0, 0, 400, 400]
+      clip-chain: 3
+      items:
+        - type: iframe
+          id: [1, 3]
+          bounds: [40, 0, 320, 400]
+    - type: backdrop-filter
+      bounds: [0, 0, 400, 80]
+      filters: blur(8,8)
+    - type: rect
+      color: 255 255 255 0.4
+      bounds: [0, 0, 400, 80]
+
+pipelines:
+  -
+    id: [1, 3]
+    items:
+      - type: rect
+        color: red
+        bounds: [0, 0, 320, 40]
+      - type: rect
+        color: green
+        bounds: [0, 40, 320, 40]
+      - type: rect
+        color: blue
+        bounds: [0, 80, 320, 40]
+      - type: rect
+        color: yellow
+        bounds: [0, 120, 320, 40]
+      - type: rect
+        color: magenta
+        bounds: [0, 160, 320, 40]
+      - type: rect
+        color: cyan
+        bounds: [0, 200, 320, 40]
+      - type: rect
+        color: black
+        bounds: [0, 240, 320, 40]
+      - type: rect
+        color: 255 128 0
+        bounds: [0, 280, 320, 40]
+      - type: rect
+        color: red
+        bounds: [0, 320, 320, 40]
+      - type: rect
+        color: green
+        bounds: [0, 360, 320, 40]

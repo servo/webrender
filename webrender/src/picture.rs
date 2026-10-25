@@ -95,7 +95,7 @@
 //! improved as a follow up).
 
 use api::RasterSpace;
-use api::{DebugFlags, ColorF, PrimitiveFlags, SnapshotInfo};
+use api::{ClipMode, DebugFlags, ColorF, PrimitiveFlags, SnapshotInfo};
 use api::units::*;
 use crate::command_buffer::{CommandBufferIndex, PrimitiveCommand};
 use crate::renderer::GpuBufferBuilderF;
@@ -1686,8 +1686,8 @@ fn draw_backdrop_sources(
     let device_pixel_scale = root_surface.device_pixel_scale;
     let root_to_raster = get_relative_scale_offset(raster_spatial_node_index, root, frame_context.spatial_tree).inverse();
 
-    // Render tasks the quads below depend on have to be drawn before the
-    // capture.
+    // Render tasks the quads below create, such as the mask of a slice's
+    // rounded clip, have to be drawn before the capture.
     frame_state.surface_builder.select_backdrop_capture(Some(capture_index));
 
     for slice_id in &source_slices {
@@ -1717,8 +1717,20 @@ fn draw_backdrop_sources(
             .map(|so| so.map_rect(&bounds))
             .unwrap_or_else(DeviceRect::max_rect);
 
+        // The slice's rounded clip is applied when its tiles are composited,
+        // not to its primitives, so it is applied here too.
         let mut clips = QuadClipStack::new();
-        clips.set_bounds(bounds, coverage_rect, DeviceRect::max_rect(), false);
+        for shape in &tile_cache.compositor_clip_shapes {
+            clips.push_rounded_rect(
+                shape.rect,
+                shape.radius,
+                LayoutSideOffsets::zero(),
+                ClipMode::Clip,
+                shape.spatial_node_index,
+                shape.uid,
+            );
+        }
+        clips.set_bounds(bounds, coverage_rect, DeviceRect::max_rect(), !tile_cache.compositor_clip_shapes.is_empty());
 
         quad::prepare_quad(
             &ImagePattern {
@@ -1742,6 +1754,11 @@ fn draw_backdrop_sources(
             frame_state,
             scratch,
         );
+        // A nine-patch quad, as for a slice's rounded clip, draws its
+        // unclipped segments straight from the source without depending on
+        // it, so the source would otherwise be freed after its corner tasks,
+        // before the capture is drawn.
+        frame_state.surface_builder.add_child_render_task(task_id, frame_state.rg_builder);
     }
 
     frame_state.surface_builder.select_backdrop_capture(None);
