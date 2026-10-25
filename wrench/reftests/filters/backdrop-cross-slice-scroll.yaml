@@ -1,0 +1,152 @@
+root:
+  items:
+    - type: rect
+      color: white
+      bounds: [0, 0, 400, 400]
+    - type: scroll-frame
+      bounds: [0, 0, 400, 400]
+      content-size: [400, 1200]
+      scroll-offset: [0, 37]
+      items:
+        - type: clip
+          id: 100
+          clip-rect: [20, 50, 360, 60]
+          complex:
+            - rect: [20, 50, 360, 60]
+              radius: [12, 12]
+              clip-mode: clip
+        - type: clip-chain
+          id: 101
+          clips: [100]
+        - type: gradient
+          bounds: [20, 50, 360, 60]
+          start: [20, 50]
+          end: [380, 50]
+          stops: [0.0, red, 1.0, blue]
+          clip-chain: 101
+        - type: rect
+          color: red
+          bounds: [20, 0, 50, 20]
+        - type: rect
+          color: green
+          bounds: [90, 30, 50, 20]
+        - type: rect
+          color: blue
+          bounds: [160, 60, 50, 20]
+        - type: rect
+          color: yellow
+          bounds: [230, 90, 50, 20]
+        - type: rect
+          color: magenta
+          bounds: [300, 120, 50, 20]
+        - type: rect
+          color: cyan
+          bounds: [20, 150, 50, 20]
+        - type: rect
+          color: black
+          bounds: [90, 180, 50, 20]
+        - type: rect
+          color: 255 128 0
+          bounds: [160, 210, 50, 20]
+        - type: rect
+          color: red
+          bounds: [230, 240, 50, 20]
+        - type: rect
+          color: green
+          bounds: [300, 270, 50, 20]
+        - type: rect
+          color: blue
+          bounds: [20, 300, 50, 20]
+        - type: rect
+          color: yellow
+          bounds: [90, 330, 50, 20]
+        - type: rect
+          color: magenta
+          bounds: [160, 360, 50, 20]
+        - type: rect
+          color: cyan
+          bounds: [230, 390, 50, 20]
+        - type: rect
+          color: black
+          bounds: [300, 420, 50, 20]
+        - type: rect
+          color: 255 128 0
+          bounds: [20, 450, 50, 20]
+        - type: rect
+          color: red
+          bounds: [90, 480, 50, 20]
+        - type: rect
+          color: green
+          bounds: [160, 510, 50, 20]
+        - type: rect
+          color: blue
+          bounds: [230, 540, 50, 20]
+        - type: rect
+          color: yellow
+          bounds: [300, 570, 50, 20]
+        - type: rect
+          color: magenta
+          bounds: [20, 600, 50, 20]
+        - type: rect
+          color: cyan
+          bounds: [90, 630, 50, 20]
+        - type: rect
+          color: black
+          bounds: [160, 660, 50, 20]
+        - type: rect
+          color: 255 128 0
+          bounds: [230, 690, 50, 20]
+        - type: rect
+          color: red
+          bounds: [300, 720, 50, 20]
+        - type: rect
+          color: green
+          bounds: [20, 750, 50, 20]
+        - type: rect
+          color: blue
+          bounds: [90, 780, 50, 20]
+        - type: rect
+          color: yellow
+          bounds: [160, 810, 50, 20]
+        - type: rect
+          color: magenta
+          bounds: [230, 840, 50, 20]
+        - type: rect
+          color: cyan
+          bounds: [300, 870, 50, 20]
+        - type: rect
+          color: black
+          bounds: [20, 900, 50, 20]
+        - type: rect
+          color: 255 128 0
+          bounds: [90, 930, 50, 20]
+        - type: rect
+          color: red
+          bounds: [160, 960, 50, 20]
+        - type: rect
+          color: green
+          bounds: [230, 990, 50, 20]
+        - type: rect
+          color: blue
+          bounds: [300, 1020, 50, 20]
+        - type: rect
+          color: yellow
+          bounds: [20, 1050, 50, 20]
+        - type: rect
+          color: magenta
+          bounds: [90, 1080, 50, 20]
+        - type: rect
+          color: cyan
+          bounds: [160, 1110, 50, 20]
+        - type: rect
+          color: black
+          bounds: [230, 1140, 50, 20]
+        - type: rect
+          color: 255 128 0
+          bounds: [300, 1170, 50, 20]
+    - type: backdrop-filter
+      bounds: [0, 0, 400, 80]
+      filters: blur(8,8)
+    - type: rect
+      color: 255 255 255 0.4
+      bounds: [0, 0, 400, 80]

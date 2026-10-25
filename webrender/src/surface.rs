@@ -876,6 +876,15 @@ impl SurfaceBuilder {
         has_targets
     }
 
+    /// Draw what is prepared next into the capture at `index`, open on the
+    /// current surface, and none of its other open captures, until the next
+    /// primitive or `None`.
+    pub fn select_backdrop_capture(&mut self, index: Option<BackdropCaptureIndex>) {
+        for capture in &mut self.builder_stack.last_mut().unwrap().backdrop_captures {
+            capture.drawn_into = Some(capture.index) == index;
+        }
+    }
+
     pub fn pop_empty_surface(&mut self) {
         self.builder_stack.pop().unwrap();
     }

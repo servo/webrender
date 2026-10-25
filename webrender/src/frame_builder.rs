@@ -547,6 +547,20 @@ impl FrameBuilder {
                 }
             }
 
+            if render_picture_cache_slices {
+                crate::tile_cache::update_cross_slice_backdrops(
+                    &slice_ids,
+                    tile_caches,
+                    &mut scratch.primitive.frame.backdrop_captures,
+                    &scratch.primitive.frame.required_backdrop_chains,
+                    crate::tile_cache::supports_dirty_rects(
+                        &composite_state.compositor_kind,
+                        scene.config.gpu_supports_render_target_partial_update,
+                    ),
+                    frame_context.spatial_tree,
+                );
+            }
+
             scratch.primitive.frame.assert_draws_resolved();
 
             profile.end_time(profiler::FRAME_VISIBILITY_TIME);

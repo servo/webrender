@@ -1,0 +1,131 @@
+root:
+  items:
+    - type: rect
+      color: white
+      bounds: [0, 0, 400, 400]
+    - type: rect
+      color: red
+      bounds: [20, -53, 50, 20]
+    - type: rect
+      color: green
+      bounds: [90, -23, 50, 20]
+    - type: rect
+      color: blue
+      bounds: [160, 7, 50, 20]
+    - type: rect
+      color: yellow
+      bounds: [230, 37, 50, 20]
+    - type: rect
+      color: magenta
+      bounds: [300, 67, 50, 20]
+    - type: rect
+      color: cyan
+      bounds: [20, 97, 50, 20]
+    - type: rect
+      color: black
+      bounds: [90, 127, 50, 20]
+    - type: rect
+      color: 255 128 0
+      bounds: [160, 157, 50, 20]
+    - type: rect
+      color: red
+      bounds: [230, 187, 50, 20]
+    - type: rect
+      color: green
+      bounds: [300, 217, 50, 20]
+    - type: rect
+      color: blue
+      bounds: [20, 247, 50, 20]
+    - type: rect
+      color: yellow
+      bounds: [90, 277, 50, 20]
+    - type: rect
+      color: magenta
+      bounds: [160, 307, 50, 20]
+    - type: rect
+      color: cyan
+      bounds: [230, 337, 50, 20]
+    - type: rect
+      color: black
+      bounds: [300, 367, 50, 20]
+    - type: rect
+      color: 255 128 0
+      bounds: [20, 397, 50, 20]
+    - type: rect
+      color: red
+      bounds: [90, 427, 50, 20]
+    - type: rect
+      color: green
+      bounds: [160, 457, 50, 20]
+    - type: rect
+      color: blue
+      bounds: [230, 487, 50, 20]
+    - type: rect
+      color: yellow
+      bounds: [300, 517, 50, 20]
+    - type: rect
+      color: magenta
+      bounds: [20, 547, 50, 20]
+    - type: rect
+      color: cyan
+      bounds: [90, 577, 50, 20]
+    - type: rect
+      color: black
+      bounds: [160, 607, 50, 20]
+    - type: rect
+      color: 255 128 0
+      bounds: [230, 637, 50, 20]
+    - type: rect
+      color: red
+      bounds: [300, 667, 50, 20]
+    - type: rect
+      color: green
+      bounds: [20, 697, 50, 20]
+    - type: rect
+      color: blue
+      bounds: [90, 727, 50, 20]
+    - type: rect
+      color: yellow
+      bounds: [160, 757, 50, 20]
+    - type: rect
+      color: magenta
+      bounds: [230, 787, 50, 20]
+    - type: rect
+      color: cyan
+      bounds: [300, 817, 50, 20]
+    - type: rect
+      color: black
+      bounds: [20, 847, 50, 20]
+    - type: rect
+      color: 255 128 0
+      bounds: [90, 877, 50, 20]
+    - type: rect
+      color: red
+      bounds: [160, 907, 50, 20]
+    - type: rect
+      color: green
+      bounds: [230, 937, 50, 20]
+    - type: rect
+      color: blue
+      bounds: [300, 967, 50, 20]
+    - type: rect
+      color: yellow
+      bounds: [20, 997, 50, 20]
+    - type: rect
+      color: magenta
+      bounds: [90, 1027, 50, 20]
+    - type: rect
+      color: cyan
+      bounds: [160, 1057, 50, 20]
+    - type: rect
+      color: black
+      bounds: [230, 1087, 50, 20]
+    - type: rect
+      color: 255 128 0
+      bounds: [300, 1117, 50, 20]
+    - type: backdrop-filter
+      bounds: [100, 150, 200, 100]
+      filters: blur(4,4)
+    - type: rect
+      color: 255 255 255 0.4
+      bounds: [100, 150, 200, 100]

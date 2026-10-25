@@ -95,3 +95,8 @@ platform(linux,mac) == filter-drop-shadow-fractional.yaml filter-drop-shadow-fra
 == filter-drop-shadow-rotate-180.yaml filter-drop-shadow-rotate-180-ref.yaml
 == filter-blur-flipped.yaml filter-blur-flipped-ref.yaml
 == filter-blur-flipped-rounded-clip.yaml filter-blur-flipped-rounded-clip-ref.yaml
+== backdrop-cross-slice-scroll.yaml backdrop-cross-slice-scroll-ref.yaml
+== backdrop-cross-slice-two-scrollers.yaml backdrop-cross-slice-two-scrollers-ref.yaml
+== backdrop-cross-slice-partial.yaml backdrop-cross-slice-partial-ref.yaml
+== backdrop-cross-slice-invisible.yaml backdrop-cross-slice-invisible-ref.yaml
+== backdrop-cross-slice-scaled.yaml backdrop-cross-slice-scaled-ref.yaml

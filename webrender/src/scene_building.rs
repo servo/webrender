@@ -1933,21 +1933,6 @@ impl<'a> SceneBuilder<'a> {
         flags
     }
 
-    fn make_current_slice_atomic_if_required(&mut self) {
-        let has_non_wrapping_sc = self.sc_stack
-            .iter()
-            .position(|sc| {
-                !sc.flags.contains(StackingContextFlags::WRAPS_BACKDROP_FILTER)
-            })
-            .is_some();
-
-        if has_non_wrapping_sc {
-            return;
-        }
-
-        self.tile_cache_builder.make_current_slice_atomic();
-    }
-
     /// If no stacking contexts are present (i.e. we are adding prims to a tile
     /// cache), set a barrier to force creation of a slice before the next prim
     fn add_tile_cache_barrier_if_needed(
@@ -3149,8 +3134,6 @@ impl<'a> SceneBuilder<'a> {
         // backdrop root, but we can't know this if the root is a picture cache slice
         // (which is the common case). It will get resolved later during `finalize_picture`.
         let filter_spatial_node_index = SpatialNodeIndex::UNKNOWN;
-
-        self.make_current_slice_atomic_if_required();
 
         // Ensure we create a clip-chain for the capture primitive that matches
         // the render primitive, otherwise one might get culled while the other

@@ -1,0 +1,20 @@
+# An image that can be promoted to an overlay, in a slice above a
+# backdrop-filter's, in the same primary slice.
+root:
+  items:
+    - type: rect
+      color: 128 128 128
+      bounds: [0, 0, 400, 400]
+    - type: backdrop-filter
+      bounds: [0, 0, 400, 80]
+      filters: blur(8,8)
+    - type: rect
+      color: 255 255 255 0.4
+      bounds: [0, 0, 400, 80]
+    - type: scroll-frame
+      bounds: [0, 0, 400, 400]
+      content-size: [400, 1200]
+      items:
+        - image: transparent-checkerboard(2,16,16)
+          bounds: [50, 200, 300, 120]
+          prefer-compositor-surface: true

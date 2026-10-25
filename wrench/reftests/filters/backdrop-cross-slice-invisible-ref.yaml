@@ -1,0 +1,8 @@
+root:
+  items:
+    - type: rect
+      color: white
+      bounds: [0, 0, 400, 400]
+    - type: rect
+      color: green
+      bounds: [20, 47, 200, 200]
