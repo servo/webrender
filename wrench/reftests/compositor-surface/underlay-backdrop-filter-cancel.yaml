@@ -1,6 +1,6 @@
-# A backdrop-filter that overlaps an 8 bit underlay cancels the promotion: the
-# image is drawn into the content tiles instead, so that the filter has
-# something to read back.
+# An 8 bit underlay candidate in the area a backdrop-filter samples isn't
+# promoted: the image is drawn into the content tiles instead, so that the
+# filter has something to read back.
 # Reference image is public-domain - https://en.wikipedia.org/wiki/File:Barn-yuv.png
 ---
 root:

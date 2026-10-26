@@ -21,7 +21,7 @@ use crate::composite::{ExternalSurfaceDependency, NativeSurfaceId, NativeTileId}
 use crate::composite::{CompositorClipIndex, CompositorTransformIndex};
 use crate::composite::{CompositeTileDescriptor, CompositeTile};
 use crate::gpu_types::ZBufferId;
-use crate::internal_types::{FastHashMap, FrameId, Filter};
+use crate::internal_types::{FastHashMap, FastHashSet, FrameId, Filter};
 use crate::invalidation::{InvalidationReason, DirtyRegion, PrimitiveCompareResult};
 use crate::invalidation::cached_surface::{CachedSurface, TileUpdateDirtyContext, TileUpdateDirtyState, PrimitiveDependencyInfo};
 use crate::invalidation::vert_buffer::{CornersCache, VertRange};
@@ -43,7 +43,7 @@ use crate::space::{SpaceMapper, SpaceSnapper};
 use crate::spatial_tree::{SpatialNodeIndex, SpatialTree};
 use crate::surface::{SubpixelMode, SurfaceIndex, SurfaceInfo};
 use crate::util::{ScaleOffset, MatrixHelpers, MaxRect};
-use crate::visibility::{FrameVisibilityContext, FrameVisibilityState, DrawState, PrimitiveDrawIndex, PrimitiveVisibilityFlags};
+use crate::visibility::{BackdropCaptureIndex, BackdropCaptures, FrameVisibilityContext, FrameVisibilityState, DrawState, PrimitiveDrawIndex, PrimitiveVisibilityFlags};
 use euclid::approxeq::ApproxEq;
 use euclid::Box2D;
 use peek_poke::{PeekPoke, ensure_red_zone};
@@ -864,6 +864,19 @@ pub struct TileCacheInstance {
     yuv_surface_stability: FastHashMap<crate::intern::ItemUid, YuvSurfaceStability>,
     /// Persistent cache for computing and storing raster-space primitive corners.
     corners_cache: CornersCache,
+    /// The areas of this slice that backdrop-filters in it, and drawn ones in
+    /// slices above it, sample this frame, in increasing capture order, known
+    /// before visibility. Compositor surfaces aren't drawn into a backdrop, so
+    /// nothing is promoted to one in these areas.
+    pub backdrop_samples: Vec<BackdropSample>,
+}
+
+/// An area of a slice that a backdrop-filter in it or in a slice above samples.
+pub struct BackdropSample {
+    /// The capture that samples it.
+    pub capture_index: BackdropCaptureIndex,
+    /// The sampled area, in this slice's picture space.
+    pub rect: PictureRect,
 }
 
 impl TileCacheInstance {
@@ -926,6 +939,54 @@ impl TileCacheInstance {
             yuv_images_remaining: 0,
             yuv_surface_stability: FastHashMap::default(),
             corners_cache: CornersCache::new(),
+            backdrop_samples: Vec::new(),
+        }
+    }
+
+    /// Whether a backdrop-filter in this slice or a slice above may sample `rect`.
+    fn is_sampled_by_backdrop(&self, rect: &PictureRect) -> bool {
+        self.backdrop_samples.iter().any(|sample| sample.rect.intersects(rect))
+    }
+
+    /// Record the areas of this slice, at `position` in the slice order, that
+    /// the backdrop-filters in it and the drawn ones in the slices above it
+    /// sample. The slices above have already found which backdrop-filter chains
+    /// are drawn. This slice's own are only found as it is visited, after the
+    /// primitives behind them, so those count whether drawn or not.
+    pub fn update_backdrop_sample_rects(
+        &mut self,
+        position: usize,
+        root_regions: &[Option<(usize, LayoutRect)>],
+        captures: &BackdropCaptures,
+        required_backdrop_chains: &FastHashSet<PictureIndex>,
+        spatial_tree: &SpatialTree,
+    ) {
+        self.backdrop_samples.clear();
+        if captures.is_empty() {
+            return;
+        }
+        let pic_to_root = get_relative_scale_offset(
+            self.spatial_node_index,
+            spatial_tree.root_reference_frame_index(),
+            spatial_tree,
+        );
+        for ((capture_index, capture), root_region) in captures.iter().zip(root_regions) {
+            match root_region {
+                Some((top, _)) if *top == position => {
+                    self.backdrop_samples.push(BackdropSample {
+                        capture_index,
+                        rect: capture.region,
+                    });
+                }
+                Some((top, root_region)) if *top > position &&
+                    required_backdrop_chains.contains(&capture.chain_pic_index) => {
+                    self.backdrop_samples.push(BackdropSample {
+                        capture_index,
+                        rect: pic_to_root.unmap_rect(root_region),
+                    });
+                }
+                _ => {}
+            }
         }
     }
 
@@ -1537,6 +1598,10 @@ impl TileCacheInstance {
                 // is necessary for correct color display of HDR.
                 let force_for_hdr = matches!(color_depth, Some(color_depth) if color_depth.bit_depth() > 8);
 
+                if !force_for_hdr && self.is_sampled_by_backdrop(&pic_coverage_rect) {
+                    return Err(UnderBackdropFilter);
+                }
+
                 // If a mask is needed, there are some restrictions.
                 if prim_clip_chain.needs_mask {
                     // Need an opaque region behind this prim. The opaque region doesn't
@@ -1612,6 +1677,9 @@ impl TileCacheInstance {
         if surface_kind != CompositorSurfaceKind::Underlay {
             if self.slice_flags.contains(SliceFlags::IS_ATOMIC) {
                 return Err(SliceAtomic);
+            }
+            if self.is_sampled_by_backdrop(&pic_coverage_rect) {
+                return Err(UnderBackdropFilter);
             }
         }
 
@@ -3314,6 +3382,7 @@ enum SurfacePromotionFailure {
     NotRootTileCache,
     ComplexTransform,
     SliceAtomic,
+    UnderBackdropFilter,
     SizeTooLarge,
 }
 
@@ -3335,6 +3404,7 @@ impl Display for SurfacePromotionFailure {
                 SurfacePromotionFailure::NotRootTileCache => "is not on a root tile cache",
                 SurfacePromotionFailure::ComplexTransform => "has a complex transform",
                 SurfacePromotionFailure::SliceAtomic => "slice is atomic",
+                SurfacePromotionFailure::UnderBackdropFilter => "sampled by a backdrop-filter",
                 SurfacePromotionFailure::SizeTooLarge => "surface is too large for compositor",
             }.to_owned()
         )
@@ -3423,4 +3493,24 @@ fn test_max_surface_size_for_screen() {
     // Degenerate sizes fall back to the floor rather than underflowing.
     assert_eq!(for_screen(0, 0), MAX_SURFACE_SIZE);
     assert_eq!(for_screen(-1, -1), MAX_SURFACE_SIZE);
+}
+
+/// Each backdrop-filter capture's region in the root space, with the position
+/// of its backdrop root's slice in `slice_ids`.
+pub fn backdrop_root_regions(
+    slice_ids: &[SliceId],
+    tile_caches: &FastHashMap<SliceId, Box<TileCacheInstance>>,
+    captures: &BackdropCaptures,
+    spatial_tree: &SpatialTree,
+) -> Vec<Option<(usize, LayoutRect)>> {
+    let root = spatial_tree.root_reference_frame_index();
+    captures
+        .iter()
+        .map(|(_, capture)| {
+            let slice_id = capture.root_slice?;
+            let top = slice_ids.iter().position(|s| *s == slice_id)?;
+            let pic_to_root = get_relative_scale_offset(tile_caches[&slice_id].spatial_node_index, root, spatial_tree);
+            Some((top, pic_to_root.map_rect(&capture.region)))
+        })
+        .collect()
 }
