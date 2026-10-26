@@ -306,8 +306,6 @@ pub struct BackdropCaptureRegion {
     /// The surface the backdrop root's content is drawn into. `region` is in
     /// its picture space.
     pub root_surface_index: SurfaceIndex,
-    /// The picture cache slice the backdrop root is, if it is one.
-    pub root_slice: Option<SliceId>,
     /// The `BackdropCapture` primitive. Primitives painted before the
     /// backdrop-filter element have lower instance indices.
     pub capture_instance_index: PrimitiveInstanceIndex,
@@ -319,9 +317,6 @@ pub struct BackdropCaptureRegion {
     /// root is the slice itself. Part of what is painted behind the element,
     /// but not drawn by any primitive.
     pub root_background_color: Option<ColorF>,
-    /// The slices below the backdrop root that the capture reads, bottom-up,
-    /// once visibility is done.
-    pub source_slices: Vec<SliceId>,
 }
 
 /// The index of a backdrop-filter capture in `BackdropCaptures`.
@@ -376,29 +371,7 @@ impl ops::Index<BackdropCaptureIndex> for BackdropCaptures {
     }
 }
 
-impl ops::IndexMut<BackdropCaptureIndex> for BackdropCaptures {
-    fn index_mut(&mut self, index: BackdropCaptureIndex) -> &mut BackdropCaptureRegion {
-        &mut self.regions[index.0 as usize]
-    }
-}
-
 impl BackdropCaptures {
-    pub fn len(&self) -> usize {
-        self.regions.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.regions.is_empty()
-    }
-
-    /// Every capture, in increasing index order.
-    pub fn iter(&self) -> impl Iterator<Item = (BackdropCaptureIndex, &BackdropCaptureRegion)> {
-        self.regions
-            .iter()
-            .enumerate()
-            .map(|(index, capture)| (BackdropCaptureIndex(index as u32), capture))
-    }
-
     /// Group the captures by backdrop root and index them by picture, for a
     /// scene with `picture_count` pictures.
     fn index_pictures(&mut self, picture_count: usize) {
@@ -579,11 +552,9 @@ pub fn build_backdrop_capture_regions(
             capture_pic_index,
             root_pic_index,
             root_surface_index,
-            root_slice,
             capture_instance_index,
             region,
             root_background_color: root_slice.and_then(|slice_id| tile_caches[&slice_id].background_color),
-            source_slices: Vec::new(),
         });
     }
 

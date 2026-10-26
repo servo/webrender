@@ -377,14 +377,6 @@ impl FrameBuilder {
             &mut scratch.primitive.frame.backdrop_captures,
         );
 
-        let slice_ids = tile_cache_slice_ids(&scene.tile_cache_pictures, &scene.prim_store.pictures);
-        let backdrop_root_regions = crate::tile_cache::backdrop_root_regions(
-            &slice_ids,
-            tile_caches,
-            &scratch.primitive.frame.backdrop_captures,
-            frame_context.spatial_tree,
-        );
-
         // In order to handle picture snapshots consistently we need
         // the visibility and prepare passes to visit them first before
         // traversing the scene. This ensures that out-of-view snapshots
@@ -462,7 +454,7 @@ impl FrameBuilder {
                 }
             }
 
-            for (position, pic_index) in scene.tile_cache_pictures.iter().enumerate().rev() {
+            for pic_index in scene.tile_cache_pictures.iter().rev() {
                 if !render_picture_cache_slices {
                     break;
                 }
@@ -473,14 +465,6 @@ impl FrameBuilder {
                         let tile_cache = tile_caches
                             .get_mut(&slice_id)
                             .expect("bug: non-existent tile cache");
-
-                        tile_cache.update_backdrop_sample_rects(
-                            position,
-                            &backdrop_root_regions,
-                            &scratch.primitive.frame.backdrop_captures,
-                            &scratch.primitive.frame.required_backdrop_chains,
-                            spatial_tree,
-                        );
 
                         let mut visibility_state = FrameVisibilityState {
                             clip_store: &mut scene.clip_store,
@@ -545,20 +529,6 @@ impl FrameBuilder {
                         panic!("bug: not a tile cache");
                     }
                 }
-            }
-
-            if render_picture_cache_slices {
-                crate::tile_cache::update_cross_slice_backdrops(
-                    &slice_ids,
-                    tile_caches,
-                    &mut scratch.primitive.frame.backdrop_captures,
-                    &scratch.primitive.frame.required_backdrop_chains,
-                    crate::tile_cache::supports_dirty_rects(
-                        &composite_state.compositor_kind,
-                        scene.config.gpu_supports_render_target_partial_update,
-                    ),
-                    frame_context.spatial_tree,
-                );
             }
 
             scratch.primitive.frame.assert_draws_resolved();
@@ -1481,18 +1451,4 @@ impl Frame {
         // or external surfaces being updated).
         self.passes.is_empty()
     }
-}
-
-/// The slice ids of the picture cache slices, bottom-up.
-fn tile_cache_slice_ids(
-    tile_cache_pictures: &[PictureIndex],
-    pictures: &[PictureInstance],
-) -> Vec<SliceId> {
-    tile_cache_pictures
-        .iter()
-        .map(|pic_index| match pictures[pic_index.0 as usize].raster_config {
-            Some(RasterConfig { composite_mode: PictureCompositeMode::TileCache { slice_id }, .. }) => slice_id,
-            _ => panic!("bug: not a tile cache"),
-        })
-        .collect()
 }

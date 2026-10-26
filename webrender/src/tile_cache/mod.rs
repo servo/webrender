@@ -21,7 +21,7 @@ use crate::composite::{ExternalSurfaceDependency, NativeSurfaceId, NativeTileId}
 use crate::composite::{CompositorClipIndex, CompositorTransformIndex};
 use crate::composite::{CompositeTileDescriptor, CompositeTile};
 use crate::gpu_types::ZBufferId;
-use crate::internal_types::{FastHashMap, FastHashSet, FrameId, Filter};
+use crate::internal_types::{FastHashMap, FrameId, Filter};
 use crate::invalidation::{InvalidationReason, DirtyRegion, PrimitiveCompareResult};
 use crate::invalidation::cached_surface::{CachedSurface, TileUpdateDirtyContext, TileUpdateDirtyState, PrimitiveDependencyInfo};
 use crate::invalidation::vert_buffer::{CornersCache, VertRange};
@@ -40,11 +40,10 @@ use crate::renderer::GpuBufferBuilderF;
 use crate::resource_cache::{ResourceCache, ImageRequest};
 use crate::scene_building::SliceFlags;
 use crate::space::{SpaceMapper, SpaceSnapper};
-use crate::render_task_graph::RenderTaskId;
 use crate::spatial_tree::{SpatialNodeIndex, SpatialTree};
 use crate::surface::{SubpixelMode, SurfaceIndex, SurfaceInfo};
 use crate::util::{ScaleOffset, MatrixHelpers, MaxRect};
-use crate::visibility::{BackdropCaptureIndex, BackdropCaptures, FrameVisibilityContext, FrameVisibilityState, DrawState, PrimitiveDrawIndex, PrimitiveVisibilityFlags};
+use crate::visibility::{FrameVisibilityContext, FrameVisibilityState, DrawState, PrimitiveDrawIndex, PrimitiveVisibilityFlags};
 use euclid::approxeq::ApproxEq;
 use euclid::Box2D;
 use peek_poke::{PeekPoke, ensure_red_zone};
@@ -534,11 +533,14 @@ impl Tile {
         // mode, we can always update the content with smaller dirty rects, unless there is a
         // driver bug to workaround. For native composite mode, we can only use dirty rects if
         // the compositor supports partial surface updates.
-        let supports_dirty_rects = supports_dirty_rects(
-            &state.composite_state.compositor_kind,
-            frame_context.config.gpu_supports_render_target_partial_update,
-        );
-        let supports_simple_prims = !matches!(state.composite_state.compositor_kind, CompositorKind::Native { .. });
+        let (supports_dirty_rects, supports_simple_prims) = match state.composite_state.compositor_kind {
+            CompositorKind::Draw { .. } | CompositorKind::Layer { .. } => {
+                (frame_context.config.gpu_supports_render_target_partial_update, true)
+            }
+            CompositorKind::Native { capabilities, .. } => {
+                (capabilities.max_update_rects > 0, false)
+            }
+        };
 
         // TODO(gw): Consider using smaller tiles and/or tile splits for
         //           native compositors that don't support dirty rects.
@@ -798,10 +800,6 @@ pub struct TileCacheInstance {
     pub local_clip_rect: PictureRect,
     /// Registered clip in CompositeState for this picture cache
     pub compositor_clip: Option<CompositorClipIndex>,
-    /// The rounded-rect clips `compositor_clip` was built from, in their own
-    /// spatial node's space, for drawing this slice's content elsewhere with
-    /// the clip it is composited with.
-    pub compositor_clip_shapes: Vec<CompositorClipShape>,
     /// The screen rect, transformed to local picture space.
     pub screen_rect_in_pic_space: PictureRect,
     /// The surface index that this tile cache will be drawn into.
@@ -866,63 +864,6 @@ pub struct TileCacheInstance {
     yuv_surface_stability: FastHashMap<crate::intern::ItemUid, YuvSurfaceStability>,
     /// Persistent cache for computing and storing raster-space primitive corners.
     corners_cache: CornersCache,
-    /// What each backdrop-filter capture this slice is the backdrop root of
-    /// read from the slices below it last frame, by its chain.
-    backdrop_capture_keys: FastHashMap<PictureIndex, BackdropCaptureKey>,
-    /// The areas of this slice that backdrop-filters in it, and drawn ones in
-    /// slices above it, sample this frame, in increasing capture order, known
-    /// before visibility. Compositor surfaces aren't drawn into a backdrop, so
-    /// nothing is promoted to one in these areas.
-    pub backdrop_samples: Vec<BackdropSample>,
-}
-
-/// A rounded-rect clip a slice is composited with.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CompositorClipShape {
-    pub rect: LayoutRect,
-    pub radius: BorderRadius,
-    pub spatial_node_index: SpatialNodeIndex,
-    pub uid: u64,
-}
-
-/// What a backdrop-filter capture reads from the slices below its own. When it
-/// changes, so does the backdrop, even if none of those slices' tiles do.
-#[derive(Debug, Default, PartialEq)]
-pub struct BackdropCaptureKey {
-    region: PictureRect,
-    sources: Vec<BackdropSourceKey>,
-}
-
-/// What a backdrop-filter capture reads from one slice below its own.
-#[derive(Debug, PartialEq)]
-struct BackdropSourceKey {
-    slice_id: SliceId,
-    /// Maps the slice's picture space to the capture's.
-    slice_to_capture: ScaleOffset,
-    /// The sampled part of the slice, in its picture space.
-    rect: PictureRect,
-    compositor_clip_shapes: Vec<CompositorClipShape>,
-    background_color: Option<ColorF>,
-}
-
-/// An area of a slice that a backdrop-filter in it or in a slice above samples.
-pub struct BackdropSample {
-    /// The capture that samples it.
-    pub capture_index: BackdropCaptureIndex,
-    /// The sampled area, in this slice's picture space.
-    pub rect: PictureRect,
-    /// What this slice draws for the capture this frame, set once visibility
-    /// is done if the capture is in a slice above and its backdrop is redrawn.
-    pub source: Option<BackdropSource>,
-}
-
-/// The part of a slice drawn for a backdrop-filter in a slice above it.
-pub struct BackdropSource {
-    /// The sampled area clipped to the slice, in its picture space.
-    pub rect: PictureRect,
-    /// The task this slice's primitives in `rect` are drawn into, and the
-    /// task's rect in this slice's picture space, once this slice is prepared.
-    pub task: Option<(RenderTaskId, PictureRect)>,
 }
 
 impl TileCacheInstance {
@@ -956,7 +897,6 @@ impl TileCacheInstance {
             local_rect: PictureRect::zero(),
             local_clip_rect: PictureRect::zero(),
             compositor_clip: None,
-            compositor_clip_shapes: Vec::new(),
             screen_rect_in_pic_space: PictureRect::zero(),
             surface_index: SurfaceIndex(0),
             background_color: params.background_color,
@@ -986,72 +926,6 @@ impl TileCacheInstance {
             yuv_images_remaining: 0,
             yuv_surface_stability: FastHashMap::default(),
             corners_cache: CornersCache::new(),
-            backdrop_capture_keys: FastHashMap::default(),
-            backdrop_samples: Vec::new(),
-        }
-    }
-
-    /// The position in `backdrop_samples` of the area of this slice the
-    /// capture at `capture_index` samples, if it is in this slice, or drawn and
-    /// in a slice above.
-    fn backdrop_sample_position(&self, capture_index: BackdropCaptureIndex) -> Option<usize> {
-        self.backdrop_samples
-            .binary_search_by_key(&capture_index, |sample| sample.capture_index)
-            .ok()
-    }
-
-    /// The part of this slice drawn for the capture at `capture_index`, if any.
-    pub fn backdrop_source(&self, capture_index: BackdropCaptureIndex) -> Option<&BackdropSource> {
-        let position = self.backdrop_sample_position(capture_index)?;
-        self.backdrop_samples[position].source.as_ref()
-    }
-
-    /// Whether a backdrop-filter in this slice or a slice above may sample `rect`.
-    fn is_sampled_by_backdrop(&self, rect: &PictureRect) -> bool {
-        self.backdrop_samples.iter().any(|sample| sample.rect.intersects(rect))
-    }
-
-    /// Record the areas of this slice, at `position` in the slice order, that
-    /// the backdrop-filters in it and the drawn ones in the slices above it
-    /// sample. The slices above have already found which backdrop-filter chains
-    /// are drawn. This slice's own are only found as it is visited, after the
-    /// primitives behind them, so those count whether drawn or not.
-    pub fn update_backdrop_sample_rects(
-        &mut self,
-        position: usize,
-        root_regions: &[Option<(usize, LayoutRect)>],
-        captures: &BackdropCaptures,
-        required_backdrop_chains: &FastHashSet<PictureIndex>,
-        spatial_tree: &SpatialTree,
-    ) {
-        self.backdrop_samples.clear();
-        if captures.is_empty() {
-            return;
-        }
-        let pic_to_root = get_relative_scale_offset(
-            self.spatial_node_index,
-            spatial_tree.root_reference_frame_index(),
-            spatial_tree,
-        );
-        for ((capture_index, capture), root_region) in captures.iter().zip(root_regions) {
-            match root_region {
-                Some((top, _)) if *top == position => {
-                    self.backdrop_samples.push(BackdropSample {
-                        capture_index,
-                        rect: capture.region,
-                        source: None,
-                    });
-                }
-                Some((top, root_region)) if *top > position &&
-                    required_backdrop_chains.contains(&capture.chain_pic_index) => {
-                    self.backdrop_samples.push(BackdropSample {
-                        capture_index,
-                        rect: pic_to_root.unmap_rect(root_region),
-                        source: None,
-                    });
-                }
-                _ => {}
-            }
         }
     }
 
@@ -1284,7 +1158,6 @@ impl TileCacheInstance {
             // that are actually off-screen.
             self.local_clip_rect = PictureRect::zero();
             self.compositor_clip = None;
-            self.compositor_clip_shapes.clear();
 
             if let Some(clip_chain) = clip_chain_instance {
                 self.local_clip_rect = clip_chain.pic_coverage_rect;
@@ -1333,27 +1206,17 @@ impl TileCacheInstance {
                                 ClipSpaceConversion::Indeterminate => unreachable!(),
                             };
 
-                            // A clip that can't be intersected with the previous ones
-                            // is left out of the compositor clip, and of its shapes.
-                            let next = match combined {
-                                None => Some((device_rect, device_radius)),
+                            combined = Some(match combined {
+                                None => (device_rect, device_radius),
                                 Some((prev_rect, prev_radius)) => {
                                     intersect_rounded_rects(
                                         prev_rect.cast_unit(), prev_radius,
                                         device_rect.cast_unit(), device_radius,
                                     )
                                     .map(|(r, rad)| (r.cast_unit(), rad))
+                                    .unwrap_or((prev_rect, prev_radius))
                                 }
-                            };
-                            if let Some(next) = next {
-                                combined = Some(next);
-                                self.compositor_clip_shapes.push(CompositorClipShape {
-                                    rect: clip_instance.clip_rect,
-                                    radius,
-                                    spatial_node_index: clip_instance.spatial_node_index,
-                                    uid: clip_instance.handle.uid().get_uid(),
-                                });
-                            }
+                            });
                         }
                     }
 
@@ -1674,10 +1537,6 @@ impl TileCacheInstance {
                 // is necessary for correct color display of HDR.
                 let force_for_hdr = matches!(color_depth, Some(color_depth) if color_depth.bit_depth() > 8);
 
-                if !force_for_hdr && self.is_sampled_by_backdrop(&pic_coverage_rect) {
-                    return Err(UnderBackdropFilter);
-                }
-
                 // If a mask is needed, there are some restrictions.
                 if prim_clip_chain.needs_mask {
                     // Need an opaque region behind this prim. The opaque region doesn't
@@ -1753,9 +1612,6 @@ impl TileCacheInstance {
         if surface_kind != CompositorSurfaceKind::Underlay {
             if self.slice_flags.contains(SliceFlags::IS_ATOMIC) {
                 return Err(SliceAtomic);
-            }
-            if self.is_sampled_by_backdrop(&pic_coverage_rect) {
-                return Err(UnderBackdropFilter);
             }
         }
 
@@ -3458,7 +3314,6 @@ enum SurfacePromotionFailure {
     NotRootTileCache,
     ComplexTransform,
     SliceAtomic,
-    UnderBackdropFilter,
     SizeTooLarge,
 }
 
@@ -3480,7 +3335,6 @@ impl Display for SurfacePromotionFailure {
                 SurfacePromotionFailure::NotRootTileCache => "is not on a root tile cache",
                 SurfacePromotionFailure::ComplexTransform => "has a complex transform",
                 SurfacePromotionFailure::SliceAtomic => "slice is atomic",
-                SurfacePromotionFailure::UnderBackdropFilter => "sampled by a backdrop-filter",
                 SurfacePromotionFailure::SizeTooLarge => "surface is too large for compositor",
             }.to_owned()
         )
@@ -3569,162 +3423,4 @@ fn test_max_surface_size_for_screen() {
     // Degenerate sizes fall back to the floor rather than underflowing.
     assert_eq!(for_screen(0, 0), MAX_SURFACE_SIZE);
     assert_eq!(for_screen(-1, -1), MAX_SURFACE_SIZE);
-}
-
-/// Whether an invalid tile can be redrawn in part, rather than in full.
-pub fn supports_dirty_rects(
-    compositor_kind: &CompositorKind,
-    gpu_supports_render_target_partial_update: bool,
-) -> bool {
-    match compositor_kind {
-        CompositorKind::Draw { .. } | CompositorKind::Layer { .. } => gpu_supports_render_target_partial_update,
-        CompositorKind::Native { capabilities, .. } => capabilities.max_update_rects > 0,
-    }
-}
-
-/// Find the parts of lower slices that each backdrop-filter in a slice samples,
-/// and redraw the backdrop when what it reads from them changed. Runs once every
-/// tile cache's dirty rects are known, before prepare.
-pub fn update_cross_slice_backdrops(
-    slice_ids: &[SliceId],
-    tile_caches: &mut FastHashMap<SliceId, Box<TileCacheInstance>>,
-    captures: &mut BackdropCaptures,
-    required_backdrop_chains: &FastHashSet<PictureIndex>,
-    supports_dirty_rects: bool,
-    spatial_tree: &SpatialTree,
-) {
-    let root = spatial_tree.root_reference_frame_index();
-    let mut pic_to_root = Vec::with_capacity(slice_ids.len());
-    let mut prev_keys = Vec::with_capacity(slice_ids.len());
-
-    for slice_id in slice_ids {
-        let tile_cache = tile_caches.get_mut(slice_id).expect("bug: no tile cache");
-        prev_keys.push(mem::take(&mut tile_cache.backdrop_capture_keys));
-
-        // The same transform the slice's tiles are composited with.
-        pic_to_root.push(get_relative_scale_offset(tile_cache.spatial_node_index, root, spatial_tree));
-    }
-
-    for index in 0 .. captures.len() {
-        let capture_index = BackdropCaptureIndex(index as u32);
-        let capture = &captures[capture_index];
-        let Some(top) = capture.root_slice.and_then(|id| slice_ids.iter().position(|s| *s == id)) else {
-            continue;
-        };
-        // A chain that isn't drawn, such as one under an invisible picture,
-        // samples nothing.
-        if !required_backdrop_chains.contains(&capture.chain_pic_index) {
-            continue;
-        }
-        // The slices below took what drawn backdrop-filters sample before their
-        // visibility pass, so each chain has to be found to be drawn by then.
-        assert!(
-            slice_ids[.. top].iter().all(|slice_id| {
-                tile_caches[slice_id].backdrop_sample_position(capture_index).is_some()
-            }),
-            "bug: backdrop-filter chain found to be drawn after the slices below it",
-        );
-        let root_to_capture = pic_to_root[top].inverse();
-        let mut sources = Vec::new();
-        let mut key = BackdropCaptureKey { region: capture.region, sources: Vec::new() };
-        let mut changed = false;
-
-        for lower in 0 .. top {
-            let tile_cache = &tile_caches[&slice_ids[lower]];
-            let position = tile_cache.backdrop_sample_position(capture_index).unwrap();
-            let Some(rect) = tile_cache.backdrop_samples[position].rect
-                .intersection(&tile_cache.local_clip_rect)
-                .and_then(|rect| rect.intersection(&tile_cache.local_rect)) else {
-                continue;
-            };
-
-            changed |= tile_cache.sub_slices.iter().any(|sub_slice| {
-                sub_slice.tiles.values().any(|tile| {
-                    tile.is_visible &&
-                        !tile.cached_surface.is_valid &&
-                        tile.cached_surface.local_dirty_rect.intersects(&rect)
-                })
-            });
-            key.sources.push(BackdropSourceKey {
-                slice_id: slice_ids[lower],
-                slice_to_capture: pic_to_root[lower].then(&root_to_capture),
-                rect,
-                compositor_clip_shapes: tile_cache.compositor_clip_shapes.clone(),
-                background_color: tile_cache.background_color,
-            });
-            sources.push((lower, position, rect));
-        }
-
-        changed |= prev_keys[top].get(&capture.chain_pic_index).map_or(true, |prev| *prev != key);
-        tile_caches.get_mut(&slice_ids[top]).unwrap()
-            .backdrop_capture_keys
-            .insert(capture.chain_pic_index, key);
-        // Nothing below to read, now or last frame.
-        if sources.is_empty() && !changed {
-            continue;
-        }
-
-        let top_cache = tile_caches.get_mut(&slice_ids[top]).unwrap();
-        // Tiles outside the slice's clip aren't drawn, and would keep any
-        // invalidation until they are.
-        let Some(visible_region) = capture.region.intersection(&top_cache.local_clip_rect) else {
-            continue;
-        };
-        if changed {
-            for sub_slice in &mut top_cache.sub_slices {
-                for tile in sub_slice.tiles.values_mut() {
-                    if tile.is_visible && tile.cached_surface.local_rect.intersects(&visible_region) {
-                        // This runs after the tiles' own post-update, which makes
-                        // an invalid tile dirty in full where it can't be redrawn
-                        // in part.
-                        let dirty_rect = supports_dirty_rects.then_some(visible_region);
-                        tile.invalidate(dirty_rect, InvalidationReason::SurfaceContentChanged);
-                    }
-                }
-            }
-        }
-
-        // The backdrop is only drawn with tiles that are, which leaves out any
-        // that are dirty but outside the slice's clip or valid rect.
-        let drawn = top_cache.sub_slices.iter().any(|sub_slice| {
-            sub_slice.tiles.values().any(|tile| {
-                tile.is_visible &&
-                    !tile.cached_surface.is_valid &&
-                    tile.cached_surface.local_dirty_rect
-                        .intersection(&tile.cached_surface.current_descriptor.local_valid_rect)
-                        .is_some_and(|rect| rect.intersects(&visible_region))
-            })
-        });
-        if !drawn {
-            continue;
-        }
-
-        for &(lower, position, rect) in &sources {
-            tile_caches.get_mut(&slice_ids[lower]).unwrap().backdrop_samples[position].source = Some(BackdropSource {
-                rect,
-                task: None,
-            });
-        }
-        captures[capture_index].source_slices = sources.iter().map(|(lower, _, _)| slice_ids[*lower]).collect();
-    }
-}
-
-/// Each backdrop-filter capture's region in the root space, with the position
-/// of its backdrop root's slice in `slice_ids`.
-pub fn backdrop_root_regions(
-    slice_ids: &[SliceId],
-    tile_caches: &FastHashMap<SliceId, Box<TileCacheInstance>>,
-    captures: &BackdropCaptures,
-    spatial_tree: &SpatialTree,
-) -> Vec<Option<(usize, LayoutRect)>> {
-    let root = spatial_tree.root_reference_frame_index();
-    captures
-        .iter()
-        .map(|(_, capture)| {
-            let slice_id = capture.root_slice?;
-            let top = slice_ids.iter().position(|s| *s == slice_id)?;
-            let pic_to_root = get_relative_scale_offset(tile_caches[&slice_id].spatial_node_index, root, spatial_tree);
-            Some((top, pic_to_root.map_rect(&capture.region)))
-        })
-        .collect()
 }

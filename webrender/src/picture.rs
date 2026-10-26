@@ -95,7 +95,7 @@
 //! improved as a follow up).
 
 use api::RasterSpace;
-use api::{ClipMode, DebugFlags, ColorF, PrimitiveFlags, SnapshotInfo};
+use api::{DebugFlags, ColorF, PrimitiveFlags, SnapshotInfo};
 use api::units::*;
 use crate::command_buffer::{CommandBufferIndex, PrimitiveCommand};
 use crate::renderer::GpuBufferBuilderF;
@@ -117,7 +117,7 @@ use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureStat
 use plane_split::{Clipper, Polygon};
 use crate::prim_store::{PictureIndex, PrimitiveInstance, PrimitiveKind};
 use crate::prim_store::storage::Index as StorageIndex;
-use crate::visibility::{BackdropCaptureIndex, PrimitiveDrawHeader};
+use crate::visibility::PrimitiveDrawHeader;
 use crate::prim_store::{PrimitiveScratchBuffer, ClipTaskIndex, ClipMaskKind};
 use crate::prim_store::storage;
 use crate::print_tree::PrintTreePrinter;
@@ -132,7 +132,7 @@ use crate::quad::{self, QuadDescriptor, QuadTransformState};
 use crate::quad_clip::QuadClipStack;
 use crate::scene::SceneProperties;
 use crate::spatial_tree::CoordinateSystemId;
-use crate::surface::{SurfaceDescriptor, SurfaceExtraTarget, SurfaceTileDescriptor, get_surface_rects};
+use crate::surface::{SurfaceDescriptor, SurfaceTileDescriptor, get_surface_rects};
 use crate::surface::{SurfaceIndex, SurfaceInfo, SubpixelMode};
 use smallvec::SmallVec;
 use std::ops::Range;
@@ -821,9 +821,7 @@ impl PictureInstance {
             let chain_pic_index = scratch.frame.backdrop_captures[index].chain_pic_index;
             if scratch.frame.required_backdrop_chains.contains(&chain_pic_index) {
                 let open = scratch.frame.backdrop_captures.open(index, frame_state.cmd_buffers);
-                let cmd_buffer_index = open.cmd_buffer_index;
                 frame_state.surface_builder.open_backdrop_capture(open);
-                draw_backdrop_sources(index, cmd_buffer_index, frame_context, frame_state, scratch, tile_caches);
             }
         }
 
@@ -836,14 +834,7 @@ impl PictureInstance {
         // If this is a picture cache, push the dirty region to ensure any
         // child primitives are culled and clipped to the dirty rect(s).
         if let Some(RasterConfig { composite_mode: PictureCompositeMode::TileCache { slice_id }, .. }) = self.raster_config {
-            let mut dirty_region = tile_caches[&slice_id].dirty_region.clone();
-            // Primitives under a backdrop-filter in a slice above are drawn for
-            // it whether or not their tiles are dirty.
-            for source in tile_caches[&slice_id].backdrop_samples.iter().filter_map(|sample| sample.source.as_ref()) {
-                if source.task.is_some() {
-                    dirty_region.add_dirty_region(source.rect, frame_context.spatial_tree);
-                }
-            }
+            let dirty_region = tile_caches[&slice_id].dirty_region.clone();
             frame_state.push_dirty_region(dirty_region);
 
             dirty_region_count += 1;
@@ -1664,106 +1655,6 @@ pub fn get_relative_scale_offset(
     scale_offset
 }
 
-/// Draw the parts of the slices below a backdrop root slice that the capture
-/// at `capture_index` samples into its command buffer, bottom-up, before the
-/// slice's own primitives behind the element.
-fn draw_backdrop_sources(
-    capture_index: BackdropCaptureIndex,
-    cmd_buffer_index: CommandBufferIndex,
-    frame_context: &FrameBuildingContext,
-    frame_state: &mut FrameBuildingState,
-    scratch: &mut PrimitiveScratchBuffer,
-    tile_caches: &FastHashMap<SliceId, Box<TileCacheInstance>>,
-) {
-    let capture = &scratch.frame.backdrop_captures[capture_index];
-    if capture.source_slices.is_empty() {
-        return;
-    }
-    let source_slices = capture.source_slices.clone();
-    let root = frame_context.spatial_tree.root_reference_frame_index();
-    let root_surface = &frame_state.surfaces[capture.root_surface_index.0];
-    let raster_spatial_node_index = root_surface.raster_spatial_node_index;
-    let device_pixel_scale = root_surface.device_pixel_scale;
-    let root_to_raster = get_relative_scale_offset(raster_spatial_node_index, root, frame_context.spatial_tree).inverse();
-
-    // Render tasks the quads below create, such as the mask of a slice's
-    // rounded clip, have to be drawn before the capture.
-    frame_state.surface_builder.select_backdrop_capture(Some(capture_index));
-
-    for slice_id in &source_slices {
-        let tile_cache = &tile_caches[slice_id];
-        let Some((task_id, task_rect)) = tile_cache.backdrop_source(capture_index).and_then(|source| source.task) else {
-            continue;
-        };
-        // A slice rasterizes in its own spatial node's space.
-        let pattern_rect: LayoutRect = task_rect.cast_unit();
-        let Some(bounds) = pattern_rect.intersection(&tile_cache.local_clip_rect.cast_unit()) else {
-            continue;
-        };
-
-        // Place the slice's content where its tiles are composited, with the
-        // same device-pixel rounding, relative to the capture.
-        let spatial_node_index = tile_cache.spatial_node_index;
-        let slice_to_raster = get_relative_scale_offset(spatial_node_index, root, frame_context.spatial_tree)
-            .then(&root_to_raster);
-        let mut transform = QuadTransformState::from_scale_offset(
-            slice_to_raster,
-            spatial_node_index,
-            raster_spatial_node_index,
-            device_pixel_scale,
-        );
-        let coverage_rect = transform
-            .as_2d_scale_offset()
-            .map(|so| so.map_rect(&bounds))
-            .unwrap_or_else(DeviceRect::max_rect);
-
-        // The slice's rounded clip is applied when its tiles are composited,
-        // not to its primitives, so it is applied here too.
-        let mut clips = QuadClipStack::new();
-        for shape in &tile_cache.compositor_clip_shapes {
-            clips.push_rounded_rect(
-                shape.rect,
-                shape.radius,
-                LayoutSideOffsets::zero(),
-                ClipMode::Clip,
-                shape.spatial_node_index,
-                shape.uid,
-            );
-        }
-        clips.set_bounds(bounds, coverage_rect, DeviceRect::max_rect(), !tile_cache.compositor_clip_shapes.is_empty());
-
-        quad::prepare_quad(
-            &ImagePattern {
-                src_task_id: task_id,
-                src_is_opaque: false,
-                premultiplied: true,
-                sampler_kind: ImageBufferKind::Texture2D,
-                color: ColorF::WHITE,
-            },
-            &QuadDescriptor {
-                pattern_rect,
-                bounds,
-                aligned_aa_edges: EdgeMask::empty(),
-                transformed_aa_edges: EdgeMask::empty(),
-            },
-            &None,
-            &clips,
-            &mut transform,
-            frame_context.spatial_tree,
-            &[cmd_buffer_index],
-            frame_state,
-            scratch,
-        );
-        // A nine-patch quad, as for a slice's rounded clip, draws its
-        // unclipped segments straight from the source without depending on
-        // it, so the source would otherwise be freed after its corner tasks,
-        // before the capture is drawn.
-        frame_state.surface_builder.add_child_render_task(task_id, frame_state.rg_builder);
-    }
-
-    frame_state.surface_builder.select_backdrop_capture(None);
-}
-
 /// Update dirty rects, ensure that tiles have backing surfaces and build
 /// the tile render tasks.
 fn prepare_tiled_picture_surface(
@@ -2291,46 +2182,7 @@ fn prepare_tiled_picture_surface(
             );
     }
 
-    // The parts of this slice that backdrop-filters above it sample are drawn
-    // into tasks of their own, in this slice's raster space, from the same
-    // commands as its tiles.
-    let mut backdrop_source_targets = Vec::new();
-    let surface = &frame_state.surfaces[surface_index.0];
-    let raster_spatial_node_index = surface.raster_spatial_node_index;
-    for source in tile_cache.backdrop_samples.iter_mut().filter_map(|sample| sample.source.as_mut()) {
-        let device_rect = surface.map_to_device_rect(&source.rect).round_out();
-        if device_rect.is_empty() {
-            continue;
-        }
-        let size = device_rect.size().to_i32();
-        let cmd_buffer_index = frame_state.cmd_buffers.create_cmd_buffer();
-        let task_id = frame_state.rg_builder.add().init(
-            RenderTask::new_dynamic(
-                size,
-                RenderTaskKind::new_picture(
-                    size,
-                    true,
-                    device_rect.min,
-                    surface_spatial_node_index,
-                    raster_spatial_node_index,
-                    device_pixel_scale,
-                    None,
-                    None,
-                    Some(tile_cache.background_color.unwrap_or(ColorF::TRANSPARENT)),
-                    cmd_buffer_index,
-                    true,
-                    None,
-                ),
-            ),
-        );
-        source.task = Some((task_id, surface.device_to_picture_rect(&device_rect)));
-        backdrop_source_targets.push(SurfaceExtraTarget { rect: source.rect, task_id });
-        // Primitives are drawn for the source whether or not their tiles are
-        // dirty, so their clip masks and cached patterns have to cover it too.
-        surface_device_dirty_rect = surface_device_dirty_rect.union(&device_rect);
-    }
-
-    let descriptor = SurfaceDescriptor::new_tiled(surface_render_tasks, backdrop_source_targets);
+    let descriptor = SurfaceDescriptor::new_tiled(surface_render_tasks);
 
     frame_state.surface_builder.push_surface(
         surface_index,
