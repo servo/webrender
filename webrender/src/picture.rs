@@ -2182,7 +2182,7 @@ fn prepare_tiled_picture_surface(
             );
     }
 
-    let descriptor = SurfaceDescriptor::new_tiled(surface_render_tasks);
+    let descriptor = SurfaceDescriptor::new_tiled(surface_render_tasks, Vec::new());
 
     frame_state.surface_builder.push_surface(
         surface_index,
