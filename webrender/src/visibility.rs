@@ -319,6 +319,9 @@ pub struct BackdropCaptureRegion {
     /// root is the slice itself. Part of what is painted behind the element,
     /// but not drawn by any primitive.
     pub root_background_color: Option<ColorF>,
+    /// The slices below the backdrop root that the capture reads, bottom-up,
+    /// once visibility is done.
+    pub source_slices: Vec<SliceId>,
 }
 
 /// The index of a backdrop-filter capture in `BackdropCaptures`.
@@ -373,7 +376,17 @@ impl ops::Index<BackdropCaptureIndex> for BackdropCaptures {
     }
 }
 
+impl ops::IndexMut<BackdropCaptureIndex> for BackdropCaptures {
+    fn index_mut(&mut self, index: BackdropCaptureIndex) -> &mut BackdropCaptureRegion {
+        &mut self.regions[index.0 as usize]
+    }
+}
+
 impl BackdropCaptures {
+    pub fn len(&self) -> usize {
+        self.regions.len()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.regions.is_empty()
     }
@@ -570,6 +583,7 @@ pub fn build_backdrop_capture_regions(
             capture_instance_index,
             region,
             root_background_color: root_slice.and_then(|slice_id| tile_caches[&slice_id].background_color),
+            source_slices: Vec::new(),
         });
     }
 

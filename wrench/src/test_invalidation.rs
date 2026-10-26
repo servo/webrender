@@ -102,6 +102,8 @@ pub struct TestHarness<'a> {
 struct RenderResult {
     pc_debug: PictureCacheDebugInfo,
     composite_needed: bool,
+    /// The pixel read back at `probe`, if one was requested.
+    probe_pixel: Option<[u8; 4]>,
 }
 
 // Convenience method to build a picture rect
@@ -140,6 +142,13 @@ impl<'a> TestHarness<'a> {
         self.test_surface_sub_slice();
         self.test_backdrop_sampled_margin();
         self.test_backdrop_scroll_under_clip();
+        self.test_backdrop_cross_slice_scroll();
+        self.test_backdrop_cross_slice_scroll_under_clip();
+        self.test_backdrop_cross_slice_compositor_surfaces();
+        self.test_backdrop_cross_slice_changes();
+        self.test_backdrop_cross_slice_uncovered();
+        self.test_backdrop_cross_slice_move_together();
+        self.test_backdrop_own_slice_compositor_surfaces();
 
         // Run manifest-based tests
         let manifest_path = PathBuf::from("invalidation/invalidation.list");
@@ -473,6 +482,208 @@ impl<'a> TestHarness<'a> {
         );
     }
 
+    fn test_backdrop_cross_slice_scroll_under_clip(&mut self) {
+        // As test_backdrop_scroll_under_clip, with the backdrop read from a fixed
+        // background slice below its scroll frame's slice.
+        self.render_yaml("basic");
+        self.render_yaml("backdrop_cross_slice_scroll_under_clip_1");
+        self.render_yaml("backdrop_cross_slice_scroll_under_clip_2");
+        let results = self.render_yaml("backdrop_cross_slice_scroll_under_clip_2");
+        assert!(
+            !Self::has_any_dirty_tile(&results.pc_debug),
+            "Ensure an unchanged frame after scrolling a backdrop over a lower slice redraws no tiles",
+        );
+    }
+
+    fn test_backdrop_cross_slice_scroll(&mut self) {
+        self.render_yaml("backdrop_cross_slice_scroll_1");
+        // Behind the header, over the rounded gradient once scrolled.
+        let results = self.render_yaml_path_probe(
+            &PathBuf::from("invalidation/backdrop_cross_slice_scroll_2.yaml"),
+            Some((200, 20)),
+        );
+
+        let dirty_tiles = |slice: usize| {
+            results.pc_debug.slices[&slice].sub_slices.iter().flat_map(|tiles| tiles.values())
+                .filter(|tile| matches!(tile, TileDebugInfo::Dirty(..)))
+                .count()
+        };
+
+        assert_eq!(results.pc_debug.slices.len(), 3, "Ensure the backdrop's slices are not merged");
+        assert_eq!(dirty_tiles(1), 0, "Ensure scrolling the content under the backdrop keeps its tiles");
+        assert!(dirty_tiles(2) > 0, "Ensure the backdrop is redrawn when the content under it scrolls");
+
+        // Content with a clip mask, in a slice whose tiles are all clean, is
+        // still drawn into the backdrop.
+        let [r, g, b, _] = results.probe_pixel.unwrap();
+        assert!(
+            (r as u32 + g as u32 + b as u32) < 600,
+            "Ensure masked content under the backdrop is drawn after scrolling, got {:?}",
+            (r, g, b),
+        );
+    }
+
+    fn test_backdrop_cross_slice_compositor_surfaces(&mut self) {
+        // An image that would be promoted to an overlay or an underlay in a
+        // slice below a backdrop-filter (an iframe, so a separate primary slice)
+        // must still be drawn into the backdrop, as when it is in one slice.
+        for kind in &["overlay", "underlay"] {
+            for &probe in &[(200, 40), (200, 120)] {
+                self.assert_probe_matches(
+                    &format!("invalidation/backdrop_cross_slice_{}.yaml", kind),
+                    &format!("invalidation/backdrop_cross_slice_{}_ref.yaml", kind),
+                    probe,
+                    &format!("a {} candidate under a backdrop in a lower slice is drawn into it", kind),
+                );
+            }
+        }
+    }
+
+    fn test_backdrop_cross_slice_changes(&mut self) {
+        // Changes to a slice below a backdrop-filter that don't dirty any of its
+        // tiles still change what the backdrop reads from it. The reference and
+        // the state before the change are each rendered after a scene of a
+        // single slice, so that neither keeps tiles of the backdrop or the slice
+        // below it from an earlier scene.
+        let cases = [
+            ("clip_grow", (100, 40), "content revealed by a lower slice's wider clip shows through the backdrop"),
+            ("unsampled", (200, 40), "the backdrop stops showing a lower slice it no longer samples"),
+        ];
+        for (name, probe, what) in cases {
+            let before = format!("invalidation/backdrop_cross_slice_{}_1.yaml", name);
+            let after = format!("invalidation/backdrop_cross_slice_{}_2.yaml", name);
+            self.render_yaml("basic");
+            let expected = self.render_yaml_path_probe(&PathBuf::from(&after), Some(probe)).probe_pixel.unwrap();
+            self.render_yaml("basic");
+            self.render_yaml_path(&PathBuf::from(&before));
+            let actual = self.render_yaml_path_probe(&PathBuf::from(&after), Some(probe)).probe_pixel.unwrap();
+            assert!(
+                expected.iter().zip(actual.iter()).all(|(e, a)| (*e as i32 - *a as i32).abs() <= 8),
+                "Ensure {} at {:?}: expected {:?}, got {:?}",
+                what, probe, expected, actual,
+            );
+        }
+    }
+
+    fn test_backdrop_cross_slice_uncovered(&mut self) {
+        // A backdrop-filter's tiles, occluded for a frame, lose their textures
+        // and are redrawn once uncovered, though nothing under the backdrop
+        // changed. The backdrop must still read the slice below its own.
+        let probe = (150, 200);
+        self.render_yaml("basic");
+        let expected = self.render_yaml_path_probe(
+            &PathBuf::from("invalidation/backdrop_cross_slice_uncovered_1.yaml"),
+            Some(probe),
+        ).probe_pixel.unwrap();
+        self.render_yaml("basic");
+        self.render_yaml("backdrop_cross_slice_uncovered_1");
+        self.render_yaml("backdrop_cross_slice_uncovered_2");
+        let actual = self.render_yaml_path_probe(
+            &PathBuf::from("invalidation/backdrop_cross_slice_uncovered_1.yaml"),
+            Some(probe),
+        ).probe_pixel.unwrap();
+        assert!(
+            expected.iter().zip(actual.iter()).all(|(e, a)| (*e as i32 - *a as i32).abs() <= 8),
+            "Ensure the backdrop reads the slice below once uncovered at {:?}: expected {:?}, got {:?}",
+            probe, expected, actual,
+        );
+    }
+
+    fn test_backdrop_cross_slice_move_together(&mut self) {
+        // A backdrop-filter and the slice below it, moved by the same amount:
+        // nothing under the backdrop changed, so its tiles are kept.
+        let probe = (200, 80);
+        self.render_yaml("basic");
+        let expected = self.render_yaml_path_probe(
+            &PathBuf::from("invalidation/backdrop_cross_slice_move_together_2.yaml"),
+            Some(probe),
+        ).probe_pixel.unwrap();
+        self.render_yaml("basic");
+        self.render_yaml("backdrop_cross_slice_move_together_1");
+        let results = self.render_yaml_path_probe(
+            &PathBuf::from("invalidation/backdrop_cross_slice_move_together_2.yaml"),
+            Some(probe),
+        );
+        let actual = results.probe_pixel.unwrap();
+
+        let dirty_tiles = |slice: usize| {
+            results.pc_debug.slices[&slice].sub_slices.iter().flat_map(|tiles| tiles.values())
+                .filter(|tile| matches!(tile, TileDebugInfo::Dirty(..)))
+                .count()
+        };
+
+        assert_eq!(results.pc_debug.slices.len(), 2, "Ensure the backdrop's slices are not merged");
+        assert_eq!(dirty_tiles(0), 0, "Ensure scrolling the content under the backdrop keeps its tiles");
+        assert_eq!(dirty_tiles(1), 0, "Ensure the backdrop isn't redrawn when it moves with the content under it");
+        assert!(
+            expected.iter().zip(actual.iter()).all(|(e, a)| (*e as i32 - *a as i32).abs() <= 8),
+            "Ensure the backdrop still shows the content under it after both move at {:?}: expected {:?}, got {:?}",
+            probe, expected, actual,
+        );
+    }
+
+    fn test_backdrop_own_slice_compositor_surfaces(&mut self) {
+        // Compositor surfaces aren't drawn into a backdrop, so nothing in the
+        // area a backdrop-filter samples is promoted, but anything elsewhere,
+        // in its slice or in a slice above, still is.
+        assert_eq!(
+            self.render_yaml_overlays("backdrop_own_slice_overlay_control"), 1,
+            "Ensure the image is promoted to an overlay with no backdrop-filter",
+        );
+        assert_eq!(
+            self.render_yaml_overlays("backdrop_own_slice_overlay_outside"), 1,
+            "Ensure an image outside the area a backdrop-filter in its slice samples is promoted",
+        );
+        assert_eq!(
+            self.render_yaml_overlays("backdrop_above_slice_overlay"), 1,
+            "Ensure an image in a slice above a backdrop-filter's is promoted",
+        );
+
+        self.assert_probe_matches(
+            "invalidation/backdrop_own_slice_overlay_inside.yaml",
+            "invalidation/backdrop_own_slice_overlay_inside_ref.yaml",
+            (200, 40),
+            "an image in the area a backdrop-filter in its slice samples is drawn into it",
+        );
+        assert_eq!(
+            self.render_yaml_overlays("backdrop_own_slice_overlay_inside"), 0,
+            "Ensure an image in the area a backdrop-filter in its slice samples isn't promoted",
+        );
+    }
+
+    /// Render a YAML file by name (relative to invalidation/), and return the
+    /// number of compositor surfaces promoted to overlays in the frame.
+    fn render_yaml_overlays(&mut self, filename: &str) -> u32 {
+        self.wrench.renderer.take_frame_build_profiles();
+        self.render_yaml(filename);
+        let profiles = self.wrench.renderer.take_frame_build_profiles();
+        let counters = profiles.last().expect("bug: no frame was built");
+        counters
+            .iter()
+            .find(|counter| counter.name == "Compositor surface overlays")
+            .map_or(0, |counter| counter.value as u32)
+    }
+
+    /// Render `test` and `reference`, and assert that their pixels at `probe`
+    /// match to within 8 per channel. Returns the results of rendering `test`.
+    fn assert_probe_matches(
+        &mut self,
+        test: &str,
+        reference: &str,
+        probe: (i32, i32),
+        what: &str,
+    ) -> RenderResult {
+        let expected = self.render_yaml_path_probe(&PathBuf::from(reference), Some(probe)).probe_pixel.unwrap();
+        let results = self.render_yaml_path_probe(&PathBuf::from(test), Some(probe));
+        let actual = results.probe_pixel.unwrap();
+        assert!(
+            expected.iter().zip(actual.iter()).all(|(e, a)| (*e as i32 - *a as i32).abs() <= 8),
+            "Ensure {} at {:?}: expected {:?}, got {:?}",
+            what, probe, expected, actual,
+        );
+        results
+    }
+
     /// Render a YAML file by name (relative to invalidation/), and return the picture cache debug info
     fn render_yaml(
         &mut self,
@@ -486,6 +697,16 @@ impl<'a> TestHarness<'a> {
         &mut self,
         path: &Path,
     ) -> RenderResult {
+        self.render_yaml_path_probe(path, None)
+    }
+
+    /// Render a yaml file, reading back the pixel at `probe` (in the yaml's
+    /// coordinates) before presenting.
+    fn render_yaml_path_probe(
+        &mut self,
+        path: &Path,
+        probe: Option<(i32, i32)>,
+    ) -> RenderResult {
         let mut reader = YamlFrameReader::new(path);
 
         reader.do_frame(self.wrench);
@@ -494,11 +715,22 @@ impl<'a> TestHarness<'a> {
             NotifierEvent::ShutDown => unreachable!(),
         };
         let results = self.wrench.render();
+
+        let probe_pixel = probe.map(|(x, y)| {
+            let window_size = self.window.get_inner_size();
+            let rect = FramebufferIntRect::from_origin_and_size(
+                FramebufferIntPoint::new(x, window_size.height - 1 - y),
+                FramebufferIntSize::new(1, 1),
+            );
+            let pixels = self.wrench.renderer.read_pixels_rgba8(rect);
+            [pixels[0], pixels[1], pixels[2], pixels[3]]
+        });
         self.window.swap_buffers();
 
         RenderResult {
             pc_debug: results.picture_cache_debug,
             composite_needed,
+            probe_pixel,
         }
     }
 }

@@ -559,6 +559,32 @@ impl FrameBuilder {
             &frame_context,
             composite_state);
 
+        // Whether a backdrop-filter is drawn depends on which tiles of its slice
+        // are, so this runs once all of them that won't be are hidden, and all
+        // that will be redrawn are dirty.
+        if render_picture_cache_slices {
+            for tile_cache in tile_caches.values_mut() {
+                tile_cache.cull_tiles(
+                    resource_cache,
+                    composite_state,
+                    frame_context.root_spatial_node_index,
+                    frame_context.global_screen_device_rect,
+                    frame_context.spatial_tree,
+                );
+            }
+            crate::tile_cache::update_cross_slice_backdrops(
+                &slice_ids,
+                tile_caches,
+                &mut scratch.primitive.frame.backdrop_captures,
+                &scratch.primitive.frame.required_backdrop_chains,
+                crate::tile_cache::supports_dirty_rects(
+                    &composite_state.compositor_kind,
+                    scene.config.gpu_supports_render_target_partial_update,
+                ),
+                frame_context.spatial_tree,
+            );
+        }
+
         profile.start_time(profiler::FRAME_PREPARE_TIME);
 
         let mut picture_scratch_handles = frame_memory.new_vec_with_capacity(n_pics);

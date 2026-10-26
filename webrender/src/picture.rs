@@ -110,14 +110,14 @@ use crate::spatial_tree::{SpatialTree, CoordinateSpaceMapping, SpatialNodeIndex,
 use crate::composite::{tile_kind, CompositeTileSurface, CompositorKind, NativeTileId};
 use crate::composite::{CompositeTileDescriptor, CompositeTile};
 use crate::debug_colors;
-use euclid::{vec3, Scale, Vector2D, Box2D};
+use euclid::{vec3, Scale, Vector2D};
 use crate::internal_types::{FastHashMap, PlaneSplitter, Filter};
 use crate::internal_types::{PlaneSplitterIndex, PlaneSplitAnchor, TextureSource};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PictureContext};
 use plane_split::{Clipper, Polygon};
 use crate::prim_store::{PictureIndex, PrimitiveInstance, PrimitiveKind};
 use crate::prim_store::storage::Index as StorageIndex;
-use crate::visibility::PrimitiveDrawHeader;
+use crate::visibility::{BackdropCaptureIndex, PrimitiveDrawHeader};
 use crate::prim_store::{PrimitiveScratchBuffer, ClipTaskIndex, ClipMaskKind};
 use crate::prim_store::storage;
 use crate::print_tree::PrintTreePrinter;
@@ -132,7 +132,7 @@ use crate::quad::{self, QuadDescriptor, QuadTransformState};
 use crate::quad_clip::QuadClipStack;
 use crate::scene::SceneProperties;
 use crate::spatial_tree::CoordinateSystemId;
-use crate::surface::{SurfaceDescriptor, SurfaceTileDescriptor, get_surface_rects};
+use crate::surface::{SurfaceDescriptor, SurfaceExtraTarget, SurfaceTileDescriptor, get_surface_rects};
 use crate::surface::{SurfaceIndex, SurfaceInfo, SubpixelMode};
 use smallvec::SmallVec;
 use std::ops::Range;
@@ -142,7 +142,6 @@ use crate::tile_cache::{SliceDebugInfo, TileDebugInfo, DirtyTileDebugInfo, Compo
 use crate::tile_cache::{SliceId, TileCacheInstance, TileSurface, NativeSurface};
 use crate::tile_cache::{BackdropKind, BackdropSurface};
 use crate::tile_cache::{TileKey, SubSliceIndex};
-use crate::invalidation::InvalidationReason;
 
 use crate::picture_composite_mode::{PictureCompositeMode, prepare_composite_mode};
 
@@ -821,7 +820,9 @@ impl PictureInstance {
             let chain_pic_index = scratch.frame.backdrop_captures[index].chain_pic_index;
             if scratch.frame.required_backdrop_chains.contains(&chain_pic_index) {
                 let open = scratch.frame.backdrop_captures.open(index, frame_state.cmd_buffers);
+                let cmd_buffer_index = open.cmd_buffer_index;
                 frame_state.surface_builder.open_backdrop_capture(open);
+                draw_backdrop_sources(index, cmd_buffer_index, frame_context, frame_state, scratch, tile_caches);
             }
         }
 
@@ -834,7 +835,14 @@ impl PictureInstance {
         // If this is a picture cache, push the dirty region to ensure any
         // child primitives are culled and clipped to the dirty rect(s).
         if let Some(RasterConfig { composite_mode: PictureCompositeMode::TileCache { slice_id }, .. }) = self.raster_config {
-            let dirty_region = tile_caches[&slice_id].dirty_region.clone();
+            let mut dirty_region = tile_caches[&slice_id].dirty_region.clone();
+            // Primitives under a backdrop-filter in a slice above are drawn for
+            // it whether or not their tiles are dirty.
+            for source in tile_caches[&slice_id].backdrop_samples.iter().filter_map(|sample| sample.source.as_ref()) {
+                if source.task.is_some() {
+                    dirty_region.add_dirty_region(source.rect, frame_context.spatial_tree);
+                }
+            }
             frame_state.push_dirty_region(dirty_region);
 
             dirty_region_count += 1;
@@ -1655,6 +1663,89 @@ pub fn get_relative_scale_offset(
     scale_offset
 }
 
+/// Draw the parts of the slices below a backdrop root slice that the capture
+/// at `capture_index` samples into its command buffer, bottom-up, before the
+/// slice's own primitives behind the element.
+fn draw_backdrop_sources(
+    capture_index: BackdropCaptureIndex,
+    cmd_buffer_index: CommandBufferIndex,
+    frame_context: &FrameBuildingContext,
+    frame_state: &mut FrameBuildingState,
+    scratch: &mut PrimitiveScratchBuffer,
+    tile_caches: &FastHashMap<SliceId, Box<TileCacheInstance>>,
+) {
+    let capture = &scratch.frame.backdrop_captures[capture_index];
+    if capture.source_slices.is_empty() {
+        return;
+    }
+    let source_slices = capture.source_slices.clone();
+    let root = frame_context.spatial_tree.root_reference_frame_index();
+    let root_surface = &frame_state.surfaces[capture.root_surface_index.0];
+    let raster_spatial_node_index = root_surface.raster_spatial_node_index;
+    let device_pixel_scale = root_surface.device_pixel_scale;
+    let root_to_raster = get_relative_scale_offset(raster_spatial_node_index, root, frame_context.spatial_tree).inverse();
+
+    // Render tasks the quads below depend on have to be drawn before the
+    // capture.
+    frame_state.surface_builder.select_backdrop_capture(Some(capture_index));
+
+    for slice_id in &source_slices {
+        let tile_cache = &tile_caches[slice_id];
+        let Some((task_id, task_rect)) = tile_cache.backdrop_source(capture_index).and_then(|source| source.task) else {
+            continue;
+        };
+        // A slice rasterizes in its own spatial node's space.
+        let pattern_rect: LayoutRect = task_rect.cast_unit();
+        let Some(bounds) = pattern_rect.intersection(&tile_cache.local_clip_rect.cast_unit()) else {
+            continue;
+        };
+
+        // Place the slice's content where its tiles are composited, with the
+        // same device-pixel rounding, relative to the capture.
+        let spatial_node_index = tile_cache.spatial_node_index;
+        let slice_to_raster = get_relative_scale_offset(spatial_node_index, root, frame_context.spatial_tree)
+            .then(&root_to_raster);
+        let mut transform = QuadTransformState::from_scale_offset(
+            slice_to_raster,
+            spatial_node_index,
+            raster_spatial_node_index,
+            device_pixel_scale,
+        );
+        let coverage_rect = transform
+            .as_2d_scale_offset()
+            .map(|so| so.map_rect(&bounds))
+            .unwrap_or_else(DeviceRect::max_rect);
+
+        let mut clips = QuadClipStack::new();
+        clips.set_bounds(bounds, coverage_rect, DeviceRect::max_rect(), false);
+
+        quad::prepare_quad(
+            &ImagePattern {
+                src_task_id: task_id,
+                src_is_opaque: false,
+                premultiplied: true,
+                sampler_kind: ImageBufferKind::Texture2D,
+                color: ColorF::WHITE,
+            },
+            &QuadDescriptor {
+                pattern_rect,
+                bounds,
+                aligned_aa_edges: EdgeMask::empty(),
+                transformed_aa_edges: EdgeMask::empty(),
+            },
+            &None,
+            &clips,
+            &mut transform,
+            frame_context.spatial_tree,
+            &[cmd_buffer_index],
+            frame_state,
+            scratch,
+        );
+    }
+
+    frame_state.surface_builder.select_backdrop_capture(None);
+}
+
 /// Update dirty rects, ensure that tiles have backing surfaces and build
 /// the tile render tasks.
 fn prepare_tiled_picture_surface(
@@ -1674,13 +1765,6 @@ fn prepare_tiled_picture_surface(
         .surfaces[surface_index.0]
         .device_pixel_scale;
     let mut at_least_one_tile_visible = false;
-
-    // Get the overall device space rect of the picture cache. Used to clip
-    // the tile rects below for occlusion testing to the relevant area.
-    let device_pic_rect = map_pic_to_device
-        .map(&tile_cache.local_clip_rect)
-        .expect("bug: unable to map clip rect")
-        .round();
 
     // The composite clip must be on the same device grid the tiles are placed
     // on (the compositor transform), not the raw pic->device transform. When the
@@ -1706,71 +1790,17 @@ fn prepare_tiled_picture_surface(
                 tile_cache.transform_index,
             ).to_i32();
 
-            let scissor_rect = frame_state.composite_state.get_surface_rect(
-                &tile.cached_surface.local_dirty_rect,
-                &tile.cached_surface.local_rect,
-                tile_cache.transform_index,
-            ).to_i32().intersection(&valid_rect).unwrap_or_else(|| { Box2D::zero() });
-
-            if tile.is_visible {
-                // Get the world space rect that this tile will actually occupy on screen
-                let device_draw_rect = device_pic_rect.intersection(&tile.device_valid_rect);
-
-                // If that draw rect is occluded by some set of tiles in front of it,
-                // then mark it as not visible and skip drawing. When it's not occluded
-                // it will fail this test, and get rasterized by the render task setup
-                // code below.
-                match device_draw_rect {
-                    Some(device_draw_rect) => {
-                        let check_occluded_tiles = match frame_state.composite_state.compositor_kind {
-                            CompositorKind::Layer { .. } => true,
-                            CompositorKind::Native { .. } | CompositorKind::Draw { .. } => {
-                                // Only check for occlusion on visible tiles that are fixed position.
-                                tile_cache.spatial_node_index == frame_context.root_spatial_node_index
-                            }
-                        };
-                        if check_occluded_tiles &&
-                           frame_state.composite_state.occluders.is_tile_occluded(tile.z_id, device_draw_rect) {
-                            // If this tile has an allocated native surface, free it, since it's completely
-                            // occluded. We will need to re-allocate this surface if it becomes visible,
-                            // but that's likely to be rare (e.g. when there is no content display list
-                            // for a frame or two during a tab switch).
-                            let surface = tile.surface.as_mut().expect("no tile surface set!");
-
-                            if let TileSurface::Texture { descriptor: SurfaceTextureDescriptor::Native { id, .. }, .. } = surface {
-                                if let Some(id) = id.take() {
-                                    frame_state.resource_cache.destroy_compositor_tile(id);
-                                }
-                            }
-
-                            tile.is_visible = false;
-
-                            if frame_context.fb_config.testing {
-                                debug_info.add_tile(
-                                    sub_slice_index,
-                                    tile.tile_offset,
-                                    TileDebugInfo::Occluded,
-                                );
-                            }
-
-                            continue;
-                        }
-                    }
-                    None => {
-                        tile.is_visible = false;
-                    }
+            // Tiles were culled and occluded by `TileCacheInstance::cull_tiles`.
+            if tile.is_occluded {
+                if frame_context.fb_config.testing {
+                    debug_info.add_tile(
+                        sub_slice_index,
+                        tile.tile_offset,
+                        TileDebugInfo::Occluded,
+                    );
                 }
 
-                // In extreme zoom/offset cases, we may end up with a local scissor/valid rect
-                // that becomes empty after transformation to device space (e.g. if the local
-                // rect height is 0.00001 and the compositor transform has large scale + offset).
-                // DirectComposition panics if we try to BeginDraw with an empty rect, so catch
-                // that here and mark the tile non-visible. This is a bit of a hack - we should
-                // ideally handle these in a more accurate way so we don't end up with an empty
-                // rect here.
-                if !tile.cached_surface.is_valid && (scissor_rect.is_empty() || valid_rect.is_empty()) {
-                    tile.is_visible = false;
-                }
+                continue;
             }
 
             // If we get here, we want to ensure that the surface remains valid in the texture
@@ -1799,37 +1829,20 @@ fn prepare_tiled_picture_surface(
 
             at_least_one_tile_visible = true;
 
-            if let TileSurface::Texture { descriptor, .. } = tile.surface.as_mut().unwrap() {
-                match descriptor {
-                    SurfaceTextureDescriptor::TextureCache { ref handle, .. } => {
-                        let exists = handle.as_ref().map_or(false,
-                            |handle| frame_state.resource_cache.picture_textures.entry_exists(handle)
-                        );
-                        // Invalidate if the backing texture was evicted.
-                        if exists {
-                            // Request the backing texture so it won't get evicted this frame.
-                            // We specifically want to mark the tile texture as used, even
-                            // if it's detected not visible below and skipped. This is because
-                            // we maintain the set of tiles we care about based on visibility
-                            // during pre_update. If a tile still exists after that, we are
-                            // assuming that it's either visible or we want to retain it for
-                            // a while in case it gets scrolled back onto screen soon.
-                            // TODO(gw): Consider switching to manual eviction policy?
-                            frame_state.resource_cache
-                                .picture_textures
-                                .request(handle.as_ref().unwrap());
-                        } else {
-                            // If the texture was evicted on a previous frame, we need to assume
-                            // that the entire tile rect is dirty.
-                            tile.invalidate(None, InvalidationReason::NoTexture);
-                        }
-                    }
-                    SurfaceTextureDescriptor::Native { id, .. } => {
-                        if id.is_none() {
-                            // There is no current surface allocation, so ensure the entire tile is invalidated
-                            tile.invalidate(None, InvalidationReason::NoSurface);
-                        }
-                    }
+            // A tile whose backing surface was lost was invalidated by `cull_tiles`.
+            if let Some(TileSurface::Texture { descriptor: SurfaceTextureDescriptor::TextureCache { handle: Some(handle) } }) = tile.surface.as_ref() {
+                if frame_state.resource_cache.picture_textures.entry_exists(handle) {
+                    // Request the backing texture so it won't get evicted this frame.
+                    // We specifically want to mark the tile texture as used, even
+                    // if it's detected not visible below and skipped. This is because
+                    // we maintain the set of tiles we care about based on visibility
+                    // during pre_update. If a tile still exists after that, we are
+                    // assuming that it's either visible or we want to retain it for
+                    // a while in case it gets scrolled back onto screen soon.
+                    // TODO(gw): Consider switching to manual eviction policy?
+                    frame_state.resource_cache
+                        .picture_textures
+                        .request(handle);
                 }
             }
 
@@ -2182,7 +2195,46 @@ fn prepare_tiled_picture_surface(
             );
     }
 
-    let descriptor = SurfaceDescriptor::new_tiled(surface_render_tasks, Vec::new());
+    // The parts of this slice that backdrop-filters above it sample are drawn
+    // into tasks of their own, in this slice's raster space, from the same
+    // commands as its tiles.
+    let mut backdrop_source_targets = Vec::new();
+    let surface = &frame_state.surfaces[surface_index.0];
+    let raster_spatial_node_index = surface.raster_spatial_node_index;
+    for source in tile_cache.backdrop_samples.iter_mut().filter_map(|sample| sample.source.as_mut()) {
+        let device_rect = surface.map_to_device_rect(&source.rect).round_out();
+        if device_rect.is_empty() {
+            continue;
+        }
+        let size = device_rect.size().to_i32();
+        let cmd_buffer_index = frame_state.cmd_buffers.create_cmd_buffer();
+        let task_id = frame_state.rg_builder.add().init(
+            RenderTask::new_dynamic(
+                size,
+                RenderTaskKind::new_picture(
+                    size,
+                    true,
+                    device_rect.min,
+                    surface_spatial_node_index,
+                    raster_spatial_node_index,
+                    device_pixel_scale,
+                    None,
+                    None,
+                    Some(tile_cache.background_color.unwrap_or(ColorF::TRANSPARENT)),
+                    cmd_buffer_index,
+                    true,
+                    None,
+                ),
+            ),
+        );
+        source.task = Some((task_id, surface.device_to_picture_rect(&device_rect)));
+        backdrop_source_targets.push(SurfaceExtraTarget { rect: source.rect, task_id });
+        // Primitives are drawn for the source whether or not their tiles are
+        // dirty, so their clip masks and cached patterns have to cover it too.
+        surface_device_dirty_rect = surface_device_dirty_rect.union(&device_rect);
+    }
+
+    let descriptor = SurfaceDescriptor::new_tiled(surface_render_tasks, backdrop_source_targets);
 
     frame_state.surface_builder.push_surface(
         surface_index,

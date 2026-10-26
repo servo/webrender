@@ -1,0 +1,46 @@
+# A backdrop-filter that scrolls over a fixed background, in a scroll frame whose
+# content is clipped below the top of the window, like page content under a
+# toolbar. Scrolled to 300, before the second file scrolls it further.
+root:
+  items:
+    - type: rect
+      color: white
+      bounds: [0, 0, 400, 500]
+    - type: rect
+      color: 128 128 128
+      bounds: [0, 100, 400, 400]
+    - type: clip
+      id: 2
+      bounds: [0, 100, 400, 400]
+    - type: clip-chain
+      id: 3
+      clips: [2]
+    - type: scroll-frame
+      bounds: [0, 100, 400, 400]
+      content-size: [400, 2000]
+      scroll-offset: [0, 300]
+      items:
+        - type: rect
+          color: red
+          bounds: [20, 100, 360, 300]
+          clip-chain: 3
+        - type: rect
+          color: green
+          bounds: [20, 400, 360, 300]
+          clip-chain: 3
+        - type: rect
+          color: blue
+          bounds: [20, 700, 360, 300]
+          clip-chain: 3
+        - type: rect
+          color: yellow
+          bounds: [20, 1000, 360, 300]
+          clip-chain: 3
+        - type: backdrop-filter
+          bounds: [40, 140, 320, 1000]
+          filters: blur(8,8)
+          clip-chain: 3
+        - type: rect
+          color: 255 255 255 0.4
+          bounds: [40, 140, 320, 1000]
+          clip-chain: 3

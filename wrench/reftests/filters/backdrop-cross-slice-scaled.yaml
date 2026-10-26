@@ -1,0 +1,32 @@
+# A backdrop-filter over a scroller in a scaled reference frame, which is in a
+# slice of its own with a different device pixel scale.
+root:
+  items:
+    - type: rect
+      color: white
+      bounds: [0, 0, 400, 400]
+    - type: reference-frame
+      bounds: [0, 0, 200, 200]
+      transform: scale(2)
+      is-2d: true
+      items:
+        - type: scroll-frame
+          bounds: [0, 0, 200, 200]
+          content-size: [200, 600]
+          scroll-offset: [0, 10]
+          items:
+            - type: rect
+              color: red
+              bounds: [10, 20, 40, 20]
+            - type: rect
+              color: green
+              bounds: [60, 30, 40, 20]
+            - type: rect
+              color: blue
+              bounds: [110, 40, 40, 20]
+            - type: rect
+              color: yellow
+              bounds: [20, 70, 40, 20]
+    - type: backdrop-filter
+      bounds: [0, 0, 400, 140]
+      filters: invert(1)

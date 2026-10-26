@@ -1,0 +1,33 @@
+# Two sibling scroll frames, each in a slice of its own, scrolled by the same
+# amount, with nothing outside them: nothing under the backdrop-filter in the
+# upper one changes relative to it.
+root:
+  items:
+    - type: scroll-frame
+      bounds: [0, 0, 400, 400]
+      content-size: [400, 1200]
+      scroll-offset: [0, 37]
+      items:
+        - type: rect
+          color: white
+          bounds: [0, 0, 400, 1200]
+        - type: rect
+          color: red
+          bounds: [20, 60, 360, 40]
+        - type: rect
+          color: green
+          bounds: [20, 100, 360, 40]
+        - type: rect
+          color: blue
+          bounds: [20, 140, 360, 40]
+    - type: scroll-frame
+      bounds: [0, 0, 400, 400]
+      content-size: [400, 1200]
+      scroll-offset: [0, 37]
+      items:
+        - type: backdrop-filter
+          bounds: [0, 100, 400, 80]
+          filters: blur(8,8)
+        - type: rect
+          color: 255 255 255 0.4
+          bounds: [0, 100, 400, 80]

@@ -1,0 +1,29 @@
+root:
+  items:
+    - type: rect
+      color: white
+      bounds: [0, 0, 400, 400]
+    - type: iframe
+      id: [1, 3]
+      bounds: [0, 0, 400, 400]
+    - type: backdrop-filter
+      bounds: [0, 0, 400, 80]
+      filters: blur(8,8)
+    - type: rect
+      color: 255 255 255 0.4
+      bounds: [0, 0, 400, 80]
+
+pipelines:
+  -
+    id: [1, 3]
+    items:
+      - type: rect
+        color: 128 128 128
+        bounds: [0, 0, 400, 400]
+      - type: yuv-image
+        format: planar
+        src-y: ../reftests/compositor-surface/barn-y.png
+        src-u: ../reftests/compositor-surface/barn-u.png
+        src-v: ../reftests/compositor-surface/barn-v.png
+        bounds: [50, 20, 300, 120]
+        prefer-compositor-surface: true

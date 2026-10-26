@@ -1,0 +1,25 @@
+root:
+  items:
+    - type: rect
+      color: white
+      bounds: [0, 0, 400, 400]
+    - type: reference-frame
+      bounds: [0, 0, 200, 200]
+      transform: scale(2)
+      is-2d: true
+      items:
+        - type: rect
+          color: red
+          bounds: [10, 10, 40, 20]
+        - type: rect
+          color: green
+          bounds: [60, 20, 40, 20]
+        - type: rect
+          color: blue
+          bounds: [110, 30, 40, 20]
+        - type: rect
+          color: yellow
+          bounds: [20, 60, 40, 20]
+    - type: backdrop-filter
+      bounds: [0, 0, 400, 140]
+      filters: invert(1)

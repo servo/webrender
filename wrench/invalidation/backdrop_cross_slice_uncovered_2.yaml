@@ -1,0 +1,26 @@
+# A backdrop-filter over a slice below its own, under an opaque slice that is
+# scrolled over it, occluding every tile of its slice.
+root:
+  items:
+    - type: rect
+      color: white
+      bounds: [0, 0, 400, 400]
+    - type: scroll-frame
+      bounds: [0, 0, 400, 400]
+      content-size: [400, 1200]
+      scroll-offset: [0, 53]
+      items:
+        - type: rect
+          color: green
+          bounds: [20, 100, 200, 200]
+    - type: backdrop-filter
+      bounds: [100, 150, 200, 100]
+      filters: invert(1)
+    - type: scroll-frame
+      bounds: [0, 0, 400, 400]
+      content-size: [400, 1000]
+      scroll-offset: [0, 0]
+      items:
+        - type: rect
+          color: blue
+          bounds: [0, 0, 400, 400]
