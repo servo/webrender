@@ -761,6 +761,7 @@ pub fn create_webrender_instance(
         shaders,
         debug: debug::LazyInitializedDebugRenderer::new(),
         debug_flags: DebugFlags::empty(),
+        path_aa_samples: if cfg!(target_os = "android") { 4 } else { 8 },
         profile: TransactionProfile::new(),
         frame_counter: 0,
         resource_upload_time: 0.0,

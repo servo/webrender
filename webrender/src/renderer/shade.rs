@@ -588,7 +588,9 @@ pub struct Shaders {
     cs_scale: Vec<Option<ShaderHandle>>,
     cs_line_decoration: ShaderHandle,
     cs_svg_filter_node: ShaderHandle,
-    cs_path_tile: ShaderHandle,
+    cs_path_tile_ssaa4: ShaderHandle,
+    cs_path_tile_ssaa8: Option<ShaderHandle>,
+    cs_path_tile_analytical: Option<ShaderHandle>,
 
     // The are "primitive shaders". These shaders draw and blend
     // final results on screen. They are aware of tile boundaries.
@@ -931,12 +933,32 @@ impl Shaders {
             &shader_list,
         )?;
 
-        let cs_path_tile = loader.create_shader(
+        let cs_path_tile_ssaa4 = loader.create_shader(
             ShaderKind::Cache(VertexArrayKind::PathTile),
             "cs_path_tile",
-            &[],
+            &["PATH_SSAA4"],
             &shader_list,
         )?;
+
+        let (cs_path_tile_ssaa8, cs_path_tile_analytical) =
+            if shader_flags.contains(ShaderFeatureFlags::PATH_AA_ALL_MODES) {
+                (
+                    Some(loader.create_shader(
+                        ShaderKind::Cache(VertexArrayKind::PathTile),
+                        "cs_path_tile",
+                        &["PATH_SSAA8"],
+                        &shader_list,
+                    )?),
+                    Some(loader.create_shader(
+                        ShaderKind::Cache(VertexArrayKind::PathTile),
+                        "cs_path_tile",
+                        &[],
+                        &shader_list,
+                    )?),
+                )
+            } else {
+                (None, None)
+            };
 
 
         let cs_border_segment = loader.create_shader(
@@ -980,7 +1002,9 @@ impl Shaders {
             cs_line_decoration,
             cs_scale,
             cs_svg_filter_node,
-            cs_path_tile,
+            cs_path_tile_ssaa4,
+            cs_path_tile_ssaa8,
+            cs_path_tile_analytical,
             ps_text_run,
             ps_text_run_dual_source,
             ps_quad_textured,
@@ -1179,7 +1203,16 @@ impl Shaders {
     pub fn cs_border_solid_superellipse(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_border_solid_superellipse) }
     pub fn cs_line_decoration(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_line_decoration) }
     pub fn cs_svg_filter_node(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_svg_filter_node) }
-    pub fn cs_path_tile(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_path_tile) }
+    /// See IntParameter::PathAaSamples. Falls back to the ssaa4 variant where
+    /// the other ones are not available.
+    pub fn cs_path_tile(&mut self, samples: i32) -> &mut LazilyCompiledShader {
+        let handle = match samples {
+            0 => self.cs_path_tile_analytical,
+            1..=4 => None,
+            _ => self.cs_path_tile_ssaa8,
+        };
+        self.loader.get(handle.unwrap_or(self.cs_path_tile_ssaa4))
+    }
     pub fn ps_quad_textured(&mut self) -> &mut LazilyCompiledShader {
         self.loader.get(self.ps_quad_textured)
     }

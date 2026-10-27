@@ -34,7 +34,7 @@ scale(*) == rounded-clip-subpixel-corner.yaml rounded-clip-subpixel-corner.yaml
 == path-fill-rules.yaml path-fill-rules-ref.yaml
 == path-large-prim.yaml path-large-prim-ref.yaml
 == path-and-rounded-rect.yaml path-and-rounded-rect-ref.yaml
-fuzzy(90,1600) == path-curves.yaml path-curves-ref.yaml
-fuzzy(64,4200) == path-firefox-logo.yaml path-firefox-logo.png
+fuzzy(94,1600) fuzzy-if(platform(swgl),102,1600) fuzzy-if(platform(android),103,1600) == path-curves.yaml path-curves-ref.yaml
+fuzzy(86,4200) fuzzy-if(platform(swgl),108,4200) fuzzy-if(platform(android),108,4200) == path-firefox-logo.yaml path-firefox-logo.png
 == path-fractional-rect.yaml path-fractional-rect-ref.yaml
 == path-conflation.yaml path-conflation-ref.yaml

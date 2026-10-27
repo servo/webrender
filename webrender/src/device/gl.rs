@@ -2381,7 +2381,7 @@ impl GpuBackend for GlDevice {
     }
 
     fn shader_feature_flags(&self) -> ShaderFeatureFlags {
-        match self.gl.get_type() {
+        let mut flags = match self.gl.get_type() {
             gl::GlType::Gl => ShaderFeatureFlags::GL,
             gl::GlType::Gles => {
                 let mut flags = ShaderFeatureFlags::GLES;
@@ -2395,7 +2395,11 @@ impl GpuBackend for GlDevice {
                 }
                 flags
             }
+        };
+        if !self.is_software_webrender {
+            flags |= ShaderFeatureFlags::PATH_AA_ALL_MODES;
         }
+        flags
     }
 
     fn preferred_color_formats(&self) -> TextureFormatPair<ImageFormat> {

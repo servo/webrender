@@ -664,6 +664,10 @@ pub enum BoolParameter {
 #[repr(u32)]
 pub enum IntParameter {
     BatchedUploadThreshold = 0,
+    /// The number of samples per pixel used to rasterize path tiles: 0 for
+    /// analytical anti-aliasing, 1 to 4 for 4 samples, 8 otherwise. Software
+    /// WebRender always uses 4 samples.
+    PathAaSamples = 1,
 }
 
 /// Floating point configuration option.

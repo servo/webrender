@@ -37,7 +37,7 @@
 use api::{ColorF, MixBlendMode, TextureCacheCategory};
 use api::{DocumentId, Epoch, ExternalImageHandler, RenderReasons};
 use api::{PipelineId, Checkpoint, NotificationRequest, ImageBufferKind};
-use api::{FramePublishId, ImageFormat, RenderBackendId};
+use api::{FramePublishId, ImageFormat, RenderBackendId, Parameter, IntParameter};
 #[cfg(any(feature = "capture", feature = "replay"))]
 use api::{ExternalImageSource, ExternalImageType, ExternalTextureHandle};
 #[cfg(feature = "replay")]
@@ -741,6 +741,8 @@ pub struct Renderer {
 
     debug: debug::LazyInitializedDebugRenderer,
     debug_flags: DebugFlags,
+    /// See IntParameter::PathAaSamples.
+    path_aa_samples: i32,
     profile: TransactionProfile,
     frame_counter: u64,
     resource_upload_time: f64,
@@ -1190,6 +1192,9 @@ impl Renderer {
                     self.pending_shader_updates.push(path);
                 }
                 ResultMsg::SetParameter(ref param) => {
+                    if let Parameter::Int(IntParameter::PathAaSamples, samples) = *param {
+                        self.path_aa_samples = samples;
+                    }
                     self.device.set_parameter(param);
                     self.profiler.set_parameter(param);
                 }
@@ -2784,7 +2789,7 @@ impl Renderer {
                     self.set_blend_mode(BlendMode::PremultipliedDestOut, FramebufferKind::Other);
                 }
 
-                self.shaders.borrow_mut().cs_path_tile().bind(
+                self.shaders.borrow_mut().cs_path_tile(self.path_aa_samples).bind(
                     &mut self.device,
                     projection,
                     None,
