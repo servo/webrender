@@ -38,6 +38,7 @@ macro_rules! enumerate_dl_stores {
     ($macro_name: ident) => {
         $macro_name! {
             rectangles: api::interned_prims::RectangleKey => crate::prim_store::rectangle::RectangleTemplate, INTERNED_PRIMITIVES, prim,
+            path: api::Path => api::Path, INTERNED_PATHS, path,
         }
     }
 }
@@ -52,6 +53,7 @@ macro_rules! enumerate_scene_dl_stores {
     ($macro_name: ident) => {
         $macro_name! {
             rectangles: api::interned_prims::RectangleKey => crate::prim_store::PrimPlacement, prim,
+            path: api::Path => api::Path, path,
         }
     }
 }
@@ -71,6 +73,12 @@ pub struct DlResolveContext<'a> {
 /// is applied, once per interned entry rather than once per scene build.
 pub trait DlResolve<K>: Sized {
     fn resolve(key: &K, ctx: &DlResolveContext) -> Self;
+}
+
+impl DlResolve<api::Path> for api::Path {
+    fn resolve(key: &api::Path, _ctx: &DlResolveContext) -> Self {
+        key.clone()
+    }
 }
 
 /// Dense index identifying one content display list builder's slot space.

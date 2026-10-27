@@ -95,7 +95,7 @@ static PROFILER_PRESETS: &'static[(&'static str, &'static str)] = &[
     (&"GPU Memory", &"External image mem, Atlas textures mem, Standalone textures mem, Picture tiles mem, Render targets mem, Depth targets mem, Atlas items mem, GPU cache mem, GPU buffer mem, GPU total mem"),
     (&"CPU Memory", &"Image templates, Image templates mem, Font templates,Font templates mem, DisplayList mem"),
     (&"Memory", &"$CPU,CPU Memory, ,$GPU,GPU Memory"),
-    (&"Interners", "Intern insertions,Intern removals,Off-grid coords, ,Interned primitives,Interned clips,Interned pictures,Interned text runs,Interned normal borders,Interned image borders,Interned images,Interned YUV images,Interned line decorations,Interned linear gradients,Interned radial gradients,Interned conic gradients,Interned filter data,Interned backdrop renders, Interned backdrop captures,Interned polygons,Interned box-shadows"),
+    (&"Interners", "Intern insertions,Intern removals,Off-grid coords, ,Interned primitives,Interned clips,Interned pictures,Interned text runs,Interned normal borders,Interned image borders,Interned images,Interned YUV images,Interned line decorations,Interned linear gradients,Interned radial gradients,Interned conic gradients,Interned filter data,Interned backdrop renders, Interned backdrop captures,Interned polygons,Interned box-shadows,Interned paths"),
     // Gpu sampler queries (need the pref gfx.webrender.debug.gpu-sampler-queries).
     (&"GPU samplers", &"Alpha targets samplers,Transparent pass samplers,Opaque pass samplers,Total samplers"),
 
@@ -334,8 +334,9 @@ pub const VIS_CULLING_RECT_FALLBACKS: usize = 144;
 /// a mask is assumed. Non-zero only for a clip outside the 3D context that
 /// established the surface's raster root.
 pub const VIS_CLIP_INDETERMINATE: usize = 145;
+pub const INTERNED_PATHS: usize = 146;
 
-pub const NUM_PROFILER_EVENTS: usize = 146;
+pub const NUM_PROFILER_EVENTS: usize = 147;
 
 pub struct Profiler {
     counters: Vec<Counter>,
@@ -563,6 +564,7 @@ impl Profiler {
             int("Vis clip rejects", "", VIS_CLIP_REJECTS, Expected::none()),
             int("Vis culling rect fallbacks", "", VIS_CULLING_RECT_FALLBACKS, expected(0..1)),
             int("Vis clip indeterminate", "", VIS_CLIP_INDETERMINATE, Expected::none()),
+            int("Interned paths", "", INTERNED_PATHS, Expected::none()),
         ];
 
         let mut counters = Vec::with_capacity(profile_counters.len());
