@@ -25,6 +25,7 @@ use crate::font::{FontInstanceKey, GlyphInstance, GlyphOptions};
 use crate::image::{ColorDepth, ImageKey};
 use crate::interned_prims::{RectangleKey, RectanglePrim};
 use crate::interning::{self, DlDelta};
+use crate::path::Path;
 use crate::key_types::{EdgeMask, GradientStopKey, PrimKeyCommonData, StretchSizeKey};
 use crate::prim_geometry::{
     apply_gradient_local_clip, image_stretch_size, optimize_linear_gradient,
@@ -359,6 +360,7 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
                 Debug::RectClip(v) => Real::RectClip(v),
                 Debug::RoundedRectClip(v) => Real::RoundedRectClip(v),
                 Debug::ImageMaskClip(v) => Real::ImageMaskClip(v),
+                Debug::PathClip(v) => Real::PathClip(v),
                 Debug::Rectangle(v) => Real::Rectangle(v),
                 Debug::HitTest(v) => Real::HitTest(v),
                 Debug::Line(v) => Real::Line(v),
@@ -681,6 +683,7 @@ impl BuiltDisplayList {
                 Real::RectClip(v) => Debug::RectClip(v),
                 Real::RoundedRectClip(v) => Debug::RoundedRectClip(v),
                 Real::ImageMaskClip(v) => Debug::ImageMaskClip(v),
+                Real::PathClip(v) => Debug::PathClip(v),
                 Real::Rectangle(v) => Debug::Rectangle(v),
                 Real::HitTest(v) => Debug::HitTest(v),
                 Real::Line(v) => Debug::Line(v),
@@ -2742,6 +2745,28 @@ impl DisplayListBuilder {
         id
     }
 
+    pub fn define_clip_path(
+        &mut self,
+        spatial_id: di::SpatialId,
+        path: &Path,
+        rect: LayoutRect,
+        fill_rule: di::FillRule,
+    ) -> di::ClipId {
+        let id = self.generate_clip_index();
+        let path = self.interners.intern(path);
+
+        let item = di::DisplayItem::PathClip(di::PathClipDisplayItem {
+            id,
+            spatial_id,
+            path,
+            rect: self.normalize_rect(rect, spatial_id),
+            fill_rule,
+        });
+
+        self.push_item(&item);
+        id
+    }
+
     pub fn define_clip_rect(
         &mut self,
         spatial_id: di::SpatialId,
@@ -2950,6 +2975,7 @@ impl DisplayListBuilder {
                     def @ (di::DisplayItem::RectClip(..)
                     | di::DisplayItem::RoundedRectClip(..)
                     | di::DisplayItem::ImageMaskClip(..)
+                    | di::DisplayItem::PathClip(..)
                     | di::DisplayItem::ClipChain(..)) => Parsed::Definition {
                         item: *def,
                         clip_ids: item.clip_chain_items().iter().collect(),

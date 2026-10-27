@@ -15,14 +15,14 @@
 //! of a `ClipChainInstance`. It deliberately lives in `clip.rs`, on the side of
 //! the split that knows about both.
 
-use api::{BorderRadius, ClipMode, units::*};
+use api::{BorderRadius, ClipMode, Path, FillRule, units::*};
 
 use crate::render_task_graph::RenderTaskId;
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::util::MaxRect;
 
 /// The shape of a clip applied to a quad primitive.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum QuadClipShape {
     Rectangle {
         mode: ClipMode,
@@ -38,10 +38,17 @@ pub enum QuadClipShape {
         first_tile: u32,
         tile_count: u32,
     },
+    Path {
+        path: Path,
+        fill_rule: FillRule,
+        /// Positions the path in the clip's space. Unlike `QuadClip::rect`, it
+        /// is not snapped to the device pixel grid.
+        origin: LayoutPoint,
+    },
 }
 
 /// One clip applied to a quad primitive.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct QuadClip {
     pub shape: QuadClipShape,
     /// The clip's rect, in `spatial_node`'s local space.
@@ -171,6 +178,23 @@ impl QuadClipStack {
     ) {
         self.clips.push(QuadClip {
             shape: QuadClipShape::Rectangle { mode },
+            rect,
+            spatial_node,
+            uid,
+        });
+    }
+
+    pub fn push_path(
+        &mut self,
+        rect: LayoutRect,
+        path: Path,
+        fill_rule: FillRule,
+        origin: LayoutPoint,
+        spatial_node: SpatialNodeIndex,
+        uid: u64,
+    ) {
+        self.clips.push(QuadClip {
+            shape: QuadClipShape::Path { path, fill_rule, origin },
             rect,
             spatial_node,
             uid,

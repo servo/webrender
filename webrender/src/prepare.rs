@@ -280,6 +280,7 @@ fn prepare_prim_for_render(
                 &prim_info.clip_chain,
                 &frame_state.surfaces[pic_context.surface_index.0],
                 &data_stores.clip,
+                frame_context.dl_stores,
             );
 
             quad::prepare_quad(
@@ -401,6 +402,7 @@ fn prepare_prim_for_render(
         &prim_info.clip_chain,
         &frame_state.surfaces[pic_context.surface_index.0],
         &data_stores.clip,
+        frame_context.dl_stores,
     );
 
     match &mut prim_instance.kind {
@@ -1266,6 +1268,7 @@ fn add_clip_mask_render_task(
         &mut quad_clips,
         clip_node_range,
         clips,
+        frame_context.dl_stores,
     );
 
     quad::prepare_clip_range(

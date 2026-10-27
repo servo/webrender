@@ -46,6 +46,7 @@ use api::{APZScrollGeneration, HasScrollLinkedEffect, SpatialId, StickyFrameDesc
 use api::{ClipMode, TransformStyle, YuvColorSpace, ColorRange, YuvData, TempFilterData};
 use api::{ReferenceTransformBinding, Rotation, FillRule, SpatialTreeItem, ReferenceFrameDescriptor};
 use api::{FilterOpGraphPictureBufferId, SVGFE_GRAPH_MAX};
+use api::Path;
 use api::channel::{unbounded_channel, Receiver, Sender};
 use api::units::*;
 use api::prim_geometry::{
@@ -1687,6 +1688,29 @@ impl<'a> SceneBuilder<'a> {
                     item.points(),
                 );
             }
+            DisplayItem::PathClip(ref info) => {
+                tracy_rs::profile_scope!("path_clip");
+
+                let (dl_namespace, generation) = self.dl_namespace;
+                let path = DlHandle::new(dl_namespace, generation, info.path.slot());
+
+                if self.scene_stores.path.get(path).is_some() {
+                    self.add_path_clip_node(
+                        info.id,
+                        info.spatial_id,
+                        path,
+                        info.rect,
+                        info.fill_rule,
+                    );
+                } else {
+                    // As with image masks, a handle naming no path is neutralized
+                    // into an empty clip rather than dropped, so that later clip
+                    // chain items referring to this id still resolve and the
+                    // content stays clipped.
+                    warn!("path clip refers to an unknown path {:?}", path);
+                    self.add_rect_clip_node(info.id, info.spatial_id, &LayoutRect::zero(), false);
+                }
+            }
             DisplayItem::RoundedRectClip(ref info) => {
                 tracy_rs::profile_scope!("rounded_clip");
 
@@ -2662,6 +2686,37 @@ impl<'a> SceneBuilder<'a> {
             handle,
             spatial_node_index,
             mask_rect,
+        );
+    }
+
+    fn add_path_clip_node(
+        &mut self,
+        new_node_id: ClipId,
+        spatial_id: SpatialId,
+        path: DlHandle<Path>,
+        rect: LayoutRect,
+        fill_rule: FillRule,
+    ) {
+        let spatial_node_index = self.get_space(spatial_id);
+
+        let item = ClipItemKey {
+            kind: ClipItemKeyKind::Path(path, self.scene_stores.path.uid(path), fill_rule, rect.min.to_au()),
+        };
+
+        let handle = self
+            .interners
+            .clip
+            .intern(&item, || {
+                ClipInternData {
+                    key: item,
+                }
+            });
+
+        self.clip_tree_builder.define_path_clip(
+            new_node_id,
+            handle,
+            spatial_node_index,
+            rect,
         );
     }
 

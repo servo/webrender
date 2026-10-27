@@ -96,6 +96,9 @@ impl HitTestClipNode {
                     HitTestRegion::Rectangle(clip_rect, ClipMode::Clip)
                 }
             }
+            ClipItemKeyKind::Path(..) => {
+                unimplemented!(); // TODO(nical)
+            }
         };
 
         HitTestClipNode {

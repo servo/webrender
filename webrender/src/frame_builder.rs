@@ -121,6 +121,7 @@ pub struct FrameBuildingContext<'a> {
     pub debug_override: &'a SceneDebugOverride,
     pub fb_config: &'a FrameBuilderConfig,
     pub root_spatial_node_index: SpatialNodeIndex,
+    pub dl_stores: &'a DlStores,
 }
 
 impl<'a> FrameBuildingContext<'a> {
@@ -318,6 +319,7 @@ impl FrameBuilder {
             debug_override,
             fb_config: &scene.config,
             root_spatial_node_index,
+            dl_stores,
         };
 
         scene.picture_graph.build_update_passes(
