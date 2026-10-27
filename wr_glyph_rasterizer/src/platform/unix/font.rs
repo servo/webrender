@@ -26,7 +26,7 @@ use crate::gamma_lut::{ColorLut, GammaLut};
 use crate::rasterizer::{FontInstance, GlyphFormat, GlyphKey};
 use crate::rasterizer::{GlyphRasterError, GlyphRasterResult, RasterizedGlyph};
 use crate::types::FastHashMap;
-#[cfg(any(not(target_os = "android"), feature = "dynamic_freetype"))]
+#[cfg(any(not(any(target_os = "android", target_env = "ohos")), feature = "dynamic_freetype"))]
 use libc::{dlsym, RTLD_DEFAULT};
 use libc::free;
 use std::{cmp, mem, ptr, slice};
@@ -76,7 +76,7 @@ pub fn unimplemented(error: FT_Error) -> bool {
 }
 
 // Use dlsym to check for symbols. If not available. just return an unimplemented error.
-#[cfg(any(not(target_os = "android"), feature = "dynamic_freetype"))]
+#[cfg(any(not(any(target_os = "android", target_env = "ohos")), feature = "dynamic_freetype"))]
 macro_rules! ft_dyn_fn {
     ($func_name:ident($($arg_name:ident:$arg_type:ty),*) -> FT_Error) => {
         #[allow(non_snake_case)]
@@ -98,8 +98,8 @@ macro_rules! ft_dyn_fn {
     }
 }
 
-// On Android, just statically link in the symbols...
-#[cfg(all(target_os = "android", not(feature = "dynamic_freetype")))]
+// On Android and ohos, just statically link in the symbols...
+#[cfg(all(any(target_os = "android", target_env = "ohos"), not(feature = "dynamic_freetype")))]
 macro_rules! ft_dyn_fn {
     ($($proto:tt)+) => { extern "C" { fn $($proto)+; } }
 }
