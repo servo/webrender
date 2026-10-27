@@ -98,7 +98,7 @@ macro_rules! ft_dyn_fn {
     }
 }
 
-// On Android and ohos, just statically link in the symbols...
+// On Android and OHOS, just statically link in the symbols...
 #[cfg(all(any(target_os = "android", target_env = "ohos"), not(feature = "dynamic_freetype")))]
 macro_rules! ft_dyn_fn {
     ($($proto:tt)+) => { extern "C" { fn $($proto)+; } }
