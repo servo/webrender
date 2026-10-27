@@ -1,0 +1,76 @@
+# A circle path clip, compared against the same circle as a rounded rect clip.
+---
+root:
+  items:
+    - type: reference-frame
+      bounds: [20, 20, 160, 160]
+      items:
+        - type: clip
+          id: 1
+          path:
+            rect: [0, 0, 160, 160]
+            data: "M 150 80 C 150 118.7 118.7 150 80 150 C 41.3 150 10 118.7 10 80 C 10 41.3 41.3 10 80 10 C 118.7 10 150 41.3 150 80 Z"
+        - type: clip-chain
+          id: 101
+          clips: [1]
+        - type: rect
+          bounds: [0, 0, 160, 160]
+          color: blue
+          clip-chain: 101
+    - type: reference-frame
+      bounds: [200, 20, 160, 160]
+      transform: rotate(30)
+      items:
+        - type: clip
+          id: 2
+          path:
+            rect: [0, 0, 160, 160]
+            data: "M 150 80 C 150 118.7 118.7 150 80 150 C 41.3 150 10 118.7 10 80 C 10 41.3 41.3 10 80 10 C 118.7 10 150 41.3 150 80 Z"
+        - type: clip-chain
+          id: 102
+          clips: [2]
+        - type: rect
+          bounds: [0, 0, 160, 160]
+          color: blue
+          clip-chain: 102
+    # Text is clipped with a clip mask in an alpha target.
+    - type: reference-frame
+      bounds: [400, 20, 160, 160]
+      items:
+        - type: clip
+          id: 3
+          path:
+            rect: [0, 0, 160, 160]
+            data: "M 150 80 C 150 118.7 118.7 150 80 150 C 41.3 150 10 118.7 10 80 C 10 41.3 41.3 10 80 10 C 118.7 10 150 41.3 150 80 Z"
+        - type: clip-chain
+          id: 103
+          clips: [3]
+        - type: text
+          bounds: [0, 0, 160, 160]
+          glyphs: [48, 49, 50, 51, 52, 53, 54, 55]
+          offsets: [0, 60, 20, 60, 40, 60, 60, 60, 80, 60, 100, 60, 120, 60, 140, 60]
+          size: 40
+          color: black
+          font: "../text/FreeSans.ttf"
+          clip-chain: 103
+    - type: reference-frame
+      bounds: [0, 0, 1000, 1000]
+      perspective: 200
+      perspective-origin: 700 100
+      items:
+        - type: reference-frame
+          bounds: [620, 20, 160, 160]
+          transform: rotate-y(40)
+          items:
+            - type: clip
+              id: 4
+              path:
+                rect: [0, 0, 160, 160]
+                data: "M 150 80 C 150 118.7 118.7 150 80 150 C 41.3 150 10 118.7 10 80 C 10 41.3 41.3 10 80 10 C 118.7 10 150 41.3 150 80 Z"
+            - type: clip-chain
+              id: 104
+              clips: [4]
+            - type: rect
+              bounds: [0, 0, 160, 160]
+              color: blue
+              clip-chain: 104

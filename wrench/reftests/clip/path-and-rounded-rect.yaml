@@ -1,0 +1,25 @@
+# A path clip combined with a rounded rect clip.
+---
+root:
+  items:
+    - type: clip
+      id: 1
+      path:
+        rect: [20, 20, 100, 100]
+        data: "M 0 0 L 100 0 L 100 100 L 0 100 Z M 25 25 L 75 25 L 75 75 L 25 75 Z"
+        fill-rule: evenodd
+    - type: clip-chain
+      id: 101
+      clips: [1]
+    - type: clip
+      id: 2
+      complex:
+        - rect: [20, 20, 100, 100]
+          radius: 20
+    - type: clip-chain
+      id: 3
+      clips: [1, 2]
+    - type: rect
+      bounds: [20, 20, 100, 100]
+      color: green
+      clip-chain: 3

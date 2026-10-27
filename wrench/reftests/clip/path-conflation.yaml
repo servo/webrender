@@ -1,0 +1,204 @@
+# Basic checks for path conflation artifacts:
+# - When two sub-paths share an edge without overlapping, there should not be cracks along that edge.
+# - When two sub-paths share an edge and overlap, it must not inflate the shape (no double-counting of the AA).  
+# - Within a sub-path shared edges should not show cracks either.
+#
+# Visually, this test show some square blocks with no cracks inside of them.
+#
+# This test illustrates why we need the super-sampling based method for computing the anti-aliasing
+# Instead of using distance or area coverage methods which tend to be cheap and higher quality but
+# suffer from these conflation artifacts.
+---
+root:
+  items:
+    # Shared vertical edge (same winding)
+    - type: clip
+      id: 10
+      path:
+        rect: [0, 0, 110, 110]
+        data: "M 10 10 L 50 10 50 100 10 100 Z M 50 10 100 10 100 100 50 100 Z"
+    - type: clip-chain
+      id: 110
+      clips: [10]
+    - type: rect
+      bounds: [0, 0, 120, 120]
+      color: blue
+      clip-chain: 110
+    # Shared vertical edge (inverse winding)
+    - type: clip
+      id: 11
+      path:
+        rect: [100, 0, 110, 110]
+        data: "M 10 10 L 50 10 50 100 10 100 Z M 50 10 50 100 100 100 100 10 Z"
+    - type: clip-chain
+      id: 111
+      clips: [11]
+    - type: rect
+      bounds: [100, 0, 120, 120]
+      color: blue
+      clip-chain: 111
+    # Shared vertical edge (same winding, with sub-px offset)
+    - type: clip
+      id: 10
+      path:
+        rect: [200.25, 0.25, 110, 110]
+        data: "M 10 10 L 50 10 50 100 10 100 Z M 50 10 100 10 100 100 50 100 Z"
+    - type: clip-chain
+      id: 110
+      clips: [10]
+    - type: rect
+      bounds: [200, 0, 220, 120]
+      color: blue
+      clip-chain: 110
+    # Shared vertical edge (inverse winding, with sub-px offset)
+    - type: clip
+      id: 11
+      path:
+        rect: [300.25, 0.25, 110, 110]
+        data: "M 10 10 L 50 10 50 100 10 100 Z M 50 10 50 100 100 100 100 10 Z"
+    - type: clip-chain
+      id: 111
+      clips: [11]
+    - type: rect
+      bounds: [300, 0, 120, 120]
+      color: blue
+      clip-chain: 111
+
+
+    # Shared diagonal edge (same winding)
+    - type: clip
+      id: 20
+      path:
+        rect: [0, 100, 110, 110]
+        data: "M 10 10 L 100 10 10 100 Z M 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 120
+      clips: [20]
+    - type: rect
+      bounds: [0, 100, 200, 200]
+      color: red
+      clip-chain: 120
+    # Shared diagonal edge (inverse winding)
+    - type: clip
+      id: 21
+      path:
+        rect: [100, 100, 110, 110]
+        data: "M 10 10 L 100 10 10 100 Z M 100 10 10 100 100 100 Z"
+    - type: clip-chain
+      id: 121
+      clips: [21]
+    - type: rect
+      bounds: [100, 90, 220, 120]
+      color: red
+      clip-chain: 121
+    # Shared diagonal edge (same winding, width sub-px offset)
+    - type: clip
+      id: 22
+      path:
+        rect: [200.25, 100.25, 110, 110]
+        data: "M 10 10 L 100 10 10 100 Z M 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 122
+      clips: [22]
+    - type: rect
+      bounds: [200, 100, 200, 200]
+      color: red
+      clip-chain: 122
+    # Shared diagonal edge (inverse winding, width sub-px offset)
+    - type: clip
+      id: 23
+      path:
+        rect: [300.25, 100.25, 110, 110]
+        data: "M 10 10 L 100 10 10 100 Z M 100 10 10 100 100 100 Z"
+    - type: clip-chain
+      id: 123
+      clips: [23]
+    - type: rect
+      bounds: [300, 90, 220, 120]
+      color: red
+      clip-chain: 123
+
+
+    # Overlap (same winding)
+    # The two overlapping sub-paths must not cause the rect to be inflated
+    - type: clip
+      id: 31
+      path:
+        rect: [0, 200, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 331
+      clips: [31]
+    - type: rect
+      bounds: [0, 200, 120, 120]
+      color: green
+      clip-chain: 331
+    # Overlap (inverse winding)
+    # For this one the two sub-paths cancel each-other.
+    - type: clip
+      id: 32
+      path:
+        rect: [100, 200, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z M 10 10 L 10 100 100 100 100 10 Z"
+    - type: clip-chain
+      id: 332
+      clips: [32]
+    - type: rect
+      bounds: [100, 200, 120, 120]
+      color: green
+      clip-chain: 332
+    # Overlap (same winding with sub-px offset)
+    # The two overlapping sub-paths must not cause the rect to be inflated
+    - type: clip
+      id: 31
+      path:
+        rect: [200.25, 200.25, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z M 10 10 L 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 331
+      clips: [31]
+    - type: rect
+      bounds: [200, 200, 120, 120]
+      color: green
+      clip-chain: 331
+    # Overlap (inverse winding with sub-px offset)
+    # For this one the two sub-paths cancel each-other.
+    - type: clip
+      id: 32
+      path:
+        rect: [300.25, 200.25, 110, 110]
+        data: "M 10 10 L 100 10 100 100 10 100 Z M 10 10 L 10 100 100 100 100 10 Z"
+    - type: clip-chain
+      id: 332
+      clips: [32]
+    - type: rect
+      bounds: [300, 200, 120, 120]
+      color: green
+      clip-chain: 332
+
+    # Single sub-path with overlapping edges
+    - type: clip
+      id: 41
+      path:
+        rect: [0, 300, 110, 110]
+        data: "M 10 10 L 50 10 50 50 60 50 50 60 60 50 50 50 50 10 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 441
+      clips: [41]
+    - type: rect
+      bounds: [0, 300, 120, 120]
+      color: blue
+      clip-chain: 441
+    # Single sub-path with overlapping edges and sub-px offset
+    - type: clip
+      id: 42
+      path:
+        rect: [200.25, 300.25, 110, 110]
+        data: "M 10 10 L 50 10 50 50 60 50 50 60 60 50 50 50 50 10 100 10 100 100 10 100 Z"
+    - type: clip-chain
+      id: 442
+      clips: [42]
+    - type: rect
+      bounds: [200, 300, 120, 120]
+      color: blue
+      clip-chain: 442

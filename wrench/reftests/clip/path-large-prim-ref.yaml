@@ -1,0 +1,15 @@
+---
+root:
+  items:
+    - type: rect
+      bounds: [300, 100, 100, 25]
+      color: blue
+    - type: rect
+      bounds: [300, 175, 100, 25]
+      color: blue
+    - type: rect
+      bounds: [300, 125, 25, 50]
+      color: blue
+    - type: rect
+      bounds: [375, 125, 25, 50]
+      color: blue

@@ -1,0 +1,18 @@
+# A small path in the large rect of a path clip, on a large primitive. The
+# primitive uses the tiled quad strategy.
+---
+root:
+  items:
+    - type: clip
+      id: 1
+      path:
+        rect: [10, 10, 700, 400]
+        data: "M 290 90 L 390 90 L 390 190 L 290 190 Z M 315 115 L 365 115 L 365 165 L 315 165 Z"
+        fill-rule: evenodd
+    - type: clip-chain
+      id: 101
+      clips: [1]
+    - type: rect
+      bounds: [10, 10, 700, 400]
+      color: blue
+      clip-chain: 101
