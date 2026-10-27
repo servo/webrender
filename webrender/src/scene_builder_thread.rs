@@ -729,6 +729,7 @@ impl SceneBuilderThread {
                     &SceneStats::empty(),
                     self.debug_flags,
                 ));
+                item.scene.mark_built(&built_scene.as_ref().unwrap().walked_pipelines);
 
                 interner_updates = Some(
                     item.interners.end_frame_and_get_pending_updates()
@@ -965,6 +966,7 @@ impl SceneBuilderThread {
                         self.debug_flags,
                     );
                     let spatial_tree_updates = spatial_tree.end_frame_and_get_pending_updates();
+                    scene.mark_built(&built.walked_pipelines);
                     embed_policy_violations.extend_from_slice(&built.embed_policy_violations);
                     offscreen_scenes.push(OffscreenBuiltScene {
                         scene: built,
@@ -1031,6 +1033,8 @@ impl SceneBuilderThread {
                 &doc.stats,
                 self.debug_flags,
             );
+
+            scene.mark_built(&built.walked_pipelines);
 
             // Update the allocation stats for next scene
             doc.stats = built.get_stats();

@@ -67,12 +67,24 @@ pub unsafe fn peek_from_default<T: Default + Peek>(bytes: *const u8) -> (T, *con
 pub fn peek_from_slice<'a, T: Peek>(src: &'a [u8], dst: &mut T) -> &'a [u8] {
     unsafe {
         // If src.len() == T::max_size() then src is at the start of the red-zone.
-        assert!(T::max_size() < src.len(), "WRDL: unexpected end of display list");
+        assert!(
+            T::max_size() < src.len(),
+            "WRDL: unexpected end of display list reading {}: {:#x} bytes left, max size {:#x}",
+            core::any::type_name::<T>(),
+            src.len(),
+            T::max_size(),
+        );
         let end_ptr = T::peek_from(src.as_ptr(), dst);
         let len = end_ptr as usize - src.as_ptr() as usize;
         // Did someone break the T::peek_from() can't read more than T::max_size()
         // bytes contract?
-        assert!(len <= src.len(), "WRDL: Peek::max_size was wrong");
+        assert!(
+            len <= src.len(),
+            "WRDL: Peek::max_size was wrong for {}: read {:#x} of {:#x} bytes",
+            core::any::type_name::<T>(),
+            len,
+            src.len(),
+        );
         slice::from_raw_parts(end_ptr, src.len() - len)
     }
 }

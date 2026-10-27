@@ -37,7 +37,7 @@
 
 use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayList, BuiltDisplayListIter, PrimitiveFlags, SnapshotInfo};
 use api::{ClipId, ColorF, CommonItemProperties, ComplexClipRegion, ComponentTransferFuncType, RasterSpace};
-use api::{DebugFlags, DisplayItem, DisplayItemRef, ExternalScrollId, FilterData};
+use api::{DebugFlags, DisplayItem, DisplayItemRef, DlParseContext, ExternalScrollId, FilterData};
 use api::{FilterOp, FontInstanceKey, FontSize, GlyphInstance, GlyphOptions, GlyphShadowMode, GradientStop};
 use api::{IdNamespace, IframeDisplayItem, ImageKey, ImageRendering, ItemRange, ColorDepth, QualitySettings};
 use api::{LineOrientation, LineStyle, NinePatchBorderSource, PipelineId, MixBlendMode, StackingContextFlags};
@@ -513,6 +513,9 @@ pub struct SceneBuilder<'a> {
     /// embed policy rejected.
     embed_policy_violations: Vec<(PipelineId, PipelineId)>,
 
+    /// The pipelines whose display lists have been walked by this build.
+    walked_pipelines: Vec<PipelineId>,
+
     /// Debug flags for the current scene build. Consulted e.g. to optionally
     /// disable promoting rounded-rect clips to compositor clips.
     debug_flags: DebugFlags,
@@ -578,6 +581,7 @@ impl<'a> SceneBuilder<'a> {
             clip_tree_builder: recycler.clip_tree_builder.take().unwrap_or_else(|| ClipTreeBuilder::new()),
             extra_stacking_context_stack: Vec::new(),
             embed_policy_violations: Vec::new(),
+            walked_pipelines: Vec::new(),
             debug_flags,
         };
 
@@ -661,6 +665,7 @@ impl<'a> SceneBuilder<'a> {
             surfaces: builder.surfaces,
             clip_tree,
             embed_policy_violations: builder.embed_policy_violations,
+            walked_pipelines: builder.walked_pipelines,
             recycler_tx: Some(recycler.tx.clone()),
         }
     }
@@ -924,7 +929,11 @@ impl<'a> SceneBuilder<'a> {
             namespace: root_pipeline.namespace,
             kind: ContextKind::Root,
         }];
-        let mut traversal = root_pipeline.display_list.iter();
+        self.walked_pipelines.push(root_pipeline_id);
+        let mut traversal = root_pipeline.display_list.iter_with_context(DlParseContext {
+            pipeline_id: Some(root_pipeline_id),
+            built_before: root_pipeline.built_before,
+        });
 
         'outer: while let Some(bc) = stack.pop() {
             loop {
@@ -1300,7 +1309,11 @@ impl<'a> SceneBuilder<'a> {
             iframe_pipeline_id,
         );
 
-        Some((pipeline.namespace, pipeline.display_list.iter()))
+        self.walked_pipelines.push(iframe_pipeline_id);
+        Some((pipeline.namespace, pipeline.display_list.iter_with_context(DlParseContext {
+            pipeline_id: Some(iframe_pipeline_id),
+            built_before: pipeline.built_before,
+        })))
     }
 
     fn get_space(

@@ -210,6 +210,10 @@ pub struct ScenePipeline {
     /// The id namespace that owns the resources this display list is allowed to
     /// reference.
     pub namespace: IdNamespace,
+    /// Whether a completed scene build has walked this display list. Reported
+    /// if the display list later fails to parse.
+    #[cfg_attr(any(feature = "capture", feature = "replay"), serde(skip))]
+    pub built_before: bool,
 }
 
 /// A complete representation of the layout bundling visible pipelines together.
@@ -251,10 +255,19 @@ impl Scene {
         let new_pipeline = ScenePipeline {
             display_list,
             namespace,
+            built_before: false,
         };
 
         self.pipelines.insert(pipeline_id, new_pipeline);
         self.pipeline_epochs.insert(pipeline_id, epoch);
+    }
+
+    pub fn mark_built(&mut self, pipelines: &[PipelineId]) {
+        for pipeline_id in pipelines {
+            if let Some(pipeline) = self.pipelines.get_mut(pipeline_id) {
+                pipeline.built_before = true;
+            }
+        }
     }
 
     pub fn remove_pipeline(&mut self, pipeline_id: PipelineId) {
@@ -343,6 +356,8 @@ pub struct BuiltScene {
     /// The (embedder, child) pairs of the iframe items that the embedder's
     /// embed policy rejected.
     pub embed_policy_violations: Vec<(PipelineId, PipelineId)>,
+    /// The pipelines whose display lists this build walked.
+    pub walked_pipelines: Vec<PipelineId>,
 
     /// Deallocating memory outside of the thread that allocated it causes lock
     /// contention in jemalloc. To avoid this we send the built scene back to
@@ -370,6 +385,7 @@ impl BuiltScene {
             surfaces: Vec::new(),
             clip_tree: ClipTree::new(),
             embed_policy_violations: Vec::new(),
+            walked_pipelines: Vec::new(),
             recycler_tx: None,
             config: FrameBuilderConfig {
                 default_font_render_mode: FontRenderMode::Mono,

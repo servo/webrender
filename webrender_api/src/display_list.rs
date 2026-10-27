@@ -404,8 +404,22 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
     }
 }
 
+/// Diagnostic information about the display list being iterated, included in
+/// the panic message if the serialized items turn out to be malformed.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct DlParseContext {
+    pub pipeline_id: Option<PipelineId>,
+    /// Whether this display list was already walked by a completed scene build.
+    pub built_before: bool,
+}
+
 pub struct BuiltDisplayListIter<'a> {
     data: &'a [u8],
+    /// Address and length of the whole serialized item buffer, so that a parse
+    /// failure can report its offset.
+    data_start: usize,
+    data_len: usize,
+    parse_context: DlParseContext,
     cur_item: di::DisplayItem,
     cur_stops: ItemRange<'a, di::GradientStop>,
     cur_glyphs: ItemRange<'a, GlyphInstance>,
@@ -625,6 +639,13 @@ impl BuiltDisplayList {
         BuiltDisplayListIter::new(self.items_data())
     }
 
+    /// Like `iter`, but `context` is reported if the items fail to parse.
+    pub fn iter_with_context(&self, context: DlParseContext) -> BuiltDisplayListIter {
+        let mut iter = BuiltDisplayListIter::new(self.items_data());
+        iter.parse_context = context;
+        iter
+    }
+
     pub fn size_in_bytes(&self) -> usize {
         self.payload.size_in_bytes()
     }
@@ -710,27 +731,15 @@ impl BuiltDisplayList {
     }
 }
 
-/// Returns the byte-range the slice occupied.
-fn skip_slice<'a, T: peek_poke::Peek>(data: &mut &'a [u8]) -> ItemRange<'a, T> {
-    let mut skip_offset = 0usize;
-    *data = peek_from_slice(data, &mut skip_offset);
-    let (skip, rest) = data.split_at(skip_offset);
-
-    // Adjust data pointer to skip read values
-    *data = rest;
-
-    ItemRange {
-        bytes: skip,
-        _boo: PhantomData,
-    }
-}
-
 impl<'a> BuiltDisplayListIter<'a> {
     pub fn new(
         data: &'a [u8],
     ) -> Self {
         Self {
             data,
+            data_start: data.as_ptr() as usize,
+            data_len: data.len(),
+            parse_context: DlParseContext::default(),
             cur_item: di::DisplayItem::PopStackingContext,
             cur_stops: ItemRange::default(),
             cur_glyphs: ItemRange::default(),
@@ -747,7 +756,11 @@ impl<'a> BuiltDisplayListIter<'a> {
     }
 
     pub fn sub_iter(&self) -> Self {
-        BuiltDisplayListIter::new(self.data)
+        let mut iter = BuiltDisplayListIter::new(self.data);
+        iter.data_start = self.data_start;
+        iter.data_len = self.data_len;
+        iter.parse_context = self.parse_context;
+        iter
     }
 
     pub fn current_item(&self) -> &di::DisplayItem {
@@ -820,23 +833,23 @@ impl<'a> BuiltDisplayListIter<'a> {
 
         match self.cur_item {
             SetGradientStops => {
-                self.cur_stops = skip_slice::<di::GradientStop>(&mut self.data);
+                self.cur_stops = self.skip_slice("set_gradient_stops.stops");
                 self.debug_stats.log_slice("set_gradient_stops.stops", &self.cur_stops);
             }
             SetFilterOps => {
-                self.cur_filters = skip_slice::<di::FilterOp>(&mut self.data);
+                self.cur_filters = self.skip_slice("set_filter_ops.ops");
                 self.debug_stats.log_slice("set_filter_ops.ops", &self.cur_filters);
             }
             SetFilterData => {
-                self.cur_filter_data.push(TempFilterData {
-                    func_types: skip_slice::<di::ComponentTransferFuncType>(&mut self.data),
-                    r_values: skip_slice::<f32>(&mut self.data),
-                    g_values: skip_slice::<f32>(&mut self.data),
-                    b_values: skip_slice::<f32>(&mut self.data),
-                    a_values: skip_slice::<f32>(&mut self.data),
-                });
+                let data = TempFilterData {
+                    func_types: self.skip_slice("set_filter_data.func_types"),
+                    r_values: self.skip_slice("set_filter_data.r_values"),
+                    g_values: self.skip_slice("set_filter_data.g_values"),
+                    b_values: self.skip_slice("set_filter_data.b_values"),
+                    a_values: self.skip_slice("set_filter_data.a_values"),
+                };
+                self.cur_filter_data.push(data);
 
-                let data = *self.cur_filter_data.last().unwrap();
                 self.debug_stats.log_slice("set_filter_data.func_types", &data.func_types);
                 self.debug_stats.log_slice("set_filter_data.r_values", &data.r_values);
                 self.debug_stats.log_slice("set_filter_data.g_values", &data.g_values);
@@ -844,21 +857,53 @@ impl<'a> BuiltDisplayListIter<'a> {
                 self.debug_stats.log_slice("set_filter_data.a_values", &data.a_values);
             }
             SetPoints => {
-                self.cur_points = skip_slice::<LayoutPoint>(&mut self.data);
+                self.cur_points = self.skip_slice("set_points.points");
                 self.debug_stats.log_slice("set_points.points", &self.cur_points);
             }
             ClipChain(_) => {
-                self.cur_clip_chain_items = skip_slice::<di::ClipId>(&mut self.data);
+                self.cur_clip_chain_items = self.skip_slice("clip_chain.clip_ids");
                 self.debug_stats.log_slice("clip_chain.clip_ids", &self.cur_clip_chain_items);
             }
             Text(_) => {
-                self.cur_glyphs = skip_slice::<GlyphInstance>(&mut self.data);
+                self.cur_glyphs = self.skip_slice("text.glyphs");
                 self.debug_stats.log_slice("text.glyphs", &self.cur_glyphs);
             }
             _ => { /* do nothing */ }
         }
 
         Some(self.as_ref())
+    }
+
+    /// Steps over a length-prefixed slice and returns the byte-range it occupied.
+    fn skip_slice<T: peek_poke::Peek>(&mut self, slice_name: &'static str) -> ItemRange<'a, T> {
+        let mut skip_offset = 0usize;
+        self.data = peek_from_slice(self.data, &mut skip_offset);
+        if skip_offset > self.data.len() {
+            self.slice_overrun(slice_name, skip_offset);
+        }
+        let (skip, rest) = self.data.split_at(skip_offset);
+
+        // Adjust data pointer to skip read values
+        self.data = rest;
+
+        ItemRange {
+            bytes: skip,
+            _boo: PhantomData,
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn slice_overrun(&self, slice_name: &'static str, slice_len: usize) -> ! {
+        panic!(
+            "WRDL: {} slice of {:#x} bytes overruns the {:#x} bytes left at offset {:#x} of {:#x}, {:?}",
+            slice_name,
+            slice_len,
+            self.data.len(),
+            self.data.as_ptr() as usize - self.data_start,
+            self.data_len,
+            self.parse_context,
+        );
     }
 
     pub fn as_ref<'b>(&'b self) -> DisplayItemRef<'a, 'b> {
@@ -3283,6 +3328,44 @@ impl DisplayListBuilder {
                 delta,
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod parse_failure_tests {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "overruns")]
+    fn a_corrupt_slice_length_reports_where_it_failed() {
+        let mut builder = DisplayListBuilder::new(PipelineId::dummy());
+        builder.begin(60.0);
+        builder.push_stops(&[di::GradientStop { offset: 0.0, color: ColorF::BLACK }]);
+        let (_, mut dl) = builder.end();
+
+        let data = &dl.payload.items_data;
+        let mut offset = 0;
+        let mut item = di::DisplayItem::PopStackingContext;
+        loop {
+            let rest = peek_from_slice(&data[offset..], &mut item);
+            if item == di::DisplayItem::SetGradientStops {
+                offset = data.len() - rest.len();
+                break;
+            }
+            let mut iter = BuiltDisplayListIter::new(&data[offset..]);
+            iter.next_raw().expect("no gradient stops in the display list");
+            offset = data.len() - iter.data.len();
+        }
+
+        let bogus_len: usize = 0x100_0000_0040;
+        dl.payload.items_data[offset..offset + mem::size_of::<usize>()]
+            .copy_from_slice(&bogus_len.to_ne_bytes());
+
+        let mut iter = dl.iter_with_context(DlParseContext {
+            pipeline_id: Some(PipelineId::dummy()),
+            built_before: true,
+        });
+        while iter.next().is_some() {}
     }
 }
 
