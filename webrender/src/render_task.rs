@@ -3,11 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadius, ClipMode, LineStyle, LineOrientation, ColorF, FilterOpGraphPictureBufferId};
-use api::{MAX_RENDER_TASK_SIZE, SVGFE_GRAPH_MAX};
+use api::{MAX_RENDER_TASK_SIZE, SVGFE_GRAPH_MAX, FillRule, Path};
 use api::units::*;
 use std::time::Duration;
 use crate::box_shadow::BLUR_SAMPLE_SCALE;
 use crate::render_task_graph::SubTaskRange;
+use crate::path_tiler::PathTransform;
 use crate::command_buffer::{CommandBufferIndex, QuadFlags};
 use crate::pattern::{PatternKind, PatternShaderInput};
 use crate::profiler::{add_text_marker};
@@ -2172,6 +2173,7 @@ impl RenderTask {
 pub enum SubTask {
     RectangleClip(RectangleClipSubTask),
     ImageClip(ImageClipSubTask),
+    PathClip(PathClipSubTask),
 }
 
 /// A (rounded) rectangle clip applied to a render task using the multiply
@@ -2220,4 +2222,19 @@ pub struct ImageClipSubTask {
     pub src_task: RenderTaskId,
     pub quad_flags: QuadFlags,
     pub needs_scissor_rect: bool,
+}
+
+/// A path clip applied to a render task using the premultiplied dest-out
+/// blend mode on top of the content being clipped.
+///
+/// The path is rasterized into tiles when the render task is added to its
+/// render target.
+#[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct PathClipSubTask {
+    pub path: Path,
+    pub fill_rule: FillRule,
+    /// Maps the path to the render task's local device pixels.
+    pub transform: PathTransform,
 }

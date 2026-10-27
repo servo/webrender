@@ -751,7 +751,6 @@ impl<T> GpuBuffer<T> {
 #[derive(Copy, Clone, Debug, Default, PartialEq, MallocSizeOf)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-#[allow(dead_code)]
 pub struct GpuBufferBlockEdge(pub [u8; 4]);
 
 unsafe impl Texel for GpuBufferBlockEdge {

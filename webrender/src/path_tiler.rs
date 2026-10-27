@@ -188,19 +188,18 @@ impl TilePosition {
         TilePosition(x << 10 | y)
     }
 
-    pub fn extend(&mut self) {
-        self.0 += 1 << 20;
-    }
-
     pub fn to_u32(&self) -> u32 {
         self.0
     }
+    #[cfg(test)]
     pub fn x(&self) -> u32 {
         (self.0 >> 10) & Self::MASK
     }
+    #[cfg(test)]
     pub fn y(&self) -> u32 {
         (self.0) & Self::MASK
     }
+    #[cfg(test)]
     pub fn extension(&self) -> u32 {
         (self.0 >> 20) & Self::MASK
     }
@@ -1210,22 +1209,15 @@ impl std::fmt::Debug for Event {
 
 #[test]
 fn tile_position() {
-    let mut p0 = TilePosition::new(1, 2);
+    let p0 = TilePosition::new(1, 2);
     assert_eq!(p0.x(), 1);
     assert_eq!(p0.y(), 2);
     assert_eq!(p0.extension(), 0);
 
-    p0.extend();
-
-    assert_eq!(p0.x(), 1);
-    assert_eq!(p0.y(), 2);
-    assert_eq!(p0.extension(), 1);
-
-    p0.extend();
-
-    assert_eq!(p0.x(), 1);
-    assert_eq!(p0.y(), 2);
-    assert_eq!(p0.extension(), 2);
+    let p1 = TilePosition::extended(1023, 1022, 1021);
+    assert_eq!(p1.x(), 1023);
+    assert_eq!(p1.y(), 1022);
+    assert_eq!(p1.extension(), 1021);
 }
 
 #[test]

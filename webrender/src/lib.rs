@@ -130,7 +130,6 @@ mod telemetry;
 
 mod batch;
 mod bezier;
-#[allow(dead_code)]
 mod path_tiler;
 mod border;
 mod border_image;
