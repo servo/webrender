@@ -13,7 +13,6 @@ use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::usize;
 use webrender::api::*;
 use webrender::render_api::*;
 use webrender::api::units::*;

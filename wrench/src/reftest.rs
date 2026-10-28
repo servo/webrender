@@ -678,7 +678,7 @@ impl ReftestManifest {
                     // First remove the ranges with difference <= 5, otherwise they might cause the
                     // test to fail before the new range is picked up.
                     fuzziness.retain(|fuzzy| fuzzy.max_difference > 5);
-                    fuzziness.push(RefTestFuzzy { max_difference: 5, num_differences: std::usize::MAX });
+                    fuzziness.push(RefTestFuzzy { max_difference: 5, num_differences: usize::MAX });
                 }
 
                 // to avoid changing the meaning of existing tests, the case of

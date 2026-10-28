@@ -4,7 +4,6 @@
 
 use euclid::{Angle, Size2D};
 use crate::parse_function::parse_function;
-use std::f32;
 use std::str::FromStr;
 use webrender::api::*;
 use webrender::api::units::*;
@@ -184,7 +183,7 @@ fn make_rotation(
     let pre_transform = LayoutTransform::translation(-origin.x, -origin.y, -0.0);
     let post_transform = LayoutTransform::translation(origin.x, origin.y, 0.0);
 
-    let theta = 2.0f32 * f32::consts::PI - degrees.to_radians();
+    let theta = std::f32::consts::TAU - degrees.to_radians();
     let transform =
         LayoutTransform::identity().pre_rotate(axis_x, axis_y, axis_z, Angle::radians(theta));
 
