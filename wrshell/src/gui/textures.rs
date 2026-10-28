@@ -160,7 +160,7 @@ pub fn texture_viewer_ui(
     painter.rect_stroke(
         image_rect,
         0.0,
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 120, 120)),
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(120, 120, 120)),
         egui::StrokeKind::Outside,
     );
 }

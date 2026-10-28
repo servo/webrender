@@ -454,7 +454,7 @@ pub fn ui(app: &mut Gui, ui: &mut egui::Ui) {
                     egui::TextFormat::simple(font_id.clone(), ui.visuals().text_color());
                 if error_lines.contains(&(index as u32 + 1)) {
                     format.color = ERROR_COLOR;
-                    format.underline = egui::Stroke::new(1.0, ERROR_COLOR);
+                    format.underline = egui::Stroke::new(1.0_f32, ERROR_COLOR);
                 }
                 job.append(line, 0.0, format);
             }

@@ -232,7 +232,7 @@ fn node_ui(
         ui.visuals().text_color()
     };
     if disabled {
-        text_format.strikethrough = egui::Stroke::new(1.0, text_format.color);
+        text_format.strikethrough = egui::Stroke::new(1.0_f32, text_format.color);
     }
 
     let mut job = egui::text::LayoutJob::default();

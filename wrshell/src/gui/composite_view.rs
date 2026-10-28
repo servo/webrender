@@ -85,7 +85,7 @@ pub fn ui(
     painter.rect_stroke(
         egui::Rect::from_min_max(egui::pos2(sx0, sy0), egui::pos2(sx1, sy1)),
         0.0,
-        egui::Stroke::new(1.0, egui::Color32::WHITE),
+        egui::Stroke::new(1.0_f32, egui::Color32::WHITE),
         egui::StrokeKind::Outside,
     );
 
@@ -122,7 +122,7 @@ pub fn ui(
             );
 
             painter.rect_filled(tile_rect, 0.0, fill_color);
-            painter.rect_stroke(tile_rect, 0.0, egui::Stroke::new(1.0, stroke_color), egui::StrokeKind::Outside);
+            painter.rect_stroke(tile_rect, 0.0, egui::Stroke::new(1.0_f32, stroke_color), egui::StrokeKind::Outside);
         }
     }
 }
