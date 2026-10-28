@@ -444,8 +444,9 @@ macro_rules! enumerate_interners {
     ($macro_name: ident) => {
         $macro_name! {
             clip: ClipIntern,
-            // Rectangles are interned by the content display list builder, so
-            // they have no slot here. See doc/dl-builder-interning.md.
+            // Rectangles and box shadows are interned by the content display
+            // list builder, so they have no slot here. See
+            // doc/dl-builder-interning.md.
             normal_border: NormalBorderPrim,
             image_border: ImageBorder,
             image: Image,
@@ -460,7 +461,6 @@ macro_rules! enumerate_interners {
             backdrop_capture: BackdropCapture,
             backdrop_render: BackdropRender,
             polygon: PolygonIntern,
-            box_shadow: BoxShadow,
         }
     }
 }

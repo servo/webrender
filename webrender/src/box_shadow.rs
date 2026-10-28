@@ -5,11 +5,9 @@ use api::{BorderRadius, BoxShadowClipMode, ClipMode, ColorF};
 use api::units::*;
 use crate::border;
 use crate::command_buffer::CommandBufferIndex;
-use crate::clip::ClipNodeId;
+use crate::dl_interner::{DlResolve, DlResolveContext};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext};
-use crate::intern::{Handle as InternHandle, InternDebug, Internable};
-use crate::prim_store::{InternablePrimitive, PrimTemplate, PrimTemplateCommonData, PrimitiveScratchBuffer};
-use crate::prim_store::{PrimitiveKind, PrimitiveStore};
+use crate::prim_store::{PrimTemplate, PrimTemplateCommonData, PrimitiveScratchBuffer};
 use crate::quad::{self, QuadDescriptor, QuadTransformState};
 use crate::quad_clip::QuadClipStack;
 use crate::pattern::box_shadow::BoxShadowPatternData;
@@ -17,43 +15,17 @@ use crate::render_task::{RenderTask, RenderTaskKind, MAX_BLUR_STD_DEVIATION};
 use crate::render_task_cache::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent, to_cache_size};
 use crate::render_target::RenderTargetKind;
 use crate::gpu_types::BlurEdgeMode;
-use crate::scene_building::SceneBuilder;
 use crate::space::SpaceSnapper;
 use crate::spatial_tree::SpatialNodeIndex;
-use crate::internal_types::LayoutPrimitiveInfo;
 use crate::util::clamp_to_scale_factor;
 
-// `BoxShadow` and its key live in `webrender_api::interned_prims` so
-// content-process interning can hold them. Re-exported to keep existing
-// references working.
+// `BoxShadow` and its key live in `webrender_api::interned_prims`, since the
+// content display list builder interns them.
 pub use api::interned_prims::{BoxShadow, BoxShadowKey};
-
-impl InternDebug for BoxShadowKey {}
-
-pub type BoxShadowDataHandle = InternHandle<BoxShadow>;
-
-impl InternablePrimitive for BoxShadow {
-    fn into_key(
-        self,
-        info: &LayoutPrimitiveInfo,
-    ) -> BoxShadowKey {
-        BoxShadowKey::new(info.into(), self)
-    }
-
-    fn make_instance_kind(
-        _key: BoxShadowKey,
-        data_handle: BoxShadowDataHandle,
-        _prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveKind {
-        PrimitiveKind::BoxShadow {
-            data_handle,
-        }
-    }
-}
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, MallocSizeOf)]
+#[derive(Debug, MallocSizeOf, Clone)]
 pub struct BoxShadowData {
     pub color: ColorF,
     pub blur_radius: f32,
@@ -80,18 +52,12 @@ impl From<BoxShadow> for BoxShadowData {
 
 pub type BoxShadowTemplate = PrimTemplate<BoxShadowData>;
 
-impl Internable for BoxShadow {
-    type Key = BoxShadowKey;
-    type StoreData = BoxShadowTemplate;
-    type InternData = ();
-    const PROFILE_COUNTER: usize = crate::profiler::INTERNED_BOX_SHADOWS;
-}
-
-impl From<BoxShadowKey> for BoxShadowTemplate {
-    fn from(shadow: BoxShadowKey) -> Self {
+/// Nothing to validate: the content key is already everything a shadow is.
+impl DlResolve<BoxShadowKey> for BoxShadowTemplate {
+    fn resolve(key: &BoxShadowKey, _ctx: &DlResolveContext) -> Self {
         BoxShadowTemplate {
-            common: PrimTemplateCommonData::with_key_common(shadow.common),
-            kind: shadow.kind.into(),
+            common: PrimTemplateCommonData::with_key_common(key.common),
+            kind: key.kind.clone().into(),
         }
     }
 }
@@ -122,40 +88,6 @@ pub struct BoxShadowCacheKey {
     pub shape_bottom_right: u32,
     pub device_pixel_scale: Au,
     pub spread_amount: u32,
-}
-
-impl<'a> SceneBuilder<'a> {
-    pub fn add_box_shadow(
-        &mut self,
-        spatial_node_index: SpatialNodeIndex,
-        clip_node_id: ClipNodeId,
-        prim_info: &LayoutPrimitiveInfo,
-        box_offset: &LayoutVector2D,
-        color: ColorF,
-        blur_radius: f32,
-        spread_amount: f32,
-        border_radius: BorderRadius,
-        shadow_radius: BorderRadius,
-        clip_mode: BoxShadowClipMode,
-    ) {
-        // Element clipping is handled analytically in the shader. Zero-blur
-        // box-shadows are desugared into a rectangle plus shaping clips in the
-        // DisplayListBuilder and never reach here.
-        self.add_primitive(
-            spatial_node_index,
-            clip_node_id,
-            prim_info,
-            BoxShadow {
-                color: color.into(),
-                blur_radius: Au::from_f32_px(blur_radius),
-                clip_mode,
-                shadow_radius: shadow_radius.into(),
-                element_radius: border_radius.into(),
-                box_offset: (*box_offset).into(),
-                spread_amount: Au::from_f32_px(spread_amount),
-            },
-        );
-    }
 }
 
 pub fn prepare_box_shadow(

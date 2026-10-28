@@ -39,6 +39,7 @@ macro_rules! enumerate_dl_stores {
         $macro_name! {
             rectangles: api::interned_prims::RectangleKey => crate::prim_store::rectangle::RectangleTemplate, INTERNED_PRIMITIVES, prim,
             path: api::Path => api::Path, INTERNED_PATHS, path,
+            box_shadows: api::interned_prims::BoxShadowKey => crate::box_shadow::BoxShadowTemplate, INTERNED_BOX_SHADOWS, box_shadow,
         }
     }
 }
@@ -54,6 +55,7 @@ macro_rules! enumerate_scene_dl_stores {
         $macro_name! {
             rectangles: api::interned_prims::RectangleKey => crate::prim_store::PrimPlacement, prim,
             path: api::Path => api::Path, path,
+            box_shadows: api::interned_prims::BoxShadowKey => crate::prim_store::PrimPlacement, box_shadow,
         }
     }
 }

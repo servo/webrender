@@ -45,7 +45,7 @@ use picture::PictureDataHandle;
 use rectangle::RectangleKey;
 use crate::dl_interner::DlHandle;
 use text_run::{TextRunDataHandle, TextRunScratch};
-use crate::box_shadow::BoxShadowDataHandle;
+use crate::box_shadow::BoxShadowKey;
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -285,7 +285,9 @@ pub enum PrimitiveKind {
         pic_index: PictureIndex,
     },
     BoxShadow {
-        data_handle: BoxShadowDataHandle,
+        /// Handle into the follower store fed by the content display list
+        /// builder.
+        handle: DlHandle<BoxShadowKey>,
     },
 }
 
@@ -465,8 +467,8 @@ impl PrimitiveInstance {
             PrimitiveKind::BackdropRender { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveKind::BoxShadow { data_handle, .. } => {
-                data_handle.uid()
+            PrimitiveKind::BoxShadow { handle } => {
+                dl_stores.box_shadows.uid(*handle)
             }
 
         }

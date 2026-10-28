@@ -286,8 +286,8 @@ impl<'a> TreeWalker<'a> {
                 Some(pic_index),
                 Vec::new(),
             ),
-            PrimitiveKind::BoxShadow { data_handle } => {
-                let data = &data_stores.box_shadow[data_handle];
+            PrimitiveKind::BoxShadow { handle } => {
+                let data = &dl_stores.box_shadows[handle];
                 color = Some(data.kind.color);
                 ("BoxShadow", String::new(), None, Vec::new())
             }

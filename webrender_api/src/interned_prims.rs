@@ -61,7 +61,7 @@ pub struct BoxShadow {
     /// local space.
     pub box_offset: VectorKey,
     /// Signed spread radius. Positive for Outset, negative for Inset
-    /// (matches the convention in `add_box_shadow`).
+    /// (matches the convention in `DisplayListBuilder::push_box_shadow`).
     pub spread_amount: Au,
 }
 

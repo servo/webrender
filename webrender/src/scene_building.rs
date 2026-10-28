@@ -1635,22 +1635,13 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::BoxShadow(ref info) => {
                 tracy_rs::profile_scope!("box_shadow");
 
-                let (layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
-                    &info.common,
-                    info.bounds,
-                );
-
-                self.add_box_shadow(
-                    spatial_node_index,
-                    clip_node_id,
-                    &layout,
-                    &info.offset,
-                    info.color,
-                    info.blur_radius,
-                    info.spread_amount,
-                    info.border_radius,
-                    info.shadow_radius,
-                    info.clip_mode,
+                let stores = self.scene_stores;
+                self.add_dl_prim(
+                    info.spatial_id,
+                    info.clip_chain_id,
+                    &stores.box_shadows,
+                    info.box_shadow,
+                    |handle| PrimitiveKind::BoxShadow { handle },
                 );
             }
             DisplayItem::Border(ref info) => {

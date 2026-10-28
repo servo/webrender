@@ -406,10 +406,10 @@ fn prepare_prim_for_render(
     );
 
     match &mut prim_instance.kind {
-        PrimitiveKind::BoxShadow { data_handle, .. } => {
+        PrimitiveKind::BoxShadow { handle } => {
             tracy_rs::profile_scope!("BoxShadow");
 
-            let prim_data = &data_stores.box_shadow[*data_handle];
+            let prim_data = &dl_stores.box_shadows[*handle];
 
             prepare_box_shadow(
                 &prim_data.kind,

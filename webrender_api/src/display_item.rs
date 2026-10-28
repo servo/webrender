@@ -683,21 +683,15 @@ pub const MAX_BLUR_RADIUS: f32 = 300.;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
 pub struct BoxShadowDisplayItem {
-    pub common: CommonItemProperties,
-    /// The shadow's local rect: the blur-inflated outer rect for `Outset`, the
-    /// element rect for `Inset`. `prepare_box_shadow` recovers the element rect
-    /// from this and the clip mode.
-    pub bounds: LayoutRect,
-    pub offset: LayoutVector2D,
-    pub color: ColorF,
-    /// Already clamped to `MAX_BLUR_RADIUS`.
-    pub blur_radius: f32,
-    /// The authored spread radius, signed by the clip mode: inset shadows get
-    /// smaller as it increases, so this is `-spread_radius` for `Inset`.
-    pub spread_amount: f32,
-    pub border_radius: BorderRadius,
-    pub shadow_radius: BorderRadius,
-    pub clip_mode: BoxShadowClipMode,
+    pub spatial_id: SpatialId,
+    pub clip_chain_id: ClipChainId,
+    /// The shadow's entry in the builder's interner, which holds the colour,
+    /// the blur (clamped to `MAX_BLUR_RADIUS`), the spread signed by the clip
+    /// mode, both radii, the offset and the clip mode, all relative to the
+    /// shadow's own rect. That rect is the prim rect in the key's common data:
+    /// the blur-inflated outer rect for `Outset`, the element rect for `Inset`.
+    /// `prepare_box_shadow` recovers the element rect from it and the clip mode.
+    pub box_shadow: crate::interning::Handle<crate::interned_prims::BoxShadowKey>,
 }
 
 #[repr(C)]
