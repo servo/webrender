@@ -40,7 +40,7 @@ use backdrop::{BackdropCaptureDataHandle, BackdropRenderDataHandle};
 use borders::{ImageBorderDataHandle, NormalBorderDataHandle};
 use gradient::{LinearGradientDataHandle, RadialGradientDataHandle, ConicGradientDataHandle};
 use image::{ImageDataHandle, YuvImageDataHandle};
-use line_dec::LineDecorationDataHandle;
+use line_dec::LineDecorationKey;
 use picture::PictureDataHandle;
 use rectangle::RectangleKey;
 use crate::dl_interner::DlHandle;
@@ -240,8 +240,9 @@ pub enum PrimitiveKind {
     /// A line decoration. cache_handle refers to a cached render
     /// task handle, if this line decoration is not a simple solid.
     LineDecoration {
-        /// Handle to the common interned data for this primitive.
-        data_handle: LineDecorationDataHandle,
+        /// Handle into the follower store fed by the content display list
+        /// builder.
+        handle: DlHandle<LineDecorationKey>,
     },
     NormalBorder {
         /// Handle to the common interned data for this primitive.
@@ -414,8 +415,8 @@ impl PrimitiveInstance {
             return SnapPolicy { rect: SnapRounding::RoundOut, clip: ClipSnap::Exact };
         }
         let rect = match self.kind {
-            PrimitiveKind::LineDecoration { data_handle, .. } => SnapRounding::Line {
-                horizontal: data_stores.line_decoration[data_handle].kind.orientation
+            PrimitiveKind::LineDecoration { handle } => SnapRounding::Line {
+                horizontal: dl_stores.line_decorations[handle].kind.orientation
                     == LineOrientation::Horizontal,
             },
             PrimitiveKind::NormalBorder { data_handle, .. } => SnapRounding::BorderInner {
@@ -437,8 +438,8 @@ impl PrimitiveInstance {
             PrimitiveKind::ImageBorder { data_handle, .. } => {
                 data_handle.uid()
             }
-            PrimitiveKind::LineDecoration { data_handle, .. } => {
-                data_handle.uid()
+            PrimitiveKind::LineDecoration { handle } => {
+                dl_stores.line_decorations.uid(*handle)
             }
             PrimitiveKind::LinearGradient { data_handle, .. } => {
                 data_handle.uid()

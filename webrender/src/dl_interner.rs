@@ -40,6 +40,7 @@ macro_rules! enumerate_dl_stores {
             rectangles: api::interned_prims::RectangleKey => crate::prim_store::rectangle::RectangleTemplate, INTERNED_PRIMITIVES, prim,
             path: api::Path => api::Path, INTERNED_PATHS, path,
             box_shadows: api::interned_prims::BoxShadowKey => crate::box_shadow::BoxShadowTemplate, INTERNED_BOX_SHADOWS, box_shadow,
+            line_decorations: api::interned_prims::LineDecorationKey => crate::prim_store::line_dec::LineDecorationTemplate, INTERNED_LINE_DECORATIONS, line_decoration,
         }
     }
 }
@@ -56,6 +57,7 @@ macro_rules! enumerate_scene_dl_stores {
             rectangles: api::interned_prims::RectangleKey => crate::prim_store::PrimPlacement, prim,
             path: api::Path => api::Path, path,
             box_shadows: api::interned_prims::BoxShadowKey => crate::prim_store::PrimPlacement, box_shadow,
+            line_decorations: api::interned_prims::LineDecorationKey => crate::prim_store::PrimPlacement, line_decoration,
         }
     }
 }

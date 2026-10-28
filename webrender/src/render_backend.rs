@@ -358,9 +358,8 @@ impl DataStores {
                 let prim_data = &self.image_border[data_handle];
                 &prim_data.common
             }
-            PrimitiveKind::LineDecoration { data_handle, .. } => {
-                let prim_data = &self.line_decoration[data_handle];
-                &prim_data.common
+            PrimitiveKind::LineDecoration { handle } => {
+                &dl_stores.line_decorations[handle].common
             }
             PrimitiveKind::LinearGradient { data_handle, .. } => {
                 let prim_data = &self.linear_grad[data_handle];

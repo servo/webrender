@@ -449,6 +449,7 @@ macro_rules! enumerate_dl_interned_types {
             rectangles: $crate::interned_prims::RectangleKey,
             path: $crate::path::Path,
             box_shadows: $crate::interned_prims::BoxShadowKey,
+            line_decorations: $crate::interned_prims::LineDecorationKey,
         }
     }
 }

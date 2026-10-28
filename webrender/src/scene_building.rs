@@ -40,7 +40,7 @@ use api::{ClipId, ColorF, CommonItemProperties, ComplexClipRegion, ComponentTran
 use api::{DebugFlags, DisplayItem, DisplayItemRef, DlParseContext, ExternalScrollId, FilterData};
 use api::{FilterOp, FontInstanceKey, FontSize, GlyphInstance, GlyphOptions, GlyphShadowMode, GradientStop};
 use api::{IdNamespace, IframeDisplayItem, ImageKey, ImageRendering, ItemRange, ColorDepth, QualitySettings};
-use api::{LineOrientation, LineStyle, NinePatchBorderSource, PipelineId, MixBlendMode, StackingContextFlags};
+use api::{NinePatchBorderSource, PipelineId, MixBlendMode, StackingContextFlags};
 use api::{PropertyBinding, ReferenceFrameKind, ScrollFrameDescriptor};
 use api::{APZScrollGeneration, HasScrollLinkedEffect, SpatialId, StickyFrameDescriptor, ImageMask, ItemTag};
 use api::{ClipMode, TransformStyle, YuvColorSpace, ColorRange, YuvData, TempFilterData};
@@ -81,7 +81,6 @@ use crate::prim_store::gradient::{
     GradientStopKey,
 };
 use crate::prim_store::image::{Image, StretchSizeKey, SubRectKey, YuvImage};
-use crate::prim_store::line_dec::LineDecoration;
 use crate::prim_store::picture::{Picture, PictureKey};
 use crate::picture_composite_mode::{PictureCompositeKey, PictureCompositeMode};
 use crate::prim_store::text_run::TextRun;
@@ -1530,20 +1529,18 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::Line(ref info) => {
                 tracy_rs::profile_scope!("line");
 
-                let (layout, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
-                    &info.common,
-                    info.area,
-                );
-
-                self.add_line(
-                    spatial_node_index,
-                    clip_node_id,
-                    &layout,
-                    info.wavy_line_thickness,
-                    info.orientation,
-                    info.color,
-                    info.style,
-                );
+                // A line captured for a shadow with nothing to draw itself
+                // carries no handle; its copy was recorded in its place.
+                if info.line != api::interning::Handle::INVALID {
+                    let stores = self.scene_stores;
+                    self.add_dl_prim(
+                        info.spatial_id,
+                        info.clip_chain_id,
+                        &stores.line_decorations,
+                        info.line,
+                        |handle| PrimitiveKind::LineDecoration { handle },
+                    );
+                }
             }
             DisplayItem::Gradient(ref info) => {
                 tracy_rs::profile_scope!("gradient");
@@ -2823,29 +2820,6 @@ impl<'a> SceneBuilder<'a> {
         );
         self.id_to_index_mapper_stack.last_mut().unwrap().add_spatial_node(new_node_id, node_index);
         node_index
-    }
-
-    pub fn add_line(
-        &mut self,
-        spatial_node_index: SpatialNodeIndex,
-        clip_node_id: ClipNodeId,
-        info: &LayoutPrimitiveInfo,
-        wavy_line_thickness: f32,
-        orientation: LineOrientation,
-        color: ColorF,
-        style: LineStyle,
-    ) {
-        self.add_primitive(
-            spatial_node_index,
-            clip_node_id,
-            &info,
-            LineDecoration {
-                style,
-                orientation,
-                wavy_line_thickness: Au::from_f32_px(wavy_line_thickness),
-                color: color.into(),
-            },
-        );
     }
 
     pub fn add_border(

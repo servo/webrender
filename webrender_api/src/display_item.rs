@@ -375,23 +375,16 @@ pub struct HitTestDisplayItem {
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize, PeekPoke)]
 pub struct LineDisplayItem {
-    pub common: CommonItemProperties,
-    /// We need a separate rect from common.clip_rect to encode cute
-    /// tricks that firefox does to make a series of text-decorations seamlessly
-    /// line up -- snapping the decorations to a multiple of their period, and
-    /// then clipping them to their "proper" area. This rect is that "logical"
-    /// snapped area that may be clipped to the right size by the clip_rect.
-    pub area: LayoutRect,
-    /// Whether the rect is interpretted as vertical or horizontal
-    pub orientation: LineOrientation,
-    /// This could potentially be implied from area, but we currently prefer
-    /// that this is the responsibility of the layout engine. Value irrelevant
-    /// for non-wavy lines.
-    // FIXME: this was done before we could use tagged unions in enums, but now
-    // it should just be part of LineStyle::Wavy.
-    pub wavy_line_thickness: f32,
-    pub color: ColorF,
-    pub style: LineStyle,
+    pub spatial_id: SpatialId,
+    pub clip_chain_id: ClipChainId,
+    /// The interned decoration: style, orientation, wavy thickness and colour,
+    /// with the line's area as the key's prim rect. The area is separate from
+    /// the clip rect to encode the trick Firefox uses to make a series of
+    /// text decorations line up seamlessly: snap them to a multiple of their
+    /// period, then clip them to their proper area.
+    /// `Handle::INVALID` marks a fully transparent line captured inside a
+    /// shadow scope only so its copy can be drawn.
+    pub line: crate::interning::Handle<crate::interned_prims::LineDecorationKey>,
 }
 
 #[repr(u8)]
