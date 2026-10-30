@@ -28,6 +28,7 @@ use crate::rectangle_occlusion as occlusion;
 use crate::renderer::{
     GPU_SAMPLER_TAG_OPAQUE, GPU_SAMPLER_TAG_TRANSPARENT, GPU_TAG_COMPOSITE, PartialPresentMode,
 };
+use super::layer_tree::{self, LayerMode};
 use crate::renderer::{FramebufferKind, Renderer, RendererStats, VertexArrayKind};
 use crate::segment::SegmentBuilder;
 use crate::tile_cache::TileId;
@@ -567,12 +568,9 @@ impl Renderer {
         let num_tiles = composite_state.tiles.len();
         self.profile.set(profiler::PICTURE_TILES, num_tiles);
 
-        let (window_is_opaque, enable_screenshot)  = match self.compositor_config.layer_compositor() {
-            Some(ref compositor) => {
-                let props = compositor.get_window_properties();
-                (props.is_opaque, props.enable_screenshot)
-            }
-            None => (true, true)
+        let (window_is_opaque, enable_screenshot) = {
+            let props = layer_tree::window_properties(&self.compositor_config);
+            (props.is_opaque, props.enable_screenshot)
         };
 
         let mut input_layers: Vec<CompositorInputLayer> = Vec::new();
@@ -589,7 +587,7 @@ impl Renderer {
         // Select among surfaces that could otherwise be externally composited.
         let mut largest_sdr_yuv_tile = None;
         if self.limit_sdr_yuv_external_composites
-            && self.compositor_config.layer_compositor().is_some()
+            && layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains
             && !enable_screenshot
         {
             let frame_rect = DeviceRect::from_size(frame_device_size.to_f32());
@@ -672,7 +670,7 @@ impl Renderer {
                 tile.transform_index
             );
 
-            if let Some(ref _compositor) = self.compositor_config.layer_compositor() {
+            if layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains {
                 match tile.tile_id {
                     Some(tile_id) => {
                         layer_compositor_frame_state.
@@ -771,7 +769,7 @@ impl Renderer {
                 }
             };
 
-            if let Some(ref _compositor) = self.compositor_config.layer_compositor() {
+            if layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains {
                 if let CompositeTileSurface::ExternalSurface { .. } = tile.surface {
                     assert!(tile.tile_id.is_none());
                 } else {
@@ -884,7 +882,7 @@ impl Renderer {
             }
             tile_index_to_layer_index[idx] = Some(input_layers.len() - 1);
 
-            if self.compositor_config.layer_compositor().is_some() {
+            if layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains {
                 if let (CompositeTileSurface::ExternalSurface { external_surface_index },
                         CompositorSurfaceUsage::Content) = (&tile.surface, usage) {
                     let surface = &composite_state.external_surfaces[external_surface_index.0];
@@ -1003,12 +1001,12 @@ impl Renderer {
         let mut full_render = self.debug_overlay_state.is_enabled;
 
         // Start compositing if using OS compositor
-        if let Some(ref mut compositor) = self.compositor_config.layer_compositor() {
+        {
             let input = CompositorInputConfig {
                 enable_screenshot,
                 layers: &input_layers,
             };
-            full_render |= compositor.begin_frame(&input);
+            full_render |= self.layer_tree.begin_frame(&mut self.compositor_config, &input);
         }
 
         // Full render is requested when layer tree is updated.
@@ -1021,7 +1019,7 @@ impl Renderer {
         assert_eq!(swapchain_layers.len(), input_layers.len());
 
         // Recalculate dirty rect for layer compositor
-        if let Some(ref _compositor) = self.compositor_config.layer_compositor() {
+        if layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains {
             // Set visible rests of current frame to each tile's CompositeTileState.
             for item in full_render_occlusion
             .opaque_items()
@@ -1295,7 +1293,7 @@ impl Renderer {
             // Only use supplied clear color for first content layer we encounter
             let clear_color = content_clear_color.take().unwrap_or(ColorF::TRANSPARENT);
 
-            if let Some(ref mut _compositor) = self.compositor_config.layer_compositor() {
+            if layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains {
                 if let Some(PartialPresentMode::Single { dirty_rect }) = partial_present_mode {
                     let device_rect = DeviceRect::from_size(device_size.to_f32());
                     let clipped_dirty_rect = dirty_rect.intersection_unchecked(&device_rect);
@@ -1305,27 +1303,25 @@ impl Renderer {
                 }
             }
 
-            let draw_target = match self.compositor_config {
-                CompositorConfig::Layer { ref mut compositor } => {
-                    match partial_present_mode {
-                        Some(PartialPresentMode::Single { dirty_rect }) => {
-                            compositor.bind_layer(layer_index, &[dirty_rect.to_i32()]);
-                        }
-                        None => {
-                            compositor.bind_layer(layer_index, &[]);
-                        }
-                    };
+            let dirty_rect_storage;
+            let dirty_rects: &[DeviceIntRect] = match partial_present_mode {
+                Some(PartialPresentMode::Single { dirty_rect }) => {
+                    dirty_rect_storage = [dirty_rect.to_i32()];
+                    &dirty_rect_storage
+                }
+                None => &[],
+            };
 
-                    DrawTarget::NativeSurface {
-                        offset: -layer.offset,
-                        handle: crate::composite::NativeSurfaceHandle::DEFAULT,
-                        dimensions: frame_device_size,
-                    }
+            let is_layer = layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains;
+            let draw_target = if is_layer {
+                self.layer_tree.bind_layer(&mut self.compositor_config, layer_index, dirty_rects);
+                DrawTarget::NativeSurface {
+                    offset: -layer.offset,
+                    handle: crate::composite::NativeSurfaceHandle::DEFAULT,
+                    dimensions: frame_device_size,
                 }
-                // Native can be hit when switching compositors (disable when using Layer)
-                CompositorConfig::Draw { .. } | CompositorConfig::Native { .. } => {
-                    fb_draw_target
-                }
+            } else {
+                fb_draw_target
             };
 
             // TODO(gwc): When supporting external attached swapchains, need to skip the composite pass here
@@ -1341,38 +1337,28 @@ impl Renderer {
                 swapchain_layer,
             );
 
-            if let Some(ref mut compositor) = self.compositor_config.layer_compositor() {
-                match partial_present_mode {
-                    Some(PartialPresentMode::Single { dirty_rect }) => {
-                        compositor.present_layer(layer_index, &[dirty_rect.to_i32()]);
-                    }
-                    None => {
-                        compositor.present_layer(layer_index, &[]);
-                    }
-                };
-            }
+            self.layer_tree.present_layer(&mut self.compositor_config, layer_index, dirty_rects);
         }
 
         // End frame notify for experimental compositor
-        if let Some(ref mut compositor) = self.compositor_config.layer_compositor() {
-            for (layer_index, layer) in input_layers.iter().enumerate() {
-                // External surfaces need transform applied, but content
-                // surfaces are always at identity
-                let transform = match layer.usage {
-                    CompositorSurfaceUsage::Content => CompositorSurfaceTransform::identity(),
-                    CompositorSurfaceUsage::External { transform_index, .. } => composite_state.get_compositor_transform(transform_index),
-                    CompositorSurfaceUsage::DebugOverlay => CompositorSurfaceTransform::identity(),
-                };
+        for (layer_index, layer) in input_layers.iter().enumerate() {
+            // External surfaces need transform applied, but content
+            // surfaces are always at identity
+            let transform = match layer.usage {
+                CompositorSurfaceUsage::Content => CompositorSurfaceTransform::identity(),
+                CompositorSurfaceUsage::External { transform_index, .. } => composite_state.get_compositor_transform(transform_index),
+                CompositorSurfaceUsage::DebugOverlay => CompositorSurfaceTransform::identity(),
+            };
 
-                compositor.add_surface(
-                    layer_index,
-                    transform,
-                    layer.clip_rect,
-                    ImageRendering::Auto,
-                    layer.rounded_clip_rect,
-                    layer.rounded_clip_radii,
-                );
-            }
+            self.layer_tree.add_surface(
+                &mut self.compositor_config,
+                layer_index,
+                transform,
+                layer.clip_rect,
+                ImageRendering::Auto,
+                layer.rounded_clip_rect,
+                layer.rounded_clip_radii,
+            );
         }
     }
 
@@ -1471,7 +1457,7 @@ impl Renderer {
         draw_target_dimensions: DeviceIntSize,
         results: &mut RenderResults,
     ) -> Option<PartialPresentMode> {
-        if let Some(ref _compositor) = self.compositor_config.layer_compositor() {
+        if layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains {
             // Calculate dirty rects of layer compositor in composite_simple()
             return None;
         }

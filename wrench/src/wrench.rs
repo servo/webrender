@@ -21,7 +21,7 @@ use std::time::Instant;
 use webrender::{api::*, CompositorConfig};
 use webrender::render_api::*;
 use webrender::api::units::*;
-use webrender::{DebugFlags, RenderResults, ShaderPrecacheFlags, LayerCompositor};
+use webrender::{DebugFlags, RenderResults, ShaderPrecacheFlags, Compositor};
 use crate::{WindowWrapper, NotifierEvent};
 
 #[derive(Clone)]
@@ -294,7 +294,7 @@ impl Wrench {
         precache_shaders: bool,
         dump_shader_source: Option<String>,
         notifier: Option<Box<dyn RenderNotifier>>,
-        layer_compositor: Option<Box<dyn LayerCompositor>>,
+        layer_compositor: Option<Box<dyn Compositor>>,
         compositor_clips_override: Option<bool>,
     ) -> Self {
         println!("Shader override path: {:?}", shader_override_path);

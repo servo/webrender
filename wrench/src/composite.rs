@@ -2,11 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::collections::HashMap;
 use std::os::raw::c_void;
 use std::ptr;
 
 use mozangle::egl::ffi::types::EGLContext;
-use webrender::{CompositorInputConfig, CompositorSurfaceTransform, LayerCompositor};
+use webrender::{Compositor, CompositorCapabilities, CompositorSurfaceTransform, NativeSurfaceId, WindowProperties, WindowVisibility};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::WindowWrapper;
@@ -14,10 +15,8 @@ use crate::WindowWrapper;
 use mozangle::egl::ffi::types::{EGLDisplay, EGLSurface, EGLint};
 use mozangle::egl;
 
-// A simplistic implementation of the `LayerCompositor` trait to allow wrench to
-// composite via DirectComposition. In this initial version, only a single
-// swap-chain is supported. Follow up patches will add layer and external
-// surface support.
+// A simplistic implementation of the swapchain part of the `Compositor` trait
+// to allow wrench to composite via DirectComposition.
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -38,6 +37,7 @@ extern "C" {
     fn wrc_delete(compositor: CompositorHandle);
 
     fn wrc_create_layer(compositor: CompositorHandle, width: i32, height: i32, is_opaque: bool) -> LayerId;
+    fn wrc_destroy_layer(layer_id: LayerId);
     fn wrc_get_layer_backbuffer(layer_id: LayerId) -> *mut c_void;
     fn wrc_set_layer_position(layer_id: LayerId, x: f32, y: f32);
     fn wrc_present_layer(layer_id: LayerId);
@@ -69,7 +69,7 @@ impl WrLayer {
     }
 }
 
-// A basic `LayerCompositor` implementation for wrench
+// A basic `Compositor` implementation for wrench
 pub struct WrCompositor {
     // EGL display and content, provided by winit
     context: EGLContext,
@@ -77,7 +77,7 @@ pub struct WrCompositor {
     // FFI compositor handle
     compositor: CompositorHandle,
     // The swapchain layers needed for current scene
-    layers: Vec<WrLayer>,
+    layers: HashMap<NativeSurfaceId, WrLayer>,
 }
 
 impl WrCompositor {
@@ -106,132 +106,158 @@ impl WrCompositor {
             display,
             context,
             compositor,
-            layers: Vec::new(),
+            layers: HashMap::new(),
+        }
+    }
+
+    fn destroy_layer(&self, layer: WrLayer) {
+        unsafe {
+            egl::ffi::DestroySurface(self.display, layer.surface);
+            wrc_destroy_layer(layer.layer_id);
         }
     }
 }
 
 impl Drop for WrCompositor {
     fn drop(&mut self) {
+        for (_, layer) in std::mem::take(&mut self.layers) {
+            self.destroy_layer(layer);
+        }
         unsafe {
             wrc_delete(self.compositor);
         }
     }
 }
 
-impl LayerCompositor for WrCompositor {
-    // Begin compositing a frame with the supplied input config
-    // The main job of this method is to inspect the input config, create the output
-    // config, and create any native OS resources that will be needed as layers get
-    // composited.
-    fn begin_frame(
+impl Compositor for WrCompositor {
+    fn create_surface(
         &mut self,
-        input: &CompositorInputConfig,
-    ) -> bool {
-        unsafe {
-            // Reset DC visual tree
-            wrc_begin_frame(self.compositor);
-        }
-
-        let prev_layer_count = self.layers.len();
-        let curr_layer_count = input.layers.len();
-
-        if prev_layer_count > curr_layer_count {
-            todo!();
-        } else if curr_layer_count > prev_layer_count {
-            // Construct new empty layers, they'll get resized below
-            for _ in 0 .. curr_layer_count-prev_layer_count {
-                self.layers.push(WrLayer::empty());
-            }
-        }
-
-        assert_eq!(self.layers.len(), input.layers.len());
-
-        for (input, layer) in input.layers.iter().zip(self.layers.iter_mut()) {
-            let input_size = input.clip_rect.size();
-
-            // TODO(gwc): Handle External surfaces as swapchains separate from content
-
-            // See if we need to resize the swap-chain layer
-            if input_size.width != layer.width ||
-                input_size.height != layer.height {
-                // TODO: Handle resize of layer (not needed for initial commit,
-                // but will need to support resizing wrench window)
-                assert_eq!(layer.layer_id, LayerId::INVALID);
-
-                // Construct a DC swap-chain
-                layer.width = input_size.width;
-                layer.height = input_size.height;
-                layer.layer_id = unsafe {
-                    wrc_create_layer(self.compositor, layer.width, layer.height, input.is_opaque)
-                };
-
-                let pbuffer_attribs: [EGLint; 5] = [
-                    egl::ffi::WIDTH as EGLint, layer.width,
-                    egl::ffi::HEIGHT as EGLint, layer.height,
-                    egl::ffi::NONE as EGLint,
-                ];
-
-                let attribs: [EGLint; 18] = [
-                    egl::ffi::SURFACE_TYPE as EGLint, egl::ffi::WINDOW_BIT as EGLint,
-                    egl::ffi::RED_SIZE as EGLint, 8,
-                    egl::ffi::GREEN_SIZE as EGLint, 8,
-                    egl::ffi::BLUE_SIZE as EGLint, 8,
-                    egl::ffi::ALPHA_SIZE as EGLint, 8,
-                    egl::ffi::RENDERABLE_TYPE as EGLint, egl::ffi::OPENGL_ES2_BIT as EGLint,
-                    // TODO(gw): Can we disable z-buffer for compositing always?
-                    egl::ffi::DEPTH_SIZE as EGLint, 24,
-                    egl::ffi::STENCIL_SIZE as EGLint, 8,
-                    egl::ffi::NONE as EGLint, egl::ffi::NONE as EGLint
-                ];
-
-                // Get the D3D backbuffer texture for the swap-chain
-                let back_buffer = unsafe {
-                    wrc_get_layer_backbuffer(layer.layer_id)
-                };
-
-                // Create an EGL surface <-> binding to the D3D backbuffer texture
-                let mut egl_config = ptr::null();
-                let mut cfg_count = 0;
-
-                let ok = unsafe {
-                    egl::ffi::ChooseConfig(self.display, attribs.as_ptr(), &mut egl_config, 1, &mut cfg_count)
-                };
-
-                assert_ne!(ok, 0);
-                assert_eq!(cfg_count, 1);
-                assert_ne!(egl_config, ptr::null());
-
-                let surface = unsafe {
-                    egl::ffi::CreatePbufferFromClientBuffer(
-                        self.display,
-                        egl::ffi::D3D_TEXTURE_ANGLE,
-                        back_buffer,
-                        egl_config,
-                        pbuffer_attribs.as_ptr(),
-                    )
-                };
-                assert_ne!(surface, ptr::null());
-
-                layer.surface = surface;
-            }
-
-            unsafe {
-                wrc_set_layer_position(
-                    layer.layer_id,
-                    input.offset.x as f32,
-                    input.offset.y as f32,
-                );
-            }
-        }
-
-        true
+        _id: NativeSurfaceId,
+        _tile_size: webrender::api::units::DeviceIntSize,
+        _is_opaque: bool,
+    ) {
+        unreachable!();
     }
 
-    // Bind a layer by index for compositing into
-    fn bind_layer(&mut self, index: usize, _dirty_rects: &[crate::DeviceIntRect]) {
+    fn create_external_surface(&mut self, _id: NativeSurfaceId, _is_opaque: bool) {
+        unreachable!();
+    }
+
+    fn create_backdrop_surface(&mut self, _id: NativeSurfaceId, _color: webrender::api::ColorF) {
+        unreachable!();
+    }
+
+    fn destroy_surface(&mut self, id: NativeSurfaceId) {
+        if let Some(layer) = self.layers.remove(&id) {
+            self.destroy_layer(layer);
+        }
+    }
+
+    fn create_tile(&mut self, _id: webrender::NativeTileId) {
+        unreachable!();
+    }
+
+    fn destroy_tile(&mut self, _id: webrender::NativeTileId) {
+        unreachable!();
+    }
+
+    fn attach_external_image(
+        &mut self,
+        _id: NativeSurfaceId,
+        _external_image: webrender::api::ExternalImageId,
+    ) {
+        unreachable!();
+    }
+
+    fn bind(
+        &mut self,
+        _id: webrender::NativeTileId,
+        _dirty_rect: webrender::api::units::DeviceIntRect,
+        _valid_rect: webrender::api::units::DeviceIntRect,
+    ) -> webrender::NativeSurfaceInfo {
+        unreachable!();
+    }
+
+    fn unbind(&mut self) {
+        unreachable!();
+    }
+
+    fn create_swapchain_surface(
+        &mut self,
+        id: NativeSurfaceId,
+        size: webrender::api::units::DeviceIntSize,
+        is_opaque: bool,
+        _needs_sync_commit: bool,
+    ) {
+        let mut layer = WrLayer::empty();
+
+        layer.width = size.width;
+        layer.height = size.height;
+        layer.layer_id = unsafe {
+            wrc_create_layer(self.compositor, layer.width, layer.height, is_opaque)
+        };
+
+        let pbuffer_attribs: [EGLint; 5] = [
+            egl::ffi::WIDTH as EGLint, layer.width,
+            egl::ffi::HEIGHT as EGLint, layer.height,
+            egl::ffi::NONE as EGLint,
+        ];
+
+        let attribs: [EGLint; 18] = [
+            egl::ffi::SURFACE_TYPE as EGLint, egl::ffi::WINDOW_BIT as EGLint,
+            egl::ffi::RED_SIZE as EGLint, 8,
+            egl::ffi::GREEN_SIZE as EGLint, 8,
+            egl::ffi::BLUE_SIZE as EGLint, 8,
+            egl::ffi::ALPHA_SIZE as EGLint, 8,
+            egl::ffi::RENDERABLE_TYPE as EGLint, egl::ffi::OPENGL_ES2_BIT as EGLint,
+            // TODO(gw): Can we disable z-buffer for compositing always?
+            egl::ffi::DEPTH_SIZE as EGLint, 24,
+            egl::ffi::STENCIL_SIZE as EGLint, 8,
+            egl::ffi::NONE as EGLint, egl::ffi::NONE as EGLint
+        ];
+
+        // Get the D3D backbuffer texture for the swap-chain
+        let back_buffer = unsafe {
+            wrc_get_layer_backbuffer(layer.layer_id)
+        };
+
+        // Create an EGL surface <-> binding to the D3D backbuffer texture
+        let mut egl_config = ptr::null();
+        let mut cfg_count = 0;
+
+        let ok = unsafe {
+            egl::ffi::ChooseConfig(self.display, attribs.as_ptr(), &mut egl_config, 1, &mut cfg_count)
+        };
+
+        assert_ne!(ok, 0);
+        assert_eq!(cfg_count, 1);
+        assert_ne!(egl_config, ptr::null());
+
+        let surface = unsafe {
+            egl::ffi::CreatePbufferFromClientBuffer(
+                self.display,
+                egl::ffi::D3D_TEXTURE_ANGLE,
+                back_buffer,
+                egl_config,
+                pbuffer_attribs.as_ptr(),
+            )
+        };
+        assert_ne!(surface, ptr::null());
+
+        layer.surface = surface;
+
+        self.layers.insert(id, layer);
+    }
+
+    fn resize_swapchain(&mut self, _id: NativeSurfaceId, _size: webrender::api::units::DeviceIntSize) {
+        // TODO: Handle resize of layer (not needed for initial commit,
+        // but will need to support resizing wrench window)
+        todo!();
+    }
+
+    fn bind_swapchain(&mut self, id: NativeSurfaceId, _dirty_rects: &[webrender::api::units::DeviceIntRect]) {
         // Bind the DC surface to EGL so that WR can composite to the layer
-        let layer = &self.layers[index];
+        let layer = &self.layers[&id];
 
         let ok = unsafe {
             egl::ffi::MakeCurrent(
@@ -244,32 +270,38 @@ impl LayerCompositor for WrCompositor {
         assert!(ok != 0);
     }
 
-    // Finish compositing a layer and present the swapchain
-    fn present_layer(&mut self, index: usize, _dirty_rects: &[crate::DeviceIntRect]) {
-        let layer = &self.layers[index];
+    fn present_swapchain(&mut self, id: NativeSurfaceId, _dirty_rects: &[webrender::api::units::DeviceIntRect]) {
+        let layer = &self.layers[&id];
 
         unsafe {
             wrc_present_layer(layer.layer_id);
         }
     }
 
+    fn begin_frame(&mut self) {
+        unsafe {
+            // Reset DC visual tree
+            wrc_begin_frame(self.compositor);
+        }
+    }
+
     fn add_surface(
         &mut self,
-        index: usize,
-        _transform: CompositorSurfaceTransform,
+        id: NativeSurfaceId,
+        transform: CompositorSurfaceTransform,
         _clip_rect: webrender::api::units::DeviceIntRect,
         _image_rendering: webrender::api::ImageRendering,
         _rounded_clip_rect: webrender::api::units::DeviceIntRect,
         _rounded_clip_radii: webrender::ClipRadius,
     ) {
-        let layer = &self.layers[index];
+        let layer = &self.layers[&id];
 
         unsafe {
+            wrc_set_layer_position(layer.layer_id, transform.offset.x, transform.offset.y);
             wrc_add_layer(self.compositor, layer.layer_id);
         }
     }
 
-    // Finish compositing this frame
     fn end_frame(&mut self) {
         unsafe {
             // Do any final commits to DC
@@ -277,8 +309,18 @@ impl LayerCompositor for WrCompositor {
         }
     }
 
-    fn get_window_properties(&self) -> webrender::WindowProperties {
-        webrender::WindowProperties {
+    fn deinit(&mut self) {}
+
+    fn get_capabilities(&self) -> CompositorCapabilities {
+        Default::default()
+    }
+
+    fn get_window_visibility(&self) -> WindowVisibility {
+        Default::default()
+    }
+
+    fn get_window_properties(&self) -> WindowProperties {
+        WindowProperties {
             is_opaque: true,
             enable_screenshot: false,
         }

@@ -153,6 +153,8 @@ Layer* wrc_create_layer(Compositor* compositor, int width, int height,
   return compositor->create_layer(width, height, is_opaque);
 }
 
+void wrc_destroy_layer(Layer* layer) { delete layer; }
+
 void* wrc_get_layer_backbuffer(Layer* layer) {
   void* p = layer->mBackBuffer.Get();
   return p;

@@ -2,18 +2,39 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#![allow(dead_code)]
-
 use api::ImageRendering;
 use api::units::{DeviceIntRect, DeviceIntSize};
 use crate::composite::{
-    ClipRadius, Compositor, CompositorInputConfig, CompositorSurfaceTransform,
-    CompositorSurfaceUsage, NativeSurfaceId,
+    ClipRadius, Compositor, CompositorConfig, CompositorInputConfig, CompositorSurfaceTransform,
+    CompositorSurfaceUsage, NativeSurfaceId, WindowProperties,
 };
 use std::mem;
 
 const FRAME_COUNT_BEFORE_DISABLING_SYNC_COMMIT: u32 = 60;
 const MAX_UNUSED_FRAMES_IN_POOL: usize = 3;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum LayerMode {
+    /// WebRender composites into the default framebuffer: CompositorConfig::Draw, or
+    /// CompositorConfig::Native while native compositing is disabled.
+    Framebuffer,
+    /// WebRender composites into swapchains owned by the embedder: CompositorConfig::Layer.
+    Swapchains,
+}
+
+pub fn layer_mode(config: &CompositorConfig) -> LayerMode {
+    match config {
+        CompositorConfig::Layer { .. } => LayerMode::Swapchains,
+        CompositorConfig::Draw { .. } | CompositorConfig::Native { .. } => LayerMode::Framebuffer,
+    }
+}
+
+pub fn window_properties(config: &CompositorConfig) -> WindowProperties {
+    match config {
+        CompositorConfig::Layer { ref compositor } => compositor.get_window_properties(),
+        CompositorConfig::Draw { .. } | CompositorConfig::Native { .. } => WindowProperties::default(),
+    }
+}
 
 struct TreeLayer {
     id: NativeSurfaceId,
@@ -297,6 +318,65 @@ impl LayerTree {
 
         self.surface_pool.clear();
         self.visual_tree.clear();
+    }
+
+    pub fn begin_frame(&mut self, config: &mut CompositorConfig, input: &CompositorInputConfig) -> bool {
+        match config {
+            CompositorConfig::Layer { ref mut compositor } => self.begin_swapchain_frame(&mut **compositor, input),
+            CompositorConfig::Draw { .. } | CompositorConfig::Native { .. } => false,
+        }
+    }
+
+    pub fn bind_layer(&mut self, config: &mut CompositorConfig, index: usize, dirty_rects: &[DeviceIntRect]) {
+        match config {
+            CompositorConfig::Layer { ref mut compositor } => self.bind_swapchain(&mut **compositor, index, dirty_rects),
+            CompositorConfig::Draw { .. } | CompositorConfig::Native { .. } => {}
+        }
+    }
+
+    pub fn present_layer(&mut self, config: &mut CompositorConfig, index: usize, dirty_rects: &[DeviceIntRect]) {
+        match config {
+            CompositorConfig::Layer { ref mut compositor } => self.present_swapchain(&mut **compositor, index, dirty_rects),
+            CompositorConfig::Draw { .. } | CompositorConfig::Native { .. } => {}
+        }
+    }
+
+    pub fn add_surface(
+        &mut self,
+        config: &mut CompositorConfig,
+        index: usize,
+        transform: CompositorSurfaceTransform,
+        clip_rect: DeviceIntRect,
+        image_rendering: ImageRendering,
+        rounded_clip_rect: DeviceIntRect,
+        rounded_clip_radii: ClipRadius,
+    ) {
+        match config {
+            CompositorConfig::Layer { ref mut compositor } => self.add_swapchain_surface(
+                &mut **compositor,
+                index,
+                transform,
+                clip_rect,
+                image_rendering,
+                rounded_clip_rect,
+                rounded_clip_radii,
+            ),
+            CompositorConfig::Draw { .. } | CompositorConfig::Native { .. } => {}
+        }
+    }
+
+    pub fn end_frame(&mut self, config: &mut CompositorConfig) {
+        match config {
+            CompositorConfig::Layer { ref mut compositor } => self.end_swapchain_frame(&mut **compositor),
+            CompositorConfig::Draw { .. } | CompositorConfig::Native { .. } => {}
+        }
+    }
+
+    pub fn deinit(&mut self, config: &mut CompositorConfig) {
+        match config {
+            CompositorConfig::Layer { ref mut compositor } => self.destroy_all_swapchains(&mut **compositor),
+            CompositorConfig::Draw { .. } | CompositorConfig::Native { .. } => {}
+        }
     }
 }
 

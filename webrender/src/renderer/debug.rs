@@ -7,6 +7,7 @@
 use api::{ColorU, DebugFlags, ImageFormat, ImageBufferKind, ImageRendering, TextureCacheCategory};
 use api::units::*;
 use crate::composite::{ClipRadius, CompositorConfig, CompositorKind, CompositorSurfaceTransform};
+use super::layer_tree::LayerTree;
 use crate::composite::{NativeSurfaceId, NativeTileId};
 use crate::debug_colors;
 use crate::debug_font_data;
@@ -514,6 +515,7 @@ pub fn update_debug_overlay(
 pub fn bind_debug_overlay(
     device: &mut Device,
     compositor_config: &mut CompositorConfig,
+    layer_tree: &mut LayerTree,
     compositor_kind: CompositorKind,
     state: &DebugOverlayState,
     device_size: DeviceIntSize,
@@ -554,8 +556,7 @@ pub fn bind_debug_overlay(
                 Some(draw_target)
             }
             CompositorKind::Layer { .. } => {
-                let compositor = compositor_config.layer_compositor().unwrap();
-                compositor.bind_layer(state.layer_index, &[]);
+                layer_tree.bind_layer(compositor_config, state.layer_index, &[]);
 
                 let draw_target = DrawTarget::new_default(device_size, device.surface_origin_is_top_left());
                 device.begin_render_pass(&RenderPassDescriptor {
@@ -589,6 +590,7 @@ pub fn bind_debug_overlay(
 /// Unbind the draw target for debug / profiler overlays, if required.
 pub fn unbind_debug_overlay(
     compositor_config: &mut CompositorConfig,
+    layer_tree: &mut LayerTree,
     compositor_kind: CompositorKind,
     state: &DebugOverlayState,
 ) {
@@ -615,8 +617,7 @@ pub fn unbind_debug_overlay(
             }
             CompositorKind::Draw { .. } => {}
             CompositorKind::Layer { .. } => {
-                let compositor = compositor_config.layer_compositor().unwrap();
-                compositor.present_layer(state.layer_index, &[]);
+                layer_tree.present_layer(compositor_config, state.layer_index, &[]);
             }
         }
     }

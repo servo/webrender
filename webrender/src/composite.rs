@@ -335,10 +335,10 @@ pub enum CompositorConfig {
         partial_present: Option<Box<dyn PartialPresentCompositor>>,
     },
     Layer {
-        /// If supplied, composite the frame using the new experimental compositing
-        /// interface. If this is set, it overrides `compositor_config`. These will
-        /// be unified as the interface stabilises.
-        compositor: Box<dyn LayerCompositor>,
+        /// Composite the frame into swapchain surfaces owned by the embedder.
+        /// The compositor must implement the swapchain methods of the
+        /// `Compositor` trait.
+        compositor: Box<dyn Compositor>,
     },
     /// Use a native OS compositor to draw tiles. This requires clients to implement
     /// the Compositor trait, but can be significantly more power efficient on operating
@@ -371,20 +371,6 @@ impl CompositorConfig {
             }
             CompositorConfig::Layer { .. } => {
                 None
-            }
-        }
-    }
-
-    pub fn layer_compositor(&mut self) -> Option<&mut Box<dyn LayerCompositor>> {
-        match self {
-            CompositorConfig::Native { .. } => {
-                None
-            }
-            CompositorConfig::Draw { .. } => {
-                None
-            }
-            CompositorConfig::Layer { ref mut compositor } => {
-                Some(compositor)
             }
         }
     }
@@ -1675,48 +1661,6 @@ pub struct CompositorInputLayer {
 pub struct CompositorInputConfig<'a> {
     pub enable_screenshot: bool,
     pub layers: &'a [CompositorInputLayer],
-}
-
-// Trait for implementors of swapchain based compositing.
-// TODO(gw): Extend to handle external surfaces, layers, swgl, etc.
-pub trait LayerCompositor {
-    // Prepare to composite a frame. Ensure that layers are constructed
-    // to match the input config
-    fn begin_frame(
-        &mut self,
-        input: &CompositorInputConfig,
-    ) -> bool;
-
-    // Bind a layer (by index in the input config) to begin rendering
-    // content to it.
-    fn bind_layer(
-        &mut self,
-        index: usize,
-        dirty_rects: &[DeviceIntRect],
-    );
-
-    // Complete rendering of a layer and present / swap buffers
-    fn present_layer(
-        &mut self,
-        index: usize,
-        dirty_rects: &[DeviceIntRect],
-    );
-
-    fn add_surface(
-        &mut self,
-        index: usize,
-        transform: CompositorSurfaceTransform,
-        clip_rect: DeviceIntRect,
-        image_rendering: ImageRendering,
-        rounded_clip_rect: DeviceIntRect,
-        rounded_clip_radii: ClipRadius,
-    );
-
-    // Finish compositing this frame - commit the visual tree to the OS
-    fn end_frame(&mut self);
-
-    // Get current information about the window, such as opacity
-    fn get_window_properties(&self) -> WindowProperties;
 }
 
 /// Information about the underlying data buffer of a mapped tile.
