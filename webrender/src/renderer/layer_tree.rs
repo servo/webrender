@@ -5,8 +5,8 @@
 use api::ImageRendering;
 use api::units::{DeviceIntRect, DeviceIntSize};
 use crate::composite::{
-    ClipRadius, Compositor, CompositorConfig, CompositorInputConfig, CompositorSurfaceTransform,
-    CompositorSurfaceUsage, NativeSurfaceId, WindowProperties,
+    ClipRadius, Compositor, CompositorConfig, CompositorInputConfig, CompositorKind,
+    CompositorSurfaceTransform, CompositorSurfaceUsage, NativeSurfaceId, WindowProperties,
 };
 use std::mem;
 
@@ -27,6 +27,11 @@ pub fn layer_mode(config: &CompositorConfig) -> LayerMode {
         CompositorConfig::Layer { .. } => LayerMode::Swapchains,
         CompositorConfig::Draw { .. } | CompositorConfig::Native { .. } => LayerMode::Framebuffer,
     }
+}
+
+/// Whether external surfaces may be given their own OS layer this frame.
+pub fn allows_external_layers(config: &CompositorConfig, kind: CompositorKind) -> bool {
+    layer_mode(config) == LayerMode::Swapchains && matches!(kind, CompositorKind::Layer { .. })
 }
 
 pub fn window_properties(config: &CompositorConfig) -> WindowProperties {
@@ -330,7 +335,14 @@ impl LayerTree {
     pub fn bind_layer(&mut self, config: &mut CompositorConfig, index: usize, dirty_rects: &[DeviceIntRect]) {
         match config {
             CompositorConfig::Layer { ref mut compositor } => self.bind_swapchain(&mut **compositor, index, dirty_rects),
-            CompositorConfig::Draw { .. } | CompositorConfig::Native { .. } => {}
+            CompositorConfig::Draw { partial_present: Some(ref mut partial_present), .. } => {
+                // eglSetDamageRegion must be called exactly once per frame, immediately
+                // before rendering to the main framebuffer (bug 1685276).
+                if !dirty_rects.is_empty() {
+                    partial_present.set_buffer_damage_region(dirty_rects);
+                }
+            }
+            CompositorConfig::Draw { partial_present: None, .. } | CompositorConfig::Native { .. } => {}
         }
     }
 

@@ -2041,15 +2041,14 @@ impl Renderer {
             // compositing is enabled. This must be called after any debug / profiling compositor
             // surfaces have been drawn and added to the visual tree.
             match self.current_compositor_kind {
-                CompositorKind::Layer { .. } => {
-                    self.layer_tree.end_frame(&mut self.compositor_config);
-                }
                 CompositorKind::Native { .. } => {
                     tracy_rs::profile_scope!("compositor.end_frame");
                     let compositor = self.compositor_config.compositor().unwrap();
                     compositor.end_frame();
                 }
-                CompositorKind::Draw { .. } => {}
+                CompositorKind::Draw { .. } | CompositorKind::Layer { .. } => {
+                    self.layer_tree.end_frame(&mut self.compositor_config);
+                }
             }
         }
 

@@ -6,7 +6,7 @@ use api::units::*;
 use api::{ColorF, ImageBufferKind, ImageRendering, PremultipliedColorF};
 use crate::batch::BatchTextures;
 use crate::composite::{
-    CompositeState, CompositeSurfaceFormat, CompositeTileSurface, CompositorConfig,
+    CompositeState, CompositeSurfaceFormat, CompositeTileSurface,
     CompositorInputLayer, CompositorSurfaceUsage, CompositorSurfaceTransform,
     CompositeRoundedCorner, NativeTileId, ResolvedExternalSurface,
     ResolvedExternalSurfaceColorData, ClipRadius, CompositeFeatures, CompositorKind, TileKind,
@@ -473,17 +473,6 @@ impl Renderer {
         partial_present_mode: Option<PartialPresentMode>,
         layer: &SwapChainLayer,
     ) {
-        // If using KHR_partial_update, call eglSetDamageRegion.
-        // This must be called exactly once per frame, and prior to any rendering to the main
-        // framebuffer. Additionally, on Mali-G77 we encountered rendering issues when calling
-        // this earlier in the frame, during offscreen render passes. So call it now, immediately
-        // before rendering to the main framebuffer. See bug 1685276 for details.
-        if let Some(partial_present) = self.compositor_config.partial_present() {
-            if let Some(PartialPresentMode::Single { dirty_rect }) = partial_present_mode {
-                partial_present.set_buffer_damage_region(&[dirty_rect.to_i32()]);
-            }
-        }
-
         let clear_color = clear_color.to_array();
 
         self.device.begin_render_pass(&RenderPassDescriptor {
@@ -568,6 +557,12 @@ impl Renderer {
         let num_tiles = composite_state.tiles.len();
         self.profile.set(profiler::PICTURE_TILES, num_tiles);
 
+        let layer_mode = layer_tree::layer_mode(&self.compositor_config);
+        let allows_external_layers = layer_tree::allows_external_layers(
+            &self.compositor_config,
+            self.current_compositor_kind,
+        );
+
         let (window_is_opaque, enable_screenshot) = {
             let props = layer_tree::window_properties(&self.compositor_config);
             (props.is_opaque, props.enable_screenshot)
@@ -587,7 +582,7 @@ impl Renderer {
         // Select among surfaces that could otherwise be externally composited.
         let mut largest_sdr_yuv_tile = None;
         if self.limit_sdr_yuv_external_composites
-            && layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains
+            && layer_mode == LayerMode::Swapchains
             && !enable_screenshot
         {
             let frame_rect = DeviceRect::from_size(frame_device_size.to_f32());
@@ -670,7 +665,7 @@ impl Renderer {
                 tile.transform_index
             );
 
-            if layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains {
+            if layer_mode == LayerMode::Swapchains {
                 match tile.tile_id {
                     Some(tile_id) => {
                         layer_compositor_frame_state.
@@ -734,42 +729,36 @@ impl Renderer {
                     CompositorSurfaceUsage::Content
                 }
                 CompositeTileSurface::ExternalSurface { external_surface_index } => {
-                    match (self.current_compositor_kind, disable_external_composite) {
-                        (CompositorKind::Native { .. }, _) | (CompositorKind::Draw { .. }, _) => {
-                            CompositorSurfaceUsage::Content
-                        }
-                        (CompositorKind::Layer { .. }, true) => {
-                            CompositorSurfaceUsage::Content
-                        }
-                        (CompositorKind::Layer { .. }, false) => {
-                            let surface = &composite_state.external_surfaces[external_surface_index.0];
+                    if !allows_external_layers || disable_external_composite {
+                        CompositorSurfaceUsage::Content
+                    } else {
+                        let surface = &composite_state.external_surfaces[external_surface_index.0];
 
-                            // TODO(gwc): For now, we only select a hardware overlay swapchain if we
-                            // have an external image, but it may make sense to do for compositor
-                            // surfaces without in future.
-                            match surface.external_image_id {
-                                Some(external_image_id) => {
-                                    let image_key = match surface.color_data {
-                                        ResolvedExternalSurfaceColorData::Rgb { image_dependency, .. } => image_dependency.key,
-                                        ResolvedExternalSurfaceColorData::Yuv { image_dependencies, .. } => image_dependencies[0].key,
-                                    };
+                        // TODO(gwc): For now, we only select a hardware overlay swapchain if we
+                        // have an external image, but it may make sense to do for compositor
+                        // surfaces without in future.
+                        match surface.external_image_id {
+                            Some(external_image_id) => {
+                                let image_key = match surface.color_data {
+                                    ResolvedExternalSurfaceColorData::Rgb { image_dependency, .. } => image_dependency.key,
+                                    ResolvedExternalSurfaceColorData::Yuv { image_dependencies, .. } => image_dependencies[0].key,
+                                };
 
-                                    CompositorSurfaceUsage::External {
-                                        image_key,
-                                        external_image_id,
-                                        transform_index: tile.transform_index,
-                                    }
+                                CompositorSurfaceUsage::External {
+                                    image_key,
+                                    external_image_id,
+                                    transform_index: tile.transform_index,
                                 }
-                                None => {
-                                    CompositorSurfaceUsage::Content
-                                }
+                            }
+                            None => {
+                                CompositorSurfaceUsage::Content
                             }
                         }
                     }
                 }
             };
 
-            if layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains {
+            if layer_mode == LayerMode::Swapchains {
                 if let CompositeTileSurface::ExternalSurface { .. } = tile.surface {
                     assert!(tile.tile_id.is_none());
                 } else {
@@ -789,12 +778,8 @@ impl Renderer {
                         (CompositorSurfaceUsage::Content, CompositorSurfaceUsage::External { .. }) |
                         (CompositorSurfaceUsage::External { .. }, CompositorSurfaceUsage::External { .. }) => {
                             // Only create a new layer if we're using LayerCompositor
-                            match self.compositor_config {
-                                CompositorConfig::Draw { .. } | CompositorConfig::Native { .. } => None,
-                                CompositorConfig::Layer { .. } => {
-                                    Some(usage)
-                                }
-                            }
+                            debug_assert!(allows_external_layers);
+                            Some(usage)
                         }
                         (CompositorSurfaceUsage::DebugOverlay, _) => {
                             Some(usage)
@@ -882,7 +867,7 @@ impl Renderer {
             }
             tile_index_to_layer_index[idx] = Some(input_layers.len() - 1);
 
-            if layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains {
+            if layer_mode == LayerMode::Swapchains {
                 if let (CompositeTileSurface::ExternalSurface { external_surface_index },
                         CompositorSurfaceUsage::Content) = (&tile.surface, usage) {
                     let surface = &composite_state.external_surfaces[external_surface_index.0];
@@ -968,6 +953,11 @@ impl Renderer {
 
         assert_eq!(swapchain_layers.len(), input_layers.len());
 
+        debug_assert!(
+            layer_mode == LayerMode::Swapchains ||
+            input_layers.iter().filter(|l| matches!(l.usage, CompositorSurfaceUsage::Content)).count() <= 1
+        );
+
         if window_is_opaque {
             match input_layers.last_mut() {
                 Some(_layer) => {
@@ -1019,7 +1009,7 @@ impl Renderer {
         assert_eq!(swapchain_layers.len(), input_layers.len());
 
         // Recalculate dirty rect for layer compositor
-        if layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains {
+        if layer_mode == LayerMode::Swapchains {
             // Set visible rests of current frame to each tile's CompositeTileState.
             for item in full_render_occlusion
             .opaque_items()
@@ -1293,7 +1283,7 @@ impl Renderer {
             // Only use supplied clear color for first content layer we encounter
             let clear_color = content_clear_color.take().unwrap_or(ColorF::TRANSPARENT);
 
-            if layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains {
+            if layer_mode == LayerMode::Swapchains {
                 if let Some(PartialPresentMode::Single { dirty_rect }) = partial_present_mode {
                     let device_rect = DeviceRect::from_size(device_size.to_f32());
                     let clipped_dirty_rect = dirty_rect.intersection_unchecked(&device_rect);
@@ -1312,16 +1302,15 @@ impl Renderer {
                 None => &[],
             };
 
-            let is_layer = layer_tree::layer_mode(&self.compositor_config) == LayerMode::Swapchains;
-            let draw_target = if is_layer {
-                self.layer_tree.bind_layer(&mut self.compositor_config, layer_index, dirty_rects);
-                DrawTarget::NativeSurface {
+            self.layer_tree.bind_layer(&mut self.compositor_config, layer_index, dirty_rects);
+
+            let draw_target = match layer_mode {
+                LayerMode::Swapchains => DrawTarget::NativeSurface {
                     offset: -layer.offset,
                     handle: crate::composite::NativeSurfaceHandle::DEFAULT,
                     dimensions: frame_device_size,
-                }
-            } else {
-                fb_draw_target
+                },
+                LayerMode::Framebuffer => fb_draw_target,
             };
 
             // TODO(gwc): When supporting external attached swapchains, need to skip the composite pass here
