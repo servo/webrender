@@ -116,6 +116,7 @@ mod composite;
 mod debug;
 mod external_image;
 mod gpu_buffer;
+mod layer_tree;
 mod shade;
 mod vertex;
 mod upload;
