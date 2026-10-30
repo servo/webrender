@@ -1621,6 +1621,36 @@ pub trait Compositor {
     fn get_capabilities(&self) -> CompositorCapabilities;
 
     fn get_window_visibility(&self) -> WindowVisibility;
+
+    /// Create a swapchain surface that WebRender composites into between
+    /// bind_swapchain and present_swapchain.
+    fn create_swapchain_surface(
+        &mut self,
+        _id: NativeSurfaceId,
+        _size: DeviceIntSize,
+        _is_opaque: bool,
+        _needs_sync_commit: bool,
+    ) {
+        unimplemented!("create_swapchain_surface");
+    }
+
+    fn resize_swapchain(&mut self, _id: NativeSurfaceId, _size: DeviceIntSize) {
+        unimplemented!("resize_swapchain");
+    }
+
+    /// Bind a swapchain surface so that WebRender draws into the default framebuffer
+    /// handle (NativeSurfaceHandle::DEFAULT).
+    fn bind_swapchain(&mut self, _id: NativeSurfaceId, _dirty_rects: &[DeviceIntRect]) {
+        unimplemented!("bind_swapchain");
+    }
+
+    fn present_swapchain(&mut self, _id: NativeSurfaceId, _dirty_rects: &[DeviceIntRect]) {
+        unimplemented!("present_swapchain");
+    }
+
+    fn get_window_properties(&self) -> WindowProperties {
+        WindowProperties::default()
+    }
 }
 
 // Describes the configuration for an input layer that the compositor
